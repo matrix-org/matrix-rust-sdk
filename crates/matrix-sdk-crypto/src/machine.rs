@@ -39,9 +39,9 @@ use ruma::{
     assign,
     events::{
         room::encrypted::{
-            EncryptedEventContent, EncryptedEventScheme, EncryptedToDeviceEventContent,
+            EncryptedEventContent, EncryptedEventScheme, ToDeviceEncryptedEventContent,
         },
-        room_key::RoomKeyToDeviceEventContent,
+        room_key::ToDeviceRoomKeyEventContent,
         secret::request::SecretName,
         AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent, SyncMessageEvent,
         ToDeviceEvent,
@@ -561,7 +561,7 @@ impl OlmMachine {
     /// * `event` - The to-device event that should be decrypted.
     async fn decrypt_to_device_event(
         &self,
-        event: &ToDeviceEvent<EncryptedToDeviceEventContent>,
+        event: &ToDeviceEvent<ToDeviceEncryptedEventContent>,
     ) -> OlmResult<OlmDecryptionInfo> {
         let mut decrypted = self.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
@@ -586,7 +586,7 @@ impl OlmMachine {
         &self,
         sender_key: &str,
         signing_key: &str,
-        event: &mut ToDeviceEvent<RoomKeyToDeviceEventContent>,
+        event: &mut ToDeviceEvent<ToDeviceRoomKeyEventContent>,
     ) -> OlmResult<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
         match event.content.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
@@ -1365,9 +1365,9 @@ pub(crate) mod test {
         encryption::OneTimeKey,
         event_id,
         events::{
-            dummy::DummyToDeviceEventContent,
+            dummy::ToDeviceDummyEventContent,
             room::{
-                encrypted::EncryptedToDeviceEventContent,
+                encrypted::ToDeviceEncryptedEventContent,
                 message::{MessageEventContent, MessageType},
             },
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
@@ -1418,7 +1418,7 @@ pub(crate) mod test {
 
     fn to_device_requests_to_content(
         requests: Vec<Arc<ToDeviceRequest>>,
-    ) -> EncryptedToDeviceEventContent {
+    ) -> ToDeviceEncryptedEventContent {
         let to_device_request = &requests[0];
 
         to_device_request
@@ -1493,7 +1493,7 @@ pub(crate) mod test {
         let bob_device = alice.get_device(&bob.user_id, &bob.device_id).await.unwrap().unwrap();
 
         let (session, content) = bob_device
-            .encrypt(AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+            .encrypt(AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
             .await
             .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
@@ -1735,7 +1735,7 @@ pub(crate) mod test {
         let event = ToDeviceEvent {
             sender: alice.user_id().clone(),
             content: bob_device
-                .encrypt(AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+                .encrypt(AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
                 .await
                 .unwrap()
                 .1,

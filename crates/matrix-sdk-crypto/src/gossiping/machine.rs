@@ -27,13 +27,13 @@ use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
     events::{
-        forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
+        forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
+        room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEventContent},
         secret::{
             request::{
-                RequestAction, RequestToDeviceEventContent as SecretRequestEventContent, SecretName,
+                RequestAction, SecretName, ToDeviceRequestEventContent as SecretRequestEventContent,
             },
-            send::SendToDeviceEventContent as SecretSendEventContent,
+            send::ToDeviceSendEventContent as SecretSendEventContent,
         },
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
@@ -141,7 +141,7 @@ impl GossipMachine {
     /// Receive a room key request event.
     pub fn receive_incoming_key_request(
         &self,
-        event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
+        event: &ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>,
     ) {
         self.receive_event(event.clone().into())
     }
@@ -313,7 +313,7 @@ impl GossipMachine {
     /// Handle a single incoming key request.
     async fn handle_key_request(
         &self,
-        event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
+        event: &ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>,
     ) -> OlmResult<Option<Session>> {
         let key_info = match &event.content.action {
             Action::Request => {
@@ -694,7 +694,7 @@ impl GossipMachine {
     /// Get an outgoing key info that matches the forwarded room key content.
     async fn get_key_info(
         &self,
-        content: &ForwardedRoomKeyToDeviceEventContent,
+        content: &ToDeviceForwardedRoomKeyEventContent,
     ) -> Result<Option<GossipRequest>, CryptoStoreError> {
         let info = RequestedKeyInfo::new(
             content.algorithm.clone(),
@@ -846,7 +846,7 @@ impl GossipMachine {
     pub async fn receive_forwarded_room_key(
         &self,
         sender_key: &str,
-        event: &mut ToDeviceEvent<ForwardedRoomKeyToDeviceEventContent>,
+        event: &mut ToDeviceEvent<ToDeviceForwardedRoomKeyEventContent>,
     ) -> Result<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>), CryptoStoreError> {
         let key_info = self.get_key_info(&event.content).await?;
 
@@ -910,10 +910,10 @@ mod test {
     use matrix_sdk_test::async_test;
     use ruma::{
         events::{
-            forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-            room::encrypted::EncryptedToDeviceEventContent,
-            room_key_request::RoomKeyRequestToDeviceEventContent,
-            secret::request::{RequestAction, RequestToDeviceEventContent, SecretName},
+            forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
+            room::encrypted::ToDeviceEncryptedEventContent,
+            room_key_request::ToDeviceRoomKeyRequestEventContent,
+            secret::request::{RequestAction, SecretName, ToDeviceRequestEventContent},
             AnyToDeviceEvent, ToDeviceEvent,
         },
         room_id,
@@ -1118,7 +1118,7 @@ mod test {
 
         let export = session.export_at_index(10).await;
 
-        let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
+        let content: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
 
         let mut event = ToDeviceEvent { sender: alice_id(), content };
 
@@ -1165,7 +1165,7 @@ mod test {
 
         let export = session.export_at_index(15).await;
 
-        let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
+        let content: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
 
         let mut event = ToDeviceEvent { sender: alice_id(), content };
 
@@ -1176,7 +1176,7 @@ mod test {
 
         let export = session.export_at_index(0).await;
 
-        let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
+        let content: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
 
         let mut event = ToDeviceEvent { sender: alice_id(), content };
 
@@ -1368,7 +1368,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::AllDevices)
             .unwrap();
-        let content: RoomKeyRequestToDeviceEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceRoomKeyRequestEventContent = content.deserialize_as().unwrap();
 
         alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1397,7 +1397,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: EncryptedToDeviceEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1462,7 +1462,7 @@ mod test {
 
         let event = ToDeviceEvent {
             sender: bob_account.user_id().to_owned(),
-            content: RequestToDeviceEventContent::new(
+            content: ToDeviceRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 bob_account.device_id().to_owned(),
                 "request_id".to_owned(),
@@ -1491,7 +1491,7 @@ mod test {
 
         let event = ToDeviceEvent {
             sender: alice_id(),
-            content: RequestToDeviceEventContent::new(
+            content: ToDeviceRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 second_account.device_id().into(),
                 "request_id".to_owned(),
@@ -1576,7 +1576,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::AllDevices)
             .unwrap();
-        let content: RoomKeyRequestToDeviceEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceRoomKeyRequestEventContent = content.deserialize_as().unwrap();
 
         alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1625,7 +1625,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: EncryptedToDeviceEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 

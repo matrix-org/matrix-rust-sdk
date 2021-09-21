@@ -67,7 +67,7 @@ pub(crate) mod test {
         encryption::SignedKey,
         event_id,
         events::{
-            forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+            forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{MessageEventContent, Relation, Replacement},
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
         },
@@ -303,7 +303,7 @@ pub(crate) mod test {
         let (_, inbound) = alice.create_group_session_pair_with_defaults(&room_id).await.unwrap();
 
         let export = inbound.export().await;
-        let export: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
+        let export: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
 
         let imported = InboundGroupSession::from_export(export).unwrap();
 

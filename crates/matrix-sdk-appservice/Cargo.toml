@@ -40,7 +40,8 @@ url = "2"
 warp = { version = "0.3.1", optional = true, default-features = false }
 
 [dependencies.ruma]
-version = "0.4.0"
+git = "https://github.com/ruma/ruma"
+rev = "0101e110f"
 features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
 
 [dev-dependencies]

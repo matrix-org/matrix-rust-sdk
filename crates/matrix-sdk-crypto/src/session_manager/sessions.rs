@@ -21,7 +21,7 @@ use ruma::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
-    events::{dummy::DummyToDeviceEventContent, AnyToDeviceEventContent},
+    events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, UserId,
 };
 use tracing::{error, info, warn};
@@ -116,7 +116,7 @@ impl SessionManager {
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
         if self.wedged_devices.get(user_id).map(|d| d.remove(device_id)).flatten().is_some() {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let content = AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new());
+                let content = AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new());
                 let (_, content) = device.encrypt(content).await?;
 
                 let request = ToDeviceRequest::new(

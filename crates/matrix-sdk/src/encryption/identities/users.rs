@@ -24,7 +24,6 @@ use ruma::{
     events::{
         key::verification::VerificationMethod,
         room::message::{MessageEventContent, MessageType},
-        AnyMessageEventContent,
     },
     UserId,
 };
@@ -382,12 +381,7 @@ impl OtherUserIdentity {
         };
 
         let response = room
-            .send(
-                AnyMessageEventContent::RoomMessage(MessageEventContent::new(
-                    MessageType::VerificationRequest(content),
-                )),
-                None,
-            )
+            .send(MessageEventContent::new(MessageType::VerificationRequest(content)), None)
             .await?;
 
         let verification =

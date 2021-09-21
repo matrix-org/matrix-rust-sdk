@@ -821,10 +821,10 @@ impl Client {
         let homeserver = self.homeserver().await;
         info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in");
 
-        let login_info = login::LoginInfo::Password {
-            identifier: UserIdentifier::MatrixId(user.as_ref()),
+        let login_info = login::LoginInfo::Password(login::Password::new(
+            UserIdentifier::MatrixId(user.as_ref()),
             password,
-        };
+        ));
 
         let request = assign!(login::Request::new(login_info), {
             device_id: device_id.map(|d| d.into()),
@@ -1104,7 +1104,7 @@ impl Client {
 
         let request = assign!(
             login::Request::new(
-                login::LoginInfo::Token { token },
+                login::LoginInfo::Token(login::Token::new(token)),
             ), {
                 device_id: device_id.map(|d| d.into()),
                 initial_device_display_name,
@@ -2323,7 +2323,7 @@ pub(crate) mod test {
                 message::{ImageMessageEventContent, MessageEventContent},
                 ImageInfo,
             },
-            AnyMessageEventContent, AnySyncStateEvent, EventType,
+            AnySyncStateEvent, EventType,
         },
         mxc_uri, room_id, thirdparty, uint, user_id, UserId,
     };
@@ -3003,10 +3003,7 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn room_state_event_send() {
-        use ruma::events::{
-            room::member::{MemberEventContent, MembershipState},
-            AnyStateEventContent,
-        };
+        use ruma::events::room::member::{MemberEventContent, MembershipState};
 
         let client = logged_in_client().await;
 
@@ -3034,8 +3031,7 @@ pub(crate) mod test {
         let member_event = assign!(MemberEventContent::new(MembershipState::Join), {
             avatar_url: Some(avatar_url)
         });
-        let content = AnyStateEventContent::RoomMember(member_event);
-        let response = room.send_state_event(content, "").await.unwrap();
+        let response = room.send_state_event(member_event, "").await.unwrap();
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
     }
 
@@ -3063,8 +3059,7 @@ pub(crate) mod test {
 
         let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        let content =
-            AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain("Hello world"));
+        let content = MessageEventContent::text_plain("Hello world");
         let txn_id = Uuid::new_v4();
         let response = room.send(content, Some(txn_id)).await.unwrap();
 

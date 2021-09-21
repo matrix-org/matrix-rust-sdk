@@ -29,12 +29,13 @@ use ruma::{
         room::{
             message::{
                 AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
-                MessageEventContent, MessageType, VideoMessageEventContent,
+                MessageEventContent as RoomMessageEventContent, MessageType,
+                VideoMessageEventContent,
             },
             EncryptedFile,
         },
         tag::TagInfo,
-        AnyMessageEventContent, AnyStateEventContent, EventContent,
+        MessageEventContent, StateEventContent,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -332,9 +333,6 @@ impl Joined {
     /// If the encryption feature is enabled this method will transparently
     /// encrypt the room message if this room is encrypted.
     ///
-    /// **Note**: This method does not support sending custom events, the
-    /// [`send_raw()`] method can be used for that instead.
-    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
@@ -362,10 +360,7 @@ impl Joined {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{
     ///     uuid::Uuid,
-    ///     ruma::events::{
-    ///         AnyMessageEventContent,
-    ///         room::message::{MessageEventContent, TextMessageEventContent},
-    ///     }
+    ///     ruma::events::room::message::{MessageEventContent, TextMessageEventContent},
     /// };
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
@@ -382,20 +377,18 @@ impl Joined {
     /// # matrix_sdk::Result::Ok(()) });
     /// ```
     ///
-    /// [`send_raw()`]: #method.send_raw
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
     /// [`Unsigned`]: ruma::events::Unsigned
     /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
     pub async fn send(
         &self,
-        content: impl Into<AnyMessageEventContent>,
+        content: impl MessageEventContent,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let content = content.into();
-        let event_type = content.event_type().to_owned();
-        let content = serde_json::to_value(content)?;
-
-        self.send_raw(content, &event_type, txn_id).await
+        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+        let request = send_message_event::Request::new(self.inner.room_id(), &txn_id, &content)?;
+        let response = self.client.send(request, None).await?;
+        Ok(response)
     }
 
     /// Send a room message to this room from a json `Value`.
@@ -464,7 +457,7 @@ impl Joined {
         let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
 
         #[cfg(not(feature = "encryption"))]
-        let content = Raw::from_json(serde_json::value::to_raw_value(&content)?);
+        let content = serde_json::value::to_raw_value(&content)?;
 
         #[cfg(feature = "encryption")]
         let (content, event_type) = if self.is_encrypted() {
@@ -480,17 +473,19 @@ impl Joined {
 
             let encrypted_content =
                 olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
+            let raw_content = serde_json::value::to_raw_value(&encrypted_content)
+                .expect("Failed to serialize encrypted event");
 
-            (AnyMessageEventContent::RoomEncrypted(encrypted_content).into(), "m.room.encrypted")
+            (raw_content, "m.room.encrypted")
         } else {
-            (Raw::from_json(serde_json::value::to_raw_value(&content)?), event_type)
+            (serde_json::value::to_raw_value(&content)?, event_type)
         };
 
         let request = send_message_event::Request::new_raw(
             self.inner.room_id(),
             &txn_id,
             event_type,
-            content,
+            Raw::from_json(content),
         );
 
         let response = self.client.send(request, None).await?;
@@ -609,8 +604,7 @@ impl Joined {
             )),
         };
 
-        self.send(AnyMessageEventContent::RoomMessage(MessageEventContent::new(content)), txn_id)
-            .await
+        self.send(RoomMessageEventContent::new(content), txn_id).await
     }
 
     /// Send a room state event to the homeserver.
@@ -623,11 +617,6 @@ impl Joined {
     ///
     /// * `state_key` - A unique key which defines the overwriting semantics for
     /// this piece of room state. This value is often a zero-length string.
-    ///
-    /// **Note**: To send custom events use the raw variant of this method,
-    /// [`send_state_event_raw()`].
-    ///
-    /// [`send_state_event_raw()`]: #method.send_state_event_raw
     ///
     /// # Example
     ///
@@ -656,13 +645,12 @@ impl Joined {
     /// ```
     pub async fn send_state_event(
         &self,
-        content: impl Into<AnyStateEventContent>,
+        content: impl StateEventContent,
         state_key: &str,
-    ) -> HttpResult<send_state_event::Response> {
-        let content = content.into();
-        let request = send_state_event::Request::new(self.inner.room_id(), state_key, &content);
-
-        self.client.send(request, None).await
+    ) -> Result<send_state_event::Response> {
+        let request = send_state_event::Request::new(self.inner.room_id(), state_key, &content)?;
+        let response = self.client.send(request, None).await?;
+        Ok(response)
     }
 
     /// Send a raw room state event to the homeserver.

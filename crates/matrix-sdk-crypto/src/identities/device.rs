@@ -28,8 +28,8 @@ use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     encryption::{DeviceKeys, SignedKey},
     events::{
-        forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        key::verification::VerificationMethod, room::encrypted::EncryptedToDeviceEventContent,
+        forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
+        key::verification::VerificationMethod, room::encrypted::ToDeviceEncryptedEventContent,
         AnyToDeviceEventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
@@ -258,7 +258,7 @@ impl Device {
     pub(crate) async fn encrypt(
         &self,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, EncryptedToDeviceEventContent)> {
+    ) -> OlmResult<(Session, ToDeviceEncryptedEventContent)> {
         self.inner.encrypt(self.verification_machine.store.inner(), content).await
     }
 
@@ -268,14 +268,14 @@ impl Device {
         &self,
         session: InboundGroupSession,
         message_index: Option<u32>,
-    ) -> OlmResult<(Session, EncryptedToDeviceEventContent)> {
+    ) -> OlmResult<(Session, ToDeviceEncryptedEventContent)> {
         let export = if let Some(index) = message_index {
             session.export_at_index(index).await
         } else {
             session.export().await
         };
 
-        let content: ForwardedRoomKeyToDeviceEventContent = if let Ok(c) = export.try_into() {
+        let content: ToDeviceForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
             c
         } else {
             // TODO remove this panic.
@@ -488,7 +488,7 @@ impl ReadOnlyDevice {
         &self,
         store: &dyn CryptoStore,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, EncryptedToDeviceEventContent)> {
+    ) -> OlmResult<(Session, ToDeviceEncryptedEventContent)> {
         let sender_key = if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
             k
         } else {

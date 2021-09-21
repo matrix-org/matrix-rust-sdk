@@ -260,7 +260,10 @@ impl VerificationMachine {
             {
                 let event = ToDeviceEvent { content, sender: self.own_user_id().to_owned() };
 
-                events.push(AnyToDeviceEvent::KeyVerificationCancel(event).into());
+                events.push(
+                    Raw::new(&AnyToDeviceEvent::KeyVerificationCancel(event))
+                        .expect("Failed to serialize m.key_verification.cancel event"),
+                );
             }
 
             self.verifications.add_verification_request(request)

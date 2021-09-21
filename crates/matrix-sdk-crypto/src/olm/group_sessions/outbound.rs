@@ -40,7 +40,7 @@ use ruma::{
             encryption::EncryptionEventContent,
             history_visibility::HistoryVisibility,
         },
-        room_key::RoomKeyToDeviceEventContent,
+        room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
@@ -365,7 +365,7 @@ impl OutboundGroupSession {
     pub(crate) async fn as_content(&self) -> AnyToDeviceEventContent {
         let session_key = self.session_key().await;
 
-        AnyToDeviceEventContent::RoomKey(RoomKeyToDeviceEventContent::new(
+        AnyToDeviceEventContent::RoomKey(ToDeviceRoomKeyEventContent::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             self.room_id().to_owned(),
             self.session_id().to_owned(),

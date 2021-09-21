@@ -25,15 +25,15 @@ use ruma::{
     events::{
         key::verification::{
             accept::{
-                AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent,
-                SasV1Content as AcceptV1Content, SasV1ContentInit as AcceptV1ContentInit,
+                AcceptEventContent, AcceptMethod, SasV1Content as AcceptV1Content,
+                SasV1ContentInit as AcceptV1ContentInit, ToDeviceAcceptEventContent,
             },
             cancel::CancelCode,
-            done::{DoneEventContent, DoneToDeviceEventContent},
-            key::{KeyEventContent, KeyToDeviceEventContent},
+            done::{DoneEventContent, ToDeviceDoneEventContent},
+            key::{KeyEventContent, ToDeviceKeyEventContent},
             start::{
                 SasV1Content, SasV1ContentInit, StartEventContent, StartMethod,
-                StartToDeviceEventContent,
+                ToDeviceStartEventContent,
             },
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
             ShortAuthenticationString, VerificationMethod,
@@ -435,7 +435,7 @@ impl SasState<Created> {
 
     pub fn as_content(&self) -> OwnedStartContent {
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => OwnedStartContent::ToDevice(StartToDeviceEventContent::new(
+            FlowId::ToDevice(s) => OwnedStartContent::ToDevice(ToDeviceStartEventContent::new(
                 self.device_id().into(),
                 s.to_string(),
                 StartMethod::SasV1(self.state.protocol_definitions.clone()),
@@ -627,7 +627,7 @@ impl SasState<WeAccepted> {
         );
 
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => AcceptToDeviceEventContent::new(s.to_string(), method).into(),
+            FlowId::ToDevice(s) => ToDeviceAcceptEventContent::new(s.to_string(), method).into(),
             FlowId::InRoom(r, e) => {
                 (r.clone(), AcceptEventContent::new(method, Relation::new(e.clone()))).into()
             }
@@ -727,7 +727,7 @@ impl SasState<Accepted> {
     pub fn as_content(&self) -> OutgoingContent {
         match &*self.verification_flow_id {
             FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationKey(KeyToDeviceEventContent::new(
+                AnyToDeviceEventContent::KeyVerificationKey(ToDeviceKeyEventContent::new(
                     s.to_string(),
                     self.inner.lock().unwrap().public_key(),
                 ))
@@ -753,7 +753,7 @@ impl SasState<KeyReceived> {
     pub fn as_content(&self) -> OutgoingContent {
         match &*self.verification_flow_id {
             FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationKey(KeyToDeviceEventContent::new(
+                AnyToDeviceEventContent::KeyVerificationKey(ToDeviceKeyEventContent::new(
                     s.to_string(),
                     self.inner.lock().unwrap().public_key(),
                 ))
@@ -1054,7 +1054,7 @@ impl SasState<WaitingForDone> {
     pub fn done_content(&self) -> OutgoingContent {
         match self.verification_flow_id.as_ref() {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
-                DoneToDeviceEventContent::new(t.to_owned()),
+                ToDeviceDoneEventContent::new(t.to_owned()),
             )
             .into(),
             FlowId::InRoom(r, e) => (
@@ -1133,8 +1133,8 @@ mod test {
 
     use ruma::{
         events::key::verification::{
-            accept::{AcceptMethod, AcceptToDeviceEventContent},
-            start::{StartMethod, StartToDeviceEventContent},
+            accept::{AcceptMethod, ToDeviceAcceptEventContent},
+            start::{StartMethod, ToDeviceStartEventContent},
             ShortAuthenticationString,
         },
         DeviceId, UserId,
@@ -1336,7 +1336,7 @@ mod test {
             "transaction_id": "some_id",
         });
 
-        let content: AcceptToDeviceEventContent = serde_json::from_value(content).unwrap();
+        let content: ToDeviceAcceptEventContent = serde_json::from_value(content).unwrap();
         let content = AcceptContent::from(&content);
 
         alice
@@ -1385,7 +1385,7 @@ mod test {
             "transaction_id": "some_id",
         });
 
-        let content: StartToDeviceEventContent = serde_json::from_value(content).unwrap();
+        let content: ToDeviceStartEventContent = serde_json::from_value(content).unwrap();
         let content = StartContent::from(&content);
         let flow_id = content.flow_id().to_owned();
 

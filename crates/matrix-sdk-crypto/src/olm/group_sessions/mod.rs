@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, convert::TryInto};
 
 use ruma::{
     events::forwarded_room_key::{
-        ForwardedRoomKeyToDeviceEventContent, ForwardedRoomKeyToDeviceEventContentInit,
+        ToDeviceForwardedRoomKeyEventContent, ToDeviceForwardedRoomKeyEventContentInit,
     },
     DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
 };
@@ -71,7 +71,7 @@ pub struct ExportedRoomKey {
     pub forwarding_curve25519_key_chain: Vec<String>,
 }
 
-impl TryInto<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
+impl TryInto<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
     type Error = ();
 
     /// Convert an exported room key into a content for a forwarded room key
@@ -80,7 +80,7 @@ impl TryInto<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
     /// This will fail if the exported room key has multiple sender claimed keys
     /// or if the algorithm of the claimed sender key isn't
     /// `DeviceKeyAlgorithm::Ed25519`.
-    fn try_into(self) -> Result<ForwardedRoomKeyToDeviceEventContent, Self::Error> {
+    fn try_into(self) -> Result<ToDeviceForwardedRoomKeyEventContent, Self::Error> {
         if self.sender_claimed_keys.len() != 1 {
             Err(())
         } else {
@@ -90,7 +90,7 @@ impl TryInto<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
                 return Err(());
             }
 
-            Ok(ForwardedRoomKeyToDeviceEventContentInit {
+            Ok(ToDeviceForwardedRoomKeyEventContentInit {
                 algorithm: self.algorithm,
                 room_id: self.room_id,
                 sender_key: self.sender_key,
@@ -104,9 +104,9 @@ impl TryInto<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
     }
 }
 
-impl From<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
+impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
     /// Convert the content of a forwarded room key into a exported room key.
-    fn from(forwarded_key: ForwardedRoomKeyToDeviceEventContent) -> Self {
+    fn from(forwarded_key: ToDeviceForwardedRoomKeyEventContent) -> Self {
         let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
         sender_claimed_keys
             .insert(DeviceKeyAlgorithm::Ed25519, forwarded_key.sender_claimed_ed25519_key);

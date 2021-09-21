@@ -44,6 +44,7 @@ use ruma::{
     },
     assign,
     events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType},
+    serde::Raw,
     DeviceId, DeviceIdBox, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
@@ -468,12 +469,14 @@ impl Client {
 
                     if let AnySyncMessageEvent::RoomEncrypted(e) = event {
                         if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
-                            let event = decrypted
-                                .event
-                                .deserialize()
-                                .unwrap()
-                                .into_full_event(room_id.clone())
-                                .into();
+                            let event = Raw::new(
+                                &decrypted
+                                    .event
+                                    .deserialize()
+                                    .unwrap()
+                                    .into_full_event(room_id.clone()),
+                            )
+                            .expect("Failed to serialize event");
                             let encryption_info = decrypted.encryption_info;
 
                             // Return decrypted room event
@@ -485,7 +488,7 @@ impl Client {
         }
 
         // Fallback to still-encrypted room event
-        RoomEvent { event: event.into(), encryption_info: None }
+        RoomEvent { event: Raw::new(event).expect("Failed to serialize "), encryption_info: None }
     }
 
     /// Query the server for users device keys.

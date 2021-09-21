@@ -25,7 +25,7 @@ use olm_rs::{
 };
 use ruma::{
     events::{
-        forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+        forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
         room::{
             encrypted::{EncryptedEventContent, EncryptedEventScheme},
             history_visibility::HistoryVisibility,
@@ -134,7 +134,7 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub(crate) fn from_forwarded_key(
         sender_key: &str,
-        content: &mut ForwardedRoomKeyToDeviceEventContent,
+        content: &mut ToDeviceForwardedRoomKeyEventContent,
     ) -> Result<Self, OlmGroupSessionError> {
         let key = Zeroizing::from(mem::take(&mut content.session_key));
 

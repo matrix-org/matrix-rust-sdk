@@ -34,7 +34,7 @@ use ruma::{
     api::client::r0::keys::{upload_keys, upload_signatures::Request as SignatureUploadRequest},
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
-        room::encrypted::{EncryptedEventScheme, EncryptedToDeviceEventContent},
+        room::encrypted::{EncryptedEventScheme, ToDeviceEncryptedEventContent},
         AnyToDeviceEvent, ToDeviceEvent,
     },
     serde::{CanonicalJsonValue, Raw},
@@ -114,7 +114,7 @@ impl Deref for Account {
 impl Account {
     pub async fn decrypt_to_device_event(
         &self,
-        event: &ToDeviceEvent<EncryptedToDeviceEventContent>,
+        event: &ToDeviceEvent<ToDeviceEncryptedEventContent>,
     ) -> OlmResult<OlmDecryptionInfo> {
         debug!(sender = event.sender.as_str(), "Decrypting a to-device event");
 
@@ -1052,7 +1052,7 @@ impl ReadOnlyAccount {
 
     #[cfg(test)]
     pub(crate) async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
-        use ruma::events::{dummy::DummyToDeviceEventContent, AnyToDeviceEventContent};
+        use ruma::events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent};
 
         other.generate_one_time_keys_helper(1).await;
         let one_time = other.signed_one_time_keys().await.unwrap();
@@ -1065,7 +1065,7 @@ impl ReadOnlyAccount {
         other.mark_keys_as_published().await;
 
         let message = our_session
-            .encrypt(&device, AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+            .encrypt(&device, AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
             .await
             .unwrap();
         let content = if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = message.scheme {

@@ -24,10 +24,10 @@ use ruma::{
     events::{
         key::verification::{
             cancel::CancelCode,
-            done::{DoneEventContent, DoneToDeviceEventContent},
+            done::{DoneEventContent, ToDeviceDoneEventContent},
             start::{
                 self, ReciprocateV1Content, StartEventContent, StartMethod,
-                StartToDeviceEventContent,
+                ToDeviceStartEventContent,
             },
             Relation,
         },
@@ -659,7 +659,7 @@ impl Reciprocated {
 
         let content: OwnedStartContent = match flow_id {
             FlowId::ToDevice(t) => {
-                StartToDeviceEventContent::new(self.own_device_id.clone(), t.clone(), method).into()
+                ToDeviceStartEventContent::new(self.own_device_id.clone(), t.clone(), method).into()
             }
             FlowId::InRoom(r, e) => (
                 r.clone(),
@@ -742,7 +742,7 @@ impl QrState<Confirmed> {
     fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
-                DoneToDeviceEventContent::new(t.to_owned()),
+                ToDeviceDoneEventContent::new(t.to_owned()),
             )
             .into(),
             FlowId::InRoom(r, e) => (

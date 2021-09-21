@@ -26,8 +26,8 @@ use ruma::{
     events::{
         key::verification::{
             cancel::CancelCode,
-            ready::{ReadyEventContent, ReadyToDeviceEventContent},
-            request::RequestToDeviceEventContent,
+            ready::{ReadyEventContent, ToDeviceReadyEventContent},
+            request::ToDeviceRequestEventContent,
             start::StartMethod,
             Relation, VerificationMethod,
         },
@@ -157,7 +157,7 @@ impl VerificationRequest {
             SUPPORTED_METHODS.to_vec()
         };
 
-        let content = RequestToDeviceEventContent::new(
+        let content = ToDeviceRequestEventContent::new(
             self.account.device_id().into(),
             self.flow_id().as_str().to_string(),
             methods,
@@ -909,7 +909,7 @@ impl RequestState<Requested> {
 
         let content = match self.flow_id.as_ref() {
             FlowId::ToDevice(i) => {
-                AnyToDeviceEventContent::KeyVerificationReady(ReadyToDeviceEventContent::new(
+                AnyToDeviceEventContent::KeyVerificationReady(ToDeviceReadyEventContent::new(
                     state.store.account.device_id().to_owned(),
                     methods,
                     i.to_owned(),

@@ -91,7 +91,8 @@ impl ToDeviceRequest {
             let device_messages = recipient_devices
                 .into_iter()
                 .map(|d| {
-                    let raw_content = Raw::from(&content);
+                    let raw_content =
+                        Raw::new(&content).expect("Failed to serialize to-device event");
                     (DeviceIdOrAllDevices::DeviceId(d), raw_content)
                 })
                 .collect();
@@ -108,7 +109,7 @@ impl ToDeviceRequest {
         txn_id: Uuid,
     ) -> Self {
         let event_type = EventType::from(content.event_type());
-        let raw_content = Raw::from(content);
+        let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
 
         let user_messages = iter::once((recipient_device.into(), raw_content)).collect();
         let messages = iter::once((recipient.clone(), user_messages)).collect();

@@ -21,9 +21,9 @@ pub(crate) use machine::GossipMachine;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     events::{
-        room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
+        room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEventContent},
         secret::request::{
-            RequestAction, RequestToDeviceEventContent as SecretRequestEventContent, SecretName,
+            RequestAction, SecretName, ToDeviceRequestEventContent as SecretRequestEventContent,
         },
         AnyToDeviceEventContent, ToDeviceEvent,
     },
@@ -114,7 +114,7 @@ impl GossipRequest {
     fn to_request(&self, own_device_id: &DeviceId) -> OutgoingRequest {
         let content = match &self.info {
             SecretInfo::KeyRequest(r) => {
-                AnyToDeviceEventContent::RoomKeyRequest(RoomKeyRequestToDeviceEventContent::new(
+                AnyToDeviceEventContent::RoomKeyRequest(ToDeviceRoomKeyRequestEventContent::new(
                     Action::Request,
                     Some(r.clone()),
                     own_device_id.to_owned(),
@@ -143,7 +143,7 @@ impl GossipRequest {
     fn to_cancellation(&self, own_device_id: &DeviceId) -> OutgoingRequest {
         let content = match self.info {
             SecretInfo::KeyRequest(_) => {
-                AnyToDeviceEventContent::RoomKeyRequest(RoomKeyRequestToDeviceEventContent::new(
+                AnyToDeviceEventContent::RoomKeyRequest(ToDeviceRoomKeyRequestEventContent::new(
                     Action::CancelRequest,
                     None,
                     own_device_id.to_owned(),
@@ -190,7 +190,7 @@ impl PartialEq for GossipRequest {
 
 #[derive(Debug, Clone)]
 enum RequestEvent {
-    KeyShare(ToDeviceEvent<RoomKeyRequestToDeviceEventContent>),
+    KeyShare(ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>),
     Secret(ToDeviceEvent<SecretRequestEventContent>),
 }
 
@@ -200,8 +200,8 @@ impl From<ToDeviceEvent<SecretRequestEventContent>> for RequestEvent {
     }
 }
 
-impl From<ToDeviceEvent<RoomKeyRequestToDeviceEventContent>> for RequestEvent {
-    fn from(e: ToDeviceEvent<RoomKeyRequestToDeviceEventContent>) -> Self {
+impl From<ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>> for RequestEvent {
+    fn from(e: ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>) -> Self {
         Self::KeyShare(e)
     }
 }

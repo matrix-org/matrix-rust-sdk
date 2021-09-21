@@ -36,8 +36,8 @@ use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{
-            cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
-            done::{DoneEventContent, DoneToDeviceEventContent},
+            cancel::{CancelCode, CancelEventContent, ToDeviceCancelEventContent},
+            done::{DoneEventContent, ToDeviceDoneEventContent},
             Relation,
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
@@ -230,7 +230,7 @@ impl Done {
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
-                DoneToDeviceEventContent::new(t.to_owned()),
+                ToDeviceDoneEventContent::new(t.to_owned()),
             )
             .into(),
             FlowId::InRoom(r, e) => (
@@ -310,7 +310,7 @@ impl Cancelled {
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationCancel(CancelToDeviceEventContent::new(
+                AnyToDeviceEventContent::KeyVerificationCancel(ToDeviceCancelEventContent::new(
                     s.clone(),
                     self.reason.to_string(),
                     self.cancel_code.clone(),

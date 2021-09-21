@@ -648,19 +648,8 @@ impl BaseClient {
         &self,
         response: api::sync::sync_events::Response,
     ) -> Result<SyncResponse> {
-        #[cfg(test)]
-        let api::sync::sync_events::Response {
-            next_batch,
-            rooms,
-            presence,
-            account_data,
-            to_device,
-            device_lists,
-            device_one_time_keys_count,
-            __test_exhaustive: _,
-        } = response;
-
-        #[cfg(not(test))]
+        #[allow(unknown_lints)] // New lint to be released in 1.57.0
+        #[warn(non_exhaustive_omitted_patterns)]
         let api::sync::sync_events::Response {
             next_batch,
             rooms,
