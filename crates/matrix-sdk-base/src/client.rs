@@ -87,7 +87,9 @@ pub struct BaseClient {
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
+    #[cfg(feature = "encryption")]
     store_path: Arc<Option<PathBuf>>,
+    #[cfg(feature = "sled_cryptostore")]
     store_passphrase: Arc<Option<Zeroizing<String>>>,
 }
 
@@ -185,6 +187,12 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+        #[cfg_attr(
+            not(any(feature = "sled_state_store", feature = "sled_cryptostore")),
+            allow(unused_variables)
+        )]
+        let config = config;
+
         #[cfg(feature = "sled_state_store")]
         let stores = if let Some(path) = &config.store_path {
             if config.passphrase.is_some() {
@@ -232,7 +240,9 @@ impl BaseClient {
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
             cryptostore: Mutex::new(crypto_store).into(),
+            #[cfg(feature = "encryption")]
             store_path: config.store_path.into(),
+            #[cfg(feature = "sled_cryptostore")]
             store_passphrase: config.passphrase.into(),
         })
     }

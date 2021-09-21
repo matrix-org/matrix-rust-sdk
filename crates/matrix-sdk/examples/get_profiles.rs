@@ -7,6 +7,7 @@ use matrix_sdk::{
 use url::Url;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct UserProfile {
     avatar_url: Option<MxcUri>,
     displayname: Option<String>,
