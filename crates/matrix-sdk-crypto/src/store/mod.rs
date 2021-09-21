@@ -173,7 +173,7 @@ pub enum SecretImportError {
         "The public key of the imported private key doesn't match to the \
             public key that was uploaded to the server"
     )]
-    MissmatchedPublicKeys,
+    MismatchedPublicKeys,
     /// The new version of the identity couldn't be stored.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),

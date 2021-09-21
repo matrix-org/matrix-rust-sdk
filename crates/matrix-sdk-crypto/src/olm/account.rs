@@ -430,7 +430,7 @@ impl Account {
         )?;
 
         if &recipient != self.user_id() || sender != &encrypted_sender {
-            return Err(EventError::MissmatchedSender.into());
+            return Err(EventError::MismatchedSender.into());
         }
 
         if self.inner.identity_keys().ed25519()
@@ -438,7 +438,7 @@ impl Account {
                 .get(&DeviceKeyAlgorithm::Ed25519)
                 .ok_or(EventError::MissingSigningKey)?
         {
-            return Err(EventError::MissmatchedKeys.into());
+            return Err(EventError::MismatchedKeys.into());
         }
 
         let signing_key =

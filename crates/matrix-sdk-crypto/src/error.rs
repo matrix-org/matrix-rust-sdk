@@ -119,10 +119,10 @@ pub enum EventError {
     MissingField(String),
 
     #[error("the sender of the plaintext doesn't match the sender of the encrypted message.")]
-    MissmatchedSender,
+    MismatchedSender,
 
     #[error("the keys of the message don't match the keys in our database.")]
-    MissmatchedKeys,
+    MismatchedKeys,
 }
 
 #[derive(Error, Debug)]

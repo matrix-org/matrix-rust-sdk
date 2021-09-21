@@ -225,7 +225,7 @@ impl PrivateCrossSigningIdentity {
             if public_identity.master_key() == &master.public_key {
                 Ok(Some(master))
             } else {
-                Err(SecretImportError::MissmatchedPublicKeys)
+                Err(SecretImportError::MismatchedPublicKeys)
             }
         } else {
             Ok(None)
@@ -238,7 +238,7 @@ impl PrivateCrossSigningIdentity {
             if public_identity.user_signing_key() == &subkey.public_key {
                 Ok(Some(subkey))
             } else {
-                Err(SecretImportError::MissmatchedPublicKeys)
+                Err(SecretImportError::MismatchedPublicKeys)
             }
         } else {
             Ok(None)
@@ -251,7 +251,7 @@ impl PrivateCrossSigningIdentity {
             if public_identity.self_signing_key() == &subkey.public_key {
                 Ok(Some(subkey))
             } else {
-                Err(SecretImportError::MissmatchedPublicKeys)
+                Err(SecretImportError::MismatchedPublicKeys)
             }
         } else {
             Ok(None)
