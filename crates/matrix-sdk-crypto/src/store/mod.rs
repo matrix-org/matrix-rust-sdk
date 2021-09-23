@@ -100,11 +100,15 @@ pub(crate) struct Store {
     verification_machine: VerificationMachine,
 }
 
-#[derive(Clone, Debug, Default)]
-#[allow(missing_docs)]
+#[derive(Default)]
+#[allow(missing_docs, missing_debug_implementations)]
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
+    #[cfg(feature = "backups_v1")]
+    pub backup_version: Option<String>,
+    #[cfg(feature = "backups_v1")]
+    pub recovery_key: Option<crate::backups::RecoveryKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -161,6 +165,27 @@ impl DeviceChanges {
     fn is_empty(&self) -> bool {
         self.new.is_empty() && self.changed.is_empty() && self.deleted.is_empty()
     }
+}
+
+/// Struct holding info about how many room keys the store has.
+#[derive(Debug, Clone, Default)]
+pub struct RoomKeyCounts {
+    /// The total number of room keys the store has.
+    pub total: usize,
+    /// The number of backed up room keys the store has.
+    pub backed_up: usize,
+}
+
+/// TODO
+#[derive(Default)]
+#[allow(missing_debug_implementations)]
+pub struct BackupKeys {
+    /// TODO
+    #[cfg(feature = "backups_v1")]
+    pub recovery_key: Option<crate::backups::RecoveryKey>,
+    /// TODO
+    #[cfg(feature = "backups_v1")]
+    pub backup_version: Option<String>,
 }
 
 /// A struct containing private cross signing keys that can be backed up or
@@ -602,6 +627,19 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>;
+
+    /// Get the number inbound group sessions we have and how many of them are
+    /// backed up.
+    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts>;
+
+    /// Get all the inbound group sessions we have not backed up yet.
+    async fn inbound_group_sessions_for_backup(&self) -> Result<Vec<InboundGroupSession>>;
+
+    /// Reset the backup state of all the stored inbound group sessions.
+    async fn reset_backup_state(&self) -> Result<()>;
+
+    /// TODO
+    async fn load_backup_keys(&self) -> Result<BackupKeys>;
 
     /// Get the outbound group sessions we have stored that is used for the
     /// given room.

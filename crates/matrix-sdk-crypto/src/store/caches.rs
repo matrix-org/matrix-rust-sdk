@@ -111,6 +111,11 @@ impl GroupSessionStore {
             .collect()
     }
 
+    /// Get the number of `InboundGroupSession`s we have.
+    pub fn count(&self) -> usize {
+        self.entries.iter().map(|d| d.value().values().map(|t| t.len()).sum::<usize>()).sum()
+    }
+
     /// Get a inbound group session from our store.
     ///
     /// # Arguments

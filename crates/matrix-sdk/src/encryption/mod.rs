@@ -266,6 +266,7 @@ use matrix_sdk_base::{
 use matrix_sdk_common::{instant::Duration, uuid::Uuid};
 use ruma::{
     api::client::r0::{
+        backup::add_backup_keys::Response as KeysBackupResponse,
         keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
         message::send_message_event,
         to_device::send_event_to_device::{
@@ -984,9 +985,25 @@ impl Client {
                 let response = self.send(request.clone(), None).await?;
                 self.base_client.mark_request_as_sent(r.request_id(), &response).await?;
             }
+            OutgoingRequests::KeysBackup(request) => {
+                let response = self.send_backup_request(request).await?;
+                self.base_client.mark_request_as_sent(r.request_id(), &response).await?;
+            }
         }
 
         Ok(())
+    }
+
+    async fn send_backup_request(
+        &self,
+        request: &matrix_sdk_base::crypto::KeysBackupRequest,
+    ) -> Result<KeysBackupResponse> {
+        let request = ruma::api::client::r0::backup::add_backup_keys::Request::new(
+            &request.version,
+            request.rooms.to_owned(),
+        );
+
+        Ok(self.send(request, None).await?)
     }
 
     pub(crate) async fn send_outgoing_requests(&self) -> Result<()> {

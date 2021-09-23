@@ -43,7 +43,7 @@ pub struct GroupSessionKey(pub String);
 #[zeroize(drop)]
 pub struct ExportedGroupSessionKey(pub String);
 
-/// An exported version of a `InboundGroupSession`
+/// An exported version of an `InboundGroupSession`
 ///
 /// This can be used to share the `InboundGroupSession` in an exported file.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -59,6 +59,28 @@ pub struct ExportedRoomKey {
 
     /// The ID of the session that the key is for.
     pub session_id: String,
+
+    /// The key for the session.
+    pub session_key: ExportedGroupSessionKey,
+
+    /// The Ed25519 key of the device which initiated the session originally.
+    pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+
+    /// Chain of Curve25519 keys through which this session was forwarded, via
+    /// m.forwarded_room_key events.
+    pub forwarding_curve25519_key_chain: Vec<String>,
+}
+
+/// A backed up version of an `InboundGroupSession`
+///
+/// This can be used to backup the `InboundGroupSession` to the server.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct BackedUpRoomKey {
+    /// The encryption algorithm that the session uses.
+    pub algorithm: EventEncryptionAlgorithm,
+
+    /// The Curve25519 key of the device which initiated the session originally.
+    pub sender_key: String,
 
     /// The key for the session.
     pub session_key: ExportedGroupSessionKey,
@@ -100,6 +122,18 @@ impl TryInto<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
                 forwarding_curve25519_key_chain: self.forwarding_curve25519_key_chain,
             }
             .into())
+        }
+    }
+}
+
+impl From<ExportedRoomKey> for BackedUpRoomKey {
+    fn from(k: ExportedRoomKey) -> Self {
+        Self {
+            algorithm: k.algorithm,
+            sender_key: k.sender_key,
+            session_key: k.session_key,
+            sender_claimed_keys: k.sender_claimed_keys,
+            forwarding_curve25519_key_chain: k.forwarding_curve25519_key_chain,
         }
     }
 }

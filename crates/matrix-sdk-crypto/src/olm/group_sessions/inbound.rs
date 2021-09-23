@@ -12,7 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, convert::TryFrom, fmt, mem, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    convert::TryFrom,
+    fmt, mem,
+    sync::{
+        atomic::{AtomicBool, Ordering::SeqCst},
+        Arc,
+    },
+};
 
 use matrix_sdk_common::locks::Mutex;
 pub use olm_rs::{
@@ -39,7 +47,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zeroize::Zeroizing;
 
-use super::{ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
+use super::{BackedUpRoomKey, ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
 use crate::error::{EventError, MegolmResult};
 
 // TODO add creation times to the inbound group sessions so we can export
@@ -61,7 +69,7 @@ pub struct InboundGroupSession {
     pub(crate) room_id: Arc<RoomId>,
     forwarding_chains: Arc<Vec<String>>,
     imported: bool,
-    backed_up: bool,
+    backed_up: Arc<AtomicBool>,
 }
 
 impl InboundGroupSession {
@@ -105,7 +113,7 @@ impl InboundGroupSession {
             room_id: room_id.clone().into(),
             forwarding_chains: Vec::new().into(),
             imported: false,
-            backed_up: false,
+            backed_up: AtomicBool::new(false).into(),
         })
     }
 
@@ -121,6 +129,25 @@ impl InboundGroupSession {
         exported_session: impl Into<ExportedRoomKey>,
     ) -> Result<Self, OlmGroupSessionError> {
         Self::try_from(exported_session.into())
+    }
+
+    #[allow(dead_code)]
+    fn from_backup(
+        room_id: &RoomId,
+        backup: BackedUpRoomKey,
+    ) -> Result<Self, OlmGroupSessionError> {
+        let session = OlmInboundGroupSession::new(&backup.session_key.0)?;
+        let session_id = session.session_id();
+
+        Self::from_export(ExportedRoomKey {
+            algorithm: backup.algorithm,
+            room_id: room_id.to_owned(),
+            sender_key: backup.sender_key,
+            session_id,
+            session_key: backup.session_key,
+            sender_claimed_keys: backup.sender_claimed_keys,
+            forwarding_curve25519_key_chain: backup.forwarding_curve25519_key_chain,
+        })
     }
 
     /// Create a new inbound group session from a forwarded room key content.
@@ -157,7 +184,7 @@ impl InboundGroupSession {
             room_id: content.room_id.clone().into(),
             forwarding_chains: forwarding_chains.into(),
             imported: true,
-            backed_up: false,
+            backed_up: AtomicBool::new(false).into(),
         })
     }
 
@@ -177,7 +204,7 @@ impl InboundGroupSession {
             room_id: (&*self.room_id).clone(),
             forwarding_chains: self.forwarding_key_chain().to_vec(),
             imported: self.imported,
-            backed_up: self.backed_up,
+            backed_up: self.backed_up(),
             history_visibility: self.history_visibility.as_ref().clone(),
         }
     }
@@ -193,6 +220,20 @@ impl InboundGroupSession {
     /// Get the sender key that this session was received from.
     pub fn sender_key(&self) -> &str {
         &self.sender_key
+    }
+
+    /// Has the session been backed up to the server.
+    pub fn backed_up(&self) -> bool {
+        self.backed_up.load(SeqCst)
+    }
+
+    /// Reset the backup state of the inbound group session.
+    pub(crate) fn reset_backup_state(&self) {
+        self.backed_up.store(false, SeqCst)
+    }
+
+    pub(crate) fn mark_as_backed_up(&self) {
+        self.backed_up.store(true, SeqCst)
     }
 
     /// Get the map of signing keys this session was received from.
@@ -256,7 +297,7 @@ impl InboundGroupSession {
             signing_keys: pickle.signing_key.into(),
             room_id: pickle.room_id.into(),
             forwarding_chains: pickle.forwarding_chains.into(),
-            backed_up: pickle.backed_up,
+            backed_up: AtomicBool::from(pickle.backed_up).into(),
             imported: pickle.imported,
         })
     }
@@ -289,6 +330,11 @@ impl InboundGroupSession {
         message: String,
     ) -> Result<(String, u32), OlmGroupSessionError> {
         self.inner.lock().await.decrypt(message)
+    }
+
+    #[cfg(feature = "backups_v1")]
+    pub(crate) async fn to_backup(&self) -> BackedUpRoomKey {
+        self.export().await.into()
     }
 
     /// Decrypt an event from a room timeline.
@@ -413,16 +459,16 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {
-            inner: Arc::new(Mutex::new(session)),
+            inner: Mutex::new(session).into(),
             session_id: key.session_id.into(),
             sender_key: key.sender_key.into(),
             history_visibility: None.into(),
             first_known_index,
-            signing_keys: Arc::new(key.sender_claimed_keys),
-            room_id: Arc::new(key.room_id),
-            forwarding_chains: Arc::new(key.forwarding_curve25519_key_chain),
+            signing_keys: key.sender_claimed_keys.into(),
+            room_id: key.room_id.into(),
+            forwarding_chains: key.forwarding_curve25519_key_chain.into(),
             imported: true,
-            backed_up: false,
+            backed_up: AtomicBool::from(false).into(),
         })
     }
 }
