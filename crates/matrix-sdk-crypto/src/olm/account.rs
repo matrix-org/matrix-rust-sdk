@@ -35,7 +35,7 @@ use ruma::{
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
         room::encrypted::{EncryptedEventScheme, ToDeviceEncryptedEventContent},
-        AnyToDeviceEvent, ToDeviceEvent,
+        AnyToDeviceEvent, OlmV1Keys, ToDeviceEvent,
     },
     serde::{CanonicalJsonValue, Raw},
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt,
@@ -402,49 +402,25 @@ impl Account {
         sender: &UserId,
         plaintext: String,
     ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
-        // TODO make the errors a bit more specific.
-        let decrypted_json: Value = serde_json::from_str(&plaintext)?;
+        #[derive(Deserialize)]
+        struct DecryptedEvent {
+            sender: UserId,
+            recipient: UserId,
+            recipient_keys: OlmV1Keys,
+            keys: OlmV1Keys,
+        }
 
-        let encrypted_sender = decrypted_json
-            .get("sender")
-            .cloned()
-            .ok_or_else(|| EventError::MissingField("sender".to_string()))?;
-        let encrypted_sender: UserId = serde_json::from_value(encrypted_sender)?;
-        let recipient = decrypted_json
-            .get("recipient")
-            .cloned()
-            .ok_or_else(|| EventError::MissingField("recipient".to_string()))?;
-        let recipient: UserId = serde_json::from_value(recipient)?;
+        let event: DecryptedEvent = serde_json::from_str(&plaintext)?;
 
-        let recipient_keys: BTreeMap<DeviceKeyAlgorithm, String> = serde_json::from_value(
-            decrypted_json
-                .get("recipient_keys")
-                .cloned()
-                .ok_or_else(|| EventError::MissingField("recipient_keys".to_string()))?,
-        )?;
-        let keys: BTreeMap<DeviceKeyAlgorithm, String> = serde_json::from_value(
-            decrypted_json
-                .get("keys")
-                .cloned()
-                .ok_or_else(|| EventError::MissingField("keys".to_string()))?,
-        )?;
-
-        if &recipient != self.user_id() || sender != &encrypted_sender {
+        if event.recipient != *self.user_id() || event.sender != *sender {
             return Err(EventError::MismatchedSender.into());
         }
 
-        if self.inner.identity_keys().ed25519()
-            != recipient_keys
-                .get(&DeviceKeyAlgorithm::Ed25519)
-                .ok_or(EventError::MissingSigningKey)?
-        {
+        if self.inner.identity_keys().ed25519() != event.recipient_keys.ed25519 {
             return Err(EventError::MismatchedKeys.into());
         }
 
-        let signing_key =
-            keys.get(&DeviceKeyAlgorithm::Ed25519).ok_or(EventError::MissingSigningKey)?;
-
-        Ok((Raw::from_json(RawJsonValue::from_string(plaintext)?), signing_key.to_owned()))
+        Ok((Raw::from_json(RawJsonValue::from_string(plaintext)?), event.keys.ed25519))
     }
 }
 
