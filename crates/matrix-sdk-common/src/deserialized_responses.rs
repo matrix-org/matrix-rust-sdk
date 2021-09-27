@@ -9,8 +9,8 @@ use ruma::{
         },
     },
     events::{
-        room::member::MemberEventContent, AnySyncRoomEvent, StateEvent, StrippedStateEvent,
-        SyncStateEvent, Unsigned,
+        room::member::MemberEventContent, AnyRoomEvent, AnySyncRoomEvent, StateEvent,
+        StrippedStateEvent, SyncStateEvent, Unsigned,
     },
     serde::Raw,
     DeviceIdBox, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
@@ -136,7 +136,7 @@ impl SyncResponse {
 #[derive(Clone, Debug)]
 pub struct RoomEvent {
     /// The actual event.
-    pub event: Raw<ruma::events::AnyRoomEvent>,
+    pub event: Raw<AnyRoomEvent>,
     /// The encryption info about the event. Will be `None` if the event was not
     /// encrypted.
     pub encryption_info: Option<EncryptionInfo>,
