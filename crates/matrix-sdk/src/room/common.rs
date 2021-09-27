@@ -160,13 +160,10 @@ impl Common {
         let event = self.client.send(request, None).await?.event.deserialize()?;
 
         #[cfg(feature = "encryption")]
-        return Ok(self.client.decrypt_room_event(&event).await);
+        return Ok(self.client.decrypt_room_event(&event).await?);
 
         #[cfg(not(feature = "encryption"))]
-        return Ok(RoomEvent {
-            event: Raw::new(&event).expect("Failed to serialize room event"),
-            encryption_info: None,
-        });
+        return Ok(RoomEvent { event: Raw::new(&event)?, encryption_info: None });
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {

@@ -459,7 +459,12 @@ impl Client {
     /// decryption fails.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub(crate) async fn decrypt_room_event(&self, event: &AnyRoomEvent) -> RoomEvent {
+    pub(crate) async fn decrypt_room_event(
+        &self,
+        event: &AnyRoomEvent,
+    ) -> serde_json::Result<RoomEvent> {
+        use ruma::serde::JsonObject;
+
         if let Some(machine) = self.base_client.olm_machine().await {
             if let AnyRoomEvent::Message(event) = event {
                 if let AnyMessageEvent::RoomEncrypted(_) = event {
@@ -469,20 +474,15 @@ impl Client {
 
                     if let AnySyncMessageEvent::RoomEncrypted(e) = event {
                         if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
-                            let mut full_event =
-                                decrypted.event.deserialize_as::<serde_json::Value>().unwrap();
-                            full_event.as_object_mut().unwrap().insert(
-                                "room_id".to_owned(),
-                                serde_json::to_value(room_id).unwrap(),
-                            );
-                            let event = Raw::from_json(
-                                serde_json::value::to_raw_value(&full_event).unwrap(),
-                            );
+                            let mut full_event = decrypted.event.deserialize_as::<JsonObject>()?;
+                            full_event.insert("room_id".to_owned(), serde_json::to_value(room_id)?);
 
+                            let event =
+                                Raw::from_json(serde_json::value::to_raw_value(&full_event)?);
                             let encryption_info = decrypted.encryption_info;
 
                             // Return decrypted room event
-                            return RoomEvent { event, encryption_info };
+                            return Ok(RoomEvent { event, encryption_info });
                         }
                     }
                 }
@@ -490,7 +490,7 @@ impl Client {
         }
 
         // Fallback to still-encrypted room event
-        RoomEvent { event: Raw::new(event).expect("Failed to serialize "), encryption_info: None }
+        Ok(RoomEvent { event: Raw::new(event)?, encryption_info: None })
     }
 
     /// Query the server for users device keys.
