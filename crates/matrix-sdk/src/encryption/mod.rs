@@ -469,14 +469,16 @@ impl Client {
 
                     if let AnySyncMessageEvent::RoomEncrypted(e) = event {
                         if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
-                            let event = Raw::new(
-                                &decrypted
-                                    .event
-                                    .deserialize()
-                                    .unwrap()
-                                    .into_full_event(room_id.clone()),
-                            )
-                            .expect("Failed to serialize event");
+                            let mut full_event =
+                                decrypted.event.deserialize_as::<serde_json::Value>().unwrap();
+                            full_event.as_object_mut().unwrap().insert(
+                                "room_id".to_owned(),
+                                serde_json::to_value(room_id).unwrap(),
+                            );
+                            let event = Raw::from_json(
+                                serde_json::value::to_raw_value(&full_event).unwrap(),
+                            );
+
                             let encryption_info = decrypted.encryption_info;
 
                             // Return decrypted room event
