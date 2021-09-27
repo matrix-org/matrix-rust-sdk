@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
@@ -84,19 +84,19 @@ impl ToDeviceRequest {
         content: AnyToDeviceEventContent,
         txn_id: Uuid,
     ) -> Self {
-        let mut messages = BTreeMap::new();
-        let event_type = EventType::from(content.event_type());
-
         if recipient_devices.is_empty() {
             Self::new(recipient, DeviceIdOrAllDevices::AllDevices, content)
         } else {
+            let event_type = content.event_type().into();
             let device_messages = recipient_devices
                 .into_iter()
-                .map(|d| (DeviceIdOrAllDevices::DeviceId(d), Raw::from(content.clone())))
+                .map(|d| {
+                    let raw_content = Raw::from(&content);
+                    (DeviceIdOrAllDevices::DeviceId(d), raw_content)
+                })
                 .collect();
 
-            messages.insert(recipient.clone(), device_messages);
-
+            let messages = iter::once((recipient.to_owned(), device_messages)).collect();
             ToDeviceRequest { event_type, txn_id, messages }
         }
     }
@@ -107,12 +107,11 @@ impl ToDeviceRequest {
         content: AnyToDeviceEventContent,
         txn_id: Uuid,
     ) -> Self {
-        let mut messages = BTreeMap::new();
-        let mut user_messages = BTreeMap::new();
         let event_type = EventType::from(content.event_type());
+        let raw_content = Raw::from(content);
 
-        user_messages.insert(recipient_device.into(), Raw::from(content));
-        messages.insert(recipient.clone(), user_messages);
+        let user_messages = iter::once((recipient_device.into(), raw_content)).collect();
+        let messages = iter::once((recipient.clone(), user_messages)).collect();
 
         ToDeviceRequest { event_type, txn_id, messages }
     }
