@@ -2397,12 +2397,11 @@ pub(crate) mod test {
             )
             .create();
 
-        if Client::new_from_user_id(&alice).await.is_ok() {
-            panic!(
-                "Creating a client from a user ID should fail when the \
-                   .well-known server returns no version information."
-            );
-        }
+        assert!(
+            Client::new_from_user_id(&alice).await.is_err(),
+            "Creating a client from a user ID should fail when the \
+                .well-known server returns no version information."
+        );
     }
 
     #[tokio::test]
