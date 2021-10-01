@@ -3,15 +3,14 @@ use std::{env, process::exit};
 use matrix_sdk::{
     config::{ClientConfig, SyncSettings},
     room::Room,
-    ruma::events::{
-        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
-        SyncMessageEvent,
+    ruma::events::room::message::{
+        MessageEventContent, MessageType, SyncMessageEvent, TextMessageEventContent,
     },
     Client,
 };
 use url::Url;
 
-async fn on_room_message(event: SyncMessageEvent<MessageEventContent>, room: Room) {
+async fn on_room_message(event: SyncMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
         let msg_body = if let SyncMessageEvent {
             content:

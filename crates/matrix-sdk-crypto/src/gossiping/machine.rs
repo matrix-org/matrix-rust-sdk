@@ -27,15 +27,16 @@ use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
     events::{
-        forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-        room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEventContent},
+        forwarded_room_key::{ToDeviceForwardedRoomKeyEvent, ToDeviceForwardedRoomKeyEventContent},
+        room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEvent},
         secret::{
-            request::{
-                RequestAction, SecretName, ToDeviceRequestEventContent as SecretRequestEventContent,
+            request::{RequestAction, SecretName, ToDeviceRequestEvent as SecretRequestEvent},
+            send::{
+                ToDeviceSendEvent as SecretSendEvent,
+                ToDeviceSendEventContent as SecretSendEventContent,
             },
-            send::ToDeviceSendEventContent as SecretSendEventContent,
         },
-        AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
+        AnyToDeviceEvent, AnyToDeviceEventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
 };
@@ -139,10 +140,7 @@ impl GossipMachine {
     }
 
     /// Receive a room key request event.
-    pub fn receive_incoming_key_request(
-        &self,
-        event: &ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>,
-    ) {
+    pub fn receive_incoming_key_request(&self, event: &ToDeviceRoomKeyRequestEvent) {
         self.receive_event(event.clone().into())
     }
 
@@ -160,10 +158,7 @@ impl GossipMachine {
         }
     }
 
-    pub fn receive_incoming_secret_request(
-        &self,
-        event: &ToDeviceEvent<SecretRequestEventContent>,
-    ) {
+    pub fn receive_incoming_secret_request(&self, event: &SecretRequestEvent) {
         self.receive_event(event.clone().into())
     }
 
@@ -229,7 +224,7 @@ impl GossipMachine {
 
     async fn handle_secret_request(
         &self,
-        event: &ToDeviceEvent<SecretRequestEventContent>,
+        event: &SecretRequestEvent,
     ) -> OlmResult<Option<Session>> {
         let secret_name = match &event.content.action {
             RequestAction::Request(s) => s,
@@ -313,7 +308,7 @@ impl GossipMachine {
     /// Handle a single incoming key request.
     async fn handle_key_request(
         &self,
-        event: &ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>,
+        event: &ToDeviceRoomKeyRequestEvent,
     ) -> OlmResult<Option<Session>> {
         let key_info = match &event.content.action {
             Action::Request => {
@@ -757,7 +752,7 @@ impl GossipMachine {
     pub async fn receive_secret(
         &self,
         sender_key: &str,
-        event: &mut ToDeviceEvent<SecretSendEventContent>,
+        event: &mut SecretSendEvent,
     ) -> Result<Option<AnyToDeviceEvent>, CryptoStoreError> {
         debug!(
             sender = event.sender.as_str(),
@@ -846,7 +841,7 @@ impl GossipMachine {
     pub async fn receive_forwarded_room_key(
         &self,
         sender_key: &str,
-        event: &mut ToDeviceEvent<ToDeviceForwardedRoomKeyEventContent>,
+        event: &mut ToDeviceForwardedRoomKeyEvent,
     ) -> Result<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>), CryptoStoreError> {
         let key_info = self.get_key_info(&event.content).await?;
 

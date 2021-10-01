@@ -3,8 +3,10 @@ use matrix_sdk::{
     deserialized_responses::SyncResponse,
     ruma::{
         events::{
-            room::message::{MessageEventContent, MessageType, TextMessageEventContent},
-            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
+            room::message::{
+                MessageEventContent, MessageType, SyncMessageEvent, TextMessageEventContent,
+            },
+            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
         },
         RoomId,
     },
@@ -17,11 +19,7 @@ use web_sys::console;
 struct WasmBot(Client);
 
 impl WasmBot {
-    async fn on_room_message(
-        &self,
-        room_id: &RoomId,
-        event: &SyncMessageEvent<MessageEventContent>,
-    ) {
+    async fn on_room_message(&self, room_id: &RoomId, event: &SyncMessageEvent) {
         let msg_body = if let SyncMessageEvent {
             content:
                 MessageEventContent {

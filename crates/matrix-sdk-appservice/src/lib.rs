@@ -35,7 +35,7 @@
 //! # async {
 //! #
 //! use matrix_sdk_appservice::{
-//!     ruma::events::{SyncStateEvent, room::member::MemberEventContent},
+//!     ruma::events::room::member::SyncMemberEvent,
 //!     AppService, AppServiceRegistration
 //! };
 //!
@@ -55,7 +55,7 @@
 //!     ")?;
 //!
 //! let mut appservice = AppService::new(homeserver_url, server_name, registration).await?;
-//! appservice.register_event_handler(|_ev: SyncStateEvent<MemberEventContent>| async {
+//! appservice.register_event_handler(|_ev: SyncMemberEvent| async {
 //!     // do stuff
 //! });
 //!

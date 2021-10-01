@@ -540,8 +540,7 @@ impl Client {
     ///         events::{
     ///             macros::EventContent,
     ///             push_rules::PushRulesEvent,
-    ///             room::{message::MessageEventContent, topic::TopicEventContent},
-    ///             SyncMessageEvent, SyncStateEvent,
+    ///             room::{message::SyncMessageEvent, topic::SyncTopicEvent},
     ///         },
     ///         Int, MilliSecondsSinceUnixEpoch,
     ///     },
@@ -552,27 +551,23 @@ impl Client {
     /// # let _ = async {
     /// client
     ///     .register_event_handler(
-    ///         |ev: SyncMessageEvent<MessageEventContent>,
-    ///          room: Room,
-    ///          client: Client| async move {
+    ///         |ev: SyncMessageEvent, room: Room, client: Client| async move {
     ///             // Common usage: Room event plus room and client.
     ///         },
     ///     )
     ///     .await
     ///     .register_event_handler(
-    ///         |ev: SyncMessageEvent<MessageEventContent>,
-    ///          room: Room,
-    ///          encryption_info: Option<EncryptionInfo>| async move {
-    ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
-    ///             // unencrypted events and events that were decrypted by the SDK.
+    ///         |ev: SyncMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
+    ///             async move {
+    ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
+    ///                 // unencrypted events and events that were decrypted by the SDK.
+    ///             }
     ///         },
     ///     )
     ///     .await
-    ///     .register_event_handler(
-    ///         |ev: SyncStateEvent<TopicEventContent>| async move {
-    ///             // You can omit any or all arguments after the first.
-    ///         }
-    ///     )
+    ///     .register_event_handler(|ev: SyncTopicEvent| async move {
+    ///         // You can omit any or all arguments after the first.
+    ///     })
     ///     .await;
     ///
     /// // Custom events work exactly the same way, you just need to declare
@@ -585,18 +580,16 @@ impl Client {
     ///     expires_at: MilliSecondsSinceUnixEpoch,
     /// }
     ///
-    /// client.register_event_handler(
-    ///     |ev: SyncMessageEvent<TokenEventContent>, room: Room| async move {
-    ///         todo!("Display the token");
-    ///     },
-    /// ).await;
+    /// client.register_event_handler(|ev: SyncTokenEvent, room: Room| async move {
+    ///     todo!("Display the token");
+    /// }).await;
     ///
     /// // Adding your custom data to the handler can be done as well
     /// let data = "MyCustomIdentifier".to_string();
     ///
     /// client.register_event_handler({
     ///     let data = data.clone();
-    ///     move |ev: SyncMessageEvent<MessageEventContent> | {
+    ///     move |ev: SyncMessageEvent | {
     ///         let data = data.clone();
     ///         async move {
     ///             println!("Calling the handler with identifier {}", data);
@@ -1794,7 +1787,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::{SyncMessageEvent, room::message::MessageEventContent},
+    ///     ruma::events::room::message::SyncMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver)?;
@@ -1805,12 +1798,9 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(
-    ///     |ev: SyncMessageEvent<MessageEventContent>|
-    ///     async move {
-    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
-    ///     },
-    /// ).await;
+    /// client.register_event_handler(|ev: SyncMessageEvent| async move {
+    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
+    /// }).await;
     ///
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
@@ -1891,7 +1881,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::{SyncMessageEvent, room::message::MessageEventContent},
+    ///     ruma::events::room::message::SyncMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver)?;
@@ -1899,12 +1889,9 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(
-    ///     |ev: SyncMessageEvent<MessageEventContent>|
-    ///     async move {
-    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
-    ///     },
-    /// ).await;
+    /// client.register_event_handler(|ev: SyncMessageEvent| async move {
+    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
+    /// }).await;
     ///
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.

@@ -21,11 +21,15 @@ pub(crate) use machine::GossipMachine;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     events::{
-        room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEventContent},
-        secret::request::{
-            RequestAction, SecretName, ToDeviceRequestEventContent as SecretRequestEventContent,
+        room_key_request::{
+            Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEvent,
+            ToDeviceRoomKeyRequestEventContent,
         },
-        AnyToDeviceEventContent, ToDeviceEvent,
+        secret::request::{
+            RequestAction, SecretName, ToDeviceRequestEvent as SecretRequestEvent,
+            ToDeviceRequestEventContent as SecretRequestEventContent,
+        },
+        AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceIdBox, UserId,
@@ -190,18 +194,18 @@ impl PartialEq for GossipRequest {
 
 #[derive(Debug, Clone)]
 enum RequestEvent {
-    KeyShare(ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>),
-    Secret(ToDeviceEvent<SecretRequestEventContent>),
+    KeyShare(ToDeviceRoomKeyRequestEvent),
+    Secret(SecretRequestEvent),
 }
 
-impl From<ToDeviceEvent<SecretRequestEventContent>> for RequestEvent {
-    fn from(e: ToDeviceEvent<SecretRequestEventContent>) -> Self {
+impl From<SecretRequestEvent> for RequestEvent {
+    fn from(e: SecretRequestEvent) -> Self {
         Self::Secret(e)
     }
 }
 
-impl From<ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>> for RequestEvent {
-    fn from(e: ToDeviceEvent<ToDeviceRoomKeyRequestEventContent>) -> Self {
+impl From<ToDeviceRoomKeyRequestEvent> for RequestEvent {
+    fn from(e: ToDeviceRoomKeyRequestEvent) -> Self {
         Self::KeyShare(e)
     }
 }

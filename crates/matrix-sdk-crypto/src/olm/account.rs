@@ -34,8 +34,8 @@ use ruma::{
     api::client::r0::keys::{upload_keys, upload_signatures::Request as SignatureUploadRequest},
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
-        room::encrypted::{EncryptedEventScheme, ToDeviceEncryptedEventContent},
-        AnyToDeviceEvent, OlmV1Keys, ToDeviceEvent,
+        room::encrypted::{EncryptedEventScheme, ToDeviceEncryptedEvent},
+        AnyToDeviceEvent, OlmV1Keys,
     },
     serde::{CanonicalJsonValue, Raw},
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt,
@@ -114,7 +114,7 @@ impl Deref for Account {
 impl Account {
     pub async fn decrypt_to_device_event(
         &self,
-        event: &ToDeviceEvent<ToDeviceEncryptedEventContent>,
+        event: &ToDeviceEncryptedEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
         debug!(sender = event.sender.as_str(), "Decrypting a to-device event");
 

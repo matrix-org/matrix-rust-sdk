@@ -11,20 +11,15 @@ use matrix_sdk::{
     self,
     config::SyncSettings,
     room::Room,
-    ruma::events::{
-        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
-        SyncMessageEvent,
+    ruma::events::room::message::{
+        MessageEventContent, MessageType, SyncMessageEvent, TextMessageEventContent,
     },
     Client,
 };
 use tokio::sync::Mutex;
 use url::Url;
 
-async fn on_room_message(
-    event: SyncMessageEvent<MessageEventContent>,
-    room: Room,
-    image: Arc<Mutex<File>>,
-) {
+async fn on_room_message(event: SyncMessageEvent, room: Room, image: Arc<Mutex<File>>) {
     if let Room::Joined(room) = room {
         let msg_body = if let SyncMessageEvent {
             content:

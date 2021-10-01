@@ -39,12 +39,11 @@ use ruma::{
     assign,
     events::{
         room::encrypted::{
-            EncryptedEventContent, EncryptedEventScheme, ToDeviceEncryptedEventContent,
+            EncryptedEventContent, EncryptedEventScheme, SyncEncryptedEvent, ToDeviceEncryptedEvent,
         },
-        room_key::ToDeviceRoomKeyEventContent,
+        room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent, SyncMessageEvent,
-        ToDeviceEvent,
+        AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
@@ -561,7 +560,7 @@ impl OlmMachine {
     /// * `event` - The to-device event that should be decrypted.
     async fn decrypt_to_device_event(
         &self,
-        event: &ToDeviceEvent<ToDeviceEncryptedEventContent>,
+        event: &ToDeviceEncryptedEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
         let mut decrypted = self.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
@@ -586,7 +585,7 @@ impl OlmMachine {
         &self,
         sender_key: &str,
         signing_key: &str,
-        event: &mut ToDeviceEvent<ToDeviceRoomKeyEventContent>,
+        event: &mut ToDeviceRoomKeyEvent,
     ) -> OlmResult<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
         match event.content.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
@@ -977,7 +976,7 @@ impl OlmMachine {
     /// * `session_id` - The id that uniquely identifies the session.
     pub async fn request_room_key(
         &self,
-        event: &SyncMessageEvent<EncryptedEventContent>,
+        event: &SyncEncryptedEvent,
         room_id: &RoomId,
     ) -> MegolmResult<(Option<OutgoingRequest>, OutgoingRequest)> {
         let content = match &event.content.scheme {
@@ -1038,7 +1037,7 @@ impl OlmMachine {
     /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn decrypt_room_event(
         &self,
-        event: &SyncMessageEvent<EncryptedEventContent>,
+        event: &SyncEncryptedEvent,
         room_id: &RoomId,
     ) -> MegolmResult<SyncRoomEvent> {
         let content = match &event.content.scheme {

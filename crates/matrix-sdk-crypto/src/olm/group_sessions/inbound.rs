@@ -27,10 +27,10 @@ use ruma::{
     events::{
         forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
         room::{
-            encrypted::{EncryptedEventContent, EncryptedEventScheme},
+            encrypted::{EncryptedEventScheme, SyncEncryptedEvent},
             history_visibility::HistoryVisibility,
         },
-        AnySyncRoomEvent, SyncMessageEvent,
+        AnySyncRoomEvent,
     },
     serde::Raw,
     DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
@@ -298,7 +298,7 @@ impl InboundGroupSession {
     /// * `event` - The event that should be decrypted.
     pub(crate) async fn decrypt(
         &self,
-        event: &SyncMessageEvent<EncryptedEventContent>,
+        event: &SyncEncryptedEvent,
     ) -> MegolmResult<(Raw<AnySyncRoomEvent>, u32)> {
         let content = match &event.content.scheme {
             EncryptedEventScheme::MegolmV1AesSha2(c) => c,

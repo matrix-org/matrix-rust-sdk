@@ -11,7 +11,7 @@ Connecting and logging in to a homeserver is pretty starightforward:
 use std::convert::TryFrom;
 use matrix_sdk::{
     Client, config::SyncSettings, Result,
-    ruma::{UserId, events::{SyncMessageEvent, room::message::MessageEventContent}},
+    ruma::{UserId, events::room::message::SyncMessageEvent},
 };
 
 #[tokio::main]
@@ -23,11 +23,9 @@ async fn main() -> Result<()> {
     client.login(alice, "password", None, None).await?;
 
     client
-        .register_event_handler(
-            |ev: SyncMessageEvent<MessageEventContent>| async move {
-                println!("Received a message {:?}", ev);
-            },
-        )
+        .register_event_handler(|ev: SyncMessageEvent| async move {
+            println!("Received a message {:?}", ev);
+        })
         .await;
 
     // Syncing is important to synchronize the client state with the server.

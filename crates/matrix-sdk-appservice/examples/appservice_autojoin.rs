@@ -4,10 +4,7 @@ use matrix_sdk_appservice::{
     matrix_sdk::{
         room::Room,
         ruma::{
-            events::{
-                room::member::{MemberEventContent, MembershipState},
-                SyncStateEvent,
-            },
+            events::room::member::{MembershipState, SyncMemberEvent},
             UserId,
         },
     },
@@ -18,7 +15,7 @@ use tracing::trace;
 pub async fn handle_room_member(
     appservice: AppService,
     room: Room,
-    event: SyncStateEvent<MemberEventContent>,
+    event: SyncMemberEvent,
 ) -> Result<()> {
     if !appservice.user_id_is_in_namespace(&event.state_key)? {
         trace!("not an appservice user: {}", event.state_key);
@@ -46,7 +43,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     appservice
         .register_event_handler({
             let appservice = appservice.clone();
-            move |event: SyncStateEvent<MemberEventContent>, room: Room| {
+            move |event: SyncMemberEvent, room: Room| {
                 handle_room_member(appservice.clone(), room, event)
             }
         })

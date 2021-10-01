@@ -458,7 +458,7 @@ mod test {
 
     use matrix_sdk_test::{EventBuilder, EventsJson};
     use ruma::{
-        events::{room::member::MemberEventContent, StrippedStateEvent, SyncStateEvent},
+        events::room::member::{StrippedMemberEvent, SyncMemberEvent},
         room_id,
     };
     use serde_json::json;
@@ -479,7 +479,7 @@ mod test {
         client
             .register_event_handler({
                 let member_count = member_count.clone();
-                move |_ev: SyncStateEvent<MemberEventContent>, _room: room::Room| {
+                move |_ev: SyncMemberEvent, _room: room::Room| {
                     member_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -487,7 +487,7 @@ mod test {
             .await
             .register_event_handler({
                 let typing_count = typing_count.clone();
-                move |_ev: SyncStateEvent<MemberEventContent>| {
+                move |_ev: SyncMemberEvent| {
                     typing_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -495,9 +495,7 @@ mod test {
             .await
             .register_event_handler({
                 let power_levels_count = power_levels_count.clone();
-                move |_ev: SyncStateEvent<MemberEventContent>,
-                      _client: Client,
-                      _room: room::Room| {
+                move |_ev: SyncMemberEvent, _client: Client, _room: room::Room| {
                     power_levels_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -505,7 +503,7 @@ mod test {
             .await
             .register_event_handler({
                 let invited_member_count = invited_member_count.clone();
-                move |_ev: StrippedStateEvent<MemberEventContent>| {
+                move |_ev: StrippedMemberEvent| {
                     invited_member_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
