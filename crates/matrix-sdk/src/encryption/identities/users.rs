@@ -166,9 +166,7 @@ impl UserIdentity {
         &self,
         methods: Vec<VerificationMethod>,
     ) -> Result<VerificationRequest, RequestVerificationError> {
-        if methods.is_empty() {
-            panic!("The list of verification methods can't be non-empty");
-        }
+        assert!(!methods.is_empty(), "The list of verification methods can't be non-empty");
 
         match &self.inner {
             UserIdentities::Own(i) => i.request_verification(Some(methods)).await,

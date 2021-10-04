@@ -165,9 +165,7 @@ impl GroupSessionManager {
             panic!("Session wasn't created nor shared");
         };
 
-        if session.expired() {
-            panic!("Session expired");
-        }
+        assert!(!session.expired(), "Session expired");
 
         let content = session.encrypt(content, event_type).await;
 

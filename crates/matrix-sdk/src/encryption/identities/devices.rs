@@ -132,9 +132,7 @@ impl Device {
         &self,
         methods: Vec<VerificationMethod>,
     ) -> Result<VerificationRequest> {
-        if methods.is_empty() {
-            panic!("The list of verification methods can't be non-empty");
-        }
+        assert!(!methods.is_empty(), "The list of verification methods can't be non-empty");
 
         let (verification, request) = self.inner.request_verification_with_methods(methods).await;
         self.client.send_verification_request(request).await?;

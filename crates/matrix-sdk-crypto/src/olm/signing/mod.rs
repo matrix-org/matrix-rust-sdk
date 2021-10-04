@@ -439,14 +439,14 @@ impl PrivateCrossSigningIdentity {
 
     pub(crate) async fn sign_device_keys(
         &self,
-        mut device_keys: &mut DeviceKeys,
+        device_keys: &mut DeviceKeys,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         self.self_signing_key
             .lock()
             .await
             .as_ref()
             .ok_or(SignatureError::MissingSigningKey)?
-            .sign_device(&mut device_keys)
+            .sign_device(device_keys)
             .await?;
 
         let mut signed_keys = BTreeMap::new();

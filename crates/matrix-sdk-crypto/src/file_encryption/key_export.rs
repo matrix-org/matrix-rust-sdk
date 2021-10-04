@@ -147,7 +147,7 @@ pub fn encrypt_key_export(
     Ok([HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n"))
 }
 
-fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
+fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
     let mut salt = [0u8; SALT_SIZE];
     let mut iv = [0u8; IV_SIZE];
     let mut derived_keys = [0u8; KEY_SIZE * 2];
@@ -168,7 +168,7 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
     let aes = Aes256::new(key);
     let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
 
-    aes.apply_keystream(&mut plaintext);
+    aes.apply_keystream(plaintext);
 
     let mut payload: Vec<u8> = vec![];
 
@@ -225,10 +225,10 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     let key = GenericArray::from_slice(key);
     let iv = GenericArray::from_slice(&iv);
 
-    let mut ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
+    let ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
     let aes = Aes256::new(key);
     let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
-    aes.apply_keystream(&mut ciphertext);
+    aes.apply_keystream(ciphertext);
 
     Ok(String::from_utf8(ciphertext.to_owned())?)
 }
