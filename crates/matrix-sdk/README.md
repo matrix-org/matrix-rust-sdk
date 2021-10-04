@@ -62,21 +62,23 @@ More examples can be found in the [examples] directory.
 The following crate feature flags are available:
 
 * `encryption`: Enables end-to-end encryption support in the library.
-* `qrcode`: Enables qrcode verification support in the library. This will also
+* `qrcode`: Enables QR code verification support in the library. This will also
   enable `encryption`. Enabled by default.
-* `sled_cryptostore`: Enables a Sled based store for the encryption keys. If
-  this is disabled and `encryption` support is enabled the keys will by
+* `sled_cryptostore`: Enables a Sled-based store for the encryption keys. If
+  this is disabled and `encryption` support is enabled, the keys will by
   default be stored only in memory and thus lost after the client is
   destroyed.
-* `markdown`: Support for sending markdown formatted messages.
-* `socks`: Enables SOCKS support in reqwest, the default HTTP client.
-* `sso_login`: Enables SSO login with a local http server.
-* `require_auth_for_profile_requests`: Whether to send the access token in
-  the authentication header when calling endpoints that retrieve profile
-  data. This matches the synapse configuration
-  `require_auth_for_profile_requests`. Enabled by default.
-* `appservice`: Enables low-level appservice functionality. For an
-  high-level API there's the `matrix-sdk-appservice` crate
+* `markdown`: Support for sending Markdown-formatted messages.
+* `socks`: Enables SOCKS support in
+  [`reqwest`](https://docs.rs/reqwest/0.11.4/reqwest/), the default HTTP
+  client.
+* `sso_login`: Enables SSO login with a local HTTP server.
+* `require_auth_for_profile_requests`: Controls whether to send the access
+  token in the authentication header when calling endpoints that retrieve
+  profile data. This matches the Synapse option with the same name. Enabled by
+  default.
+* `appservice`: Enables low-level appservice functionality. For a
+  high-level API, see the `matrix-sdk-appservice` crate.
 * `anyhow`: More verbose error logging for event handlers that return
   `anyhow::Result<()>`.
 * `eyre`: More verbose error logging for event handlers that return
