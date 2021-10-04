@@ -1243,11 +1243,13 @@ mod test {
         );
 
         // We now share the session, since it was shared before.
-        outbound.mark_shared_with(
-            bob_device.user_id(),
-            bob_device.device_id(),
-            bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
-        );
+        outbound
+            .mark_shared_with(
+                bob_device.user_id(),
+                bob_device.device_id(),
+                bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+            )
+            .await;
         assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
 
         let (other_outbound, other_inbound) =
