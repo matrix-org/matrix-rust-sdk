@@ -1,7 +1,7 @@
 A [Matrix](https://matrix.org/) client library written in Rust.
 
-The matrix-sdk aims to be a general purpose client library for writing Matrix
-clients, bots, and other Matrix related things that use the client-server API to
+The matrix-sdk aims to be a general-purpose client library for writing Matrix
+clients, bots, and other software using the Matrix Client-Server API to
 communicate with a Matrix homeserver.
 
 # Examples
