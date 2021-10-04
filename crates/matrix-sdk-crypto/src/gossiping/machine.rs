@@ -497,9 +497,12 @@ impl GossipMachine {
     ///
     /// A `Result` representing whether we should share the session:
     ///
-    /// - `Ok(None)`: Should share the entire session, starting with the earliest known index.
-    /// - `Ok(Some(i))`: Should share the session, but only starting from index i.
-    /// - `Err(x)`: Should *refuse* to share the session. `x` is the reason for the refusal.
+    /// - `Ok(None)`: Should share the entire session, starting with the
+    ///   earliest known index.
+    /// - `Ok(Some(i))`: Should share the session, but only starting from index
+    ///   i.
+    /// - `Err(x)`: Should *refuse* to share the session. `x` is the reason for
+    ///   the refusal.
     async fn should_share_key(
         &self,
         device: &Device,
@@ -512,13 +515,14 @@ impl GossipMachine {
             .ok()
             .flatten();
 
-        // If this is our own, verified device, we share the entire session from the earliest known
-        // index.
+        // If this is our own, verified device, we share the entire session from the
+        // earliest known index.
         if device.user_id() == self.user_id() && device.verified() {
             Ok(None)
-        // Otherwise, if the records show we previously shared with this device, we'll reshare the
-        // session from the index we previously shared at. For this, we need an outbound session
-        // because this information is recorded there.
+        // Otherwise, if the records show we previously shared with this device,
+        // we'll reshare the session from the index we previously shared
+        // at. For this, we need an outbound session because this
+        // information is recorded there.
         } else if let Some(outbound) = outbound_session {
             match outbound.is_shared_with(device) {
                 ShareState::Shared(message_index) => Ok(Some(message_index)),
@@ -1258,8 +1262,8 @@ mod test {
             Err(KeyForwardDecision::MissingOutboundSession)
         );
 
-        // Finally, let's ensure we don't share the session with a device that rotated its
-        // curve25519 key.
+        // Finally, let's ensure we don't share the session with a device that rotated
+        // its curve25519 key.
         let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
         machine.store.save_devices(&[bob_device]).await.unwrap();
 
@@ -1270,36 +1274,32 @@ mod test {
             Err(KeyForwardDecision::ChangedSenderKey)
         );
 
-        // Now let's encrypt some messages in another session to increment the message index and
-        // then share it with our own untrusted device.
+        // Now let's encrypt some messages in another session to increment the message
+        // index and then share it with our own untrusted device.
         own_device.set_trust_state(LocalTrust::Unset);
 
         for _ in 1..=3 {
             other_outbound.encrypt_helper("foo".to_string()).await;
         }
-        other_outbound.mark_shared_with(
-            own_device.user_id(),
-            own_device.device_id(),
-            own_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
-        ).await;
+        other_outbound
+            .mark_shared_with(
+                own_device.user_id(),
+                own_device.device_id(),
+                own_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+            )
+            .await;
 
         machine.outbound_group_sessions.insert(other_outbound.clone());
 
-        // Since our device is untrusted, we should share the session starting only from the
-        // current index (at which the message was marked as shared). This should be 3 since we
-        // encrypted 3 messages.
-        assert_matches!(
-            machine.should_share_key(&own_device, &other_inbound).await,
-            Ok(Some(3))
-        );
+        // Since our device is untrusted, we should share the session starting only from
+        // the current index (at which the message was marked as shared). This
+        // should be 3 since we encrypted 3 messages.
+        assert_matches!(machine.should_share_key(&own_device, &other_inbound).await, Ok(Some(3)));
 
         own_device.set_trust_state(LocalTrust::Verified);
 
         // However once our device is trusted, we share the entire session.
-        assert_matches!(
-            machine.should_share_key(&own_device, &other_inbound).await,
-            Ok(None)
-        );
+        assert_matches!(machine.should_share_key(&own_device, &other_inbound).await, Ok(None));
     }
 
     #[async_test]
@@ -1344,11 +1344,13 @@ mod test {
             )
             .await
             .unwrap();
-        group_session.mark_shared_with(
-            alice_device.user_id(),
-            alice_device.device_id(),
-            alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
-        ).await;
+        group_session
+            .mark_shared_with(
+                alice_device.user_id(),
+                alice_device.device_id(),
+                alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+            )
+            .await;
 
         // Put the outbound session into bobs store.
         bob_machine.outbound_group_sessions.insert(group_session.clone());
@@ -1550,11 +1552,13 @@ mod test {
             )
             .await
             .unwrap();
-        group_session.mark_shared_with(
-            alice_device.user_id(),
-            alice_device.device_id(),
-            alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
-        ).await;
+        group_session
+            .mark_shared_with(
+                alice_device.user_id(),
+                alice_device.device_id(),
+                alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+            )
+            .await;
 
         // Put the outbound session into bobs store.
         bob_machine.outbound_group_sessions.insert(group_session.clone());
