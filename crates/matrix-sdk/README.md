@@ -5,7 +5,7 @@ clients, bots, and other Matrix related things that use the client-server API to
 communicate with a Matrix homeserver.
 
 # Examples
-Connecting and logging in to a homeserver is pretty starightforward:
+Connecting and logging in to a homeserver is pretty straightforward:
 
 ```rust,no_run
 use std::convert::TryFrom;
