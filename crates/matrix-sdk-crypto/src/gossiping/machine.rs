@@ -531,12 +531,10 @@ impl GossipMachine {
             }
         // Otherwise, there's not enough info to decide if we can safely share
         // the session.
+        } else if device.user_id() == self.user_id() {
+            Err(KeyForwardDecision::UntrustedDevice)
         } else {
-            if device.user_id() == self.user_id() {
-                Err(KeyForwardDecision::UntrustedDevice)
-            } else {
-                Err(KeyForwardDecision::MissingOutboundSession)
-            }
+            Err(KeyForwardDecision::MissingOutboundSession)
         }
     }
 
