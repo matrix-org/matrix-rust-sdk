@@ -15,7 +15,18 @@
 use std::{net::ToSocketAddrs, result::Result as StdResult};
 
 use futures::TryFutureExt;
-use matrix_sdk::{bytes::Bytes, ruma};
+use matrix_sdk::{
+    bytes::Bytes,
+    ruma::{
+        self,
+        api::{
+            appservice::query::{
+                query_room_alias::v1 as query_room, query_user_id::v1 as query_user,
+            },
+            IncomingRequest,
+        },
+    },
+};
 use serde::Serialize;
 use warp::{filters::BoxedFilter, path::FullPath, Filter, Rejection, Reply};
 
@@ -156,17 +167,35 @@ mod handlers {
 
     pub async fn user(
         _user_id: String,
-        _appservice: AppService,
-        _request: http::Request<Bytes>,
+        appservice: AppService,
+        request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
+        if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
+            let request =
+                query_user::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+            return if user_exists(appservice.clone(), request).await {
+                Ok(warp::reply::json(&String::from("{}")))
+            } else {
+                Err(warp::reject::not_found())
+            };
+        }
         Ok(warp::reply::json(&String::from("{}")))
     }
 
     pub async fn room(
         _room_id: String,
-        _appservice: AppService,
-        _request: http::Request<Bytes>,
+        appservice: AppService,
+        request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
+        if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
+            let request =
+                query_room::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+            return if room_exists(appservice.clone(), request).await {
+                Ok(warp::reply::json(&String::from("{}")))
+            } else {
+                Err(warp::reject::not_found())
+            };
+        }
         Ok(warp::reply::json(&String::from("{}")))
     }
 
