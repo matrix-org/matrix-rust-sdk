@@ -1,3 +1,4 @@
+edition = "2018"
 max_width = 100
 comment_width = 80
 wrap_comments = true
