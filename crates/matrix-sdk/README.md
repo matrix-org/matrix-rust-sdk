@@ -1,11 +1,28 @@
-A [Matrix](https://matrix.org/) client library written in Rust.
+A high-level, batteries-included [Matrix](https://matrix.org/) client library
+written in Rust.
 
-The matrix-sdk aims to be a general-purpose client library for writing Matrix
-clients, bots, and other software using the Matrix Client-Server API to
-communicate with a Matrix homeserver.
+This crate seeks to be a general-purpose library for writing software using the
+Matrix [Client-Server API](https://matrix.org/docs/spec/client_server/latest)
+to communicate with a Matrix homeserver. If you're writing a typical Matrix
+client or bot, this is likely the crate you need.
 
-# Examples
-Connecting and logging in to a homeserver is pretty straightforward:
+However, the crate is designed in a modular way and depends on several
+other lower-level crates. If you're attempting something more custom, you might be interested in these:
+
+- [`matrix_sdk_base`]: A no-network-IO client state machine which cab be used
+  to embed a Matrix client into an existing network stack or to build a new
+  Matrix client library on top.
+- [`matrix_sdk_crypto`](https://docs.rs/matrix-sdk-crypto/*/matrix_sdk_crypto/):
+  A no-network-IO encryption state machine which can be used to add Matrix E2EE
+  support into an existing client or library.
+
+# Getting started
+
+The central component you'll be interacting with is the [`Client`]. A basic use
+case will include instantiating the client, logging in as a user, registering
+some event handlers and then syncing.
+
+This is demonstrated in the example below.
 
 ```rust,no_run
 use std::convert::TryFrom;
