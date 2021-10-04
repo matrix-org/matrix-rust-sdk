@@ -44,3 +44,10 @@ async fn main() -> Result<(), OlmError> {
 
 [Matrix]: https://matrix.org/
 [matrix-sdk]: https://github.com/matrix-org/matrix-rust-sdk/
+
+# Room key sharing algorithm
+
+The decision tree below visualizes the way this crate decides whether a room
+key will be shared with a requester upon a key request.
+
+![](https://raw.githubusercontent.com/matrix-org/matrix-rust-sdk/main/contrib/key-sharing-algorithm/model.png)
