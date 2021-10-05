@@ -351,6 +351,7 @@ impl Joined {
     ///       events sent by our own device and/or to implement local echo.
     ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::sync::{Arc, RwLock};
     /// # use matrix_sdk::{Client, config::SyncSettings};
@@ -358,9 +359,16 @@ impl Joined {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
     /// # use std::convert::TryFrom;
+    /// # use serde::{Deserialize, Serialize};
     /// use matrix_sdk::{
     ///     uuid::Uuid,
-    ///     ruma::events::room::message::{MessageEventContent, TextMessageEventContent},
+    ///     ruma::{
+    ///         events::{
+    ///             macros::EventContent,
+    ///             room::message::{MessageEventContent, TextMessageEventContent},
+    ///         },
+    ///         uint, MilliSecondsSinceUnixEpoch,
+    ///     },
     /// };
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
@@ -368,7 +376,29 @@ impl Joined {
     /// # let room_id = room_id!("!test:localhost");
     ///
     /// let content = MessageEventContent::text_plain("Hello world");
+    /// let txn_id = Uuid::new_v4();
     ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.send(content, Some(txn_id)).await?;
+    /// }
+    ///
+    /// // Custom events work too:
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = Message)]
+    /// struct TokenEventContent {
+    ///     token: String,
+    ///     #[serde(rename = "exp")]
+    ///     expires_at: MilliSecondsSinceUnixEpoch,
+    /// }
+    ///
+    /// # fn generate_token() -> String { todo!() }
+    /// let content = TokenEventContent {
+    ///     token: generate_token(),
+    ///     expires_at: {
+    ///         let now = MilliSecondsSinceUnixEpoch::now();
+    ///         MilliSecondsSinceUnixEpoch(now.0 + uint!(30_000))
+    ///     },
+    /// };
     /// let txn_id = Uuid::new_v4();
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
@@ -621,9 +651,10 @@ impl Joined {
     /// # Example
     ///
     /// ```no_run
+    /// # use serde::{Deserialize, Serialize};
     /// use matrix_sdk::ruma::{
     ///     events::{
-    ///         AnyStateEventContent,
+    ///         macros::EventContent,
     ///         room::member::{MemberEventContent, MembershipState},
     ///     },
     ///     assign, mxc_uri,
@@ -637,6 +668,16 @@ impl Joined {
     /// let content = assign!(MemberEventContent::new(MembershipState::Join), {
     ///    avatar_url: Some(avatar_url),
     /// });
+    ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.send_state_event(content, "").await?;
+    /// }
+    ///
+    /// // Custom event:
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State)]
+    /// struct XxxStateEventContent { /* fields... */ }
+    /// let content: XxxStateEventContent = todo!();
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event(content, "").await?;
