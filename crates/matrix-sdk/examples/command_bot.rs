@@ -12,18 +12,9 @@ use url::Url;
 
 async fn on_room_message(event: SyncMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
-        let msg_body = if let SyncMessageEvent {
-            content:
-                MessageEventContent {
-                    msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
-                    ..
-                },
-            ..
-        } = event
-        {
-            msg_body
-        } else {
-            return;
+        let msg_body = match event.content.msgtype {
+            MessageType::Text(TextMessageEventContent { body, .. }) => body,
+            _ => return,
         };
 
         if msg_body.contains("!party") {
