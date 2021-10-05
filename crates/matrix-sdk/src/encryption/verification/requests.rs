@@ -38,6 +38,11 @@ impl VerificationRequest {
         self.inner.is_cancelled()
     }
 
+    /// Get the transaction id of this verification request
+    pub fn flow_id(&self) -> &str {
+        self.inner.flow_id().as_str()
+    }
+
     /// Get info about the cancellation if the verification request has been
     /// cancelled.
     pub fn cancel_info(&self) -> Option<CancelInfo> {
