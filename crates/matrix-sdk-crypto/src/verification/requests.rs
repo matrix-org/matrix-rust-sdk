@@ -312,10 +312,7 @@ impl VerificationRequest {
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
-        let inner = self.inner
-            .lock()
-            .unwrap()
-            .clone();
+        let inner = self.inner.lock().unwrap().clone();
 
         inner.generate_qr_code(self.we_started, self.inner.clone().into()).await
     }
