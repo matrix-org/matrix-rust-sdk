@@ -4,14 +4,17 @@ use matrix_sdk::{
     self,
     config::SyncSettings,
     room::Room,
-    ruma::events::room::message::{
-        MessageEventContent, MessageType, SyncMessageEvent, TextMessageEventContent,
+    ruma::events::{
+        SyncMessageEvent,
+        room::message::{
+            MessageEventContent, MessageType, TextMessageEventContent,
+        },
     },
     Client,
 };
 use url::Url;
 
-async fn on_room_message(event: SyncMessageEvent, room: Room) {
+async fn on_room_message(event: SyncMessageEvent<MessageEventContent>, room: Room) {
     if let Room::Joined(room) = room {
         if let SyncMessageEvent {
             content:
