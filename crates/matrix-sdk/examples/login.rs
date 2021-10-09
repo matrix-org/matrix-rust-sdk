@@ -5,10 +5,8 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::events::{
+        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
-        room::message::{
-            MessageEventContent, MessageType, TextMessageEventContent,
-        },
     },
     Client,
 };
