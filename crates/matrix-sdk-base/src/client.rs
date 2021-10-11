@@ -648,8 +648,6 @@ impl BaseClient {
         &self,
         response: api::sync::sync_events::Response,
     ) -> Result<SyncResponse> {
-        #[allow(unknown_lints)] // New lint to be released in 1.57.0
-        #[warn(non_exhaustive_omitted_patterns)]
         let api::sync::sync_events::Response {
             next_batch,
             rooms,
