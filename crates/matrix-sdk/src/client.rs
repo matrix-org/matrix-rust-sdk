@@ -2011,7 +2011,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let username = "";
     /// # let password = "";
-    /// use futures::stream::TryStreamExt;
+    /// use futures::StreamExt;
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
     ///     ruma::events::{SyncMessageEvent, room::message::MessageEventContent},
@@ -2022,7 +2022,7 @@ impl Client {
     ///
     /// let mut sync_stream = Box::pin(client.sync_stream(SyncSettings::default()).await);
     ///
-    /// for response in sync_stream.try_next().await? {
+    /// while let Some(Ok(response)) = sync_stream.next().await {
     ///     for room in response.rooms.join.values() {
     ///         for e in &room.timeline.events {
     ///             if let Ok(event) = e.event.deserialize() {
@@ -2045,13 +2045,9 @@ impl Client {
             sync_settings.token = self.sync_token().await;
         }
 
-        // TODO we should only abort the sync loop if the error is a storage error or
-        // the access token got invalid.
-        async_stream::try_stream! {
+        async_stream::stream! {
             loop {
-                let response = self.sync_loop_helper(&mut sync_settings).await?;
-
-                yield response;
+                yield self.sync_loop_helper(&mut sync_settings).await;
 
                 Client::delay_sync(&mut last_sync_time).await
             }
