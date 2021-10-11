@@ -1,15 +1,20 @@
-A no-io implementation of a state machine that handles E2EE for [Matrix] clients.
+A no-network-IO implementation of a state machine that handles E2EE for
+[Matrix] clients.
 
 # Usage
 
-This is probably not the crate you are looking for, it’s used internally in the [matrix-sdk].
+If you're just trying to write a Matrix client or bot in Rust, you're probably
+looking for [matrix-sdk] instead.
 
-If you're still interested in this crate it can be used to introduce E2EE
-support into your client or client library.
+However, if you're looking to add E2EE to an existing Matrix client or library,
+read on.
 
-The state machine works in a push/pull manner, you push state changes and events
-that we receive from a sync response from the server, and we pull requests that
-we need to send to the server out of the state machine.
+The state machine works in a push/pull manner:
+
+- you push state changes and events retrieved from a Matrix homeserver /sync
+  response into the state machine
+- you pull requests that you'll need to send back to the homeserver out of the
+  state machine
 
 ```rust,no_run
 use std::{collections::BTreeMap, convert::TryFrom};

@@ -1,11 +1,28 @@
-A [Matrix](https://matrix.org/) client library written in Rust.
+A high-level, batteries-included [Matrix](https://matrix.org/) client library
+written in Rust.
 
-The matrix-sdk aims to be a general purpose client library for writing Matrix
-clients, bots, and other Matrix related things that use the client-server API to
-communicate with a Matrix homeserver.
+This crate seeks to be a general-purpose library for writing software using the
+Matrix [Client-Server API](https://matrix.org/docs/spec/client_server/latest)
+to communicate with a Matrix homeserver. If you're writing a typical Matrix
+client or bot, this is likely the crate you need.
 
-# Examples
-Connecting and logging in to a homeserver is pretty starightforward:
+However, the crate is designed in a modular way and depends on several
+other lower-level crates. If you're attempting something more custom, you might be interested in these:
+
+- [`matrix_sdk_base`]: A no-network-IO client state machine which cab be used
+  to embed a Matrix client into an existing network stack or to build a new
+  Matrix client library on top.
+- [`matrix_sdk_crypto`](https://docs.rs/matrix-sdk-crypto/*/matrix_sdk_crypto/):
+  A no-network-IO encryption state machine which can be used to add Matrix E2EE
+  support into an existing client or library.
+
+# Getting started
+
+The central component you'll be interacting with is the [`Client`]. A basic use
+case will include instantiating the client, logging in as a user, registering
+some event handlers and then syncing.
+
+This is demonstrated in the example below.
 
 ```rust,no_run
 use std::convert::TryFrom;
@@ -43,21 +60,23 @@ More examples can be found in the [examples] directory.
 The following crate feature flags are available:
 
 * `encryption`: Enables end-to-end encryption support in the library.
-* `qrcode`: Enables qrcode verification support in the library. This will also
+* `qrcode`: Enables QR code verification support in the library. This will also
   enable `encryption`. Enabled by default.
-* `sled_cryptostore`: Enables a Sled based store for the encryption keys. If
-  this is disabled and `encryption` support is enabled the keys will by
+* `sled_cryptostore`: Enables a Sled-based store for the encryption keys. If
+  this is disabled and `encryption` support is enabled, the keys will by
   default be stored only in memory and thus lost after the client is
   destroyed.
-* `markdown`: Support for sending markdown formatted messages.
-* `socks`: Enables SOCKS support in reqwest, the default HTTP client.
-* `sso_login`: Enables SSO login with a local http server.
-* `require_auth_for_profile_requests`: Whether to send the access token in
-  the authentication header when calling endpoints that retrieve profile
-  data. This matches the synapse configuration
-  `require_auth_for_profile_requests`. Enabled by default.
-* `appservice`: Enables low-level appservice functionality. For an
-  high-level API there's the `matrix-sdk-appservice` crate
+* `markdown`: Support for sending Markdown-formatted messages.
+* `socks`: Enables SOCKS support in
+  [`reqwest`](https://docs.rs/reqwest/0.11.4/reqwest/), the default HTTP
+  client.
+* `sso_login`: Enables SSO login with a local HTTP server.
+* `require_auth_for_profile_requests`: Controls whether to send the access
+  token in the authentication header when calling endpoints that retrieve
+  profile data. This matches the Synapse option with the same name. Enabled by
+  default.
+* `appservice`: Enables low-level appservice functionality. For a
+  high-level API, see the `matrix-sdk-appservice` crate.
 * `anyhow`: More verbose error logging for event handlers that return
   `anyhow::Result<()>`.
 * `eyre`: More verbose error logging for event handlers that return
