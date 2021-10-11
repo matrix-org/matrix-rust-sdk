@@ -33,7 +33,21 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 
 /// A struct representing a E2EE capable identity of a user.
 ///
-/// The identity is backed by public [cross signing] keys that users upload.
+/// The identity is backed by public [cross signing] keys that users upload. If
+/// our own user doesn't yet have such an identity, a new one can be created and
+/// uploaded to the server using [`Client::bootstrap_cross_signing()`].
+///
+///
+/// The identity consists of three separate `ed25519` keypairs:
+///
+/// ```text
+///           ┌──────────────────────────────────────────────────────┐
+///           │                    User Identity                     │
+///           ├────────────────┬─────────────────────────────────────┤
+///           │   Master Key   │ Self-signing Key │ User-signing key │
+///           └────────────────┴─────────────────────────────────────┘
+/// ```
+///
 ///
 /// [cross signing]: https://spec.matrix.org/unstable/client-server-api/#cross-signing
 #[derive(Debug, Clone)]
@@ -178,6 +192,10 @@ impl UserIdentity {
     /// This method will attempt to sign the user identity using our private
     /// cross signing key. Verifying can fail if we don't have the private
     /// part of our user-signing key.
+    ///
+    /// On the other hand, if the user identity belongs to us, it will be
+    /// marked as verified and our own device will sign the user identity.
+    /// Manually verifying our own user identity can't fail.
     ///
     /// The state of our private cross signing keys can be inspected using the
     /// [`Client::cross_signing_status()`] method.

@@ -12,7 +12,93 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! End to end encryption related types
+//! End-to-end Encryption Related Types
+//!
+//! Matrix has support for end-to-end encrypted messaging, this module contains
+//! types related to end-to-end encryption, describes a bit how E2EE works in
+//! the matrix-sdk, and how to set your [`Client`] up to support E2EE.
+//!
+//! ## End-to-end Encryption
+//!
+//! While all messages in Matrix land are transferred to the server in an
+//! encrypted manner, rooms can be marked as end-to-end encrypted. If a room is
+//! marked as end-to-end encrypted, using a `m.room.encrypted` state event, all
+//! messages that are sent to this room will be encrypted for the individual
+//! room members. This means that the server won't be able to read messages that
+//! get sent to such a room.
+//!
+//! ```text
+//!                               ┌──────────────┐
+//!                               │  Homeserver  │
+//!      ┌───────┐                │              │                ┌───────┐
+//!      │ Alice │═══════════════►│  unencrypted │═══════════════►│  Bob  │
+//!      └───────┘   encrypted    │              │   encrypted    └───────┘
+//!                               └──────────────┘
+//! ```
+//!
+//! ```text
+//!                               ┌──────────────┐
+//!                               │  Homeserver  │
+//!      ┌───────┐                │              │                ┌───────┐
+//!      │ Alice │≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡►│─────────────►│≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡►│  Bob  │
+//!      └───────┘   encrypted    │   encrypted  │   encrypted    └───────┘
+//!                               └──────────────┘
+//! ```
+//!
+//! ### Encrypting for each End
+//!
+//! We already mentioned that a message in a end-to-end encrypted world needs to
+//! be encrypted for each individual member, though that isn't completely
+//! correct. A message needs to be encrypted for each individual *end*. An *end*
+//! in Matrix land is a client that communicates with the homeserver. The spec
+//! calls an *end* a Device, while other clients might call an *end* a Session.
+//!
+//! The matrix-sdk represents an *end* as a [`Device`] object. Each individual
+//! message should be encrypted for each individual [`Device`] of each
+//! individual room member.
+//!
+//! Since rooms might grow quite big, encrypting each message for every
+//! [`Device`] becomes quickly unsustainable. Because of that room keys have
+//! been introduced.
+//!
+//! ### Room Keys
+//!
+//! ```text
+//!         ┌────────────────────────┬───────────────────────┐
+//!         │ Outbound Group Session │ Inbound Group Session │
+//!         └────────────────────────┴───────────────────────┘
+//! ```
+//!
+//!
+//!
+//! ## Verification
+//!
+//! One important aspect of end-to-end encryption is to check that the *end* you
+//! are communicating with is indeed the person you expect. This checking is
+//! done in Matrix via interactive verification. While interactively verifying,
+//! we'll need to exchange some critical piece of information over another
+//! communication channel, over the phone, or in person are good candidates
+//! for such a channel.
+//!
+//! Usually each *end* will need to verify every *end* it communicates with. An
+//! *end*, as already mentioned, is represented as a [`Device`] in the
+//! matrix-sdk.  Since users might have many devices, the concept of cross
+//! signing has been introduced, users have a single user identity which allows
+//! users to verify their own devices and other users only need to verify this
+//! user identity. A cryptographic user identity is represented in the
+//! matrix-sdk using the [`UserIdentity`] struct. More info about the different
+//! identites can be found in the [`identities`] module.
+//!
+//! To add interactive verification support to your client please see the
+//! [`verification`] module, also check out the documentation for the
+//! [`Device::verified()`] method, which explains in more detail what it means
+//! for a [`Device`] to be verified.
+//!
+//! ## Client Setup
+//!
+//! ### Common Pitfalls
+//!
+//! [`UserIdentity`]: #struct.verification.UserIdentity
 
 pub mod identities;
 pub mod verification;
