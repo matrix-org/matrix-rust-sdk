@@ -292,7 +292,7 @@ impl OlmMachine {
     }
 
     /// Get the display name of our own device
-    pub async fn dislpay_name(&self) -> StoreResult<Option<String>> {
+    pub async fn display_name(&self) -> StoreResult<Option<String>> {
         self.store.device_display_name().await
     }
 

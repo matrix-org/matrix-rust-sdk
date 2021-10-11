@@ -57,7 +57,7 @@ $ cargo bench --bench crypto_bench -- --baseline libolm
 The benchmarks support profiling and generating [Flame Graphs] while they run in
 profiling mode using [pprof].
 
-Profiling usually requieres root permissions, to avoid the need for root
+Profiling usually requires root permissions, to avoid the need for root
 permissions you can adjust the value of `perf_event_paranoid`, e.g. the most
 permisive value is `-1`:
 

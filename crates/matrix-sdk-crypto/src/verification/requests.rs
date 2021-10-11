@@ -415,7 +415,7 @@ impl VerificationRequest {
     /// `m.sas.v1`, the `m.qr_code.show.v1`, and `m.reciprocate.v1` method.
     ///
     /// `m.qr_code.show.v1` will only be signaled if the `qrcode` feature is
-    /// enabled. This feature is disabled by default. If it's enabeled and QR
+    /// enabled. This feature is disabled by default. If it's enabled and QR
     /// code scanning should be supported or QR code showing shouldn't be
     /// supported the [`accept_with_methods()`] method should be used
     /// instead.
@@ -1219,7 +1219,7 @@ impl RequestState<Ready> {
             warn!(
                 user_id = self.other_user_id.as_str(),
                 device_id = self.state.other_device_id.as_str(),
-                "Can't start the SAS verificaiton flow, the device that \
+                "Can't start the SAS verification flow, the device that \
                 accepted the verification doesn't exist"
             );
             return Ok(None);

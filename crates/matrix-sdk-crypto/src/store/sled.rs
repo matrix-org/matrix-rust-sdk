@@ -205,7 +205,7 @@ impl SledStore {
         self.account_info.read().unwrap().clone()
     }
 
-    fn upgrade_databse(db: &Db) -> Result<()> {
+    fn upgrade_database(db: &Db) -> Result<()> {
         let version = db
             .get("version")?
             .map(|v| {
@@ -235,7 +235,7 @@ impl SledStore {
     }
 
     fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self> {
-        Self::upgrade_databse(&db)?;
+        Self::upgrade_database(&db)?;
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 

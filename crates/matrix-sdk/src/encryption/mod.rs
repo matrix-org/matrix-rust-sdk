@@ -755,7 +755,7 @@ impl Client {
             .for_each(|r| async move {
                 match r {
                     Ok(_) => (),
-                    Err(e) => warn!(errro =? e, "Error when sending out an outgoing E2EE request"),
+                    Err(e) => warn!(error =? e, "Error when sending out an outgoing E2EE request"),
                 }
             })
             .await;

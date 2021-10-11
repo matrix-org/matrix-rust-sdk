@@ -227,7 +227,7 @@ impl Device {
                 .sign_device(&self.inner)
                 .await?)
         } else {
-            Err(SignatureError::UserIdMissmatch)
+            Err(SignatureError::UserIdMismatch)
         }
     }
 

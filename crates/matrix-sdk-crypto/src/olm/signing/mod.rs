@@ -728,7 +728,7 @@ mod test {
     }
 
     #[async_test]
-    async fn private_identity_signed_by_accound() {
+    async fn private_identity_signed_by_account() {
         let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
         let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
         let master = identity.master_key.lock().await;

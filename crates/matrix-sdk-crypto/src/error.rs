@@ -160,7 +160,7 @@ pub enum SignatureError {
     /// The user id of signing key differs from the user id that provided the
     /// signature.
     #[error("the user id of the signing key differs user id that provided the signature")]
-    UserIdMissmatch,
+    UserIdMismatch,
 
     /// The provided JSON value that was signed and the signature should be
     /// checked isn't a valid JSON object.

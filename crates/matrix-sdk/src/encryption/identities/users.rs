@@ -81,7 +81,7 @@ impl UserIdentity {
     /// The default methods that are supported are `m.sas.v1` and
     /// `m.qr_code.show.v1`, if this isn't desirable the
     /// [`request_verification_with_methods()`] method can be used to override
-    /// this. `m.qr_code.show.v1` is only avaliable if the `qrcode` feature is
+    /// this. `m.qr_code.show.v1` is only available if the `qrcode` feature is
     /// enabled, which it is by default.
     ///
     /// # Examples

@@ -206,7 +206,7 @@ impl QrVerification {
     ///
     /// **Note**: This method should generally not be used, the [`cancel()`]
     /// method should be preferred. The SDK will automatically cancel with the
-    /// approprate cancel code, user initiated cancellations should only cancel
+    /// appropriate cancel code, user initiated cancellations should only cancel
     /// with the `CancelCode::User`
     ///
     /// Returns None if the `Sas` object is already in a canceled state,

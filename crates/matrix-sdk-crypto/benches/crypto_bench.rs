@@ -40,7 +40,7 @@ fn keys_claim_response() -> claim_keys::Response {
         .expect("Can't parse the keys upload response")
 }
 
-fn huge_keys_query_resopnse() -> get_keys::Response {
+fn huge_keys_query_response() -> get_keys::Response {
     let data = include_bytes!("./keys_query_2000_members.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
@@ -218,7 +218,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
 
     let machine = OlmMachine::new(&alice_id(), &alice_device_id());
-    let response = huge_keys_query_resopnse();
+    let response = huge_keys_query_response();
     let uuid = Uuid::new_v4();
     let users: Vec<UserId> = response.device_keys.keys().cloned().collect();
 

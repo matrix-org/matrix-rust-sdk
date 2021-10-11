@@ -156,13 +156,13 @@ impl MasterSigning {
     }
 
     pub async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
-        let subkey_wihtout_signatures = json!({
+        let subkey_without_signatures = json!({
             "user_id": subkey.user_id.clone(),
             "keys": subkey.keys.clone(),
             "usage": subkey.usage.clone(),
         });
 
-        let message = serde_json::to_string(&subkey_wihtout_signatures)
+        let message = serde_json::to_string(&subkey_without_signatures)
             .expect("Can't serialize cross signing subkey");
         let signature = self.inner.sign(&message).await;
 

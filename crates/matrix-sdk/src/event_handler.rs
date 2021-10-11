@@ -24,7 +24,7 @@
 //!
 //! The stored closure takes care of deserializing the event which the
 //! `EventHandlerData` contains as a (borrowed) [`serde_json::value::RawValue`],
-//! extracing the context arguments from other fields of `EventHandlerData` and
+//! extracting the context arguments from other fields of `EventHandlerData` and
 //! calling / `.await`ing the event handler if the previous steps succeeded.
 //! It also logs any errors from the above chain of function calls.
 //!

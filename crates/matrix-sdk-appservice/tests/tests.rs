@@ -295,7 +295,7 @@ async fn test_appservice_on_sub_path() -> Result<()> {
     let members = appservice
         .get_cached_client(None)?
         .get_room(&room_id)
-        .expect("Expected room to be availabe")
+        .expect("Expected room to be available")
         .members_no_sync()
         .await?;
 

@@ -264,13 +264,13 @@ mod test {
         -----END MEGOLM SESSION DATA-----
     "};
 
-    fn export_wihtout_headers() -> String {
+    fn export_without_headers() -> String {
         TEST_EXPORT.lines().filter(|l| !l.starts_with("-----")).collect()
     }
 
     #[test]
     fn test_decode() {
-        let export = export_wihtout_headers();
+        let export = export_without_headers();
         assert!(decode(export).is_ok());
     }
 

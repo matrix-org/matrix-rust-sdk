@@ -234,7 +234,7 @@ impl UserIdentity {
                 .sign_user(&self.inner)
                 .await?)
         } else {
-            Err(SignatureError::UserIdMissmatch)
+            Err(SignatureError::UserIdMismatch)
         }
     }
 
@@ -484,7 +484,7 @@ impl MasterPubkey {
         let subkey: CrossSigningSubKeys = subkey.into();
 
         if &self.0.user_id != subkey.user_id() {
-            return Err(SignatureError::UserIdMissmatch);
+            return Err(SignatureError::UserIdMismatch);
         }
 
         let utility = Utility::new();
@@ -781,7 +781,7 @@ impl ReadOnlyUserIdentity {
     /// SignatureError indicating why the check failed.
     pub(crate) fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         if self.user_id() != device.user_id() {
-            return Err(SignatureError::UserIdMissmatch);
+            return Err(SignatureError::UserIdMismatch);
         }
 
         self.self_signing_key.verify_device(device)
@@ -889,7 +889,7 @@ impl ReadOnlyOwnUserIdentity {
     /// SignatureError indicating why the check failed.
     pub(crate) fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         if self.user_id() != device.user_id() {
-            return Err(SignatureError::UserIdMissmatch);
+            return Err(SignatureError::UserIdMismatch);
         }
 
         self.self_signing_key.verify_device(device)
