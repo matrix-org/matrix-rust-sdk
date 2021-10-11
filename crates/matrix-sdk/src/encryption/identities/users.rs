@@ -35,19 +35,34 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 ///
 /// The identity is backed by public [cross signing] keys that users upload. If
 /// our own user doesn't yet have such an identity, a new one can be created and
-/// uploaded to the server using [`Client::bootstrap_cross_signing()`].
+/// uploaded to the server using [`Client::bootstrap_cross_signing()`]. The user
+/// identity can be also reset using the same method.
 ///
-///
-/// The identity consists of three separate `ed25519` keypairs:
+/// The user identity consists of three separate `Ed25519` keypairs:
 ///
 /// ```text
 ///           ┌──────────────────────────────────────────────────────┐
 ///           │                    User Identity                     │
-///           ├────────────────┬─────────────────────────────────────┤
+///           ├────────────────┬──────────────────┬──────────────────┤
 ///           │   Master Key   │ Self-signing Key │ User-signing key │
-///           └────────────────┴─────────────────────────────────────┘
+///           └────────────────┴──────────────────┴──────────────────┘
 /// ```
 ///
+/// The identity consists of a Master key and two sub-keys, the Self-signing key
+/// and the User-signing key.
+///
+/// Each key has a separate role:
+/// * Master key - Signs only the sub-keys.
+/// * Self-signing key - Signs devices belonging to the user that owns this
+/// identity.
+/// * User-signing key - Signs Master keys belonging to other users.
+///
+/// The User-signing key and its signatures of other user's Master keys are
+/// hidden from us by the homeserver. This is done to preserve privacy and not
+/// let us know whom the user verified.
+///
+/// Generally the Master key will be used as a fingerprint to identify an
+/// identity.
 ///
 /// [cross signing]: https://spec.matrix.org/unstable/client-server-api/#cross-signing
 #[derive(Debug, Clone)]
@@ -72,7 +87,26 @@ impl UserIdentity {
         Self { inner: identity.into() }
     }
 
-    /// The ID of the user this E2EE identity belongs to.
+    /// The ID of the user this identity belongs to.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use url::Url;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # futures::executor::block_on(async {
+    /// let user = client.get_user_identity(&alice).await?;
+    ///
+    /// if let Some(user) = user {
+    ///     println!("This user identity belongs to {}", user.user_id().as_str());
+    /// }
+    ///
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
     pub fn user_id(&self) -> &UserId {
         match &self.inner {
             UserIdentities::Own(i) => i.inner.user_id(),
@@ -80,23 +114,32 @@ impl UserIdentity {
         }
     }
 
-    /// Request an interacitve verification with this `UserIdentity`.
+    /// Request an interactive verification with this `UserIdentity`.
     ///
     /// Returns a [`VerificationRequest`] object that can be used to control the
     /// verification flow.
     ///
-    /// This will send out a `m.key.verification.request` event to all the E2EE
-    /// capable devices we have if we're requesting verification with our own
-    /// user identity or will send out the event to a DM we share with the user.
+    /// This will send out a `m.key.verification.request` event. Who such an
+    /// event will be sent to depends on if we're veryfing our own identity or
+    /// someone else's:
     ///
-    /// If we don't share a DM with this user one will be created before the
-    /// event gets sent out.
+    /// * Our own identity - All our E2EE capable devices will receive the event
+    /// over to-device messaging.
+    /// * Someone else's identity - The event will be sent to a DM room we share
+    /// with the user, if we don't share a DM with the user, one will be
+    /// created.
     ///
-    /// The default methods that are supported are `m.sas.v1` and
-    /// `m.qr_code.show.v1`, if this isn't desirable the
-    /// [`request_verification_with_methods()`] method can be used to override
-    /// this. `m.qr_code.show.v1` is only available if the `qrcode` feature is
-    /// enabled, which it is by default.
+    /// The default methods that are supported are:
+    ///
+    /// * `m.sas.v1` - Short auth string, or emoji based verification
+    /// * `m.qr_code.show.v1` - QR code based verification
+    ///
+    /// [`request_verification_with_methods()`] method can be
+    /// used to override this. The `m.qr_code.show.v1` method is only available
+    /// if the `qrcode` feature is enabled, which it is by default.
+    ///
+    /// Check out the [`verification`] module for more info how to handle
+    /// interactive verifications.
     ///
     /// # Examples
     ///
@@ -118,7 +161,8 @@ impl UserIdentity {
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
-    /// #method.request_verification_with_methods
+    /// #method.request_verification_with_methods [`verification`]:
+    /// crate::encryption::verification
     pub async fn request_verification(
         &self,
     ) -> Result<VerificationRequest, RequestVerificationError> {
@@ -128,13 +172,17 @@ impl UserIdentity {
         }
     }
 
-    /// Request an interacitve verification with this `UserIdentity`.
+    /// Request an interactive verification with this `UserIdentity` using the
+    /// selected methods.
     ///
     /// Returns a [`VerificationRequest`] object that can be used to control the
     /// verification flow.
     ///
     /// This methods behaves the same way as [`request_verification()`],
     /// but the advertised verification methods can be manually selected.
+    ///
+    /// Check out the [`verification`] module for more info how to handle
+    /// interactive verifications.
     ///
     /// # Arguments
     ///
@@ -175,6 +223,7 @@ impl UserIdentity {
     /// ```
     ///
     /// [`request_verification()`]: #method.request_verification
+    /// [`verification`]: crate::encryption::verification
     pub async fn request_verification_with_methods(
         &self,
         methods: Vec<VerificationMethod>,
@@ -189,18 +238,31 @@ impl UserIdentity {
 
     /// Manually verify this [`UserIdentity`].
     ///
+    /// ### Manually verifying user identities belonging to other users.
+    ///
     /// This method will attempt to sign the user identity using our private
-    /// cross signing key. Verifying can fail if we don't have the private
-    /// part of our user-signing key.
+    /// parts of the cross signing keys. The method will attempt to sign the
+    /// Master key of the user using our own User-signing key. This will of
+    /// course fail if the private part of the User-signing key isn't available.
     ///
-    /// On the other hand, if the user identity belongs to us, it will be
-    /// marked as verified and our own device will sign the user identity.
-    /// Manually verifying our own user identity can't fail.
-    ///
-    /// The state of our private cross signing keys can be inspected using the
+    /// The availability of the User-signing key can be checked using the
     /// [`Client::cross_signing_status()`] method.
     ///
-    /// [`Client::cross_signing_status()`]: crate::Client::cross_signing_status
+    /// ### Manually verifying user identities belonging to us.
+    ///
+    /// On the other hand, if the user identity belongs to us, it will be
+    /// marked as verified using a flag, our own device will also sign the
+    /// Master key. Manually verifying our own user identity can't fail.
+    ///
+    /// ### Problems of manual verification
+    ///
+    /// Manual verification may be more convenient to use, i.e. both users need
+    /// to be online and available to interactively verify each other. Despite
+    /// the convenience, interactive verifications should be generally
+    /// preferred. Manually verifying a user won't notify the other user, the
+    /// one being verified, that they should also verify us. This means that
+    /// user `A` will consider user `B` to be verified, but not the other way
+    /// around.
     ///
     /// # Examples
     ///
@@ -235,9 +297,12 @@ impl UserIdentity {
 
     /// Is the user identity considered to be verified.
     ///
-    /// A user identity is considered to be verified if it has been signed by
-    /// our user-signing key, if the identity belongs to another user, or if we
-    /// locally marked it as verified, if the user identity belongs to us.
+    /// A user identity is considered to be verified if:
+    ///
+    /// * It has been signed by our User-signing key, if the identity belongs
+    /// to another user
+    /// * If it has been locally marked as verified, if the user identity
+    /// belongs to us.
     ///
     /// If the identity belongs to another user, our own user identity needs to
     /// be verified as well for the identity to be considered to be verified.
@@ -277,7 +342,10 @@ impl UserIdentity {
         }
     }
 
-    /// Get the public part of the master key of this user identity.
+    /// Get the public part of the Master key of this user identity.
+    ///
+    /// The public part of the Master key is usually used to uniquely identify
+    /// the identity.
     ///
     /// # Examples
     ///

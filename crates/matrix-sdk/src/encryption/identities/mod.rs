@@ -27,7 +27,7 @@
 //! [`UserIdentity`] struct.
 //!
 //! A [`Device`] or an [`UserIdentity`] can be used to inspect the public keys
-//! of the device or identity, or it can be used to initiate a interactive
+//! of the device/identity, or it can be used to initiate a interactive
 //! verification flow. They can also be manually marked as verified.
 //!
 //! # Examples
