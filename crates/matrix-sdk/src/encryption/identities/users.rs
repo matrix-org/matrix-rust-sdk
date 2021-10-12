@@ -52,10 +52,10 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 /// and the User-signing key.
 ///
 /// Each key has a separate role:
-/// * Master key - Signs only the sub-keys.
-/// * Self-signing key - Signs devices belonging to the user that owns this
+/// * Master key, signs only the sub-keys.
+/// * Self-signing key, signs devices belonging to the user that owns this
 /// identity.
-/// * User-signing key - Signs Master keys belonging to other users.
+/// * User-signing key, signs Master keys belonging to other users.
 ///
 /// The User-signing key and its signatures of other user's Master keys are
 /// hidden from us by the homeserver. This is done to preserve privacy and not
@@ -138,7 +138,7 @@ impl UserIdentity {
     /// used to override this. The `m.qr_code.show.v1` method is only available
     /// if the `qrcode` feature is enabled, which it is by default.
     ///
-    /// Check out the [`verification`] module for more info how to handle
+    /// Check out the [`verification`] module for more info on how to handle
     /// interactive verifications.
     ///
     /// # Examples
@@ -161,8 +161,8 @@ impl UserIdentity {
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
-    /// #method.request_verification_with_methods [`verification`]:
-    /// crate::encryption::verification
+    /// #method.request_verification_with_methods
+    /// [`verification`]: crate::encryption::verification
     pub async fn request_verification(
         &self,
     ) -> Result<VerificationRequest, RequestVerificationError> {
@@ -181,7 +181,7 @@ impl UserIdentity {
     /// This methods behaves the same way as [`request_verification()`],
     /// but the advertised verification methods can be manually selected.
     ///
-    /// Check out the [`verification`] module for more info how to handle
+    /// Check out the [`verification`] module for more info on how to handle
     /// interactive verifications.
     ///
     /// # Arguments
@@ -237,6 +237,14 @@ impl UserIdentity {
     }
 
     /// Manually verify this [`UserIdentity`].
+    ///
+    /// This method will do different things depending on if the user identity
+    /// belongs to us, or if the user identity belongs to someone else. Users
+    /// that chose to manually verify a user identity should make sure that the
+    /// Master key does match to to the `Ed25519` they expect.
+    ///
+    /// The Master key can be inspected using the [`UserIdentity::master_key()`]
+    /// method.
     ///
     /// ### Manually verifying user identities belonging to other users.
     ///
