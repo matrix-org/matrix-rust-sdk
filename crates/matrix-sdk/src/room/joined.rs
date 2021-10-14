@@ -335,7 +335,7 @@ impl Joined {
     /// encrypt the room message if this room is encrypted.
     ///
     /// **Note**: If you just want to send a custom JSON payload to a room, you
-    /// can use the [`send_raw()`] method for that.
+    /// can use the [`Joined::send_raw()`] method for that.
     ///
     /// # Arguments
     ///
@@ -411,7 +411,6 @@ impl Joined {
     /// # matrix_sdk::Result::Ok(()) });
     /// ```
     ///
-    /// [`send_raw()`]: #method.send_raw
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
     /// [`Unsigned`]: ruma::events::Unsigned
     /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
@@ -433,8 +432,9 @@ impl Joined {
     /// If the encryption feature is enabled this method will transparently
     /// encrypt the room message if this room is encrypted.
     ///
-    /// This method is equivalent to the [`send()`] method but allows sending
-    /// custom events.
+    /// This method is equivalent to the [`Joined::send()`] method but allows
+    /// sending custom JSON payloads, e.g. constructed using the
+    /// [`serde_json::json!()`] macro.
     ///
     /// # Arguments
     ///
@@ -479,7 +479,6 @@ impl Joined {
     /// # matrix_sdk::Result::Ok(()) });
     /// ```
     ///
-    /// [`send()`]: #method.send
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
     /// [`Unsigned`]: ruma::events::Unsigned
     /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
