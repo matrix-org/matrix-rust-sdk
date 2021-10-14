@@ -493,15 +493,18 @@ impl Joined {
         #[cfg(not(feature = "encryption"))]
         let content = {
             debug!(
-                "Sending plaintext event to room {} because we don't have encryption support.",
-                self.room_id()
+                room_id = self.room_id().as_str(),
+                "Sending plaintext event to room because we don't have encryption support.",
             );
             serde_json::value::to_raw_value(&content)?
         };
 
         #[cfg(feature = "encryption")]
         let (content, event_type) = if self.is_encrypted() {
-            debug!("Sending encrypted event because the room {} is encrypted.", self.room_id());
+            debug!(
+                room_id = self.room_id().as_str(),
+                "Sending encrypted event because the room is encrypted.",
+            );
 
             if !self.are_members_synced() {
                 self.request_members().await?;
@@ -520,7 +523,10 @@ impl Joined {
 
             (raw_content, "m.room.encrypted")
         } else {
-            debug!("Sending plaintext event because the room {} is NOT encrypted.", self.room_id());
+            debug!(
+                room_id = self.room_id().as_str(),
+                "Sending plaintext event because the room is NOT encrypted.",
+            );
 
             (serde_json::value::to_raw_value(&content)?, event_type)
         };
