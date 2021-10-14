@@ -42,6 +42,7 @@ use ruma::{
     EventId, UserId,
 };
 use serde_json::Value;
+use tracing::debug;
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
@@ -333,6 +334,9 @@ impl Joined {
     /// If the encryption feature is enabled this method will transparently
     /// encrypt the room message if this room is encrypted.
     ///
+    /// **Note**: If you just want to send a custom JSON payload to a room, you
+    /// can use the [`send_raw()`] method for that.
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
@@ -407,6 +411,7 @@ impl Joined {
     /// # matrix_sdk::Result::Ok(()) });
     /// ```
     ///
+    /// [`send_raw()`]: #method.send_raw
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
     /// [`Unsigned`]: ruma::events::Unsigned
     /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
@@ -415,10 +420,10 @@ impl Joined {
         content: impl MessageEventContent,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
-        let request = send_message_event::Request::new(self.inner.room_id(), &txn_id, &content)?;
-        let response = self.client.send(request, None).await?;
-        Ok(response)
+        let event_type = content.event_type().to_owned();
+        let content = serde_json::to_value(content)?;
+
+        self.send_raw(content, &event_type, txn_id).await
     }
 
     /// Send a room message to this room from a json `Value`.
@@ -487,10 +492,18 @@ impl Joined {
         let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
 
         #[cfg(not(feature = "encryption"))]
-        let content = serde_json::value::to_raw_value(&content)?;
+        let content = {
+            debug!(
+                "Sending plaintext event to room {} because we don't have encryption support.",
+                self.room_id()
+            );
+            serde_json::value::to_raw_value(&content)?
+        };
 
         #[cfg(feature = "encryption")]
         let (content, event_type) = if self.is_encrypted() {
+            debug!("Sending encrypted event because the room {} is encrypted.", self.room_id());
+
             if !self.are_members_synced() {
                 self.request_members().await?;
                 // TODO query keys here?
@@ -508,6 +521,8 @@ impl Joined {
 
             (raw_content, "m.room.encrypted")
         } else {
+            debug!("Sending plaintext event because the room {} is NOT encrypted.", self.room_id());
+
             (serde_json::value::to_raw_value(&content)?, event_type)
         };
 
