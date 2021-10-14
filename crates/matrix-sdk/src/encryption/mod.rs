@@ -18,6 +18,9 @@
 //! types related to end-to-end encryption, describes a bit how E2EE works in
 //! the matrix-sdk, and how to set your [`Client`] up to support E2EE.
 //!
+//! Jump to the [Client Setup](#client-setup) section if you don't care how E2EE
+//! works under the hood.
+//!
 //! ## End-to-end Encryption
 //!
 //! While all messages in Matrix land are transferred to the server in an
@@ -45,7 +48,7 @@
 //!                               └──────────────┘
 //! ```
 //!
-//! ### Encrypting for each End
+//! ### Encrypting for Each End
 //!
 //! We already mentioned that a message in a end-to-end encrypted world needs to
 //! be encrypted for each individual member, though that isn't completely
@@ -96,7 +99,20 @@
 //!
 //! ## Client Setup
 //!
+//! The matrix-sdk aims to provide encryption support transparently. If
+//! encryption is enabled and correclty set up, events that need to be encrypted
+//! will be encrypted automatically. Events will also be decrypted
+//! automatically.
+//!
+//! Please note that, unless a client is specifically set up to ignore
+//! unverified devices, verifying devices is **not** necessary for encryption
+//! to work.
+//!
 //! ### Common Pitfalls
+//!
+//! * The `encryption` feature is not enabled
+//! * The access token you are using is tied to another device ID.
+//! * The store you are using
 //!
 //! [`UserIdentity`]: #struct.verification.UserIdentity
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2021 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,10 +29,27 @@ use crate::{
 
 /// A device represents a E2EE capable client or device of an user.
 ///
-/// A device is backed by [device keys] that are uploaded to the server.
+/// A `Device` is backed by [device keys] that are uploaded to the server.
 ///
 /// The [device keys] for our own device will be automatically uploaded by the
 /// SDK and the private parts of our device keys never leave this device.
+///
+/// Device keys consist of an Ed25519 keypair and a Curve25519 keypair. Only the
+/// public parts of those keypairs will be uploaded to the server.
+///
+/// ```text
+///                 ┌──────────────────────────────────┐
+///                 │              Device              │
+///                 ├──────────────────────────────────┤
+///                 │            Device Keys           │
+///                 ├────────────────┬─────────────────┤
+///                 │   Ed25519 Key  │  Curve25519 Key │
+///                 └────────────────┴─────────────────┘
+/// ```
+///
+/// The Ed25519 key will be used to uniquely identify the `Device` while the
+/// Curve25519 key is used to establish 1-to-1 encrypted communication channels
+/// between two devices.
 ///
 /// [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
 #[derive(Clone, Debug)]
