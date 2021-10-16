@@ -132,13 +132,19 @@ impl BackupMachine {
 
     /// TODO
     pub async fn backup(&self) -> Result<Option<OutgoingRequest>, CryptoStoreError> {
-        if let Some(request) = &*self.pending_backup.read().await {
+        let mut request = self.pending_backup.write().await;
+
+        if let Some(request) = &*request {
+            debug!("Backing up, returning an existing request");
+
             Ok(Some(request.clone().into()))
         } else {
-            let request = self.backup_helper().await?;
-            *self.pending_backup.write().await = request.clone();
+            debug!("Backing up, creating a new request");
 
-            Ok(request.map(|r| r.into()))
+            let new_request = self.backup_helper().await?;
+            *request = new_request.clone();
+
+            Ok(new_request.map(|r| r.into()))
         }
     }
 
