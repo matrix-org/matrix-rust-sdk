@@ -744,28 +744,35 @@ impl CryptoStore for SledStore {
         Ok(RoomKeyCounts { total, backed_up })
     }
 
-    async fn inbound_group_sessions_for_backup(&self) -> Result<Vec<InboundGroupSession>> {
-        let pickles: Vec<PickledInboundGroupSession> = self
+    async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let pickles: Vec<InboundGroupSession> = self
             .inbound_group_sessions
             .iter()
             .map(|p| {
                 let item = p?;
-                serde_json::from_slice(&item.1).map_err(CryptoStoreError::Serialization)
+                serde_json::from_slice(&item.1).map_err(CryptoStoreError::from)
             })
+            .filter_map(|p: Result<PickledInboundGroupSession, CryptoStoreError>| match p {
+                Ok(p) => {
+                    if !p.backed_up {
+                        Some(
+                            InboundGroupSession::from_pickle(p, self.get_pickle_mode())
+                                .map_err(CryptoStoreError::from),
+                        )
+                    } else {
+                        None
+                    }
+                }
+
+                Err(p) => Some(Err(p)),
+            })
+            .take(limit)
             .collect::<Result<_>>()?;
 
-        let backed_up = pickles
-            .into_iter()
-            .filter_map(|p| {
-                if !p.backed_up {
-                    InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok()
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(backed_up)
+        Ok(pickles)
     }
 
     async fn reset_backup_state(&self) -> Result<()> {

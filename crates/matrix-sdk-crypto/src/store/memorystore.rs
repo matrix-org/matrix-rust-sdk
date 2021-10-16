@@ -165,17 +165,22 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
-        let backed_up = self.inbound_group_sessions_for_backup().await?.len();
+        let backed_up =
+            self.get_inbound_group_sessions().await?.into_iter().filter(|s| !s.backed_up()).count();
 
         Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
     }
 
-    async fn inbound_group_sessions_for_backup(&self) -> Result<Vec<InboundGroupSession>> {
+    async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
         Ok(self
             .get_inbound_group_sessions()
             .await?
             .into_iter()
             .filter(|s| !s.backed_up())
+            .take(limit)
             .collect())
     }
 

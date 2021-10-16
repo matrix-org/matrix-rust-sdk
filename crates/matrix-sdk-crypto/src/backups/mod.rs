@@ -194,19 +194,25 @@ impl BackupMachine {
     async fn backup_helper(&self) -> Result<Option<PendingBackup>, CryptoStoreError> {
         if let Some(backup_key) = &*self.backup_key.read().await {
             if let Some(version) = backup_key.backup_version() {
-                let sessions = self.store.inbound_group_sessions_for_backup().await?;
+                let sessions =
+                    self.store.inbound_group_sessions_for_backup(Self::BACKUP_BATCH_SIZE).await?;
 
                 if !sessions.is_empty() {
                     let key_count = sessions.len();
                     let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
+
+                    info!(
+                        key_count = key_count,
+                        keys =? session_record,
+                        backup_key =? backup_key,
+                        "Successfully backed up room keys"
+                    );
 
                     let request = PendingBackup {
                         request_id: Uuid::new_v4(),
                         request: KeysBackupRequest { version, rooms: backup },
                         sessions: session_record,
                     };
-
-                    info!(key_count = key_count, backup_key =? backup_key, "Backed up room keys");
 
                     Ok(Some(request))
                 } else {
@@ -233,7 +239,7 @@ impl BackupMachine {
         let mut session_record: BTreeMap<RoomId, BTreeMap<String, BTreeSet<String>>> =
             BTreeMap::new();
 
-        for session in sessions.into_iter().take(Self::BACKUP_BATCH_SIZE) {
+        for session in sessions.into_iter() {
             let room_id = session.room_id().to_owned();
             let session_id = session.session_id().to_owned();
             let sender_key = session.sender_key().to_owned();

@@ -633,7 +633,10 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts>;
 
     /// Get all the inbound group sessions we have not backed up yet.
-    async fn inbound_group_sessions_for_backup(&self) -> Result<Vec<InboundGroupSession>>;
+    async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>>;
 
     /// Reset the backup state of all the stored inbound group sessions.
     async fn reset_backup_state(&self) -> Result<()>;
