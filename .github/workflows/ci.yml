@@ -195,7 +195,6 @@ jobs:
           - linux / features-markdown
           - linux / features-socks
           - linux / features-sso_login
-          - linux / features-require_auth_for_profile_requests
 
         include:
           - name: linux / features-no-encryption
@@ -212,9 +211,6 @@ jobs:
 
           - name: linux / features-rustls-tls
             cargo_args: --no-default-features --features rustls-tls
-
-          - name: linux / features-require_auth_for_profile_requests
-            cargo_args: --no-default-features --features "require_auth_for_profile_requests, native-tls"
 
           - name: linux / features-markdown
             cargo_args: --features markdown

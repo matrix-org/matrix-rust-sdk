@@ -59,28 +59,18 @@ More examples can be found in the [examples] directory.
 
 The following crate feature flags are available:
 
-* `encryption`: Enables end-to-end encryption support in the library.
-* `qrcode`: Enables QR code verification support in the library. This will also
-  enable `encryption`. Enabled by default.
-* `sled_cryptostore`: Enables a Sled-based store for the encryption keys. If
-  this is disabled and `encryption` support is enabled, the keys will by
-  default be stored only in memory and thus lost after the client is
-  destroyed.
-* `markdown`: Support for sending Markdown-formatted messages.
-* `socks`: Enables SOCKS support in
-  [`reqwest`](https://docs.rs/reqwest/0.11.4/reqwest/), the default HTTP
-  client.
-* `sso_login`: Enables SSO login with a local HTTP server.
-* `require_auth_for_profile_requests`: Controls whether to send the access
-  token in the authentication header when calling endpoints that retrieve
-  profile data. This matches the Synapse option with the same name. Enabled by
-  default.
-* `appservice`: Enables low-level appservice functionality. For a
-  high-level API, see the `matrix-sdk-appservice` crate.
-* `anyhow`: More verbose error logging for event handlers that return
-  `anyhow::Result<()>`.
-* `eyre`: More verbose error logging for event handlers that return
-  `eyre::Result<()>`.
+| Feature            | Default | Description                                                    |
+| ------------------ | :-----: | -------------------------------------------------------------- |
+| `anyhow`           |   No    | Better logging for event handlers that return `anyhow::Result` |
+| `encryption`       |   Yes   | End-to-end encryption support                                  |
+| `eyre`             |   No    | Better logging for event handlers that return `eyre::Result`   |
+| `markdown`         |   No    | Support to send Markdown-formatted messages                    |
+| `qrcode`           |   Yes   | QR code verification support                                   |
+| `sled_cryptostore` |   Yes   | Persistent storage for E2EE related data                       |
+| `socks`            |   No    | Enables SOCKS support in the default HTTP client, [`reqwest`]  |
+| `sso_login`        |   No    | Enables SSO login with a local HTTP server                     |
+
+[`reqwest`]: https://docs.rs/reqwest/0.11.5/reqwest/index.html
 
 # Enabling logging
 

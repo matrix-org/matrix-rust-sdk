@@ -20,7 +20,6 @@ native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 socks = ["matrix-sdk/socks"]
 sso_login = ["matrix-sdk/sso_login"]
-require_auth_for_profile_requests = ["matrix-sdk/require_auth_for_profile_requests"]
 
 docs = ["warp"]
 

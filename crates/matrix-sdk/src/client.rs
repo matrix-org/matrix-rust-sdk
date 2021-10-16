@@ -419,10 +419,6 @@ impl Client {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_avatar_url::Request::new(&user_id);
 
-        #[cfg(not(feature = "require_auth_for_profile_requests"))]
-        let config = None;
-
-        #[cfg(feature = "require_auth_for_profile_requests")]
         let config = Some(RequestConfig::new().force_auth());
 
         let response = self.send(request, config).await?;

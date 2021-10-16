@@ -17,10 +17,17 @@ features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
-default = ["encryption", "qrcode", "sled_cryptostore", "sled_state_store", "require_auth_for_profile_requests", "native-tls"]
+default = [
+    "encryption",
+    "qrcode",
+    "sled_cryptostore",
+    "sled_state_store",
+    "native-tls"
+]
 
 encryption = ["matrix-sdk-base/encryption"]
 qrcode = ["encryption", "matrix-sdk-base/qrcode"]
+# TODO merge those two sled features
 sled_state_store = ["matrix-sdk-base/sled_state_store"]
 sled_cryptostore = ["matrix-sdk-base/sled_cryptostore"]
 markdown = ["ruma/markdown"]
@@ -28,10 +35,15 @@ native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
-require_auth_for_profile_requests = []
 appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper", "ruma/rand"]
 
-docs = ["encryption", "sled_cryptostore", "sled_state_store", "sso_login"]
+docs = [
+    "encryption",
+    "sled_cryptostore",
+    "sled_state_store",
+    "sso_login",
+    "qrcode"
+]
 
 [dependencies]
 anyhow = { version = "1.0.42", optional = true }
