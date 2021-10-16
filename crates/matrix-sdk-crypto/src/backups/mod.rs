@@ -80,6 +80,10 @@ impl BackupMachine {
         }
     }
 
+    pub async fn enabled(&self) -> bool {
+        self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
+    }
+
     /// TODO
     pub async fn enable_backup(&self, key: MegolmV1BackupKey) -> Result<(), CryptoStoreError> {
         if key.backup_version().is_some() {
