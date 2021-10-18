@@ -100,7 +100,7 @@
 //! ## Client Setup
 //!
 //! The matrix-sdk aims to provide encryption support transparently. If
-//! encryption is enabled and correclty set up, events that need to be encrypted
+//! encryption is enabled and correctly set up, events that need to be encrypted
 //! will be encrypted automatically. Events will also be decrypted
 //! automatically.
 //!
