@@ -61,8 +61,8 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 /// hidden from us by the homeserver. This is done to preserve privacy and not
 /// let us know whom the user verified.
 ///
-/// Generally the Master key will be used as a fingerprint to identify an
-/// identity.
+/// The Master key can be used as a fingerprint to present the identity to
+/// users.
 ///
 /// [cross signing]: https://spec.matrix.org/unstable/client-server-api/#cross-signing
 #[derive(Debug, Clone)]
@@ -259,7 +259,7 @@ impl UserIdentity {
     /// ### Manually verifying user identities belonging to us.
     ///
     /// On the other hand, if the user identity belongs to us, it will be
-    /// marked as verified using a flag, our own device will also sign the
+    /// marked as verified using a local flag, our own device will also sign the
     /// Master key. Manually verifying our own user identity can't fail.
     ///
     /// ### Problems of manual verification

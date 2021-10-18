@@ -39,7 +39,7 @@ use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
 
-/// Result type of the rust-sdk.
+/// Result type of the matrix-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Result type of a pure HTTP request.
