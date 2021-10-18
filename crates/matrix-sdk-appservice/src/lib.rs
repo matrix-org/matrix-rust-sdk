@@ -99,18 +99,11 @@ use matrix_sdk::{
 };
 use regex::Regex;
 use ruma::{
-    api::{
-        appservice::Registration,
-        client::{
-            error::ErrorKind,
-            r0::{account::register, uiaa::UiaaResponse},
-        },
-        error::{FromHttpResponseError, ServerError},
-    },
+    api::{appservice::Registration, client::r0::account::register},
     assign, identifiers, DeviceId, ServerNameBox, UserId,
 };
 use serde::de::DeserializeOwned;
-use tracing::{info, warn};
+use tracing::info;
 
 mod error;
 mod webserver;
@@ -118,6 +111,8 @@ mod webserver;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub type Host = String;
 pub type Port = u16;
+
+const USER_KEY: &[u8] = b"appservice.users.";
 
 /// AppService Registration
 ///
@@ -393,32 +388,47 @@ impl AppService {
     ///
     /// * `localpart` - The localpart of the user to register. Must be covered
     ///   by the namespaces in the [`Registration`] in order to succeed.
+    ///
+    /// # Returns
+    /// This function may return a UIAA response, which should be checked for
+    /// with [`Error::uiaa_response()`].
     pub async fn register_virtual_user(&self, localpart: impl AsRef<str>) -> Result<()> {
+        if self.is_user_registered(localpart.as_ref()).await? {
+            return Ok(());
+        }
         let request = assign!(register::Request::new(), {
             username: Some(localpart.as_ref()),
             login_type: Some(&register::LoginType::ApplicationService),
         });
 
         let client = self.get_cached_client(None)?;
-        match client.register(request).await {
-            Ok(_) => (),
-            Err(error) => match error {
-                matrix_sdk::HttpError::UiaaError(FromHttpResponseError::Http(
-                    ServerError::Known(UiaaResponse::MatrixError(ref matrix_error)),
-                )) => {
-                    match matrix_error.kind {
-                        ErrorKind::UserInUse => {
-                            // TODO: persist the fact that we registered that user
-                            warn!("{}", matrix_error.message);
-                        }
-                        _ => return Err(error.into()),
-                    }
-                }
-                _ => return Err(error.into()),
-            },
-        }
+        client.register(request).await?;
+        self.set_user_registered(localpart.as_ref()).await?;
 
         Ok(())
+    }
+
+    /// Add the given localpart to the database of registered localparts.
+    async fn set_user_registered(&self, localpart: impl AsRef<str>) -> Result<()> {
+        let client = self.get_cached_client(None)?;
+        client
+            .store()
+            .set_custom_value(
+                &[USER_KEY, localpart.as_ref().as_bytes()].concat(),
+                vec![u8::from(true)],
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Get whether a localpart is listed in the database as registered.
+    async fn is_user_registered(&self, localpart: impl AsRef<str>) -> Result<bool> {
+        let client = self.get_cached_client(None)?;
+        let key = [USER_KEY, localpart.as_ref().as_bytes()].concat();
+        let store = client.store().get_custom_value(&key).await?;
+        let registered =
+            store.and_then(|vec| vec.get(0).copied()).map_or(false, |b| b == u8::from(true));
+        Ok(registered)
     }
 
     /// Get the AppService [registration]
