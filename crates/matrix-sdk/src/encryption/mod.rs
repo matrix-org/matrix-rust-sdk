@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![cfg_attr(rustfmt, rustfmt_skip)]
 //! End-to-end Encryption Related Types
 //!
 //! Matrix has support for end-to-end encrypted messaging, this module contains
@@ -108,12 +109,23 @@
 //! unverified devices, verifying devices is **not** necessary for encryption
 //! to work.
 //!
+//! 1. Make sure the `encryption` feature is enabled.
+//! 2. Configure a store path with the [`ClientConfig::store_path`] method.
+//!
 //! ### Common Pitfalls
+//!
+//! | Failure | Cause | Fix |
+//! | ------------------- | ----- | ----------- |
+//! | No messages get encrypted nor decrypted | The `encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
+//! | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Setup storage with [`ClientConfig::store_path`] |
+//!
 //!
 //! * The `encryption` feature is not enabled
 //! * The access token you are using is tied to another device ID.
 //! * The store you are using
 //!
+//! [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
+//! [`ClientConfig::store_path`]: crate::config::ClientConfig::store_path
 //! [`UserIdentity`]: #struct.verification.UserIdentity
 
 pub mod identities;
