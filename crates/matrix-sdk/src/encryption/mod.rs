@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
-//! End-to-end Encryption Related Types
+//! End-to-end encryption related types
 //!
 //! Matrix has support for end-to-end encrypted messaging, this module contains
 //! types related to end-to-end encryption, describes a bit how E2EE works in
@@ -22,7 +22,7 @@
 //! Jump to the [Client Setup](#client-setup) section if you don't care how E2EE
 //! works under the hood.
 //!
-//! ## End-to-end Encryption
+//! ## End-to-end encryption
 //!
 //! While all messages in Matrix land are transferred to the server in an
 //! encrypted manner, rooms can be marked as end-to-end encrypted. If a room is
@@ -49,7 +49,7 @@
 //!                               └──────────────┘
 //! ```
 //!
-//! ### Encrypting for Each End
+//! ### Encrypting for each end
 //!
 //! We already mentioned that a message in a end-to-end encrypted world needs to
 //! be encrypted for each individual member, though that isn't completely
@@ -65,11 +65,11 @@
 //! [`Device`] becomes quickly unsustainable. Because of that room keys have
 //! been introduced.
 //!
-//! ### Room Keys
+//! ### Room keys
 //!
 //! ```text
 //!         ┌────────────────────────┬───────────────────────┐
-//!         │ Outbound Group Session │ Inbound Group Session │
+//!         │ Outbound group session │ Inbound group session │
 //!         └────────────────────────┴───────────────────────┘
 //! ```
 //!
@@ -98,7 +98,7 @@
 //! [`Device::verified()`] method, which explains in more detail what it means
 //! for a [`Device`] to be verified.
 //!
-//! ## Client Setup
+//! ## Client setup
 //!
 //! The matrix-sdk aims to provide encryption support transparently. If
 //! encryption is enabled and correctly set up, events that need to be encrypted
@@ -112,21 +112,21 @@
 //! 1. Make sure the `encryption` feature is enabled.
 //! 2. Configure a store path with the [`ClientConfig::store_path`] method.
 //!
-//! ### Common Pitfalls
+//! ### Restoring a client
+//!
+//! ### Common pitfalls
 //!
 //! | Failure | Cause | Fix |
 //! | ------------------- | ----- | ----------- |
 //! | No messages get encrypted nor decrypted | The `encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
 //! | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Setup storage with [`ClientConfig::store_path`] |
-//!
-//!
-//! * The `encryption` feature is not enabled
-//! * The access token you are using is tied to another device ID.
-//! * The store you are using
+//! | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
+//! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | TODO |
 //!
 //! [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
 //! [`ClientConfig::store_path`]: crate::config::ClientConfig::store_path
 //! [`UserIdentity`]: #struct.verification.UserIdentity
+//! [Restoring a Client]: #restoring-a-client
 
 pub mod identities;
 pub mod verification;

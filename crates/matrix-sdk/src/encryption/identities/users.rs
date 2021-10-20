@@ -52,7 +52,8 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 /// and the User-signing key.
 ///
 /// Each key has a separate role:
-/// * Master key, signs only the sub-keys.
+/// * Master key, signs only the sub-keys, can be used as a fingerprint of the
+/// identity.
 /// * Self-signing key, signs devices belonging to the user that owns this
 /// identity.
 /// * User-signing key, signs Master keys belonging to other users.
@@ -60,9 +61,6 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 /// The User-signing key and its signatures of other user's Master keys are
 /// hidden from us by the homeserver. This is done to preserve privacy and not
 /// let us know whom the user verified.
-///
-/// The Master key can be used as a fingerprint to present the identity to
-/// users.
 ///
 /// [cross signing]: https://spec.matrix.org/unstable/client-server-api/#cross-signing
 #[derive(Debug, Clone)]
@@ -246,7 +244,7 @@ impl UserIdentity {
     /// The Master key can be inspected using the [`UserIdentity::master_key()`]
     /// method.
     ///
-    /// ### Manually verifying user identities belonging to other users.
+    /// ### Manually verifying other users
     ///
     /// This method will attempt to sign the user identity using our private
     /// parts of the cross signing keys. The method will attempt to sign the
@@ -256,7 +254,7 @@ impl UserIdentity {
     /// The availability of the User-signing key can be checked using the
     /// [`Client::cross_signing_status()`] method.
     ///
-    /// ### Manually verifying user identities belonging to us.
+    /// ### Manually verifying our own user
     ///
     /// On the other hand, if the user identity belongs to us, it will be
     /// marked as verified using a local flag, our own device will also sign the
