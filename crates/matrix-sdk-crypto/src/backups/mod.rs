@@ -20,7 +20,12 @@ use std::{
 };
 
 use matrix_sdk_common::{locks::RwLock, uuid::Uuid};
-use ruma::{api::client::r0::backup::RoomKeyBackup, RoomId};
+use ruma::{
+    api::client::r0::backup::{
+        get_backup::Response as BackupResponse, BackupAlgorithm, RoomKeyBackup,
+    },
+    DeviceKeyAlgorithm, RoomId,
+};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -82,6 +87,41 @@ impl BackupMachine {
 
     pub async fn enabled(&self) -> bool {
         self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
+    }
+
+    pub async fn verify_backup(&self, backup: BackupResponse) -> Result<bool, CryptoStoreError> {
+        Ok(
+            if let BackupAlgorithm::MegolmBackupV1Curve25519AesSha2 { public_key, signatures } =
+                backup.algorithm
+            {
+                if let Some(signatures) = signatures.get(self.store.user_id()) {
+                    for (device_key_id, signatures) in signatures {
+                        if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
+                            let device = self
+                                .store
+                                .get_device(self.store.user_id(), device_key_id.device_id())
+                                .await?;
+
+                            if let Some(device) = device {
+                                if device.verified()
+                                    && device
+                                        .is_signed_by_device(&mut serde_json::json!({}))
+                                        .is_ok()
+                                {
+                                    return Ok(true);
+                                }
+                            }
+                        }
+                    }
+
+                    false
+                } else {
+                    false
+                }
+            } else {
+                false
+            },
+        )
     }
 
     /// TODO

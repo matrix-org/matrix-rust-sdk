@@ -539,7 +539,7 @@ impl ReadOnlyDevice {
         Ok(())
     }
 
-    fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
+    pub(crate) fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
         let signing_key =
             self.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(SignatureError::MissingSigningKey)?;
 
