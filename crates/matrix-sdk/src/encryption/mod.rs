@@ -121,11 +121,12 @@
 //! | No messages get encrypted nor decrypted | The `encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
 //! | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Setup storage with [`ClientConfig::store_path`] |
 //! | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
-//! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | TODO |
+//! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure you're not [filtering] the event out, otherwise it might be deserialization bug |
 //!
 //! [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
 //! [`ClientConfig::store_path`]: crate::config::ClientConfig::store_path
 //! [`UserIdentity`]: #struct.verification.UserIdentity
+//! [filtering]: crate::config::SyncSettings::filter
 //! [Restoring a Client]: #restoring-a-client
 
 pub mod identities;
