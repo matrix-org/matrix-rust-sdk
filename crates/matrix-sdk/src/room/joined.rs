@@ -256,6 +256,57 @@ impl Joined {
         Ok(())
     }
 
+    /// Enable End-to-end encryption in this room.
+    ///
+    /// This method will bea noop if encryption is already enabled, otherwise
+    /// sends a `m.room.encryption` state event to the room. This might fail if
+    /// you don't have the appropriate power level to enable end-to-end
+    /// encryption.
+    ///
+    /// A sync needs to be received to update the local room state. This method
+    /// will wait for a sync to be received though this might time out if no
+    /// sync loop is running or if the server is slow.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{
+    /// #     Client, config::SyncSettings,
+    /// #     ruma::room_id,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver)?;
+    /// # let room_id = room_id!("!test:localhost");
+    /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.enable_encryption().await?
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
+    /// ```
+    pub async fn enable_encryption(&self) -> Result<()> {
+        use ruma::{
+            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
+        };
+        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+
+        if !self.is_encrypted() {
+            let content =
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+            self.send_state_event(content, "").await?;
+
+            // TODO do we want to return an error here if we time out? This
+            // could be quite useful if someone wants to enable encryption and
+            // send a message right after it's enabled.
+            self.client.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+        }
+
+        Ok(())
+    }
+
     /// Share a group session for the given room.
     ///
     /// This will create Olm sessions with all the users/device pairs in the
