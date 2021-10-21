@@ -21,11 +21,10 @@ use std::{
 
 use matrix_sdk_common::{locks::RwLock, uuid::Uuid};
 use ruma::{
-    api::client::r0::backup::{
-        get_backup::Response as BackupResponse, BackupAlgorithm, RoomKeyBackup,
-    },
-    DeviceKeyAlgorithm, RoomId,
+    api::client::r0::backup::RoomKeyBackup, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -89,39 +88,66 @@ impl BackupMachine {
         self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
     }
 
-    pub async fn verify_backup(&self, backup: BackupResponse) -> Result<bool, CryptoStoreError> {
-        Ok(
-            if let BackupAlgorithm::MegolmBackupV1Curve25519AesSha2 { public_key, signatures } =
-                backup.algorithm
-            {
-                if let Some(signatures) = signatures.get(self.store.user_id()) {
-                    for (device_key_id, signatures) in signatures {
-                        if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
-                            let device = self
-                                .store
-                                .get_device(self.store.user_id(), device_key_id.device_id())
-                                .await?;
+    /// TODO
+    pub async fn verify_backup(
+        &self,
+        mut serialized_auth_data: Value,
+    ) -> Result<bool, CryptoStoreError> {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct AuthData {
+            public_key: String,
+            #[serde(default)]
+            signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+            #[serde(flatten)]
+            extra: BTreeMap<String, Value>,
+        }
 
-                            if let Some(device) = device {
-                                if device.verified()
-                                    && device
-                                        .is_signed_by_device(&mut serde_json::json!({}))
-                                        .is_ok()
-                                {
-                                    return Ok(true);
-                                }
+        let auth_data: AuthData = serde_json::from_value(serialized_auth_data.clone())?;
+
+        debug!(auth_data =? auth_data, "Verifying backup auth data");
+
+        Ok(if let Some(signatures) = auth_data.signatures.get(self.store.user_id()) {
+            for (device_key_id, _) in signatures {
+                if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
+                    if device_key_id.device_id() == self.account.device_id() {
+                        let result = self.account.is_signed(&mut serialized_auth_data);
+
+                        debug!(result =? result, "Checking auth data signature of our own device");
+
+                        if result.is_ok() {
+                            return Ok(true);
+                        }
+                    } else {
+                        let device = self
+                            .store
+                            .get_device(self.store.user_id(), device_key_id.device_id())
+                            .await?;
+
+                        debug!(
+                            device_id = device_key_id.device_id().as_str(),
+                            "Checking backup auth data for device"
+                        );
+
+                        if let Some(device) = device {
+                            if device.verified()
+                                && device.is_signed_by_device(&mut serialized_auth_data).is_ok()
+                            {
+                                return Ok(true);
                             }
+                        } else {
+                            warn!(
+                                device_id = device_key_id.device_id().as_str(),
+                                "Device not found, can't check signature"
+                            );
                         }
                     }
-
-                    false
-                } else {
-                    false
                 }
-            } else {
-                false
-            },
-        )
+            }
+
+            false
+        } else {
+            false
+        })
     }
 
     /// TODO

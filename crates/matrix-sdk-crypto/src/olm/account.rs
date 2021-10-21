@@ -50,7 +50,7 @@ use tracing::{debug, info, trace, warn};
 
 use super::{
     EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
-    Session,
+    Session, Utility,
 };
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
@@ -684,6 +684,19 @@ impl ReadOnlyAccount {
     /// Returns the signature as a base64 encoded string.
     pub async fn sign(&self, string: &str) -> String {
         self.inner.lock().await.sign(string)
+    }
+
+    pub(crate) fn is_signed(&self, json: &mut Value) -> Result<(), SignatureError> {
+        let signing_key = self.identity_keys.ed25519();
+
+        let utility = Utility::new();
+
+        utility.verify_json(
+            &self.user_id,
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signing_key,
+            json,
+        )
     }
 
     /// Store the account as a base64 encoded string.
