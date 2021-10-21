@@ -104,7 +104,7 @@ impl BackupMachine {
 
         let auth_data: AuthData = serde_json::from_value(serialized_auth_data.clone())?;
 
-        debug!(auth_data =? auth_data, "Verifying backup auth data");
+        debug!(?auth_data, "Verifying backup auth data");
 
         Ok(if let Some(signatures) = auth_data.signatures.get(self.store.user_id()) {
             for (device_key_id, _) in signatures {
@@ -112,7 +112,7 @@ impl BackupMachine {
                     if device_key_id.device_id() == self.account.device_id() {
                         let result = self.account.is_signed(&mut serialized_auth_data);
 
-                        debug!(result =? result, "Checking auth data signature of our own device");
+                        debug!(?result, "Checking auth data signature of our own device");
 
                         if result.is_ok() {
                             return Ok(true);
@@ -282,7 +282,7 @@ impl BackupMachine {
 
                     Ok(Some(request))
                 } else {
-                    debug!(backup_key =? backup_key, "No room keys need to be backed up");
+                    debug!(?backup_key, "No room keys need to be backed up");
                     Ok(None)
                 }
             } else {

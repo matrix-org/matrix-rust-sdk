@@ -277,6 +277,7 @@ impl SledStore {
         }
 
         self.inner.insert("version", DATABASE_VERSION.to_be_bytes().as_ref())?;
+        self.inner.flush()?;
 
         Ok(())
     }
