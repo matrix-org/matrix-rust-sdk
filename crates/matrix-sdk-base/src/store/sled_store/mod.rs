@@ -43,6 +43,7 @@ use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
 };
+use tokio::task::spawn_blocking;
 use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
@@ -568,7 +569,12 @@ impl SledStore {
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        Ok(self.presence.get(user_id.encode())?.map(|e| self.deserialize_event(&e)).transpose()?)
+        let db = self.clone();
+        let key = user_id.encode();
+        spawn_blocking(move || {
+            Ok(db.presence.get(key)?.map(|e| db.deserialize_event(&e)).transpose()?)
+        })
+        .await?
     }
 
     pub async fn get_state_event(
@@ -577,11 +583,12 @@ impl SledStore {
         event_type: EventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        Ok(self
-            .room_state
-            .get((room_id.as_str(), event_type.as_str(), state_key).encode())?
-            .map(|e| self.deserialize_event(&e))
-            .transpose()?)
+        let db = self.clone();
+        let key = (room_id.as_str(), event_type.as_str(), state_key).encode();
+        spawn_blocking(move || {
+            Ok(db.room_state.get(key)?.map(|e| db.deserialize_event(&e)).transpose()?)
+        })
+        .await?
     }
 
     pub async fn get_state_events(
@@ -589,11 +596,16 @@ impl SledStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        Ok(self
-            .room_state
-            .scan_prefix((room_id.as_str(), event_type.as_str()).encode())
-            .flat_map(|e| e.map(|(_, e)| self.deserialize_event(&e)))
-            .collect::<Result<_, _>>()?)
+        let db = self.clone();
+        let key = (room_id.as_str(), event_type.as_str()).encode();
+        spawn_blocking(move || {
+            Ok(db
+                .room_state
+                .scan_prefix(key)
+                .flat_map(|e| e.map(|(_, e)| db.deserialize_event(&e)))
+                .collect::<Result<_, _>>()?)
+        })
+        .await?
     }
 
     pub async fn get_profile(
@@ -601,11 +613,12 @@ impl SledStore {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MemberEventContent>> {
-        Ok(self
-            .profiles
-            .get((room_id.as_str(), user_id.as_str()).encode())?
-            .map(|p| self.deserialize_event(&p))
-            .transpose()?)
+        let db = self.clone();
+        let key = (room_id.as_str(), user_id.as_str()).encode();
+        spawn_blocking(move || {
+            Ok(db.profiles.get(key)?.map(|p| db.deserialize_event(&p)).transpose()?)
+        })
+        .await?
     }
 
     pub async fn get_member_event(
@@ -613,17 +626,18 @@ impl SledStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        Ok(self
-            .members
-            .get((room_id.as_str(), state_key.as_str()).encode())?
-            .map(|v| self.deserialize_event(&v))
-            .transpose()?)
+        let db = self.clone();
+        let key = (room_id.as_str(), state_key.as_str()).encode();
+        spawn_blocking(move || {
+            Ok(db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()?)
+        })
+        .await?
     }
 
     pub async fn get_user_ids_stream(
         &self,
         room_id: &RoomId,
-    ) -> impl Stream<Item = Result<UserId>> {
+    ) -> Result<impl Stream<Item = Result<UserId>>> {
         let decode = |key: &[u8]| -> Result<UserId> {
             let mut iter = key.split(|c| c == &ENCODE_SEPARATOR);
             // Our key is a the room id separated from the user id by a null
@@ -635,43 +649,68 @@ impl SledStore {
             Ok(UserId::try_from(String::from_utf8_lossy(user_id).to_string())?)
         };
 
-        stream::iter(self.members.scan_prefix(room_id.encode()).map(move |u| decode(&u?.0)))
+        let members = self.members.clone();
+        let key = room_id.encode();
+
+        spawn_blocking(move || stream::iter(members.scan_prefix(key).map(move |u| decode(&u?.0))))
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn get_invited_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> impl Stream<Item = Result<UserId>> {
-        stream::iter(self.invited_user_ids.scan_prefix(room_id.encode()).map(|u| {
-            UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
-                .map_err(StoreError::Identifier)
-        }))
+    ) -> Result<impl Stream<Item = Result<UserId>>> {
+        let db = self.clone();
+        let key = room_id.encode();
+        spawn_blocking(move || {
+            stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
+                UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                    .map_err(StoreError::Identifier)
+            }))
+        })
+        .await
+        .map_err(Into::into)
     }
 
     pub async fn get_joined_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> impl Stream<Item = Result<UserId>> {
-        stream::iter(self.joined_user_ids.scan_prefix(room_id.encode()).map(|u| {
-            UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
-                .map_err(StoreError::Identifier)
-        }))
+    ) -> Result<impl Stream<Item = Result<UserId>>> {
+        let db = self.clone();
+        let key = room_id.encode();
+        spawn_blocking(move || {
+            stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
+                UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                    .map_err(StoreError::Identifier)
+            }))
+        })
+        .await
+        .map_err(Into::into)
     }
 
-    pub async fn get_room_infos(&self) -> impl Stream<Item = Result<RoomInfo>> {
+    pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
         let db = self.clone();
-        stream::iter(
-            self.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
-        )
+        spawn_blocking(move || {
+            stream::iter(
+                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
+            )
+        })
+        .await
+        .map_err(Into::into)
     }
 
-    pub async fn get_stripped_room_infos(&self) -> impl Stream<Item = Result<RoomInfo>> {
+    pub async fn get_stripped_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
         let db = self.clone();
-        stream::iter(
-            self.stripped_room_info
-                .iter()
-                .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
-        )
+        spawn_blocking(move || {
+            stream::iter(
+                db.stripped_room_info
+                    .iter()
+                    .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
+            )
+        })
+        .await
+        .map_err(Into::into)
     }
 
     pub async fn get_users_with_display_name(
@@ -679,25 +718,29 @@ impl SledStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>> {
+        let db = self.clone();
         let key = (room_id.as_str(), display_name).encode();
-
-        Ok(self
-            .display_names
-            .get(key)?
-            .map(|m| self.deserialize_event(&m))
-            .transpose()?
-            .unwrap_or_default())
+        spawn_blocking(move || {
+            Ok(db
+                .display_names
+                .get(key)?
+                .map(|m| db.deserialize_event(&m))
+                .transpose()?
+                .unwrap_or_default())
+        })
+        .await?
     }
 
     pub async fn get_account_data_event(
         &self,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        Ok(self
-            .account_data
-            .get(event_type.encode())?
-            .map(|m| self.deserialize_event(&m))
-            .transpose()?)
+        let db = self.clone();
+        let key = event_type.encode();
+        spawn_blocking(move || {
+            Ok(db.account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
+        })
+        .await?
     }
 
     pub async fn get_room_account_data_event(
@@ -705,11 +748,12 @@ impl SledStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
-        Ok(self
-            .room_account_data
-            .get((room_id.as_str(), event_type.as_str()).encode())?
-            .map(|m| self.deserialize_event(&m))
-            .transpose()?)
+        let db = self.clone();
+        let key = (room_id.as_str(), event_type.as_str()).encode();
+        spawn_blocking(move || {
+            Ok(db.room_account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
+        })
+        .await?
     }
 
     async fn get_user_room_receipt_event(
@@ -718,11 +762,12 @@ impl SledStore {
         receipt_type: ReceiptType,
         user_id: &UserId,
     ) -> Result<Option<(EventId, Receipt)>> {
-        Ok(self
-            .room_user_receipts
-            .get((room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode())?
-            .map(|m| self.deserialize_event(&m))
-            .transpose()?)
+        let db = self.clone();
+        let key = (room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode();
+        spawn_blocking(move || {
+            Ok(db.room_user_receipts.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
+        })
+        .await?
     }
 
     async fn get_event_room_receipt_events(
@@ -731,19 +776,24 @@ impl SledStore {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>> {
-        self.room_event_receipts
-            .scan_prefix((room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode())
-            .map(|u| {
-                u.map_err(StoreError::Sled).and_then(|(key, value)| {
-                    self.deserialize_event(&value)
-                        // TODO remove this unwrapping
-                        .map(|receipt| {
-                            (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
-                        })
-                        .map_err(Into::into)
+        let db = self.clone();
+        let key = (room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode();
+        spawn_blocking(move || {
+            db.room_event_receipts
+                .scan_prefix(key)
+                .map(|u| {
+                    u.map_err(StoreError::Sled).and_then(|(key, value)| {
+                        db.deserialize_event(&value)
+                            // TODO remove this unwrapping
+                            .map(|receipt| {
+                                (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
+                            })
+                            .map_err(Into::into)
+                    })
                 })
-            })
-            .collect()
+                .collect()
+        })
+        .await?
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
@@ -753,21 +803,23 @@ impl SledStore {
             data,
         )?;
 
+        self.inner.flush_async().await?;
+
         Ok(())
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .media
-            .get(
-                (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-                    .encode(),
-            )?
-            .map(|m| m.to_vec()))
+        let db = self.clone();
+        let key = (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+            .encode();
+
+        spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        Ok(self.custom.get(key)?.map(|v| v.to_vec()))
+        let custom = self.custom.clone();
+        let key = key.to_owned();
+        spawn_blocking(move || Ok(custom.get(key)?.map(|v| v.to_vec()))).await?
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
@@ -854,23 +906,23 @@ impl StateStore for SledStore {
     }
 
     async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
-        self.get_user_ids_stream(room_id).await.try_collect().await
+        self.get_user_ids_stream(room_id).await?.try_collect().await
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
-        self.get_invited_user_ids(room_id).await.try_collect().await
+        self.get_invited_user_ids(room_id).await?.try_collect().await
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
-        self.get_joined_user_ids(room_id).await.try_collect().await
+        self.get_joined_user_ids(room_id).await?.try_collect().await
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        self.get_room_infos().await.try_collect().await
+        self.get_room_infos().await?.try_collect().await
     }
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        self.get_stripped_room_infos().await.try_collect().await
+        self.get_stripped_room_infos().await?.try_collect().await
     }
 
     async fn get_users_with_display_name(

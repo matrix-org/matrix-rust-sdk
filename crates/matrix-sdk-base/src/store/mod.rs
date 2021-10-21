@@ -79,6 +79,10 @@ pub enum StoreError {
     /// The store failed to encrypt or decrypt some data.
     #[error("Error encrypting or decrypting data from the store: {0}")]
     Encryption(String),
+    /// An error happened while running a tokio task.
+    #[cfg(feature = "sled_state_store")]
+    #[error(transparent)]
+    Task(#[from] tokio::task::JoinError),
 }
 
 /// A `StateStore` specific result type.
