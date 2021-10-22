@@ -405,6 +405,13 @@ mod static_events {
         const ID: (EventKind, &'static str) = (EventKind::Message { redacted: false }, C::TYPE);
     }
 
+    impl SyncEvent for events::room::redaction::SyncRedactionEvent {
+        const ID: (EventKind, &'static str) = (
+            EventKind::Message { redacted: false },
+            events::room::redaction::RedactionEventContent::TYPE,
+        );
+    }
+
     impl<C> SyncEvent for events::SyncStateEvent<C>
     where
         C: StaticEventContent + events::StateEventContent,
