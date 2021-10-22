@@ -14,7 +14,7 @@
 
 use std::{
     cmp::max,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -47,7 +47,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info};
 
 use super::{
     super::{deserialize_instant, serialize_instant},
@@ -211,8 +211,12 @@ impl OutboundGroupSession {
     /// users/devices that received the session.
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
         if let Some((_, (_, r))) = self.to_share_with_set.remove(request_id) {
-            trace!(
-                request_id = request_id.to_string().as_str(),
+            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> =
+                r.iter().map(|(u, d)| (u, d.keys().map(|d| d.as_ref()).collect())).collect();
+
+            info!(
+                ?request_id,
+                ?recipients,
                 "Marking to-device request carrying a room key as sent"
             );
 

@@ -159,11 +159,7 @@ impl GroupSessionManager {
         content: Value,
         event_type: &str,
     ) -> MegolmResult<EncryptedEventContent> {
-        let session = if let Some(s) = self.sessions.get(room_id) {
-            s
-        } else {
-            panic!("Session wasn't created nor shared");
-        };
+        let session = self.sessions.get(room_id).expect("Session wasn't created nor shared");
 
         assert!(!session.expired(), "Session expired");
 
@@ -320,10 +316,11 @@ impl GroupSessionManager {
         let users: HashSet<&UserId> = users.collect();
         let mut devices: HashMap<UserId, Vec<Device>> = HashMap::new();
 
-        debug!(
+        trace!(
             users = ?users,
             history_visibility = ?history_visibility,
             session_id = outbound.session_id(),
+            room_id = outbound.room_id().as_str(),
             "Calculating group session recipients"
         );
 
@@ -386,9 +383,10 @@ impl GroupSessionManager {
             devices.entry(user_id.clone()).or_insert_with(Vec::new).extend(non_blacklisted_devices);
         }
 
-        debug!(
+        trace!(
             should_rotate = should_rotate,
             session_id = outbound.session_id(),
+            room_id = outbound.room_id().as_str(),
             "Done calculating group session recipients"
         );
 
@@ -434,7 +432,7 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        debug!(room_id = room_id.as_str(), "Checking if a room key needs to be shared",);
+        trace!(room_id = room_id.as_str(), "Checking if a room key needs to be shared",);
 
         let encryption_settings = encryption_settings.into();
         let history_visibility = encryption_settings.history_visibility.clone();
@@ -463,8 +461,8 @@ impl GroupSessionManager {
                 room_id = room_id.as_str(),
                 old_session_id = old_session_id,
                 session_id = outbound.session_id(),
-                "A user/device has left the group since we last sent a message, \
-                   rotating the outbound session.",
+                "A user or device has left the room since we last sent a \
+                message, rotating the room key.",
             );
 
             outbound
@@ -485,16 +483,17 @@ impl GroupSessionManager {
         let message_index = outbound.message_index().await;
 
         if !devices.is_empty() {
-            let users = devices.iter().fold(BTreeMap::new(), |mut acc, d| {
+            let recipients = devices.iter().fold(BTreeMap::new(), |mut acc, d| {
                 acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
                 acc
             });
 
             info!(
                 index = message_index,
-                users = ?users,
+                recipients = ?recipients,
                 room_id = room_id.as_str(),
-                "Sharing an outbound group session",
+                session_id = outbound.session_id(),
+                "Trying to encrypt a room key",
             );
         }
 
@@ -519,33 +518,53 @@ impl GroupSessionManager {
 
         let requests = outbound.pending_requests();
 
-        debug!(
-            room_id = room_id.as_str(),
-            session_id = outbound.session_id(),
-            request_count = requests.len(),
-            "Done generating to-device requests for a room key share"
-        );
-
         if requests.is_empty() {
-            debug!(
+            if !outbound.shared() {
+                debug!(
+                    room_id = room_id.as_str(),
+                    session_id = outbound.session_id(),
+                    "The room key doesn't need to be shared with anyone. Marking as shared."
+                );
+
+                outbound.mark_as_shared();
+                changes.outbound_group_sessions.push(outbound.clone());
+            }
+        } else {
+            let mut recipients: BTreeMap<&UserId, BTreeSet<&DeviceIdOrAllDevices>> =
+                BTreeMap::new();
+
+            for request in &requests {
+                for (user_id, device_map) in &request.messages {
+                    let devices = device_map.keys();
+                    recipients.entry(user_id).or_default().extend(devices)
+                }
+            }
+
+            let transaction_ids: Vec<Uuid> = requests.iter().map(|r| r.txn_id).collect();
+
+            // TODO log the withheld reasons here as well.
+            info!(
                 room_id = room_id.as_str(),
                 session_id = outbound.session_id(),
-                "The outbound group session doesn't need to be shared with \
-                    anyone, marking as shared",
+                request_count = requests.len(),
+                ?transaction_ids,
+                ?recipients,
+                "Encrypted a room key and created to-device requests"
             );
-            outbound.mark_as_shared();
         }
 
-        let session_count = changes.sessions.len();
+        if !changes.is_empty() {
+            let session_count = changes.sessions.len();
 
-        self.store.save_changes(changes).await?;
+            self.store.save_changes(changes).await?;
 
-        debug!(
-            room_id = room_id.as_str(),
-            session_id = outbound.session_id(),
-            session_count = session_count,
-            "Stored the changed sessions after encrypting an room key"
-        );
+            trace!(
+                room_id = room_id.as_str(),
+                session_id = outbound.session_id(),
+                session_count = session_count,
+                "Stored the changed sessions after encrypting an room key"
+            );
+        }
 
         Ok(requests)
     }

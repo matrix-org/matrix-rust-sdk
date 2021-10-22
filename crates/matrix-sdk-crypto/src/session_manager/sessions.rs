@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::uuid::Uuid;
@@ -22,9 +26,9 @@ use ruma::{
     },
     assign,
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, UserId,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     error::OlmResult,
@@ -176,25 +180,37 @@ impl SessionManager {
             let user_devices = self.store.get_readonly_devices(user_id).await?;
 
             for (device_id, device) in user_devices.into_iter() {
-                let sender_key = if let Some(k) = device.get_key(DeviceKeyAlgorithm::Curve25519) {
-                    k
+                if !device.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
+                {
+                    warn!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        algorithms =? device.algorithms(),
+                        "Device doesn't support any of our 1-to-1 E2EE \
+                        algorithms, can't establish an Olm session"
+                    );
+                } else if let Some(sender_key) = device.get_key(DeviceKeyAlgorithm::Curve25519) {
+                    let sessions = self.store.get_sessions(sender_key).await?;
+
+                    let is_missing = if let Some(sessions) = sessions {
+                        sessions.lock().await.is_empty()
+                    } else {
+                        true
+                    };
+
+                    if is_missing {
+                        missing
+                            .entry(user_id.to_owned())
+                            .or_insert_with(BTreeMap::new)
+                            .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
+                    }
                 } else {
-                    continue;
-                };
-
-                let sessions = self.store.get_sessions(sender_key).await?;
-
-                let is_missing = if let Some(sessions) = sessions {
-                    sessions.lock().await.is_empty()
-                } else {
-                    true
-                };
-
-                if is_missing {
-                    missing
-                        .entry(user_id.to_owned())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
+                    warn!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        "Device doesn't have a valid Curve25519 key, \
+                        can't establish an Olm session"
+                    );
                 }
             }
         }
@@ -215,6 +231,8 @@ impl SessionManager {
         if missing.is_empty() {
             Ok(None)
         } else {
+            debug!(?missing, "Collected user/device pairs that are missing an Olm session");
+
             Ok(Some((
                 Uuid::new_v4(),
                 assign!(KeysClaimRequest::new(missing), {
@@ -231,9 +249,10 @@ impl SessionManager {
     ///
     /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
-        // TODO log the failures here
+        debug!(failures =? response.failures, "Received a /keys/claim response");
 
         let mut changes = Changes::default();
+        let mut new_sessions: BTreeMap<&UserId, BTreeSet<&DeviceId>> = BTreeMap::new();
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
@@ -241,32 +260,40 @@ impl SessionManager {
                     Ok(Some(d)) => d,
                     Ok(None) => {
                         warn!(
-                            "Tried to create an Olm session for {} {}, but the device is unknown",
-                            user_id, device_id
+                            user_id = user_id.as_str(),
+                            device_id = device_id.as_str(),
+                            "Tried to create an Olm session but the device is \
+                            unknown",
                         );
                         continue;
                     }
                     Err(e) => {
                         warn!(
-                            "Tried to create an Olm session for {} {}, but \
-                            can't fetch the device from the store {:?}",
-                            user_id, device_id, e
+                            user_id = user_id.as_str(),
+                            device_id = device_id.as_str(),
+                            error =? e,
+                            "Tried to create an Olm session, but we can't \
+                            fetch the device from the store",
                         );
                         continue;
                     }
                 };
 
-                info!("Creating outbound Session for {} {}", user_id, device_id);
-
                 let session = match self.account.create_outbound_session(device, key_map).await {
                     Ok(s) => s,
                     Err(e) => {
-                        warn!("Error creating new outbound session {:?}", e);
+                        warn!(
+                            user_id = user_id.as_str(),
+                            device_id = device_id.as_str(),
+                            error =? e,
+                            "Error creating outbound session"
+                        );
                         continue;
                     }
                 };
 
                 changes.sessions.push(session);
+                new_sessions.entry(user_id).or_default().insert(device_id);
 
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
@@ -279,8 +306,8 @@ impl SessionManager {
             }
         }
 
-        // TODO turn this into a single save_changes() call.
         self.store.save_changes(changes).await?;
+        info!(sessions =? new_sessions, "Established new Olm sessions");
 
         match self.key_request_machine.collect_incoming_key_requests().await {
             Ok(sessions) => {

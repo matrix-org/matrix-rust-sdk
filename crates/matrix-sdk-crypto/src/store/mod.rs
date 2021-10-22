@@ -109,9 +109,24 @@ pub struct Changes {
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
     pub outbound_group_sessions: Vec<OutboundGroupSession>,
-    pub identities: IdentityChanges,
     pub key_requests: Vec<GossipRequest>,
+    pub identities: IdentityChanges,
     pub devices: DeviceChanges,
+}
+
+impl Changes {
+    /// Are there any changes stored or is this an empty `Changes` struct
+    pub fn is_empty(&self) -> bool {
+        self.account.is_none()
+            && self.private_identity.is_none()
+            && self.sessions.is_empty()
+            && self.message_hashes.is_empty()
+            && self.inbound_group_sessions.is_empty()
+            && self.outbound_group_sessions.is_empty()
+            && self.key_requests.is_empty()
+            && self.identities.is_empty()
+            && self.devices.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -119,6 +134,12 @@ pub struct Changes {
 pub struct IdentityChanges {
     pub new: Vec<ReadOnlyUserIdentities>,
     pub changed: Vec<ReadOnlyUserIdentities>,
+}
+
+impl IdentityChanges {
+    fn is_empty(&self) -> bool {
+        self.new.is_empty() && self.changed.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -135,6 +156,10 @@ impl DeviceChanges {
         self.new.extend(other.new);
         self.changed.extend(other.changed);
         self.deleted.extend(other.deleted);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.new.is_empty() && self.changed.is_empty() && self.deleted.is_empty()
     }
 }
 
