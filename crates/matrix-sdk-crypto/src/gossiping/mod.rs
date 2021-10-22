@@ -79,9 +79,9 @@ pub struct GossipRequest {
 /// An enum over the various secret request types we can have.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SecretInfo {
-    // Info for the `m.room_key_request` variant
+    /// Info for the `m.room_key_request` variant
     KeyRequest(RequestedKeyInfo),
-    // Info for the `m.secret.request` variant
+    /// Info for the `m.secret.request` variant
     SecretRequest(SecretName),
 }
 
