@@ -1,15 +1,14 @@
 [package]
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "The base component to build a Matrix client library."
-edition = "2018"
+edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
 name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-# This isn't yet supported by the stable cargo, we'll enable it when it is.
-# rust-version = "1.54"
+rust-version = "1.56"
 version = "0.4.1"
 
 [package.metadata.docs.rs]
