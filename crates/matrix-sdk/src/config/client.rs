@@ -19,7 +19,7 @@ use std::{
 };
 
 use http::{header::InvalidHeaderValue, HeaderValue};
-use matrix_sdk_base::BaseClientConfig;
+use matrix_sdk_base::{crypto::store::CryptoStore, BaseClientConfig};
 
 use crate::{config::RequestConfig, HttpSend, Result};
 
@@ -172,6 +172,15 @@ impl ClientConfig {
     #[cfg(feature = "appservice")]
     pub fn appservice_mode(mut self) -> Self {
         self.appservice_mode = true;
+        self
+    }
+
+    /// Set a custom implementation of a `CryptoStore`.
+    ///
+    /// The crypto store should be opened before being set.
+    #[cfg(feature = "encryption")]
+    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
+        self.base_config = self.base_config.crypto_store(store);
         self
     }
 }
