@@ -97,8 +97,8 @@ pub enum MegolmError {
 
 #[derive(Error, Debug)]
 pub enum EventError {
-    #[error("the Olm message has a unsupported type")]
-    UnsupportedOlmType,
+    #[error("the Olm message has a unsupported type, got {0}, expected 0 or 1")]
+    UnsupportedOlmType(u64),
 
     #[error("the Encrypted message has been encrypted with a unsupported algorithm.")]
     UnsupportedAlgorithm,

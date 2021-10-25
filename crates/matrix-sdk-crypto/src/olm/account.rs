@@ -34,7 +34,9 @@ use ruma::{
     api::client::r0::keys::{upload_keys, upload_signatures::Request as SignatureUploadRequest},
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
-        room::encrypted::{EncryptedEventScheme, ToDeviceEncryptedEvent},
+        room::encrypted::{
+            EncryptedEventScheme, OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEvent,
+        },
         AnyToDeviceEvent, OlmV1Keys,
     },
     serde::{CanonicalJsonValue, Raw},
@@ -44,7 +46,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::{
     EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -83,6 +85,7 @@ impl SessionType {
 
 #[derive(Debug, Clone)]
 pub struct OlmDecryptionInfo {
+    pub sender: UserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
     pub deserialized_event: Option<AnyToDeviceEvent>,
@@ -103,6 +106,13 @@ pub struct OlmMessageHash {
     pub hash: String,
 }
 
+impl OlmMessageHash {
+    fn new(sender_key: &str, message_type: u8, ciphertext: &str) -> Self {
+        let sha = Sha256::new().chain(sender_key).chain(&[message_type]).chain(&ciphertext);
+        Self { sender_key: sender_key.to_owned(), hash: encode(sha.finalize().as_slice()) }
+    }
+}
+
 impl Deref for Account {
     type Target = ReadOnlyAccount;
 
@@ -112,81 +122,97 @@ impl Deref for Account {
 }
 
 impl Account {
+    fn parse_message(
+        sender_key: &str,
+        message_type: UInt,
+        ciphertext: String,
+    ) -> Result<(OlmMessage, OlmMessageHash), EventError> {
+        let message_type: u8 = message_type
+            .try_into()
+            .map_err(|_| EventError::UnsupportedOlmType(message_type.into()))?;
+
+        let message_hash = OlmMessageHash::new(sender_key, message_type, &ciphertext);
+        let message = OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext)
+            .map_err(|_| EventError::UnsupportedOlmType(message_type.into()))?;
+
+        Ok((message, message_hash))
+    }
+
+    async fn decrypt_olm_v1(
+        &self,
+        sender: &UserId,
+        content: &OlmV1Curve25519AesSha2Content,
+    ) -> OlmResult<OlmDecryptionInfo> {
+        let identity_keys = self.inner.identity_keys();
+
+        // Try to find a ciphertext that was meant for our device.
+        if let Some(ciphertext) = content.ciphertext.get(identity_keys.curve25519()) {
+            let (message, message_hash) = match Self::parse_message(
+                &content.sender_key,
+                ciphertext.message_type,
+                ciphertext.body.clone(),
+            ) {
+                Ok(m) => m,
+                Err(e) => {
+                    warn!(error =? e, "Encrypted to-device event isn't valid");
+                    return Err(e.into());
+                }
+            };
+
+            // Decrypt the OlmMessage and get a Ruma event out of it.
+            match self.decrypt_olm_message(sender, &content.sender_key, message).await {
+                Ok((session, event, signing_key)) => Ok(OlmDecryptionInfo {
+                    sender: sender.to_owned(),
+                    session,
+                    message_hash,
+                    event,
+                    signing_key,
+                    sender_key: content.sender_key.clone(),
+                    deserialized_event: None,
+                    inbound_group_session: None,
+                }),
+                Err(OlmError::SessionWedged(user_id, sender_key)) => {
+                    if self.store.is_message_known(&message_hash).await? {
+                        info!(
+                            sender = sender.as_str(),
+                            sender_key = content.sender_key.as_str(),
+                            "An Olm message got replayed, decryption failed"
+                        );
+
+                        Err(OlmError::ReplayedMessage(user_id, sender_key))
+                    } else {
+                        Err(OlmError::SessionWedged(user_id, sender_key))
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            warn!(
+                sender = sender.as_str(),
+                sender_key = content.sender_key.as_str(),
+                "Olm event doesn't contain a ciphertext for our key"
+            );
+
+            Err(EventError::MissingCiphertext.into())
+        }
+    }
+
     pub async fn decrypt_to_device_event(
         &self,
         event: &ToDeviceEncryptedEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
-        debug!(sender = event.sender.as_str(), "Decrypting a to-device event");
+        trace!(sender = event.sender.as_str(), "Decrypting a to-device event");
 
-        let content = if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = &event.content.scheme
-        {
-            c
+        if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = &event.content.scheme {
+            self.decrypt_olm_v1(&event.sender, c).await
         } else {
             warn!(
                 sender = event.sender.as_str(),
                 algorithm =? event.content.scheme,
                 "Error, unsupported encryption algorithm"
             );
-            return Err(EventError::UnsupportedAlgorithm.into());
-        };
 
-        let identity_keys = self.inner.identity_keys();
-        let own_key = identity_keys.curve25519();
-        let own_ciphertext = content.ciphertext.get(own_key);
-
-        // Try to find a ciphertext that was meant for our device.
-        if let Some(ciphertext) = own_ciphertext {
-            let message_type: u8 =
-                ciphertext.message_type.try_into().map_err(|_| EventError::UnsupportedOlmType)?;
-
-            let sha = Sha256::new()
-                .chain(&content.sender_key)
-                .chain(&[message_type])
-                .chain(&ciphertext.body);
-
-            let message_hash = OlmMessageHash {
-                sender_key: content.sender_key.clone(),
-                hash: encode(sha.finalize().as_slice()),
-            };
-
-            // Create a OlmMessage from the ciphertext and the type.
-            let message =
-                OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
-                    .map_err(|_| EventError::UnsupportedOlmType)?;
-
-            // Decrypt the OlmMessage and get a Ruma event out of it.
-            let (session, event, signing_key) =
-                match self.decrypt_olm_message(&event.sender, &content.sender_key, message).await {
-                    Ok(d) => d,
-                    Err(OlmError::SessionWedged(user_id, sender_key)) => {
-                        if self.store.is_message_known(&message_hash).await? {
-                            warn!(
-                                sender = event.sender.as_str(),
-                                "An Olm message got replayed, decryption failed"
-                            );
-                            return Err(OlmError::ReplayedMessage(user_id, sender_key));
-                        } else {
-                            return Err(OlmError::SessionWedged(user_id, sender_key));
-                        }
-                    }
-                    Err(e) => return Err(e),
-                };
-
-            Ok(OlmDecryptionInfo {
-                session,
-                message_hash,
-                event,
-                signing_key,
-                deserialized_event: None,
-                sender_key: content.sender_key.clone(),
-                inbound_group_session: None,
-            })
-        } else {
-            warn!(
-                sender = event.sender.as_str(),
-                "Olm event doesn't contain a ciphertext for our key"
-            );
-            Err(EventError::MissingCiphertext.into())
+            Err(EventError::UnsupportedAlgorithm.into())
         }
     }
 
@@ -230,8 +256,8 @@ impl Account {
     /// Try to decrypt an Olm message.
     ///
     /// This try to decrypt an Olm message using all the sessions we share
-    /// have with the given sender.
-    async fn try_decrypt_olm_message(
+    /// with the given sender.
+    async fn decrypt_with_existing_sessions(
         &self,
         sender: &UserId,
         sender_key: &str,
@@ -299,7 +325,7 @@ impl Account {
     ) -> OlmResult<(SessionType, Raw<AnyToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
         let (session, plaintext) = if let Some(d) =
-            self.try_decrypt_olm_message(sender, sender_key, &message).await?
+            self.decrypt_with_existing_sessions(sender, sender_key, &message).await?
         {
             // Decryption succeeded, de-structure the session/plaintext out of
             // the Option.

@@ -591,27 +591,44 @@ impl OlmMachine {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
                 let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
 
-                let session = InboundGroupSession::new(
+                match InboundGroupSession::new(
                     sender_key,
                     signing_key,
                     &event.content.room_id,
                     session_key,
                     None,
-                )?;
+                ) {
+                    Ok(session) => {
+                        info!(
+                            sender = event.sender.as_str(),
+                            sender_key = sender_key,
+                            room_id = event.content.room_id.as_str(),
+                            session_id = session.session_id(),
+                            "Received a new room key",
+                        );
 
-                info!(
-                    "Received a new room key from {} for room {} with session id {}",
-                    event.sender,
-                    event.content.room_id,
-                    session.session_id()
-                );
-                let event = AnyToDeviceEvent::RoomKey(event.clone());
-                Ok((Some(event), Some(session)))
+                        let event = AnyToDeviceEvent::RoomKey(event.clone());
+
+                        Ok((Some(event), Some(session)))
+                    }
+                    Err(e) => {
+                        warn!(
+                            sender = event.sender.as_str(),
+                            sender_key = sender_key,
+                            room_id = event.content.room_id.as_str(),
+                            "Couldn't create a group session from a received room key"
+                        );
+                        Err(e.into())
+                    }
+                }
             }
             _ => {
                 warn!(
-                    "Received room key with unsupported key algorithm {}",
-                    event.content.algorithm
+                    sender = event.sender.as_str(),
+                    sender_key = sender_key,
+                    room_id = event.content.room_id.as_str(),
+                    algorithm =? event.content.algorithm,
+                    "Received room key with unsupported key algorithm",
                 );
                 Ok((None, None))
             }
@@ -743,10 +760,22 @@ impl OlmMachine {
         let event = match decrypted.event.deserialize() {
             Ok(e) => e,
             Err(e) => {
-                warn!("Decrypted to-device event failed to be parsed correctly {:?}", e);
+                warn!(
+                    sender = decrypted.sender.as_str(),
+                    sender_key = decrypted.sender_key.as_str(),
+                    error =? e,
+                    "Decrypted to-device event failed to be deserialized correctly"
+                );
                 return Ok((None, None));
             }
         };
+
+        trace!(
+            sender = decrypted.sender.as_str(),
+            sender_key = decrypted.sender_key.as_str(),
+            event_type = event.event_type(),
+            "Received a decrypted to-device event"
+        );
 
         match event {
             AnyToDeviceEvent::RoomKey(mut e) => {
@@ -869,7 +898,7 @@ impl OlmMachine {
 
         for user_id in &changed_devices.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
-                error!("Error marking a tracked user as changed {:?}", e);
+                error!(error =? e, "Error marking a tracked user as changed");
             }
         }
 
@@ -886,7 +915,7 @@ impl OlmMachine {
                 }
             };
 
-            info!(
+            trace!(
                 sender = event.sender().as_str(),
                 event_type = event.event_type(),
                 "Received a to-device event"
@@ -897,8 +926,6 @@ impl OlmMachine {
                     let decrypted = match self.decrypt_to_device_event(&e).await {
                         Ok(e) => e,
                         Err(err) => {
-                            warn!(sender = e.sender.as_str(), error =? e, "Failed to decrypt to-device event");
-
                             if let OlmError::SessionWedged(sender, curve_key) = err {
                                 if let Err(e) = self
                                     .session_manager

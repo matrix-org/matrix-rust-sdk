@@ -89,6 +89,12 @@ impl SessionManager {
                 let session = sessions.get(0);
 
                 if let Some(session) = session {
+                    info!(
+                        sender = sender.as_str(),
+                        sender_key = curve_key,
+                        "Marking session to be unwedged"
+                    );
+
                     if session.creation_time.elapsed() > Self::UNWEDGING_INTERVAL {
                         self.users_for_key_claim
                             .entry(device.user_id().clone())
