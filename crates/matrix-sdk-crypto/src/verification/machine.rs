@@ -306,6 +306,7 @@ impl VerificationMachine {
     ) -> Result<(), CryptoStoreError> {
         let event = event.into();
 
+        #[allow(clippy::question_mark)]
         let flow_id = if let Ok(flow_id) = FlowId::try_from(&event) {
             flow_id
         } else {

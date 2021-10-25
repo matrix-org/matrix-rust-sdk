@@ -85,7 +85,7 @@ impl InspectorHelper {
             .into_iter()
             .map(|r| Pair {
                 display: r.room_id.to_string(),
-                replacement: format!("{} ", r.room_id.to_string()),
+                replacement: format!("{} ", r.room_id),
             })
             .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()
@@ -111,10 +111,7 @@ impl Completer for InspectorHelper {
             ("get-members", "get all the membership events in the given room"),
         ]
         .iter()
-        .map(|(r, d)| Pair {
-            display: format!("{} ({})", r, d),
-            replacement: format!("{} ", r.to_string()),
-        })
+        .map(|(r, d)| Pair { display: format!("{} ({})", r, d), replacement: format!("{} ", r) })
         .collect();
 
         if args.is_empty() {
