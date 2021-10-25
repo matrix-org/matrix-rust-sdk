@@ -69,7 +69,6 @@ use zeroize::Zeroize;
 pub use self::sled::SledStore;
 use crate::{
     error::SessionUnpicklingError,
-    gossiping::{GossipRequest, SecretInfo},
     identities::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
@@ -84,6 +83,8 @@ use crate::{
 
 /// A `CryptoStore` specific result type.
 pub type Result<T, E = CryptoStoreError> = std::result::Result<T, E>;
+
+pub use crate::gossiping::{GossipRequest, SecretInfo};
 
 /// A wrapper for our CryptoStore trait object.
 ///
