@@ -86,6 +86,7 @@ use std::{
 
 use dashmap::DashMap;
 pub use error::Error;
+use event_handler::AppserviceFn;
 use http::Uri;
 pub use matrix_sdk;
 #[doc(no_inline)]
@@ -100,7 +101,10 @@ use matrix_sdk::{
 use regex::Regex;
 use ruma::{
     api::{
-        appservice::Registration,
+        appservice::{
+            query::{query_room_alias::v1 as query_room, query_user_id::v1 as query_user},
+            Registration,
+        },
         client::{
             error::ErrorKind,
             r0::{account::register, uiaa::UiaaResponse},
@@ -113,6 +117,7 @@ use serde::de::DeserializeOwned;
 use tracing::{info, warn};
 
 mod error;
+pub mod event_handler;
 mod webserver;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -203,6 +208,7 @@ pub struct AppService {
     server_name: ServerNameBox,
     registration: Arc<AppServiceRegistration>,
     clients: Arc<DashMap<Localpart, Client>>,
+    event_handler: event_handler::EventHandler,
 }
 
 impl AppService {
@@ -250,8 +256,10 @@ impl AppService {
         let registration = Arc::new(registration);
         let clients = Arc::new(DashMap::new());
         let sender_localpart = registration.sender_localpart.clone();
+        let event_handler = event_handler::EventHandler::default();
 
-        let appservice = AppService { homeserver_url, server_name, registration, clients };
+        let appservice =
+            AppService { homeserver_url, server_name, registration, clients, event_handler };
 
         // we create and cache the [`MainUser`] by default
         appservice.create_and_cache_client(&sender_localpart, client_config).await?;
@@ -384,6 +392,28 @@ impl AppService {
         client.register_event_handler(handler).await;
 
         Ok(())
+    }
+
+    /// Register a responder for queries about the existence of a user with a
+    /// given mxid.
+    ///
+    /// See [GET /_matrix/app/v1/users/{userId}](https://matrix.org/docs/spec/application_service/r0.1.2#get-matrix-app-v1-users-userid).
+    pub async fn register_user_query(
+        &mut self,
+        handler: AppserviceFn<query_user::IncomingRequest, bool>,
+    ) {
+        *self.event_handler.users.lock().await = Some(handler);
+    }
+
+    /// Register a responder for queries about the existence of a room with the
+    /// given alias.
+    ///
+    /// See [GET /_matrix/app/v1/rooms/{roomAlias}](https://matrix.org/docs/spec/application_service/r0.1.2#get-matrix-app-v1-rooms-roomalias).
+    pub async fn register_room_query(
+        &mut self,
+        handler: AppserviceFn<query_room::IncomingRequest, bool>,
+    ) {
+        *self.event_handler.rooms.lock().await = Some(handler);
     }
 
     /// Register a virtual user by sending a [`register::Request`] to the
