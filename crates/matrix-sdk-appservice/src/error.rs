@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ruma::api::client::r0::uiaa::UiaaInfo;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -78,6 +79,26 @@ pub enum Error {
     WarpRejection(String),
 }
 
+impl Error {
+    /// Try to destructure the error into an universal interactive auth info.
+    ///
+    /// Some requests require universal interactive auth, doing such a request
+    /// will always fail the first time with a 401 status code, the response
+    /// body will contain info how the client can authenticate.
+    ///
+    /// The request will need to be retried, this time containing additional
+    /// authentication data.
+    ///
+    /// This method is an convenience method to get to the info the server
+    /// returned on the first, failed request.
+    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
+        match self {
+            Error::Matrix(matrix) => matrix.uiaa_response(),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(feature = "warp")]
 impl warp::reject::Reject for Error {}
 
@@ -90,6 +111,12 @@ impl From<warp::Rejection> for Error {
 
 impl From<matrix_sdk::HttpError> for Error {
     fn from(e: matrix_sdk::HttpError) -> Self {
+        matrix_sdk::Error::from(e).into()
+    }
+}
+
+impl From<matrix_sdk::StoreError> for Error {
+    fn from(e: matrix_sdk::StoreError) -> Self {
         matrix_sdk::Error::from(e).into()
     }
 }
