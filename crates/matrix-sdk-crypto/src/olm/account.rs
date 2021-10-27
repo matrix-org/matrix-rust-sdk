@@ -394,8 +394,8 @@ impl Account {
             "Successfully decrypted an Olm message"
         );
 
-        let (event, signing_key) = match self.parse_decrypted_to_device_event(sender, plaintext) {
-            Ok(r) => r,
+        match self.parse_decrypted_to_device_event(sender, plaintext) {
+            Ok((event, signing_key)) => Ok((session, event, signing_key)),
             Err(e) => {
                 // We might created a new session but decryption might still
                 // have failed, store it for the error case here, this is fine
@@ -414,11 +414,17 @@ impl Account {
                     }
                 }
 
-                return Err(e);
-            }
-        };
+                warn!(
+                    sender = sender.as_str(),
+                    sender_key = sender_key,
+                    error =? e,
+                    "A to-device message was successfully decrypted but \
+                    parsing and checking the event fields failed"
+                );
 
-        Ok((session, event, signing_key))
+                Err(e)
+            }
+        }
     }
 
     /// Parse a decrypted Olm message, check that the plaintext and encrypted
@@ -437,16 +443,21 @@ impl Account {
         }
 
         let event: DecryptedEvent = serde_json::from_str(&plaintext)?;
+        let identity_keys = self.inner.identity_keys();
 
-        if event.recipient != *self.user_id() || event.sender != *sender {
-            return Err(EventError::MismatchedSender.into());
+        if &event.recipient != self.user_id() {
+            Err(EventError::MismatchedSender(event.recipient, self.user_id().to_owned()).into())
+        } else if &event.sender != sender {
+            Err(EventError::MismatchedSender(event.sender, sender.to_owned()).into())
+        } else if identity_keys.ed25519() != event.recipient_keys.ed25519 {
+            Err(EventError::MismatchedKeys(
+                identity_keys.ed25519().to_owned(),
+                event.recipient_keys.ed25519,
+            )
+            .into())
+        } else {
+            Ok((Raw::from_json(RawJsonValue::from_string(plaintext)?), event.keys.ed25519))
         }
-
-        if self.inner.identity_keys().ed25519() != event.recipient_keys.ed25519 {
-            return Err(EventError::MismatchedKeys.into());
-        }
-
-        Ok((Raw::from_json(RawJsonValue::from_string(plaintext)?), event.keys.ed25519))
     }
 }
 

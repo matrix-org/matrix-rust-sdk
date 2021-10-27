@@ -118,11 +118,17 @@ pub enum EventError {
     #[error("the Encrypted message is missing the field {0}")]
     MissingField(String),
 
-    #[error("the sender of the plaintext doesn't match the sender of the encrypted message.")]
-    MismatchedSender,
+    #[error(
+        "the sender of the plaintext doesn't match the sender of the encrypted \
+        message, got {0}, expected {0}"
+    )]
+    MismatchedSender(UserId, UserId),
 
-    #[error("the keys of the message don't match the keys in our database.")]
-    MismatchedKeys,
+    #[error(
+        "the public that was part of the message doesn't match to the key we \
+        have stored, expected {0}, got {0}"
+    )]
+    MismatchedKeys(String, String),
 
     #[error(
         "the room id of the room key doesn't match the room id of the \
