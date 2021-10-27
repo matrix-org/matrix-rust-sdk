@@ -26,8 +26,11 @@ use ruma::{
     events::{
         receipt::Receipt,
         room::{
-            create::CreateEventContent, encryption::EncryptionEventContent,
-            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
+            create::{CreateEventContent, RoomType as CreateRoomType},
+            encryption::EncryptionEventContent,
+            guest_access::GuestAccess,
+            history_visibility::HistoryVisibility,
+            join_rules::JoinRule,
             tombstone::TombstoneEventContent,
         },
         tag::Tags,
@@ -128,6 +131,14 @@ impl Room {
     /// Get the type of the room.
     pub fn room_type(&self) -> RoomType {
         self.inner.read().unwrap().room_type
+    }
+
+    /// Whether this room's [`RoomType`](CreateRoomType) is `m.space`.
+    pub fn is_space(&self) -> bool {
+        match self.inner.read().unwrap().base_info.create.as_ref() {
+            Some(create) => create.room_type == Some(CreateRoomType::Space),
+            None => false,
+        }
     }
 
     /// Get the unread notification counts.
