@@ -39,7 +39,8 @@ use ruma::{
     assign,
     events::{
         room::encrypted::{
-            EncryptedEventContent, EncryptedEventScheme, SyncEncryptedEvent, ToDeviceEncryptedEvent,
+            EncryptedEventContent, EncryptedEventScheme, MegolmV1AesSha2Content,
+            SyncEncryptedEvent, ToDeviceEncryptedEvent,
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
@@ -1055,6 +1056,62 @@ impl OlmMachine {
         })
     }
 
+    async fn decrypt_megolm_v1_event(
+        &self,
+        room_id: &RoomId,
+        event: &SyncEncryptedEvent,
+        content: &MegolmV1AesSha2Content,
+    ) -> MegolmResult<SyncRoomEvent> {
+        if let Some(session) = self
+            .store
+            .get_inbound_group_session(room_id, &content.sender_key, &content.session_id)
+            .await?
+        {
+            // TODO check the message index.
+            let (decrypted_event, _) = session.decrypt(event).await?;
+
+            match decrypted_event.deserialize() {
+                Ok(e) => {
+                    // TODO log the event type once `AnySyncRoomEvent` has the
+                    // method as well
+                    trace!(
+                        sender = event.sender.as_str(),
+                        room_id = room_id.as_str(),
+                        session_id = session.session_id(),
+                        sender_key = session.sender_key(),
+                        "Successfully decrypted a room event"
+                    );
+                    let event = e.into_full_event(room_id.to_owned());
+
+                    if let AnyRoomEvent::Message(e) = event {
+                        self.verification_machine.receive_any_event(&e).await?;
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        sender = event.sender.as_str(),
+                        room_id = room_id.as_str(),
+                        session_id = session.session_id(),
+                        sender_key = session.sender_key(),
+                        error =? e,
+                        "Event was successfully decrypted but has an invalid format"
+                    );
+                }
+            }
+
+            let encryption_info =
+                self.get_encryption_info(&session, &event.sender, &content.device_id).await?;
+
+            Ok(SyncRoomEvent { encryption_info: Some(encryption_info), event: decrypted_event })
+        } else {
+            self.key_request_machine
+                .create_outgoing_key_request(room_id, &content.sender_key, &content.session_id)
+                .await?;
+
+            Err(MegolmError::MissingRoomKey)
+        }
+    }
+
     /// Decrypt an event from a room timeline.
     ///
     /// # Arguments
@@ -1067,43 +1124,45 @@ impl OlmMachine {
         event: &SyncEncryptedEvent,
         room_id: &RoomId,
     ) -> MegolmResult<SyncRoomEvent> {
-        let content = match &event.content.scheme {
-            EncryptedEventScheme::MegolmV1AesSha2(c) => c,
-            _ => return Err(EventError::UnsupportedAlgorithm.into()),
-        };
+        match &event.content.scheme {
+            EncryptedEventScheme::MegolmV1AesSha2(c) => {
+                match self.decrypt_megolm_v1_event(room_id, event, c).await {
+                    Ok(r) => Ok(r),
+                    Err(e) => {
+                        if let MegolmError::MissingRoomKey = e {
+                            // TODO log the withheld reason if we have one.
+                            debug!(
+                                sender = event.sender.as_str(),
+                                room_id = room_id.as_str(),
+                                sender_key = c.sender_key.as_str(),
+                                session_id = c.session_id.as_str(),
+                                "Failed to decrypt a room event, the room key is missing"
+                            );
+                        } else {
+                            warn!(
+                                sender = event.sender.as_str(),
+                                room_id = room_id.as_str(),
+                                sender_key = c.sender_key.as_str(),
+                                session_id = c.session_id.as_str(),
+                                error =? e,
+                                "Failed to decrypt a room event"
+                            );
+                        }
 
-        let session = self
-            .store
-            .get_inbound_group_session(room_id, &content.sender_key, &content.session_id)
-            .await?;
-        // TODO check if the Olm session is wedged and re-request the key.
-        let session = if let Some(s) = session {
-            s
-        } else {
-            self.key_request_machine
-                .create_outgoing_key_request(room_id, &content.sender_key, &content.session_id)
-                .await?;
-            return Err(MegolmError::MissingSession);
-        };
-
-        // TODO check the message index.
-        // TODO check if this is from a verified device.
-        let (decrypted_event, _) = session.decrypt(event).await?;
-
-        trace!("Successfully decrypted a Megolm event {:?}", decrypted_event);
-
-        if let Ok(e) = decrypted_event.deserialize() {
-            let event = e.into_full_event(room_id.to_owned());
-
-            if let AnyRoomEvent::Message(e) = event {
-                self.verification_machine.receive_any_event(&e).await?;
+                        Err(e)
+                    }
+                }
+            }
+            algorithm => {
+                warn!(
+                    sender = event.sender.as_str(),
+                    room_id = room_id.as_str(),
+                    ?algorithm,
+                    "Received an encrypted room event with an unsupported algorithm"
+                );
+                Err(EventError::UnsupportedAlgorithm.into())
             }
         }
-
-        let encryption_info =
-            self.get_encryption_info(&session, &event.sender, &content.device_id).await?;
-
-        Ok(SyncRoomEvent { encryption_info: Some(encryption_info), event: decrypted_event })
     }
 
     /// Update the tracked users.

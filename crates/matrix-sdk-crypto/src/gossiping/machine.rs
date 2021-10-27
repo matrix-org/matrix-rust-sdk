@@ -661,7 +661,7 @@ impl GossipMachine {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
-    ) -> Result<(), CryptoStoreError> {
+    ) -> Result<bool, CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             room_id.to_owned(),
@@ -670,11 +670,12 @@ impl GossipMachine {
         )
         .into();
 
-        if self.should_request_key(&key_info).await? {
+        Ok(if self.should_request_key(&key_info).await? {
             self.request_key_helper(key_info).await?;
-        }
-
-        Ok(())
+            true
+        } else {
+            false
+        })
     }
 
     /// Save an outgoing key info.

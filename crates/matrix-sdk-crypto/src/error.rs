@@ -77,10 +77,10 @@ pub enum MegolmError {
     #[error(transparent)]
     JsonError(#[from] SerdeError),
 
-    /// Decryption failed because the session needed to decrypt the event is
-    /// missing.
-    #[error("decryption failed because the session to decrypt the message is missing")]
-    MissingSession,
+    /// Decryption failed because we're missing the room key that was to encrypt
+    /// the event.
+    #[error("decryption failed because the room key is missing")]
+    MissingRoomKey,
 
     /// The underlying group session operation returned an error.
     #[error("can't finish Olm group session operation {0}")]
