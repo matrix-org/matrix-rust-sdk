@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     convert::TryFrom,
     sync::Arc,
 };
@@ -24,7 +24,7 @@ use ruma::{
     api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
     DeviceId, DeviceIdBox, UserId,
 };
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
     error::OlmResult,
@@ -74,14 +74,18 @@ impl IdentityManager {
         &self,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        let changed_devices =
-            self.handle_devices_from_key_query(response.device_keys.clone()).await?;
-        let (changed_identities, cross_signing_identity) =
-            self.handle_cross_singing_keys(response).await?;
+        info!(
+            users =? response.device_keys.keys().collect::<BTreeSet<&UserId>>(),
+            failures =? response.failures,
+            "Handling a keys query response"
+        );
+
+        let devices = self.handle_devices_from_key_query(response.device_keys.clone()).await?;
+        let (identities, cross_signing_identity) = self.handle_cross_singing_keys(response).await?;
 
         let changes = Changes {
-            identities: changed_identities.clone(),
-            devices: changed_devices.clone(),
+            identities: identities.clone(),
+            devices: devices.clone(),
             private_identity: cross_signing_identity,
             ..Default::default()
         };
@@ -94,7 +98,35 @@ impl IdentityManager {
             self.store.update_tracked_user(user_id, false).await?;
         }
 
-        Ok((changed_devices, changed_identities))
+        let changed_devices = devices.changed.iter().fold(BTreeMap::new(), |mut acc, d| {
+            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+            acc
+        });
+
+        let new_devices = devices.new.iter().fold(BTreeMap::new(), |mut acc, d| {
+            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+            acc
+        });
+
+        let deleted_devices = devices.deleted.iter().fold(BTreeMap::new(), |mut acc, d| {
+            acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
+            acc
+        });
+
+        let new_identities = identities.new.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
+        let changed_identities =
+            identities.changed.iter().map(|i| i.user_id()).collect::<BTreeSet<_>>();
+
+        debug!(
+            ?new_devices,
+            ?changed_devices,
+            ?deleted_devices,
+            ?new_identities,
+            ?changed_identities,
+            "Finished handling of the keys/query response"
+        );
+
+        Ok((devices, identities))
     }
 
     async fn update_or_create_device(
@@ -107,11 +139,12 @@ impl IdentityManager {
         if let Some(mut device) = old_device {
             if let Err(e) = device.update_device(&device_keys) {
                 warn!(
-                    "Failed to update the device keys for {} {}: {:?}",
-                    device.user_id(),
-                    device.device_id(),
-                    e
+                    user_id = device.user_id().as_str(),
+                    device_id = device.device_id().as_str(),
+                    error =? e,
+                    "Failed to update device keys",
                 );
+
                 Ok(DeviceChange::None)
             } else {
                 Ok(DeviceChange::Updated(device))
@@ -119,14 +152,23 @@ impl IdentityManager {
         } else {
             match ReadOnlyDevice::try_from(&device_keys) {
                 Ok(d) => {
-                    trace!("Adding a new device to the device store {:?}", d);
+                    trace!(
+                        user_id = d.user_id().as_str(),
+                        device_id = d.device_id().as_str(),
+                        keys =? d.keys(),
+                        "Adding a new device to the device store",
+                    );
+
                     Ok(DeviceChange::New(d))
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to create a new device for {} {}: {:?}",
-                        device_keys.user_id, device_keys.device_id, e
+                        user_id = device_keys.user_id.as_str(),
+                        device_id = device_keys.device_id.as_str(),
+                        error =? e,
+                        "Failed to create a new device",
                     );
+
                     Ok(DeviceChange::None)
                 }
             }
@@ -180,7 +222,11 @@ impl IdentityManager {
 
         for device_id in deleted_devices_set {
             if user_id == *own_user_id && *device_id == &own_device_id {
-                warn!("Our own device has been deleted");
+                warn!(
+                    user_id = own_user_id.as_str(),
+                    device_id = own_device_id.as_str(),
+                    "Our own device has been deleted"
+                );
             } else if let Some(device) = stored_devices.get(*device_id) {
                 device.mark_as_deleted();
                 changes.deleted.push(device.clone());
@@ -334,7 +380,7 @@ impl IdentityManager {
                     warn!(
                         user_id = user_id.as_str(),
                         error =? e,
-                        "Couldn't update or create new user identity for"
+                        "Couldn't update or create new user identity"
                     );
                     continue;
                 }
