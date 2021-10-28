@@ -267,7 +267,7 @@ impl Store {
             .and_then(|d| d.display_name().to_owned()))
     }
 
-    /// Get the read-only version of all the devices that the given user has.
+    /// Get the read-only version of a specific device.
     ///
     /// *Note*: This doesn't return our own device.
     pub async fn get_readonly_device(
@@ -280,6 +280,17 @@ impl Store {
         } else {
             self.inner.get_device(user_id, device_id).await
         }
+    }
+
+    /// Get the read-only version of a specific device.
+    ///
+    /// *Note*: This doesn't return our own device.
+    pub async fn get_readonly_device_unfiltered(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>> {
+        self.inner.get_device(user_id, device_id).await
     }
 
     /// Get the read-only version of all the devices that the given user has.
