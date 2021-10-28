@@ -15,9 +15,9 @@
 use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
 use ruma::events::key::verification::VerificationMethod;
 
-#[cfg(feature = "qrcode")]
-use super::QrVerification;
 use super::SasVerification;
+#[cfg(feature = "qrcode")]
+use super::{QrVerification, QrVerificationData, ScanError};
 use crate::{Client, Result};
 
 /// An object controlling the interactive verification flow.
@@ -128,6 +128,26 @@ impl VerificationRequest {
         Ok(self
             .inner
             .generate_qr_code()
+            .await?
+            .map(|qr| QrVerification { inner: qr, client: self.client.clone() }))
+    }
+
+    /// Start a QR code verification by providing a scanned QR code for this
+    /// verification flow.
+    ///
+    /// Returns a `ScanError` if the QR code isn't valid, `None` if the
+    /// verification request isn't in the ready state or we don't support QR
+    /// code verification, otherwise a newly created `QrVerification` object
+    /// which will be used for the remainder of the verification flow.
+    #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
+    pub async fn scan_qr_code(
+        &self,
+        data: QrVerificationData,
+    ) -> std::result::Result<Option<QrVerification>, ScanError> {
+        Ok(self
+            .inner
+            .scan_qr_code(data)
             .await?
             .map(|qr| QrVerification { inner: qr, client: self.client.clone() }))
     }

@@ -61,7 +61,12 @@ pub enum ScanError {
     Store(#[from] CryptoStoreError),
     /// A key mismatch happened during the validation of the QR code scan.
     #[error("The keys that are being verified didn't match (expected {expected}, found {found})")]
-    KeyMismatch { expected: String, found: String },
+    KeyMismatch {
+        /// The expected ed25519 key.
+        expected: String,
+        /// The ed25519 key that we got.
+        found: String,
+    },
     /// One of the users that is participating in this verification doesn't have
     /// a valid cross signing identity.
     #[error("The user {0} is missing a valid cross signing identity")]
@@ -73,7 +78,12 @@ pub enum ScanError {
     /// The ID uniquely identifying this verification flow didn't match to the
     /// one that has been scanned.
     #[error("The unique verification flow id did not match (expected {expected}, found {found})")]
-    FlowIdMismatch { expected: String, found: String },
+    FlowIdMismatch {
+        /// The expected verification flow id.
+        expected: String,
+        /// The verification flow id that we instead got.
+        found: String,
+    },
 }
 
 /// An object controlling QR code style key verification flows.

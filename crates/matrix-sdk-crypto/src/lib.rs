@@ -57,7 +57,7 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError};
+pub use verification::{AcceptSettings, CancelInfo, Sas, Verification, VerificationRequest};
 #[cfg(feature = "qrcode")]
 #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
-pub use verification::QrVerification;
-pub use verification::{AcceptSettings, CancelInfo, Sas, Verification, VerificationRequest};
+pub use verification::{QrVerification, ScanError};

@@ -30,7 +30,7 @@ pub use machine::VerificationMachine;
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
 #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
-pub use qrcode::QrVerification;
+pub use qrcode::{QrVerification, ScanError};
 pub use requests::VerificationRequest;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
