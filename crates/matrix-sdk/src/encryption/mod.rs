@@ -22,7 +22,7 @@
 //! Jump to the [Client Setup](#client-setup) section if you don't care how E2EE
 //! works under the hood.
 //!
-//! ## End-to-end encryption
+//! # End-to-end encryption
 //!
 //! While all messages in Matrix land are transferred to the server in an
 //! encrypted manner, rooms can be marked as end-to-end encrypted. If a room is
@@ -49,7 +49,7 @@
 //!                               └──────────────┘
 //! ```
 //!
-//! ### Encrypting for each end
+//! ## Encrypting for each end
 //!
 //! We already mentioned that a message in a end-to-end encrypted world needs to
 //! be encrypted for each individual member, though that isn't completely
@@ -65,17 +65,17 @@
 //! [`Device`] becomes quickly unsustainable. Because of that room keys have
 //! been introduced.
 //!
-//! ### Room keys
+//! ## Room keys
 //!
 //! ```text
-//!         ┌────────────────────────┬───────────────────────┐
-//!         │ Outbound group session │ Inbound group session │
-//!         └────────────────────────┴───────────────────────┘
+//!             ┌────────────────────────┬───────────────────────┐
+//!             │       Encryption       │      Decryption       │
+//!             ├────────────────────────┼───────────────────────┤
+//!             │ Outbound group session │ Inbound group session │
+//!             └────────────────────────┴───────────────────────┘
 //! ```
 //!
-//!
-//!
-//! ## Verification
+//! # Verification
 //!
 //! One important aspect of end-to-end encryption is to check that the *end* you
 //! are communicating with is indeed the person you expect. This checking is
@@ -85,20 +85,61 @@
 //! for such a channel.
 //!
 //! Usually each *end* will need to verify every *end* it communicates with. An
-//! *end*, as already mentioned, is represented as a [`Device`] in the
-//! matrix-sdk.  Since users might have many devices, the concept of cross
-//! signing has been introduced, users have a single user identity which allows
-//! users to verify their own devices and other users only need to verify this
-//! user identity. A cryptographic user identity is represented in the
-//! matrix-sdk using the [`UserIdentity`] struct. More info about the different
-//! identites can be found in the [`identities`] module.
+//! *end* is represented as a [`Device`] in the matrix-sdk. This gets rather
+//! complicated quickly as is shown bellow, with Alice and Bob each having two
+//! devices. Each arrow represents who needs to verify whom for the
+//! communication between Alice and Bob to be considered secure.
+//!
+//! ```text
+//!
+//!               ┌───────────────────────────────────────────┐
+//!               ▼                                           │
+//!         ┌───────────┐                                ┌────┴────┐
+//!       ┌►│Alice Phone├───────────────────────────────►│Bob Phone│◄──┐
+//!       │ └─────┬─────┘                                └─────┬───┘   │
+//!       │       ▼                                            ▼       │
+//!       │ ┌────────────┐                               ┌───────────┐ │
+//!       └─┤Alice Laptop├──────────────────────────────►│Bob Desktop├─┘
+//!         └────────────┘                               └─────┬─────┘
+//!               ▲                                            │
+//!               └────────────────────────────────────────────┘
+//!
+//! ```
+//!
+//! To simplify things and lower the amount of devices a user needs to verify
+//! cross signing has been introduced. Cross signing adds a concept of a user
+//! identity which is represented in the matrix-sdk using the [`UserIdentity`]
+//! struct. This way Alice and Bob only need to verify their own devices and
+//! each others user identity for the communication to be considered secure.
+//!
+//! ```text
+//!
+//!            ┌─────────────────────────────────────────────────┐
+//!            │   ┌─────────────────────────────────────────┐   │
+//!            ▼   │                                         ▼   │
+//!     ┌──────────┴─────────┐                   ┌───────────────┴──────┐
+//!     │┌──────────────────┐│                   │  ┌────────────────┐  │
+//!     ││Alice UserIdentity││                   │  │Bob UserIdentity│  │
+//!     │└───┬─────────┬────┘│                   │  └─┬───────────┬──┘  │
+//!     │    │         │     │                   │    │           │     │
+//!     │    ▼         ▼     │                   │    ▼           ▼     │
+//!     │┌───────┐ ┌────────┐│                   │┌───────┐  ┌─────────┐│
+//!     ││ Alice │ │ Alice  ││                   ││  Bob  │  │   Bob   ││
+//!     ││ Phone │ │ Laptop ││                   ││ Phone │  │ Desktop ││
+//!     │└───────┘ └────────┘│                   │└───────┘  └─────────┘│
+//!     └────────────────────┘                   └──────────────────────┘
+//!
+//! ```
+//!
+//! More info about devices and identities can be found in the [`identities`]
+//! module.
 //!
 //! To add interactive verification support to your client please see the
 //! [`verification`] module, also check out the documentation for the
 //! [`Device::verified()`] method, which explains in more detail what it means
 //! for a [`Device`] to be verified.
 //!
-//! ## Client setup
+//! # Client setup
 //!
 //! The matrix-sdk aims to provide encryption support transparently. If
 //! encryption is enabled and correctly set up, events that need to be encrypted
@@ -112,16 +153,20 @@
 //! 1. Make sure the `encryption` feature is enabled.
 //! 2. Configure a store path with the [`ClientConfig::store_path`] method.
 //!
-//! ### Restoring a client
+//! ## Restoring a client
 //!
-//! ### Common pitfalls
+//! ### Using an access token
+//!
+//! ### Using the password.
+//!
+//! ## Common pitfalls
 //!
 //! | Failure | Cause | Fix |
 //! | ------------------- | ----- | ----------- |
 //! | No messages get encrypted nor decrypted | The `encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
 //! | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Setup storage with [`ClientConfig::store_path`] |
 //! | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
-//! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] and the event isn't [filtered] out, otherwise it might be a deserialization bug |
+//! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out, otherwise it might be a deserialization bug |
 //!
 //! [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
 //! [`ClientConfig::store_path`]: crate::config::ClientConfig::store_path
