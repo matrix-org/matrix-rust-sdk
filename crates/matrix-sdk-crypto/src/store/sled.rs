@@ -156,7 +156,6 @@ pub struct SledStore {
 
     account: Tree,
     private_identity: Tree,
-    misc: Tree,
 
     olm_hashes: Tree,
     sessions: Tree,
@@ -300,7 +299,6 @@ impl SledStore {
         let outgoing_secret_requests = db.open_tree("outgoing_secret_requests")?;
         let unsent_secret_requests = db.open_tree("unsent_secret_requests")?;
         let secret_requests_by_info = db.open_tree("secret_requests_by_info")?;
-        let misc = db.open_tree("misc")?;
 
         let session_cache = SessionStore::new();
 
@@ -319,7 +317,6 @@ impl SledStore {
             account,
             private_identity,
             sessions,
-            misc,
             session_cache,
             tracked_users_cache: DashSet::new().into(),
             users_for_key_query_cache: DashSet::new().into(),

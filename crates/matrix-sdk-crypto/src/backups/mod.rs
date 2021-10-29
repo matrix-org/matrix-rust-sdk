@@ -65,7 +65,7 @@ impl PendingBackup {
 
 impl From<PendingBackup> for OutgoingRequest {
     fn from(b: PendingBackup) -> Self {
-        OutgoingRequest { request_id: b.request_id, request: Arc::new(b.request.into()) }.into()
+        OutgoingRequest { request_id: b.request_id, request: Arc::new(b.request.into()) }
     }
 }
 
@@ -108,7 +108,7 @@ impl BackupMachine {
         debug!(?auth_data, "Verifying backup auth data");
 
         Ok(if let Some(signatures) = auth_data.signatures.get(self.store.user_id()) {
-            for (device_key_id, _) in signatures {
+            for device_key_id in signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
                     if device_key_id.device_id() == self.account.device_id() {
                         let result = self.account.is_signed(&mut serialized_auth_data);
@@ -184,11 +184,7 @@ impl BackupMachine {
         recovery_key: Option<RecoveryKey>,
         version: Option<String>,
     ) -> Result<(), CryptoStoreError> {
-        let mut changes = Changes::default();
-
-        changes.recovery_key = recovery_key;
-        changes.backup_version = version;
-
+        let changes = Changes { recovery_key, backup_version: version, ..Default::default() };
         self.store.save_changes(changes).await
     }
 
