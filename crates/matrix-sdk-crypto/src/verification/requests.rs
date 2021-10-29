@@ -330,12 +330,8 @@ impl VerificationRequest {
         &self,
         data: QrVerificationData,
     ) -> Result<Option<QrVerification>, ScanError> {
-        // Lint is buggy: https://github.com/rust-lang/rust/issues/89562
-        #[allow(unknown_lints, must_not_suspend)]
-        let state = self.inner.lock().unwrap();
-
-        if let InnerRequest::Ready(r) = &*state {
-            let fut = QrVerification::from_scan(
+        let fut = if let InnerRequest::Ready(r) = &*self.inner.lock().unwrap() {
+            Some(QrVerification::from_scan(
                 r.store.clone(),
                 r.private_cross_signing_identity.clone(),
                 r.other_user_id.clone(),
@@ -344,12 +340,13 @@ impl VerificationRequest {
                 data,
                 self.we_started,
                 Some(self.inner.clone().into()),
-            );
+            ))
+        } else {
+            None
+        };
 
-            // Prevent mutex lock being held across `.await` point.
-            drop(state);
-
-            let qr_verification = fut.await?;
+        if let Some(future) = fut {
+            let qr_verification = future.await?;
             self.verification_cache.insert_qr(qr_verification.clone());
 
             Ok(Some(qr_verification))
