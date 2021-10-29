@@ -125,7 +125,7 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
     /// ```
     pub fn new(
         input: &'a mut R,
-        info: EncryptionInfo,
+        info: MediaEncryptionInfo,
     ) -> Result<AttachmentDecryptor<'a, R>, DecryptorError> {
         if info.version != VERSION {
             return Err(DecryptorError::UnknownVersion);
@@ -245,11 +245,11 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
     }
 
     /// Consume the encryptor and get the encryption key.
-    pub fn finish(mut self) -> EncryptionInfo {
+    pub fn finish(mut self) -> MediaEncryptionInfo {
         let hash = self.sha.finalize();
         self.hashes.entry("sha256".to_owned()).or_insert_with(|| encode(hash));
 
-        EncryptionInfo {
+        MediaEncryptionInfo {
             version: VERSION.to_string(),
             hashes: self.hashes,
             iv: self.iv,
@@ -261,7 +261,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
 /// Struct holding all the information that is needed to decrypt an encrypted
 /// file.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct EncryptionInfo {
+pub struct MediaEncryptionInfo {
     #[serde(rename = "v")]
     /// The version of the encryption scheme.
     pub version: String,
@@ -273,7 +273,7 @@ pub struct EncryptionInfo {
     pub hashes: BTreeMap<String, String>,
 }
 
-impl From<EncryptedFile> for EncryptionInfo {
+impl From<EncryptedFile> for MediaEncryptionInfo {
     fn from(file: EncryptedFile) -> Self {
         Self { version: file.v, web_key: file.key, iv: file.iv, hashes: file.hashes }
     }
@@ -285,14 +285,14 @@ mod test {
 
     use serde_json::json;
 
-    use super::{AttachmentDecryptor, AttachmentEncryptor, EncryptionInfo};
+    use super::{AttachmentDecryptor, AttachmentEncryptor, MediaEncryptionInfo};
 
     const EXAMPLE_DATA: &[u8] = &[
         179, 154, 118, 127, 186, 127, 110, 33, 203, 33, 33, 134, 67, 100, 173, 46, 235, 27, 215,
         172, 36, 26, 75, 47, 33, 160,
     ];
 
-    fn example_key() -> EncryptionInfo {
+    fn example_key() -> MediaEncryptionInfo {
         let info = json!({
             "v": "v2",
             "web_key": {

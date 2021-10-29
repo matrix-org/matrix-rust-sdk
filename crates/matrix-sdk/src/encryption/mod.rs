@@ -185,7 +185,7 @@ use std::{
 };
 
 use futures::StreamExt;
-pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
+pub use matrix_sdk_base::crypto::{MediaEncryptionInfo, LocalTrust};
 use matrix_sdk_base::{
     crypto::{
         store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
