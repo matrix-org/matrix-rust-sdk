@@ -23,7 +23,10 @@ use aes_gcm::{
     Aes256Gcm,
 };
 use bs58;
-use olm_rs::pk::OlmPkDecryption;
+use olm_rs::{
+    errors::OlmPkDecryptionError,
+    pk::{OlmPkDecryption, PkMessage},
+};
 use rand::{thread_rng, Error as RandomError, Fill};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -190,8 +193,12 @@ impl RecoveryKey {
         self.version = Some(version)
     }
 
+    fn get_pk_decrytpion(&self) -> OlmPkDecryption {
+        OlmPkDecryption::from_private_key(self.key.as_ref()).expect("Hello world")
+    }
+
     pub fn public_key(&self) -> MegolmV1BackupKey {
-        let pk = OlmPkDecryption::from_private_key(self.key.as_ref()).unwrap();
+        let pk = self.get_pk_decrytpion();
         let public_key = MegolmV1BackupKey::new(pk.public_key(), self.version.clone());
         public_key
     }
@@ -260,5 +267,17 @@ impl RecoveryKey {
 
             Ok(Self { key, version: pickled.backup_version })
         }
+    }
+
+    pub fn decrypt(
+        &self,
+        mac: String,
+        ephemeral_key: String,
+        ciphertext: String,
+    ) -> Result<String, OlmPkDecryptionError> {
+        let message = PkMessage::new(mac, ephemeral_key, ciphertext);
+        let pk = self.get_pk_decrytpion();
+
+        pk.decrypt(message)
     }
 }

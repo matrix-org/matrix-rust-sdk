@@ -36,6 +36,7 @@ use crate::{
 mod keys;
 
 pub use keys::{DecodeError, MegolmV1BackupKey, PickledRecoveryKey, RecoveryKey};
+pub use olm_rs::errors::OlmPkDecryptionError;
 
 /// TODO
 #[derive(Debug, Clone)]
