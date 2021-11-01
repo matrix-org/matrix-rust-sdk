@@ -155,9 +155,46 @@
 //!
 //! ## Restoring a client
 //!
+//! Restoring a Client is relatively easy, still some things need to be kept in
+//! mind before doing so.
+//!
+//! There are two ways one might wish to restore a [`Client`]:
+//! 1. Using an access token
+//! 2. Using the password
+//!
+//! Initially, logging in creates a device ID and access token on the server,
+//! those two are directly connected to each other, more on this relationship
+//! can be found in the [spec].
+//!
+//! After we log in the client will upload the end-to-end encryption related
+//! [device keys] to the server. Those device keys cannot be replaced once they
+//! have been uploaded and tied to a device ID.
+//!
 //! ### Using an access token
 //!
-//! ### Using the password.
+//! 1. Log in with the password using [`Client::login()`] setting the
+//!    `device_id` argument to `None`.
+//! 2. Store the access token, preferably somewhere secure.
+//! 3. Use [`Client::restore_login()`] the next time the client starts.
+//!
+//! **Note** that the access token is directly connected to a device ID that
+//! lives on a server. If you're skipping step one of this method, remember that
+//! you **can't** use an access token that already has some device keys tied to
+//! the device ID.
+//!
+//! ### Using a password.
+//!
+//! 1. Log in using [`Client::login()`] setting the `device_id` argument to `None`.
+//! 2. Store the `device_id` that was returned in the login response from the
+//! server.
+//! 3. Use [`Client::login()`] the next time the client starts, make sure to
+//! **set** `device_id` this time to the stored `device_id` from the previous
+//! step. This will replace the access token from the previous login call but
+//! won't create a new device.
+//!
+//! **Note** that the default store supports only a single device, logging in
+//! with a different device id (either `None` or a device ID of another client)
+//! is **not** supported using the default store.
 //!
 //! ## Common pitfalls
 //!
@@ -174,6 +211,8 @@
 //! [filtered]: crate::config::SyncSettings::filter
 //! [enabled]: crate::room::Joined::enable_encryption
 //! [Restoring a Client]: #restoring-a-client
+//! [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
+//! [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
 
 pub mod identities;
 pub mod verification;
