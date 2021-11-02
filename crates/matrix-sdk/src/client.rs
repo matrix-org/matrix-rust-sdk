@@ -249,7 +249,7 @@ impl Client {
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = Client::homeserver_from_user_id(user_id)?;
-        let mut client = Client::new_with_config(homeserver, config)?;
+        let client = Client::new_with_config(homeserver, config)?;
 
         let well_known = client.discover_homeserver().await?;
         let well_known = Url::parse(well_known.homeserver.base_url.as_ref())?;
@@ -279,7 +279,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
-    pub async fn set_homeserver(&mut self, homeserver_url: Url) {
+    pub async fn set_homeserver(&self, homeserver_url: Url) {
         let mut homeserver = self.homeserver.write().await;
         *homeserver = homeserver_url;
     }
@@ -2336,7 +2336,7 @@ pub(crate) mod test {
     async fn set_homeserver() {
         let homeserver = Url::from_str("http://example.com/").unwrap();
 
-        let mut client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).unwrap();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
