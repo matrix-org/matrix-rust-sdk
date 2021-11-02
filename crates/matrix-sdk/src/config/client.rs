@@ -49,6 +49,7 @@ pub struct ClientConfig {
     pub(crate) request_config: RequestConfig,
     pub(crate) client: Option<Arc<dyn HttpSend>>,
     pub(crate) appservice_mode: bool,
+    pub(crate) use_discovery_response: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -184,6 +185,13 @@ impl ClientConfig {
         store: Box<dyn matrix_sdk_base::crypto::store::CryptoStore>,
     ) -> Self {
         self.base_config = self.base_config.crypto_store(store);
+        self
+    }
+
+    /// Update the client's homeserver URL with the discovery information
+    /// present in the login response, if any.
+    pub fn use_discovery_response(mut self) -> Self {
+        self.use_discovery_response = true;
         self
     }
 }

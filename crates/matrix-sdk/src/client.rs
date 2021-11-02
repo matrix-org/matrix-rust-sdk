@@ -129,6 +129,9 @@ pub struct Client {
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
     appservice_mode: bool,
+    /// Whether the client should update its homeserver URL with the discovery
+    /// information present in the login response.
+    use_discovery_response: bool,
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -191,6 +194,7 @@ impl Client {
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
             appservice_mode: config.appservice_mode,
+            use_discovery_response: config.use_discovery_response,
             sync_beat: event_listener::Event::new().into(),
         })
     }
@@ -825,7 +829,7 @@ impl Client {
         });
 
         let response = self.send(request, None).await?;
-        self.base_client.receive_login_response(&response).await?;
+        self.receive_login_response(&response).await?;
 
         Ok(response)
     }
@@ -1105,9 +1109,29 @@ impl Client {
         );
 
         let response = self.send(request, None).await?;
-        self.base_client.receive_login_response(&response).await?;
+        self.receive_login_response(&response).await?;
 
         Ok(response)
+    }
+
+    /// Receive a login response and update the homeserver and the base client
+    /// if needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - A successful login response.
+    async fn receive_login_response(&self, response: &login::Response) -> Result<()> {
+        if self.use_discovery_response {
+            if let Some(well_known) = &response.well_known {
+                if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
+                    self.set_homeserver(homeserver).await;
+                }
+            }
+        }
+
+        self.base_client.receive_login_response(response).await?;
+
+        Ok(())
     }
 
     /// Restore a previously logged in session.
@@ -2391,7 +2415,7 @@ pub(crate) mod test {
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver.clone()).unwrap();
 
         let _m_types = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2416,6 +2440,48 @@ pub(crate) mod test {
 
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
+
+        assert_eq!(client.homeserver().await, homeserver);
+    }
+
+    #[tokio::test]
+    async fn login_with_discovery() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let config = ClientConfig::new().use_discovery_response();
+
+        let client = Client::new_with_config(homeserver, config).unwrap();
+
+        let _m_login = mock("POST", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN_WITH_DISCOVERY.to_string())
+            .create();
+
+        client.login("example", "wordpass", None, None).await.unwrap();
+
+        let logged_in = client.logged_in().await;
+        assert!(logged_in, "Client should be logged in");
+
+        assert_eq!(client.homeserver().await.as_str(), "https://example.org/");
+    }
+
+    #[tokio::test]
+    async fn login_no_discovery() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let config = ClientConfig::new().use_discovery_response();
+
+        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
+
+        let _m_login = mock("POST", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN.to_string())
+            .create();
+
+        client.login("example", "wordpass", None, None).await.unwrap();
+
+        let logged_in = client.logged_in().await;
+        assert!(logged_in, "Client should be logged in");
+
+        assert_eq!(client.homeserver().await, homeserver);
     }
 
     #[cfg(feature = "sso_login")]

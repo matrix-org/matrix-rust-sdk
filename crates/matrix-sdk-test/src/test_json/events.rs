@@ -192,6 +192,23 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref LOGIN_WITH_DISCOVERY: JsonValue = json!({
+        "access_token": "abc123",
+        "device_id": "GHTYAJCE",
+        "home_server": "matrix.org",
+        "user_id": "@cheeky_monkey:matrix.org",
+        "well_known": {
+            "m.homeserver": {
+                "base_url": "https://example.org"
+            },
+            "m.identity_server": {
+                "base_url": "https://id.example.org"
+            }
+        }
+    });
+}
+
+lazy_static! {
     pub static ref LOGIN_RESPONSE_ERR: JsonValue = json!({
       "errcode": "M_FORBIDDEN",
       "error": "Invalid password"
