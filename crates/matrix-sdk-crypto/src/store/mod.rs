@@ -449,7 +449,18 @@ impl Store {
             | SecretName::CrossSigningSelfSigningKey => {
                 self.identity.lock().await.export_secret(secret_name).await
             }
-            SecretName::RecoveryKey => None,
+            SecretName::RecoveryKey => {
+                #[cfg(feature = "backups_v1")]
+                if let Some(key) = self.load_backup_keys().await.unwrap().recovery_key {
+                    let exported = key.to_base64();
+                    Some(exported)
+                } else {
+                    None
+                }
+
+                #[cfg(not(feature = "backups_v1"))]
+                None
+            }
             name => {
                 warn!(secret =? name, "Unknown secret was requested");
                 None
