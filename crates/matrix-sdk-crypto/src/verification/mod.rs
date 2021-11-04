@@ -42,6 +42,7 @@ use ruma::{
             done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
             Relation,
         },
+        secret::request::SecretName,
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyId, EventId, RoomId, UserId,
@@ -535,7 +536,7 @@ impl IdentitiesBeingVerified {
         };
 
         if should_request_secrets {
-            let secret_requests = self.request_missing_secrets().await;
+            let secret_requests = self.request_missing_secrets().await?;
             changes.key_requests = secret_requests;
         }
 
@@ -547,9 +548,15 @@ impl IdentitiesBeingVerified {
             .unwrap_or(VerificationResult::Ok))
     }
 
-    async fn request_missing_secrets(&self) -> Vec<GossipRequest> {
-        let secrets = self.private_identity.get_missing_secrets().await;
-        GossipMachine::request_missing_secrets(self.user_id(), secrets)
+    async fn request_missing_secrets(&self) -> Result<Vec<GossipRequest>, CryptoStoreError> {
+        let mut secrets = self.private_identity.get_missing_secrets().await;
+
+        #[cfg(feature = "backups_v1")]
+        if self.store.inner.load_backup_keys().await?.recovery_key.is_none() {
+            secrets.push(SecretName::RecoveryKey);
+        }
+
+        Ok(GossipMachine::request_missing_secrets(self.user_id(), secrets))
     }
 
     async fn mark_identity_as_verified(

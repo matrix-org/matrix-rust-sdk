@@ -514,7 +514,12 @@ impl Store {
                     self.save_changes(changes).await?;
                 }
             }
-            SecretName::RecoveryKey => (),
+            SecretName::RecoveryKey => {
+                // We don't import the recovery key here since we'll want to
+                // check if the public key matches to the latest version on the
+                // server. We instead leave the key in the event and let the
+                // user import it later.
+            }
             name => {
                 warn!(secret =? name, "Tried to import an unknown secret");
             }

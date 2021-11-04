@@ -143,7 +143,7 @@ impl RecoveryKey {
         Self { key, version: None }
     }
 
-    pub fn from_base64(key: String) -> Result<Self, DecodeError> {
+    pub fn from_base64(key: &str) -> Result<Self, DecodeError> {
         let decoded = Zeroizing::new(crate::utilities::decode(key)?);
 
         if decoded.len() != Self::KEY_SIZE {
