@@ -29,7 +29,7 @@ use ruma::{
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, Transactional, Tree,
+    Config, Db, IVec, Transactional, Tree,
 };
 use tracing::trace;
 use uuid::Uuid;
@@ -129,12 +129,6 @@ impl EncodeKey for (&str, &str, &str) {
     }
 }
 
-pub fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
-    let values: Vec<&[u8]> = key.split(|v| *v == 0xff).collect();
-
-    values.get(position).map(|s| String::from_utf8_lossy(s).to_string())
-}
-
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
     user_id: Arc<UserId>,
@@ -212,13 +206,13 @@ impl SledStore {
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
-        let mut pickles: Vec<(String, PickledInboundGroupSession)> = self
+        let mut pickles: Vec<(IVec, PickledInboundGroupSession)> = self
             .inbound_group_sessions
             .iter()
             .map(|p| {
                 let item = p?;
                 Ok((
-                    decode_key_value(&item.0, 0).expect("Inbound group session key is invalid"),
+                    item.0,
                     serde_json::from_slice(&item.1).map_err(CryptoStoreError::Serialization)?,
                 ))
             })
@@ -230,12 +224,9 @@ impl SledStore {
 
         let ret: Result<(), TransactionError<serde_json::Error>> =
             self.inbound_group_sessions.transaction(|inbound_sessions| {
-                for (session_id, pickle) in &pickles {
-                    let key =
-                        (pickle.room_id.as_str(), pickle.sender_key.as_str(), session_id.as_str())
-                            .encode();
+                for (key, pickle) in &pickles {
                     inbound_sessions.insert(
-                        key.as_slice(),
+                        key,
                         serde_json::to_vec(&pickle).map_err(ConflictableTransactionError::Abort)?,
                     )?;
                 }
