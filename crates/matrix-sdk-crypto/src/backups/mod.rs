@@ -25,7 +25,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     olm::{Account, InboundGroupSession},
@@ -105,7 +105,7 @@ impl BackupMachine {
 
         let auth_data: AuthData = serde_json::from_value(serialized_auth_data.clone())?;
 
-        debug!(?auth_data, "Verifying backup auth data");
+        trace!(?auth_data, "Verifying backup auth data");
 
         Ok(if let Some(signatures) = auth_data.signatures.get(self.store.user_id()) {
             for device_key_id in signatures.keys() {
@@ -113,7 +113,7 @@ impl BackupMachine {
                     if device_key_id.device_id() == self.account.device_id() {
                         let result = self.account.is_signed(&mut serialized_auth_data);
 
-                        debug!(?result, "Checking auth data signature of our own device");
+                        trace!(?result, "Checking auth data signature of our own device");
 
                         if result.is_ok() {
                             return Ok(true);
@@ -124,7 +124,7 @@ impl BackupMachine {
                             .get_device(self.store.user_id(), device_key_id.device_id())
                             .await?;
 
-                        debug!(
+                        trace!(
                             device_id = device_key_id.device_id().as_str(),
                             "Checking backup auth data for device"
                         );
@@ -136,7 +136,7 @@ impl BackupMachine {
                                 return Ok(true);
                             }
                         } else {
-                            warn!(
+                            trace!(
                                 device_id = device_key_id.device_id().as_str(),
                                 "Device not found, can't check signature"
                             );
@@ -169,11 +169,16 @@ impl BackupMachine {
     }
 
     /// TODO
+    #[instrument(skip(self))]
     pub async fn disable_backup(&self) -> Result<(), CryptoStoreError> {
+        debug!("Disabling key backup and resetting backup state for room keys");
+
         self.backup_key.write().await.take();
         self.pending_backup.write().await.take();
 
         self.store.reset_backup_state().await?;
+
+        debug!("Done disabling backup");
 
         Ok(())
     }
@@ -198,11 +203,11 @@ impl BackupMachine {
         let mut request = self.pending_backup.write().await;
 
         if let Some(request) = &*request {
-            debug!("Backing up, returning an existing request");
+            trace!("Backing up, returning an existing request");
 
             Ok(Some(request.clone().into()))
         } else {
-            debug!("Backing up, creating a new request");
+            trace!("Backing up, creating a new request");
 
             let new_request = self.backup_helper().await?;
             *request = new_request.clone();
@@ -231,10 +236,17 @@ impl BackupMachine {
                     session.mark_as_backed_up()
                 }
 
-                debug!(sessions =? r.sessions, "Marking inbound group sessions as backed up",);
+                trace!(request_id =? r.request_id, keys =? r.sessions, "Marking room keys as backed up");
 
                 let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
                 self.store.save_changes(changes).await?;
+
+                let counts = self.store.inbound_group_session_counts().await?;
+
+                trace!(
+                    room_key_counts =? counts,
+                    request_id =? r.request_id, keys =? r.sessions, "Marked room keys as backed up"
+                );
 
                 *request = None;
             } else {
@@ -268,7 +280,7 @@ impl BackupMachine {
                         key_count = key_count,
                         keys =? session_record,
                         backup_key =? backup_key,
-                        "Successfully backed up room keys"
+                        "Successfully created a room keys backup request"
                     );
 
                     let request = PendingBackup {
@@ -279,15 +291,15 @@ impl BackupMachine {
 
                     Ok(Some(request))
                 } else {
-                    debug!(?backup_key, "No room keys need to be backed up");
+                    trace!(?backup_key, "No room keys need to be backed up");
                     Ok(None)
                 }
             } else {
-                info!("Trying to backup room keys but the backup key wasn't uploaded");
+                warn!("Trying to backup room keys but the backup key wasn't uploaded");
                 Ok(None)
             }
         } else {
-            info!("Trying to backup room keys but no backup key was found");
+            warn!("Trying to backup room keys but no backup key was found");
             Ok(None)
         }
     }

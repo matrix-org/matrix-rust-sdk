@@ -34,9 +34,19 @@ struct InnerBackupKey {
     version: Mutex<Option<String>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MegolmV1BackupKey {
     inner: Arc<InnerBackupKey>,
+}
+
+impl std::fmt::Debug for MegolmV1BackupKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MegolmV1BackupKey")
+            .field("key", &self.encoded_key())
+            .field("version", &self.backup_version())
+            .finish()
+    }
 }
 
 impl MegolmV1BackupKey {
