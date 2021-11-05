@@ -1950,10 +1950,6 @@ impl Client {
     /// UI thread.
     ///
     /// ```no_run
-    /// # use matrix_sdk::ruma::events::{
-    /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    /// # };
-    /// # use std::sync::{Arc, RwLock};
     /// # use std::time::Duration;
     /// # use matrix_sdk::{Client, config::SyncSettings, LoopCtrl};
     /// # use url::Url;
@@ -2036,10 +2032,7 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use futures::StreamExt;
-    /// use matrix_sdk::{
-    ///     Client, config::SyncSettings,
-    ///     ruma::events::{SyncMessageEvent, room::message::MessageEventContent},
-    /// };
+    /// use matrix_sdk::{Client, config::SyncSettings};
     ///
     /// let client = Client::new(homeserver)?;
     /// client.login(&username, &password, None, None).await?;
