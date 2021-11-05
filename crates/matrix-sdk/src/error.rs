@@ -17,6 +17,8 @@
 use std::io::Error as IoError;
 
 use http::StatusCode;
+#[cfg(feature = "qrcode")]
+use matrix_sdk_base::crypto::ScanError;
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
@@ -154,6 +156,11 @@ pub enum Error {
     /// An error encountered when trying to parse a url.
     #[error(transparent)]
     Url(#[from] UrlParseError),
+
+    /// An error while scanning a QR code.
+    #[cfg(feature = "qrcode")]
+    #[error(transparent)]
+    QrCodeScanError(#[from] ScanError),
 }
 
 /// Error for the room key importing functionality.
