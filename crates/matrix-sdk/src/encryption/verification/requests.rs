@@ -17,7 +17,7 @@ use ruma::events::key::verification::VerificationMethod;
 
 use super::SasVerification;
 #[cfg(feature = "qrcode")]
-use super::{QrVerification, QrVerificationData, ScanError};
+use super::{QrVerification, QrVerificationData};
 use crate::{Client, Result};
 
 /// An object controlling the interactive verification flow.
@@ -135,21 +135,23 @@ impl VerificationRequest {
     /// Start a QR code verification by providing a scanned QR code for this
     /// verification flow.
     ///
-    /// Returns a `ScanError` if the QR code isn't valid, `None` if the
-    /// verification request isn't in the ready state or we don't support QR
-    /// code verification, otherwise a newly created `QrVerification` object
-    /// which will be used for the remainder of the verification flow.
+    /// Returns an `Error` if the QR code isn't valid or sending a reciprocate
+    /// event to the other side fails, `None` if the verification request
+    /// isn't in the ready state or we don't support QR code verification,
+    /// otherwise a newly created `QrVerification` object which will be used
+    /// for the remainder of the verification flow.
     #[cfg(feature = "qrcode")]
     #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
-    pub async fn scan_qr_code(
-        &self,
-        data: QrVerificationData,
-    ) -> std::result::Result<Option<QrVerification>, ScanError> {
-        Ok(self
-            .inner
-            .scan_qr_code(data)
-            .await?
-            .map(|qr| QrVerification { inner: qr, client: self.client.clone() }))
+    pub async fn scan_qr_code(&self, data: QrVerificationData) -> Result<Option<QrVerification>> {
+        if let Some(qr) = self.inner.scan_qr_code(data).await? {
+            if let Some(request) = qr.reciprocate() {
+                self.client.send_verification_request(request).await?;
+            }
+
+            Ok(Some(QrVerification { inner: qr, client: self.client.clone() }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Transition from this verification request into a SAS verification flow.
