@@ -69,7 +69,7 @@ pub(crate) mod test {
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{MessageEventContent, Relation, Replacement},
-            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
+            AnySyncMessageEvent, AnySyncRoomEvent,
         },
         room_id, user_id, DeviceId, UserId,
     };
@@ -256,12 +256,8 @@ pub(crate) mod test {
 
         assert_eq!(outbound.session_id(), inbound.session_id());
 
-        let encrypted_content = outbound
-            .encrypt(
-                serde_json::to_value(AnyMessageEventContent::RoomMessage(content))?,
-                "m.room.message",
-            )
-            .await;
+        let encrypted_content =
+            outbound.encrypt(serde_json::to_value(content)?, "m.room.message").await;
 
         let event = json!({
             "sender": alice.user_id(),

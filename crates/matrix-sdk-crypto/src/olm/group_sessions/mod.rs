@@ -130,10 +130,7 @@ mod test {
         time::{Duration, Instant},
     };
 
-    use ruma::{
-        events::{room::message::MessageEventContent, AnyMessageEventContent},
-        room_id, user_id,
-    };
+    use ruma::{events::room::message::MessageEventContent, room_id, user_id};
 
     use super::EncryptionSettings;
     use crate::{MegolmError, ReadOnlyAccount};
@@ -152,9 +149,7 @@ mod test {
         assert!(!session.expired());
         let _ = session
             .encrypt(
-                serde_json::to_value(AnyMessageEventContent::RoomMessage(
-                    MessageEventContent::text_plain("Test message"),
-                ))?,
+                serde_json::to_value(MessageEventContent::text_plain("Test message"))?,
                 "m.room.message",
             )
             .await;
