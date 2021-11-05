@@ -19,7 +19,7 @@ use ruma::{
     events::{
         key::verification::{
             cancel::CancelCode,
-            mac::{MacEventContent, ToDeviceMacEventContent},
+            mac::{KeyVerificationMacEventContent, ToDeviceKeyVerificationMacEventContent},
             Relation,
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
@@ -329,12 +329,12 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
 
     match flow_id {
         FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationMac(
-            ToDeviceMacEventContent::new(s.to_string(), mac, keys),
+            ToDeviceKeyVerificationMacEventContent::new(s.to_string(), mac, keys),
         )
         .into(),
         FlowId::InRoom(r, e) => (
             r.clone(),
-            AnyMessageEventContent::KeyVerificationMac(MacEventContent::new(
+            AnyMessageEventContent::KeyVerificationMac(KeyVerificationMacEventContent::new(
                 mac,
                 keys,
                 Relation::new(e.clone()),
@@ -543,7 +543,7 @@ fn bytes_to_decimal(bytes: Vec<u8>) -> (u16, u16, u16) {
 #[cfg(test)]
 mod test {
     use proptest::prelude::*;
-    use ruma::events::key::verification::start::ToDeviceStartEventContent;
+    use ruma::events::key::verification::start::ToDeviceKeyVerificationStartEventContent;
     use serde_json::json;
 
     use super::{
@@ -567,7 +567,8 @@ mod test {
             "short_authentication_string":["decimal","emoji"]
         });
 
-        let content: ToDeviceStartEventContent = serde_json::from_value(content).unwrap();
+        let content: ToDeviceKeyVerificationStartEventContent =
+            serde_json::from_value(content).unwrap();
         let content = StartContent::from(&content);
         let calculated_commitment = calculate_commitment(public_key, &content);
 

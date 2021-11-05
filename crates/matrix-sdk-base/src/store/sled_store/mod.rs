@@ -31,7 +31,7 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
-        room::member::{MemberEventContent, MembershipState},
+        room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
     },
     receipt::ReceiptType,
@@ -612,7 +612,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MemberEventContent>> {
+    ) -> Result<Option<RoomMemberEventContent>> {
         let db = self.clone();
         let key = (room_id.as_str(), user_id.as_str()).encode();
         spawn_blocking(move || {
@@ -893,7 +893,7 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MemberEventContent>> {
+    ) -> Result<Option<RoomMemberEventContent>> {
         self.get_profile(room_id, user_id).await
     }
 
@@ -1001,8 +1001,8 @@ mod test {
         event_id,
         events::{
             room::{
-                member::{MemberEventContent, MembershipState},
-                power_levels::PowerLevelsEventContent,
+                member::{MembershipState, RoomMemberEventContent},
+                power_levels::RoomPowerLevelsEventContent,
             },
             AnySyncStateEvent, EventType, Unsigned,
         },
@@ -1026,7 +1026,7 @@ mod test {
     }
 
     fn power_level_event() -> Raw<AnySyncStateEvent> {
-        let content = PowerLevelsEventContent::default();
+        let content = RoomPowerLevelsEventContent::default();
 
         let event = json!({
             "event_id": EventId::try_from("$h29iv0s8:example.com").unwrap(),
@@ -1044,7 +1044,7 @@ mod test {
     fn membership_event() -> MemberEvent {
         MemberEvent {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
-            content: MemberEventContent::new(MembershipState::Join),
+            content: RoomMemberEventContent::new(MembershipState::Join),
             sender: user_id(),
             origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             state_key: user_id(),

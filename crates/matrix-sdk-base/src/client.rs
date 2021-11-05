@@ -42,7 +42,7 @@ use matrix_sdk_crypto::{
 use ruma::{
     api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
     events::{
-        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
         AnyMessageEventContent, AnySyncMessageEvent,
     },
     DeviceId,
@@ -1103,7 +1103,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         content: impl Into<AnyMessageEventContent>,
-    ) -> Result<EncryptedEventContent> {
+    ) -> Result<RoomEncryptedEventContent> {
         let olm = self.olm.lock().await;
 
         match &*olm {

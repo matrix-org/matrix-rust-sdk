@@ -10,8 +10,7 @@ use ruma::{
     },
     events::{
         room::member::{
-            MemberEvent as RumaMemberEvent, MemberEventContent,
-            StrippedMemberEvent as RumaStrippedMemberEvent, SyncMemberEvent as RumaSyncMemberEvent,
+            RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
         AnyRoomEvent, AnySyncRoomEvent, Unsigned,
     },
@@ -247,21 +246,21 @@ impl Timeline {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(try_from = "RumaSyncMemberEvent", into = "RumaSyncMemberEvent")]
+#[serde(try_from = "SyncRoomMemberEvent", into = "SyncRoomMemberEvent")]
 pub struct MemberEvent {
-    pub content: MemberEventContent,
+    pub content: RoomMemberEventContent,
     pub event_id: EventId,
     pub origin_server_ts: MilliSecondsSinceUnixEpoch,
-    pub prev_content: Option<MemberEventContent>,
+    pub prev_content: Option<RoomMemberEventContent>,
     pub sender: UserId,
     pub state_key: UserId,
     pub unsigned: Unsigned,
 }
 
-impl TryFrom<RumaSyncMemberEvent> for MemberEvent {
+impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
     type Error = ruma::identifiers::Error;
 
-    fn try_from(event: RumaSyncMemberEvent) -> Result<Self, Self::Error> {
+    fn try_from(event: SyncRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
@@ -274,10 +273,10 @@ impl TryFrom<RumaSyncMemberEvent> for MemberEvent {
     }
 }
 
-impl TryFrom<RumaMemberEvent> for MemberEvent {
+impl TryFrom<RoomMemberEvent> for MemberEvent {
     type Error = ruma::identifiers::Error;
 
-    fn try_from(event: RumaMemberEvent) -> Result<Self, Self::Error> {
+    fn try_from(event: RoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
@@ -290,7 +289,7 @@ impl TryFrom<RumaMemberEvent> for MemberEvent {
     }
 }
 
-impl From<MemberEvent> for RumaSyncMemberEvent {
+impl From<MemberEvent> for SyncRoomMemberEvent {
     fn from(other: MemberEvent) -> Self {
         Self {
             content: other.content,
@@ -305,17 +304,17 @@ impl From<MemberEvent> for RumaSyncMemberEvent {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(try_from = "RumaStrippedMemberEvent", into = "RumaStrippedMemberEvent")]
+#[serde(try_from = "StrippedRoomMemberEvent", into = "StrippedRoomMemberEvent")]
 pub struct StrippedMemberEvent {
-    pub content: MemberEventContent,
+    pub content: RoomMemberEventContent,
     pub sender: UserId,
     pub state_key: UserId,
 }
 
-impl TryFrom<RumaStrippedMemberEvent> for StrippedMemberEvent {
+impl TryFrom<StrippedRoomMemberEvent> for StrippedMemberEvent {
     type Error = ruma::identifiers::Error;
 
-    fn try_from(event: RumaStrippedMemberEvent) -> Result<Self, Self::Error> {
+    fn try_from(event: StrippedRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(StrippedMemberEvent {
             content: event.content,
             sender: event.sender,
@@ -324,7 +323,7 @@ impl TryFrom<RumaStrippedMemberEvent> for StrippedMemberEvent {
     }
 }
 
-impl From<StrippedMemberEvent> for RumaStrippedMemberEvent {
+impl From<StrippedMemberEvent> for StrippedRoomMemberEvent {
     fn from(other: StrippedMemberEvent) -> Self {
         Self {
             content: other.content,

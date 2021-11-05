@@ -68,7 +68,7 @@ pub(crate) mod test {
         event_id,
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-            room::message::{MessageEventContent, Relation, Replacement},
+            room::message::{Relation, Replacement, RoomMessageEventContent},
             AnySyncMessageEvent, AnySyncRoomEvent,
         },
         room_id, user_id, DeviceId, UserId,
@@ -238,10 +238,10 @@ pub(crate) mod test {
         outbound.mark_as_shared();
         assert!(outbound.shared());
 
-        let mut content = MessageEventContent::text_plain("Hello");
+        let mut content = RoomMessageEventContent::text_plain("Hello");
         content.relates_to = Some(Relation::Replacement(Replacement::new(
             event_id.clone(),
-            MessageEventContent::text_plain("Hello edit").into(),
+            RoomMessageEventContent::text_plain("Hello edit").into(),
         )));
 
         let inbound = InboundGroupSession::new(

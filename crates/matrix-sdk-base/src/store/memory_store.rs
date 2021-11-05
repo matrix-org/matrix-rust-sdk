@@ -24,7 +24,7 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
-        room::member::{MemberEventContent, MembershipState},
+        room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventType,
     },
@@ -46,7 +46,7 @@ pub struct MemoryStore {
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<String, Raw<AnyGlobalAccountDataEvent>>>,
     members: Arc<DashMap<RoomId, DashMap<UserId, MemberEvent>>>,
-    profiles: Arc<DashMap<RoomId, DashMap<UserId, MemberEventContent>>>,
+    profiles: Arc<DashMap<RoomId, DashMap<UserId, RoomMemberEventContent>>>,
     display_names: Arc<DashMap<RoomId, DashMap<String, BTreeSet<UserId>>>>,
     joined_user_ids: Arc<DashMap<RoomId, DashSet<UserId>>>,
     invited_user_ids: Arc<DashMap<RoomId, DashSet<UserId>>>,
@@ -311,7 +311,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MemberEventContent>> {
+    ) -> Result<Option<RoomMemberEventContent>> {
         Ok(self.profiles.get(room_id).and_then(|p| p.get(user_id).map(|p| p.clone())))
     }
 
@@ -485,7 +485,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MemberEventContent>> {
+    ) -> Result<Option<RoomMemberEventContent>> {
         self.get_profile(room_id, user_id).await
     }
 

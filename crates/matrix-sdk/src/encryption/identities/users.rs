@@ -23,7 +23,7 @@ use matrix_sdk_base::{
 use ruma::{
     events::{
         key::verification::VerificationMethod,
-        room::message::{MessageEventContent, MessageType},
+        room::message::{MessageType, RoomMessageEventContent},
     },
     UserId,
 };
@@ -381,7 +381,7 @@ impl OtherUserIdentity {
         };
 
         let response = room
-            .send(MessageEventContent::new(MessageType::VerificationRequest(content)), None)
+            .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)), None)
             .await?;
 
         let verification =

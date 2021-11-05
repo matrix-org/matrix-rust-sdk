@@ -35,7 +35,7 @@ use ruma::{
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
         room::encrypted::{
-            EncryptedEventScheme, OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEvent,
+            EncryptedEventScheme, OlmV1Curve25519AesSha2Content, ToDeviceRoomEncryptedEvent,
         },
         AnyToDeviceEvent, OlmV1Keys,
     },
@@ -199,7 +199,7 @@ impl Account {
 
     pub async fn decrypt_to_device_event(
         &self,
-        event: &ToDeviceEncryptedEvent,
+        event: &ToDeviceRoomEncryptedEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
         trace!(sender = event.sender.as_str(), "Decrypting a to-device event");
 

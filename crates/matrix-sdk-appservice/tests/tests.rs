@@ -5,7 +5,7 @@ use std::{
 
 use matrix_sdk::{
     config::{ClientConfig, RequestConfig},
-    ruma::{api::appservice::Registration, events::room::member::SyncMemberEvent},
+    ruma::{api::appservice::Registration, events::room::member::SyncRoomMemberEvent},
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
@@ -206,7 +206,7 @@ async fn test_event_handler() -> Result<()> {
     appservice
         .register_event_handler({
             let on_state_member = on_state_member.clone();
-            move |_ev: SyncMemberEvent| {
+            move |_ev: SyncRoomMemberEvent| {
                 *on_state_member.lock().unwrap() = true;
                 future::ready(())
             }

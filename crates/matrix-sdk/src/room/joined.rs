@@ -29,8 +29,7 @@ use ruma::{
         room::{
             message::{
                 AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
-                MessageEventContent as RoomMessageEventContent, MessageType,
-                VideoMessageEventContent,
+                MessageType, RoomMessageEventContent, VideoMessageEventContent,
             },
             EncryptedFile,
         },
@@ -369,7 +368,7 @@ impl Joined {
     ///     ruma::{
     ///         events::{
     ///             macros::EventContent,
-    ///             room::message::{MessageEventContent, TextMessageEventContent},
+    ///             room::message::{RoomMessageEventContent, TextMessageEventContent},
     ///         },
     ///         uint, MilliSecondsSinceUnixEpoch,
     ///     },
@@ -379,7 +378,7 @@ impl Joined {
     /// # let mut client = Client::new(homeserver)?;
     /// # let room_id = room_id!("!test:localhost");
     ///
-    /// let content = MessageEventContent::text_plain("Hello world");
+    /// let content = RoomMessageEventContent::text_plain("Hello world");
     /// let txn_id = Uuid::new_v4();
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
@@ -675,7 +674,7 @@ impl Joined {
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         macros::EventContent,
-    ///         room::member::{MemberEventContent, MembershipState},
+    ///         room::member::{RoomMemberEventContent, MembershipState},
     ///     },
     ///     assign, mxc_uri,
     /// };
@@ -685,7 +684,7 @@ impl Joined {
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar");
-    /// let content = assign!(MemberEventContent::new(MembershipState::Join), {
+    /// let content = assign!(RoomMemberEventContent::new(MembershipState::Join), {
     ///    avatar_url: Some(avatar_url),
     /// });
     ///

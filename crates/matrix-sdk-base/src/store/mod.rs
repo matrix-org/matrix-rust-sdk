@@ -27,7 +27,7 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent},
-        room::member::MemberEventContent,
+        room::member::RoomMemberEventContent,
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventContent, EventType,
     },
@@ -161,7 +161,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MemberEventContent>>;
+    ) -> Result<Option<RoomMemberEventContent>>;
 
     /// Get a raw `MemberEvent` for the given state key in the given room id.
     ///
@@ -456,8 +456,9 @@ pub struct StateChanges {
 
     /// A mapping of `RoomId` to a map of users and their `MemberEvent`.
     pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
-    /// A mapping of `RoomId` to a map of users and their `MemberEventContent`.
-    pub profiles: BTreeMap<RoomId, BTreeMap<UserId, MemberEventContent>>,
+    /// A mapping of `RoomId` to a map of users and their
+    /// `RoomMemberEventContent`.
+    pub profiles: BTreeMap<RoomId, BTreeMap<UserId, RoomMemberEventContent>>,
 
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.

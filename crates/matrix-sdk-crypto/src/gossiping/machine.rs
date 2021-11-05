@@ -30,10 +30,12 @@ use ruma::{
         forwarded_room_key::{ToDeviceForwardedRoomKeyEvent, ToDeviceForwardedRoomKeyEventContent},
         room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEvent},
         secret::{
-            request::{RequestAction, SecretName, ToDeviceRequestEvent as SecretRequestEvent},
+            request::{
+                RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
+            },
             send::{
-                ToDeviceSendEvent as SecretSendEvent,
-                ToDeviceSendEventContent as SecretSendEventContent,
+                ToDeviceSecretSendEvent as SecretSendEvent,
+                ToDeviceSecretSendEventContent as SecretSendEventContent,
             },
         },
         AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -936,9 +938,9 @@ mod test {
     use ruma::{
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-            room::encrypted::ToDeviceEncryptedEventContent,
+            room::encrypted::ToDeviceRoomEncryptedEventContent,
             room_key_request::ToDeviceRoomKeyRequestEventContent,
-            secret::request::{RequestAction, SecretName, ToDeviceRequestEventContent},
+            secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
             AnyToDeviceEvent, ToDeviceEvent,
         },
         room_id,
@@ -1422,7 +1424,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceRoomEncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1487,7 +1489,7 @@ mod test {
 
         let event = ToDeviceEvent {
             sender: bob_account.user_id().to_owned(),
-            content: ToDeviceRequestEventContent::new(
+            content: ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 bob_account.device_id().to_owned(),
                 "request_id".to_owned(),
@@ -1516,7 +1518,7 @@ mod test {
 
         let event = ToDeviceEvent {
             sender: alice_id(),
-            content: ToDeviceRequestEventContent::new(
+            content: ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 second_account.device_id().into(),
                 "request_id".to_owned(),
@@ -1650,7 +1652,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceRoomEncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 

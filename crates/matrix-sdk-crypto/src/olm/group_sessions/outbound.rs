@@ -36,8 +36,10 @@ use olm_rs::{
 use ruma::{
     events::{
         room::{
-            encrypted::{EncryptedEventContent, EncryptedEventScheme, MegolmV1AesSha2ContentInit},
-            encryption::EncryptionEventContent,
+            encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+            },
+            encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
         },
         room_key::ToDeviceRoomKeyEventContent,
@@ -92,9 +94,9 @@ impl Default for EncryptionSettings {
 }
 
 impl EncryptionSettings {
-    /// Create new encryption settings using an `EncryptionEventContent` and a
-    /// history visibility.
-    pub fn new(content: EncryptionEventContent, history_visibility: HistoryVisibility) -> Self {
+    /// Create new encryption settings using an `RoomEncryptionEventContent` and
+    /// a history visibility.
+    pub fn new(content: RoomEncryptionEventContent, history_visibility: HistoryVisibility) -> Self {
         let rotation_period: Duration =
             content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
         let rotation_period_msgs: u64 =
@@ -280,7 +282,7 @@ impl OutboundGroupSession {
     /// # Panics
     ///
     /// Panics if the content can't be serialized.
-    pub async fn encrypt(&self, content: Value, event_type: &str) -> EncryptedEventContent {
+    pub async fn encrypt(&self, content: Value, event_type: &str) -> RoomEncryptedEventContent {
         let json_content = json!({
             "content": content,
             "room_id": &*self.room_id,
@@ -300,7 +302,7 @@ impl OutboundGroupSession {
         }
         .into();
 
-        EncryptedEventContent::new(
+        RoomEncryptedEventContent::new(
             EncryptedEventScheme::MegolmV1AesSha2(encrypted_content),
             relation,
         )
@@ -597,7 +599,9 @@ mod test {
     use std::time::Duration;
 
     use ruma::{
-        events::room::{encryption::EncryptionEventContent, history_visibility::HistoryVisibility},
+        events::room::{
+            encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+        },
         uint, EventEncryptionAlgorithm,
     };
 
@@ -605,7 +609,8 @@ mod test {
 
     #[test]
     fn encryption_settings_conversion() {
-        let mut content = EncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+        let mut content =
+            RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
         let settings = EncryptionSettings::new(content.clone(), HistoryVisibility::Joined);
 
         assert_eq!(settings.rotation_period, ROTATION_PERIOD);

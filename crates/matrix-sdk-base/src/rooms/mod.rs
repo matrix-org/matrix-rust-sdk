@@ -8,9 +8,9 @@ pub use normal::{Room, RoomInfo, RoomType};
 use ruma::{
     events::{
         room::{
-            create::CreateEventContent, encryption::EncryptionEventContent,
+            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            tombstone::TombstoneEventContent,
+            tombstone::RoomTombstoneEventContent,
         },
         AnyStateEventContent,
     },
@@ -28,12 +28,12 @@ pub struct BaseRoomInfo {
     /// The canonical alias of this room.
     pub canonical_alias: Option<RoomAliasId>,
     /// The `m.room.create` event content of this room.
-    pub create: Option<CreateEventContent>,
+    pub create: Option<RoomCreateEventContent>,
     /// The user id this room is sharing the direct message with, if the room is
     /// a direct message.
     pub dm_target: Option<UserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
-    pub encryption: Option<EncryptionEventContent>,
+    pub encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
     pub guest_access: GuestAccess,
     /// The history visibility policy of this room.
@@ -45,7 +45,7 @@ pub struct BaseRoomInfo {
     /// The `m.room.name` of this room.
     pub name: Option<String>,
     /// The `m.room.tombstone` event content of this room.
-    pub tombstone: Option<TombstoneEventContent>,
+    pub tombstone: Option<RoomTombstoneEventContent>,
     /// The topic of this room.
     pub topic: Option<String>,
 }

@@ -22,7 +22,7 @@ use futures::future::join_all;
 use matrix_sdk_common::{executor::spawn, uuid::Uuid};
 use ruma::{
     events::{
-        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
         AnyToDeviceEventContent, EventType,
     },
     serde::Raw,
@@ -158,7 +158,7 @@ impl GroupSessionManager {
         room_id: &RoomId,
         content: Value,
         event_type: &str,
-    ) -> MegolmResult<EncryptedEventContent> {
+    ) -> MegolmResult<RoomEncryptedEventContent> {
         let session = self.sessions.get(room_id).expect("Session wasn't created nor shared");
 
         assert!(!session.expired(), "Session expired");

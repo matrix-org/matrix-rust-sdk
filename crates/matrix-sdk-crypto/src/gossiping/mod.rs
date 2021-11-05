@@ -26,8 +26,8 @@ use ruma::{
             ToDeviceRoomKeyRequestEventContent,
         },
         secret::request::{
-            RequestAction, SecretName, ToDeviceRequestEvent as SecretRequestEvent,
-            ToDeviceRequestEventContent as SecretRequestEventContent,
+            RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
+            ToDeviceSecretRequestEventContent as SecretRequestEventContent,
         },
         AnyToDeviceEventContent,
     },

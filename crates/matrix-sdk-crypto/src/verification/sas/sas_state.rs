@@ -25,15 +25,15 @@ use ruma::{
     events::{
         key::verification::{
             accept::{
-                AcceptEventContent, AcceptMethod, SasV1Content as AcceptV1Content,
-                SasV1ContentInit as AcceptV1ContentInit, ToDeviceAcceptEventContent,
+                AcceptMethod, KeyVerificationAcceptEventContent, SasV1Content as AcceptV1Content,
+                SasV1ContentInit as AcceptV1ContentInit, ToDeviceKeyVerificationAcceptEventContent,
             },
             cancel::CancelCode,
-            done::{DoneEventContent, ToDeviceDoneEventContent},
-            key::{KeyEventContent, ToDeviceKeyEventContent},
+            done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
+            key::{KeyVerificationKeyEventContent, ToDeviceKeyVerificationKeyEventContent},
             start::{
-                SasV1Content, SasV1ContentInit, StartEventContent, StartMethod,
-                ToDeviceStartEventContent,
+                KeyVerificationStartEventContent, SasV1Content, SasV1ContentInit, StartMethod,
+                ToDeviceKeyVerificationStartEventContent,
             },
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
             ShortAuthenticationString, VerificationMethod,
@@ -435,14 +435,16 @@ impl SasState<Created> {
 
     pub fn as_content(&self) -> OwnedStartContent {
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => OwnedStartContent::ToDevice(ToDeviceStartEventContent::new(
-                self.device_id().into(),
-                s.to_string(),
-                StartMethod::SasV1(self.state.protocol_definitions.clone()),
-            )),
+            FlowId::ToDevice(s) => {
+                OwnedStartContent::ToDevice(ToDeviceKeyVerificationStartEventContent::new(
+                    self.device_id().into(),
+                    s.to_string(),
+                    StartMethod::SasV1(self.state.protocol_definitions.clone()),
+                ))
+            }
             FlowId::InRoom(r, e) => OwnedStartContent::Room(
                 r.clone(),
-                StartEventContent::new(
+                KeyVerificationStartEventContent::new(
                     self.device_id().into(),
                     StartMethod::SasV1(self.state.protocol_definitions.clone()),
                     Relation::new(e.clone()),
@@ -627,10 +629,14 @@ impl SasState<WeAccepted> {
         );
 
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => ToDeviceAcceptEventContent::new(s.to_string(), method).into(),
-            FlowId::InRoom(r, e) => {
-                (r.clone(), AcceptEventContent::new(method, Relation::new(e.clone()))).into()
+            FlowId::ToDevice(s) => {
+                ToDeviceKeyVerificationAcceptEventContent::new(s.to_string(), method).into()
             }
+            FlowId::InRoom(r, e) => (
+                r.clone(),
+                KeyVerificationAcceptEventContent::new(method, Relation::new(e.clone())),
+            )
+                .into(),
         }
     }
 
@@ -726,16 +732,16 @@ impl SasState<Accepted> {
     /// The content needs to be automatically sent to the other side.
     pub fn as_content(&self) -> OutgoingContent {
         match &*self.verification_flow_id {
-            FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationKey(ToDeviceKeyEventContent::new(
+            FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
+                ToDeviceKeyVerificationKeyEventContent::new(
                     s.to_string(),
                     self.inner.lock().unwrap().public_key(),
-                ))
-                .into()
-            }
+                ),
+            )
+            .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationKey(KeyEventContent::new(
+                AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
                     self.inner.lock().unwrap().public_key(),
                     Relation::new(e.clone()),
                 )),
@@ -752,16 +758,16 @@ impl SasState<KeyReceived> {
     /// if we_started is false.
     pub fn as_content(&self) -> OutgoingContent {
         match &*self.verification_flow_id {
-            FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationKey(ToDeviceKeyEventContent::new(
+            FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
+                ToDeviceKeyVerificationKeyEventContent::new(
                     s.to_string(),
                     self.inner.lock().unwrap().public_key(),
-                ))
-                .into()
-            }
+                ),
+            )
+            .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationKey(KeyEventContent::new(
+                AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
                     self.inner.lock().unwrap().public_key(),
                     Relation::new(e.clone()),
                 )),
@@ -1054,14 +1060,14 @@ impl SasState<WaitingForDone> {
     pub fn done_content(&self) -> OutgoingContent {
         match self.verification_flow_id.as_ref() {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
-                ToDeviceDoneEventContent::new(t.to_owned()),
+                ToDeviceKeyVerificationDoneEventContent::new(t.to_owned()),
             )
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationDone(DoneEventContent::new(Relation::new(
-                    e.clone(),
-                ))),
+                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
+                    Relation::new(e.clone()),
+                )),
             )
                 .into(),
         }
@@ -1133,8 +1139,8 @@ mod test {
 
     use ruma::{
         events::key::verification::{
-            accept::{AcceptMethod, ToDeviceAcceptEventContent},
-            start::{StartMethod, ToDeviceStartEventContent},
+            accept::{AcceptMethod, ToDeviceKeyVerificationAcceptEventContent},
+            start::{StartMethod, ToDeviceKeyVerificationStartEventContent},
             ShortAuthenticationString,
         },
         DeviceId, UserId,
@@ -1336,7 +1342,8 @@ mod test {
             "transaction_id": "some_id",
         });
 
-        let content: ToDeviceAcceptEventContent = serde_json::from_value(content).unwrap();
+        let content: ToDeviceKeyVerificationAcceptEventContent =
+            serde_json::from_value(content).unwrap();
         let content = AcceptContent::from(&content);
 
         alice
@@ -1385,7 +1392,8 @@ mod test {
             "transaction_id": "some_id",
         });
 
-        let content: ToDeviceStartEventContent = serde_json::from_value(content).unwrap();
+        let content: ToDeviceKeyVerificationStartEventContent =
+            serde_json::from_value(content).unwrap();
         let content = StartContent::from(&content);
         let flow_id = content.flow_id().to_owned();
 

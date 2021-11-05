@@ -3,13 +3,17 @@ use std::{env, process::exit};
 use matrix_sdk::{
     config::{ClientConfig, SyncSettings},
     room::Room,
-    ruma::events::room::member::StrippedMemberEvent,
+    ruma::events::room::member::StrippedRoomMemberEvent,
     Client,
 };
 use tokio::time::{sleep, Duration};
 use url::Url;
 
-async fn on_stripped_state_member(room_member: StrippedMemberEvent, client: Client, room: Room) {
+async fn on_stripped_state_member(
+    room_member: StrippedRoomMemberEvent,
+    client: Client,
+    room: Room,
+) {
     if room_member.state_key != client.user_id().await.unwrap() {
         return;
     }

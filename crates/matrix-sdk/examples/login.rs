@@ -5,17 +5,17 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
-        MessageEventContent, MessageType, SyncMessageEvent, TextMessageEventContent,
+        MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
     },
     Client,
 };
 use url::Url;
 
-async fn on_room_message(event: SyncMessageEvent, room: Room) {
+async fn on_room_message(event: SyncRoomMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
-        if let SyncMessageEvent {
+        if let SyncRoomMessageEvent {
             content:
-                MessageEventContent {
+                RoomMessageEventContent {
                     msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
                     ..
                 },

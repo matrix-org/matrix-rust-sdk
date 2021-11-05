@@ -4,7 +4,7 @@ use matrix_sdk::{
     ruma::{
         events::{
             room::message::{
-                MessageEventContent, MessageType, SyncMessageEvent, TextMessageEventContent,
+                MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
             },
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
         },
@@ -19,10 +19,10 @@ use web_sys::console;
 struct WasmBot(Client);
 
 impl WasmBot {
-    async fn on_room_message(&self, room_id: &RoomId, event: &SyncMessageEvent) {
-        let msg_body = if let SyncMessageEvent {
+    async fn on_room_message(&self, room_id: &RoomId, event: &SyncRoomMessageEvent) {
+        let msg_body = if let SyncRoomMessageEvent {
             content:
-                MessageEventContent {
+                RoomMessageEventContent {
                     msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
                     ..
                 },
@@ -37,7 +37,7 @@ impl WasmBot {
         console::log_1(&format!("Received message event {:?}", &msg_body).into());
 
         if msg_body.contains("!party") {
-            let content = AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
+            let content = AnyMessageEventContent::RoomMessage(RoomMessageEventContent::text_plain(
                 "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
             ));
 

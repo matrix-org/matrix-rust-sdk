@@ -544,7 +544,7 @@ impl Client {
     ///         events::{
     ///             macros::EventContent,
     ///             push_rules::PushRulesEvent,
-    ///             room::{message::SyncMessageEvent, topic::SyncTopicEvent},
+    ///             room::{message::SyncRoomMessageEvent, topic::SyncRoomTopicEvent},
     ///         },
     ///         Int, MilliSecondsSinceUnixEpoch,
     ///     },
@@ -555,13 +555,13 @@ impl Client {
     /// # let _ = async {
     /// client
     ///     .register_event_handler(
-    ///         |ev: SyncMessageEvent, room: Room, client: Client| async move {
+    ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
     ///             // Common usage: Room event plus room and client.
     ///         },
     ///     )
     ///     .await
     ///     .register_event_handler(
-    ///         |ev: SyncMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
+    ///         |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
     ///             async move {
     ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
     ///                 // unencrypted events and events that were decrypted by the SDK.
@@ -569,7 +569,7 @@ impl Client {
     ///         },
     ///     )
     ///     .await
-    ///     .register_event_handler(|ev: SyncTopicEvent| async move {
+    ///     .register_event_handler(|ev: SyncRoomTopicEvent| async move {
     ///         // You can omit any or all arguments after the first.
     ///     })
     ///     .await;
@@ -593,7 +593,7 @@ impl Client {
     ///
     /// client.register_event_handler({
     ///     let data = data.clone();
-    ///     move |ev: SyncMessageEvent | {
+    ///     move |ev: SyncRoomMessageEvent | {
     ///         let data = data.clone();
     ///         async move {
     ///             println!("Calling the handler with identifier {}", data);
@@ -1811,7 +1811,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::SyncMessageEvent,
+    ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver)?;
@@ -1822,7 +1822,7 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: SyncMessageEvent| async move {
+    /// client.register_event_handler(|ev: SyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
     /// }).await;
     ///
@@ -1905,7 +1905,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::SyncMessageEvent,
+    ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver)?;
@@ -1913,7 +1913,7 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: SyncMessageEvent| async move {
+    /// client.register_event_handler(|ev: SyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
     /// }).await;
     ///
@@ -2320,7 +2320,7 @@ pub(crate) mod test {
         event_id,
         events::{
             room::{
-                message::{ImageMessageEventContent, MessageEventContent},
+                message::{ImageMessageEventContent, RoomMessageEventContent},
                 ImageInfo,
             },
             AnySyncStateEvent, EventType,
@@ -3045,7 +3045,7 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn room_state_event_send() {
-        use ruma::events::room::member::{MemberEventContent, MembershipState};
+        use ruma::events::room::member::{MembershipState, RoomMemberEventContent};
 
         let client = logged_in_client().await;
 
@@ -3070,7 +3070,7 @@ pub(crate) mod test {
         let room = client.get_joined_room(&room_id).unwrap();
 
         let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
-        let member_event = assign!(MemberEventContent::new(MembershipState::Join), {
+        let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
             avatar_url: Some(avatar_url)
         });
         let response = room.send_state_event(member_event, "").await.unwrap();
@@ -3101,7 +3101,7 @@ pub(crate) mod test {
 
         let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        let content = MessageEventContent::text_plain("Hello world");
+        let content = RoomMessageEventContent::text_plain("Hello world");
         let txn_id = Uuid::new_v4();
         let response = room.send(content, Some(txn_id)).await.unwrap();
 

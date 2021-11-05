@@ -28,7 +28,7 @@ This is demonstrated in the example below.
 use std::convert::TryFrom;
 use matrix_sdk::{
     Client, config::SyncSettings, Result,
-    ruma::{UserId, events::room::message::SyncMessageEvent},
+    ruma::{UserId, events::room::message::SyncRoomMessageEvent},
 };
 
 #[tokio::main]
@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     client.login(alice, "password", None, None).await?;
 
     client
-        .register_event_handler(|ev: SyncMessageEvent| async move {
+        .register_event_handler(|ev: SyncRoomMessageEvent| async move {
             println!("Received a message {:?}", ev);
         })
         .await;

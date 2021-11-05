@@ -27,7 +27,7 @@ use ruma::{
     events::{
         forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
         room::{
-            encrypted::{EncryptedEventScheme, SyncEncryptedEvent},
+            encrypted::{EncryptedEventScheme, SyncRoomEncryptedEvent},
             history_visibility::HistoryVisibility,
         },
         AnySyncRoomEvent,
@@ -298,7 +298,7 @@ impl InboundGroupSession {
     /// * `event` - The event that should be decrypted.
     pub(crate) async fn decrypt(
         &self,
-        event: &SyncEncryptedEvent,
+        event: &SyncRoomEncryptedEvent,
     ) -> MegolmResult<(Raw<AnySyncRoomEvent>, u32)> {
         let content = match &event.content.scheme {
             EncryptedEventScheme::MegolmV1AesSha2(c) => c,

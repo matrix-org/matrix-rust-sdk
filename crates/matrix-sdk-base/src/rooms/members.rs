@@ -17,7 +17,7 @@ use std::sync::Arc;
 use ruma::{
     events::{
         presence::PresenceEvent,
-        room::{member::MemberEventContent, power_levels::SyncPowerLevelsEvent},
+        room::{member::RoomMemberEventContent, power_levels::SyncRoomPowerLevelsEvent},
     },
     MxcUri, UserId,
 };
@@ -28,10 +28,10 @@ use crate::deserialized_responses::MemberEvent;
 #[derive(Clone, Debug)]
 pub struct RoomMember {
     pub(crate) event: Arc<MemberEvent>,
-    pub(crate) profile: Arc<Option<MemberEventContent>>,
+    pub(crate) profile: Arc<Option<RoomMemberEventContent>>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,
-    pub(crate) power_levels: Arc<Option<SyncPowerLevelsEvent>>,
+    pub(crate) power_levels: Arc<Option<SyncRoomPowerLevelsEvent>>,
     pub(crate) max_power_level: i64,
     pub(crate) is_room_creator: bool,
     pub(crate) display_name_ambiguous: bool,

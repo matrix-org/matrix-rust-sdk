@@ -24,7 +24,7 @@ use ruma::{
     events::{
         room::encrypted::{
             CiphertextInfo, EncryptedEventScheme, OlmV1Curve25519AesSha2Content,
-            ToDeviceEncryptedEventContent,
+            ToDeviceRoomEncryptedEventContent,
         },
         AnyToDeviceEventContent, EventContent,
     },
@@ -110,7 +110,7 @@ impl Session {
         &mut self,
         recipient_device: &ReadOnlyDevice,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<ToDeviceEncryptedEventContent> {
+    ) -> OlmResult<ToDeviceRoomEncryptedEventContent> {
         let recipient_signing_key = recipient_device
             .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;

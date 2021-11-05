@@ -20,14 +20,23 @@ use std::{
 use ruma::{
     events::{
         key::verification::{
-            accept::{AcceptEventContent, AcceptMethod, ToDeviceAcceptEventContent},
-            cancel::{CancelCode, CancelEventContent, ToDeviceCancelEventContent},
-            done::{DoneEventContent, ToDeviceDoneEventContent},
-            key::{KeyEventContent, ToDeviceKeyEventContent},
-            mac::{MacEventContent, ToDeviceMacEventContent},
-            ready::{ReadyEventContent, ToDeviceReadyEventContent},
-            request::ToDeviceRequestEventContent,
-            start::{StartEventContent, StartMethod, ToDeviceStartEventContent},
+            accept::{
+                AcceptMethod, KeyVerificationAcceptEventContent,
+                ToDeviceKeyVerificationAcceptEventContent,
+            },
+            cancel::{
+                CancelCode, KeyVerificationCancelEventContent,
+                ToDeviceKeyVerificationCancelEventContent,
+            },
+            done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
+            key::{KeyVerificationKeyEventContent, ToDeviceKeyVerificationKeyEventContent},
+            mac::{KeyVerificationMacEventContent, ToDeviceKeyVerificationMacEventContent},
+            ready::{KeyVerificationReadyEventContent, ToDeviceKeyVerificationReadyEventContent},
+            request::ToDeviceKeyVerificationRequestEventContent,
+            start::{
+                KeyVerificationStartEventContent, StartMethod,
+                ToDeviceKeyVerificationStartEventContent,
+            },
             VerificationMethod,
         },
         room::message::{KeyVerificationRequestEventContent, MessageType},
@@ -258,7 +267,7 @@ pub enum AnyVerificationContent<'a> {
 
 #[derive(Debug)]
 pub enum RequestContent<'a> {
-    ToDevice(&'a ToDeviceRequestEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationRequestEventContent),
     Room(&'a KeyVerificationRequestEventContent),
 }
 
@@ -280,8 +289,8 @@ impl RequestContent<'_> {
 
 #[derive(Debug)]
 pub enum ReadyContent<'a> {
-    ToDevice(&'a ToDeviceReadyEventContent),
-    Room(&'a ReadyEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationReadyEventContent),
+    Room(&'a KeyVerificationReadyEventContent),
 }
 
 impl ReadyContent<'_> {
@@ -329,20 +338,20 @@ from_for_enum!(AcceptContent, Accept, AnyVerificationContent);
 from_for_enum!(KeyContent, Key, AnyVerificationContent);
 from_for_enum!(MacContent, Mac, AnyVerificationContent);
 
-from_borrow_for_enum!(ToDeviceRequestEventContent, ToDevice, RequestContent);
+from_borrow_for_enum!(ToDeviceKeyVerificationRequestEventContent, ToDevice, RequestContent);
 from_borrow_for_enum!(KeyVerificationRequestEventContent, Room, RequestContent);
-from_borrow_for_enum!(ReadyEventContent, Room, ReadyContent);
-from_borrow_for_enum!(ToDeviceReadyEventContent, ToDevice, ReadyContent);
-from_borrow_for_enum!(StartEventContent, Room, StartContent);
-from_borrow_for_enum!(ToDeviceStartEventContent, ToDevice, StartContent);
-from_borrow_for_enum!(AcceptEventContent, Room, AcceptContent);
-from_borrow_for_enum!(ToDeviceAcceptEventContent, ToDevice, AcceptContent);
-from_borrow_for_enum!(KeyEventContent, Room, KeyContent);
-from_borrow_for_enum!(ToDeviceKeyEventContent, ToDevice, KeyContent);
-from_borrow_for_enum!(MacEventContent, Room, MacContent);
-from_borrow_for_enum!(ToDeviceMacEventContent, ToDevice, MacContent);
-from_borrow_for_enum!(CancelEventContent, Room, CancelContent);
-from_borrow_for_enum!(ToDeviceCancelEventContent, ToDevice, CancelContent);
+from_borrow_for_enum!(KeyVerificationReadyEventContent, Room, ReadyContent);
+from_borrow_for_enum!(ToDeviceKeyVerificationReadyEventContent, ToDevice, ReadyContent);
+from_borrow_for_enum!(KeyVerificationStartEventContent, Room, StartContent);
+from_borrow_for_enum!(ToDeviceKeyVerificationStartEventContent, ToDevice, StartContent);
+from_borrow_for_enum!(KeyVerificationAcceptEventContent, Room, AcceptContent);
+from_borrow_for_enum!(ToDeviceKeyVerificationAcceptEventContent, ToDevice, AcceptContent);
+from_borrow_for_enum!(KeyVerificationKeyEventContent, Room, KeyContent);
+from_borrow_for_enum!(ToDeviceKeyVerificationKeyEventContent, ToDevice, KeyContent);
+from_borrow_for_enum!(KeyVerificationMacEventContent, Room, MacContent);
+from_borrow_for_enum!(ToDeviceKeyVerificationMacEventContent, ToDevice, MacContent);
+from_borrow_for_enum!(KeyVerificationCancelEventContent, Room, CancelContent);
+from_borrow_for_enum!(ToDeviceKeyVerificationCancelEventContent, ToDevice, CancelContent);
 
 macro_rules! try_from_outgoing_content {
     ($type: ident, $enum_variant: ident) => {
@@ -408,8 +417,8 @@ impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
 
 #[derive(Debug)]
 pub enum StartContent<'a> {
-    ToDevice(&'a ToDeviceStartEventContent),
-    Room(&'a StartEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationStartEventContent),
+    Room(&'a KeyVerificationStartEventContent),
 }
 
 impl<'a> StartContent<'a> {
@@ -455,18 +464,18 @@ impl<'a> From<&'a OwnedStartContent> for StartContent<'a> {
 
 #[derive(Debug)]
 pub enum DoneContent<'a> {
-    ToDevice(&'a ToDeviceDoneEventContent),
-    Room(&'a DoneEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationDoneEventContent),
+    Room(&'a KeyVerificationDoneEventContent),
 }
 
-impl<'a> From<&'a DoneEventContent> for DoneContent<'a> {
-    fn from(c: &'a DoneEventContent) -> Self {
+impl<'a> From<&'a KeyVerificationDoneEventContent> for DoneContent<'a> {
+    fn from(c: &'a KeyVerificationDoneEventContent) -> Self {
         Self::Room(c)
     }
 }
 
-impl<'a> From<&'a ToDeviceDoneEventContent> for DoneContent<'a> {
-    fn from(c: &'a ToDeviceDoneEventContent) -> Self {
+impl<'a> From<&'a ToDeviceKeyVerificationDoneEventContent> for DoneContent<'a> {
+    fn from(c: &'a ToDeviceKeyVerificationDoneEventContent) -> Self {
         Self::ToDevice(c)
     }
 }
@@ -482,8 +491,8 @@ impl<'a> DoneContent<'a> {
 
 #[derive(Clone, Debug)]
 pub enum AcceptContent<'a> {
-    ToDevice(&'a ToDeviceAcceptEventContent),
-    Room(&'a AcceptEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationAcceptEventContent),
+    Room(&'a KeyVerificationAcceptEventContent),
 }
 
 impl AcceptContent<'_> {
@@ -513,8 +522,8 @@ impl<'a> From<&'a OwnedAcceptContent> for AcceptContent<'a> {
 
 #[derive(Clone, Debug)]
 pub enum KeyContent<'a> {
-    ToDevice(&'a ToDeviceKeyEventContent),
-    Room(&'a KeyEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationKeyEventContent),
+    Room(&'a KeyVerificationKeyEventContent),
 }
 
 impl KeyContent<'_> {
@@ -535,8 +544,8 @@ impl KeyContent<'_> {
 
 #[derive(Clone, Debug)]
 pub enum MacContent<'a> {
-    ToDevice(&'a ToDeviceMacEventContent),
-    Room(&'a MacEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationMacEventContent),
+    Room(&'a KeyVerificationMacEventContent),
 }
 
 impl MacContent<'_> {
@@ -564,8 +573,8 @@ impl MacContent<'_> {
 
 #[derive(Clone, Debug)]
 pub enum CancelContent<'a> {
-    ToDevice(&'a ToDeviceCancelEventContent),
-    Room(&'a CancelEventContent),
+    ToDevice(&'a ToDeviceKeyVerificationCancelEventContent),
+    Room(&'a KeyVerificationCancelEventContent),
 }
 
 impl CancelContent<'_> {
@@ -579,8 +588,8 @@ impl CancelContent<'_> {
 
 #[derive(Clone, Debug)]
 pub enum OwnedStartContent {
-    ToDevice(ToDeviceStartEventContent),
-    Room(RoomId, StartEventContent),
+    ToDevice(ToDeviceKeyVerificationStartEventContent),
+    Room(RoomId, KeyVerificationStartEventContent),
 }
 
 impl OwnedStartContent {
@@ -622,32 +631,32 @@ impl OwnedStartContent {
     }
 }
 
-impl From<(RoomId, StartEventContent)> for OwnedStartContent {
-    fn from(tuple: (RoomId, StartEventContent)) -> Self {
+impl From<(RoomId, KeyVerificationStartEventContent)> for OwnedStartContent {
+    fn from(tuple: (RoomId, KeyVerificationStartEventContent)) -> Self {
         Self::Room(tuple.0, tuple.1)
     }
 }
 
-impl From<ToDeviceStartEventContent> for OwnedStartContent {
-    fn from(content: ToDeviceStartEventContent) -> Self {
+impl From<ToDeviceKeyVerificationStartEventContent> for OwnedStartContent {
+    fn from(content: ToDeviceKeyVerificationStartEventContent) -> Self {
         Self::ToDevice(content)
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum OwnedAcceptContent {
-    ToDevice(ToDeviceAcceptEventContent),
-    Room(RoomId, AcceptEventContent),
+    ToDevice(ToDeviceKeyVerificationAcceptEventContent),
+    Room(RoomId, KeyVerificationAcceptEventContent),
 }
 
-impl From<ToDeviceAcceptEventContent> for OwnedAcceptContent {
-    fn from(content: ToDeviceAcceptEventContent) -> Self {
+impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
+    fn from(content: ToDeviceKeyVerificationAcceptEventContent) -> Self {
         Self::ToDevice(content)
     }
 }
 
-impl From<(RoomId, AcceptEventContent)> for OwnedAcceptContent {
-    fn from(content: (RoomId, AcceptEventContent)) -> Self {
+impl From<(RoomId, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
+    fn from(content: (RoomId, KeyVerificationAcceptEventContent)) -> Self {
         Self::Room(content.0, content.1)
     }
 }

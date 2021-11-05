@@ -26,8 +26,8 @@ use ruma::{
     events::{
         key::verification::{
             cancel::CancelCode,
-            ready::{ReadyEventContent, ToDeviceReadyEventContent},
-            request::ToDeviceRequestEventContent,
+            ready::{KeyVerificationReadyEventContent, ToDeviceKeyVerificationReadyEventContent},
+            request::ToDeviceKeyVerificationRequestEventContent,
             start::StartMethod,
             Relation, VerificationMethod,
         },
@@ -157,7 +157,7 @@ impl VerificationRequest {
             SUPPORTED_METHODS.to_vec()
         };
 
-        let content = ToDeviceRequestEventContent::new(
+        let content = ToDeviceKeyVerificationRequestEventContent::new(
             self.account.device_id().into(),
             self.flow_id().as_str().to_string(),
             methods,
@@ -905,21 +905,23 @@ impl RequestState<Requested> {
         };
 
         let content = match self.flow_id.as_ref() {
-            FlowId::ToDevice(i) => {
-                AnyToDeviceEventContent::KeyVerificationReady(ToDeviceReadyEventContent::new(
+            FlowId::ToDevice(i) => AnyToDeviceEventContent::KeyVerificationReady(
+                ToDeviceKeyVerificationReadyEventContent::new(
                     state.store.account.device_id().to_owned(),
                     methods,
                     i.to_owned(),
-                ))
-                .into()
-            }
+                ),
+            )
+            .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationReady(ReadyEventContent::new(
-                    state.store.account.device_id().to_owned(),
-                    methods,
-                    Relation::new(e.to_owned()),
-                )),
+                AnyMessageEventContent::KeyVerificationReady(
+                    KeyVerificationReadyEventContent::new(
+                        state.store.account.device_id().to_owned(),
+                        methods,
+                        Relation::new(e.to_owned()),
+                    ),
+                ),
             )
                 .into(),
         };

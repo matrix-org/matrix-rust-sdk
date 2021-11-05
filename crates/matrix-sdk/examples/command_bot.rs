@@ -4,13 +4,13 @@ use matrix_sdk::{
     config::{ClientConfig, SyncSettings},
     room::Room,
     ruma::events::room::message::{
-        MessageEventContent, MessageType, SyncMessageEvent, TextMessageEventContent,
+        MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
     },
     Client,
 };
 use url::Url;
 
-async fn on_room_message(event: SyncMessageEvent, room: Room) {
+async fn on_room_message(event: SyncRoomMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
         let msg_body = match event.content.msgtype {
             MessageType::Text(TextMessageEventContent { body, .. }) => body,
@@ -18,7 +18,7 @@ async fn on_room_message(event: SyncMessageEvent, room: Room) {
         };
 
         if msg_body.contains("!party") {
-            let content = MessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
+            let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
 
             println!("sending");
 

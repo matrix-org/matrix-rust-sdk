@@ -26,12 +26,12 @@ use ruma::{
     events::{
         receipt::Receipt,
         room::{
-            create::{CreateEventContent, RoomType as CreateRoomType},
-            encryption::EncryptionEventContent,
+            create::{RoomCreateEventContent, RoomType as CreateRoomType},
+            encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
-            tombstone::TombstoneEventContent,
+            tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
@@ -177,7 +177,7 @@ impl Room {
     /// This usually isn't optional but some servers might not send an
     /// `m.room.create` event as the first event for a given room, thus this can
     /// be optional.
-    pub fn create_content(&self) -> Option<CreateEventContent> {
+    pub fn create_content(&self) -> Option<RoomCreateEventContent> {
         self.inner.read().unwrap().base_info.create.clone()
     }
 
@@ -203,7 +203,7 @@ impl Room {
 
     /// Get the `m.room.encryption` content that enabled end to end encryption
     /// in the room.
-    pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
+    pub fn encryption_settings(&self) -> Option<RoomEncryptionEventContent> {
         self.inner.read().unwrap().base_info.encryption.clone()
     }
 
@@ -246,7 +246,7 @@ impl Room {
     }
 
     /// Get the `m.room.tombstone` content of this room if there is one.
-    pub fn tombstone(&self) -> Option<TombstoneEventContent> {
+    pub fn tombstone(&self) -> Option<RoomTombstoneEventContent> {
         self.inner.read().unwrap().base_info.tombstone.clone()
     }
 

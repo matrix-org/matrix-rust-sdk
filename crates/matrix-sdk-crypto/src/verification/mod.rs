@@ -36,8 +36,11 @@ use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{
-            cancel::{CancelCode, CancelEventContent, ToDeviceCancelEventContent},
-            done::{DoneEventContent, ToDeviceDoneEventContent},
+            cancel::{
+                CancelCode, KeyVerificationCancelEventContent,
+                ToDeviceKeyVerificationCancelEventContent,
+            },
+            done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
             Relation,
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
@@ -230,14 +233,14 @@ impl Done {
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
-                ToDeviceDoneEventContent::new(t.to_owned()),
+                ToDeviceKeyVerificationDoneEventContent::new(t.to_owned()),
             )
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(DoneEventContent::new(Relation::new(
-                    e.to_owned(),
-                ))),
+                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
+                    Relation::new(e.to_owned()),
+                )),
             )
                 .into(),
         }
@@ -309,22 +312,24 @@ impl Cancelled {
 
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
-            FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationCancel(ToDeviceCancelEventContent::new(
+            FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationCancel(
+                ToDeviceKeyVerificationCancelEventContent::new(
                     s.clone(),
                     self.reason.to_string(),
                     self.cancel_code.clone(),
-                ))
-                .into()
-            }
+                ),
+            )
+            .into(),
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationCancel(CancelEventContent::new(
-                    self.reason.to_string(),
-                    self.cancel_code.clone(),
-                    Relation::new(e.clone()),
-                )),
+                AnyMessageEventContent::KeyVerificationCancel(
+                    KeyVerificationCancelEventContent::new(
+                        self.reason.to_string(),
+                        self.cancel_code.clone(),
+                        Relation::new(e.clone()),
+                    ),
+                ),
             )
                 .into(),
         }

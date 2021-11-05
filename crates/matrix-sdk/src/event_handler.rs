@@ -405,10 +405,10 @@ mod static_events {
         const ID: (EventKind, &'static str) = (EventKind::Message { redacted: false }, C::TYPE);
     }
 
-    impl SyncEvent for events::room::redaction::SyncRedactionEvent {
+    impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
         const ID: (EventKind, &'static str) = (
             EventKind::Message { redacted: false },
-            events::room::redaction::RedactionEventContent::TYPE,
+            events::room::redaction::RoomRedactionEventContent::TYPE,
         );
     }
 
@@ -451,6 +451,13 @@ mod static_events {
         const ID: (EventKind, &'static str) = (EventKind::Message { redacted: true }, C::TYPE);
     }
 
+    impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
+        const ID: (EventKind, &'static str) = (
+            EventKind::Message { redacted: true },
+            events::room::redaction::RoomRedactionEventContent::TYPE,
+        );
+    }
+
     impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
     where
         C: StaticEventContent + events::RedactedStateEventContent,
@@ -465,7 +472,7 @@ mod test {
 
     use matrix_sdk_test::{EventBuilder, EventsJson};
     use ruma::{
-        events::room::member::{StrippedMemberEvent, SyncMemberEvent},
+        events::room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         room_id,
     };
     use serde_json::json;
@@ -486,7 +493,7 @@ mod test {
         client
             .register_event_handler({
                 let member_count = member_count.clone();
-                move |_ev: SyncMemberEvent, _room: room::Room| {
+                move |_ev: SyncRoomMemberEvent, _room: room::Room| {
                     member_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -494,7 +501,7 @@ mod test {
             .await
             .register_event_handler({
                 let typing_count = typing_count.clone();
-                move |_ev: SyncMemberEvent| {
+                move |_ev: SyncRoomMemberEvent| {
                     typing_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -502,7 +509,7 @@ mod test {
             .await
             .register_event_handler({
                 let power_levels_count = power_levels_count.clone();
-                move |_ev: SyncMemberEvent, _client: Client, _room: room::Room| {
+                move |_ev: SyncRoomMemberEvent, _client: Client, _room: room::Room| {
                     power_levels_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -510,7 +517,7 @@ mod test {
             .await
             .register_event_handler({
                 let invited_member_count = invited_member_count.clone();
-                move |_ev: StrippedMemberEvent| {
+                move |_ev: StrippedRoomMemberEvent| {
                     invited_member_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }

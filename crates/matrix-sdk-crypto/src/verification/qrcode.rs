@@ -24,10 +24,10 @@ use ruma::{
     events::{
         key::verification::{
             cancel::CancelCode,
-            done::{DoneEventContent, ToDeviceDoneEventContent},
+            done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
             start::{
-                self, ReciprocateV1Content, StartEventContent, StartMethod,
-                ToDeviceStartEventContent,
+                self, KeyVerificationStartEventContent, ReciprocateV1Content, StartMethod,
+                ToDeviceKeyVerificationStartEventContent,
             },
             Relation,
         },
@@ -668,12 +668,15 @@ impl Reciprocated {
         let method = StartMethod::ReciprocateV1(content);
 
         let content: OwnedStartContent = match flow_id {
-            FlowId::ToDevice(t) => {
-                ToDeviceStartEventContent::new(self.own_device_id.clone(), t.clone(), method).into()
-            }
+            FlowId::ToDevice(t) => ToDeviceKeyVerificationStartEventContent::new(
+                self.own_device_id.clone(),
+                t.clone(),
+                method,
+            )
+            .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                StartEventContent::new(
+                KeyVerificationStartEventContent::new(
                     self.own_device_id.clone(),
                     method,
                     Relation::new(e.clone()),
@@ -752,14 +755,14 @@ impl QrState<Confirmed> {
     fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
-                ToDeviceDoneEventContent::new(t.to_owned()),
+                ToDeviceKeyVerificationDoneEventContent::new(t.to_owned()),
             )
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(DoneEventContent::new(Relation::new(
-                    e.to_owned(),
-                ))),
+                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
+                    Relation::new(e.to_owned()),
+                )),
             )
                 .into(),
         }

@@ -36,7 +36,7 @@ matrix-qrcode = { version = "0.2.0", path = "../matrix-qrcode", optional = true 
 matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
 olm-rs = { version = "2.0.1", features = ["serde"] }
 pbkdf2 = { version = "0.9.0", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "0101e110f", features = ["client-api-c", "unstable-pre-spec"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "ac6ecc3e5", features = ["client-api-c", "unstable-pre-spec"] }
 serde = { version = "1.0.126", features = ["derive", "rc"] }
 serde_json = "1.0.64"
 sha2 = "0.9.5"
