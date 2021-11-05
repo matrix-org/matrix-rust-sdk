@@ -510,10 +510,9 @@ impl IdentitiesBeingVerified {
         let merged_request = if let Some(mut r) = signature_request {
             if let Some(user_request) = identity_signature_request {
                 r.signed_keys.extend(user_request.signed_keys);
-                Some(r)
-            } else {
-                Some(r)
             }
+
+            Some(r)
         } else {
             identity_signature_request
         };
