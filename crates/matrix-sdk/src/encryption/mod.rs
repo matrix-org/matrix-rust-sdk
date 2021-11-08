@@ -1,4 +1,5 @@
 // Copyright 2021 The Matrix.org Foundation C.I.C.
+// Copyright 2021 Damir Jelić
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -67,6 +68,15 @@
 //!
 //! ## Room keys
 //!
+//! Room keys remove the need to encrypt each message for each *end*.
+//! Instead a room key needs to be shared with each *end*, after that a message
+//! can be encrypted in a single, O(1), step.
+//!
+//! A room key is backed by a [Megolm] session, which in turn consists two
+//! parts. The first part, the outbound group session is used for encryption,
+//! this one never leaves your device. The second part is the inbound group
+//! session, which is shared with each *end*.
+//!
 //! ```text
 //!             ┌────────────────────────┬───────────────────────┐
 //!             │       Encryption       │      Decryption       │
@@ -74,6 +84,26 @@
 //!             │ Outbound group session │ Inbound group session │
 //!             └────────────────────────┴───────────────────────┘
 //! ```
+//!
+//! ### Lifetime of a room key
+//!
+//! 1. Create a room key
+//! 2. Share the room key with each participant
+//! 3. Encrypt messages using the room key
+//! 4. If needed, rotate the room key and go back to 1
+//!
+//! The `m.room.encryption` state event of the room decides how long a room key
+//! should be used. By default this is for 100 messages or for 1 week, whichever
+//! comes first.
+//!
+//! ### Decrypting the room history
+//!
+//! Since room keys get relatively often rotated, each room key will need to be
+//! stored, otherwise we won't be able to decrypt historical messages. The SDK
+//! stores all room keys locally in a encrypted manner.
+//!
+//! Besides storing them as part of the SDK store, users can export room keys
+//! using the [`Client::export_keys`] method.
 //!
 //! # Verification
 //!
@@ -206,6 +236,7 @@
 //! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out, otherwise it might be a deserialization bug |
 //!
 //! [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
+//! [Megolm]: https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/megolm.md
 //! [`ClientConfig::store_path`]: crate::config::ClientConfig::store_path
 //! [`UserIdentity`]: #struct.verification.UserIdentity
 //! [filtered]: crate::config::SyncSettings::filter
