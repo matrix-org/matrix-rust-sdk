@@ -99,6 +99,46 @@ impl SasVerification {
     }
 
     /// Get the emoji version of the short auth string.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # use ruma::user_id;
+    /// use matrix_sdk::{
+    ///     encryption::verification::{SasVerification, AcceptSettings},
+    ///     ruma::events::key::verification::ShortAuthenticationString,
+    /// };
+    ///
+    /// # let flow_id = "someID";
+    /// # let user_id = user_id!("@alice:example");
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
+    /// let sas_verification = client
+    ///     .get_verification(&user_id, flow_id)
+    ///     .await
+    ///     .and_then(|v| v.sas());
+    ///
+    /// if let Some(emojis) = sas_verification.and_then(|s| s.emoji()) {
+    ///     let emoji_string = emojis
+    ///         .iter()
+    ///         .map(|e| format!("{:^12}", e.symbol))
+    ///         .collect::<Vec<_>>()
+    ///         .join("");
+    ///
+    ///     let description = emojis
+    ///         .iter()
+    ///         .map(|e| format!("{:^12}", e.description))
+    ///         .collect::<Vec<_>>()
+    ///         .join("");
+    ///
+    ///     println!("Do the emojis match?\n{}\n{}", emoji_string, description);
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
     pub fn emoji(&self) -> Option<[super::Emoji; 7]> {
         self.inner.emoji()
     }
