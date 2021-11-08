@@ -42,7 +42,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
-    ReadOnlyAccount, ReadOnlyOwnUserIdentity, ToDeviceRequest,
+    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity, ToDeviceRequest,
 };
 
 /// Short authentication string object.
@@ -475,7 +475,7 @@ impl Sas {
     ///
     /// Returns None if we can't yet present the short auth string, otherwise
     /// seven tuples containing the emoji and description.
-    pub fn emoji(&self) -> Option<[(&'static str, &'static str); 7]> {
+    pub fn emoji(&self) -> Option<[Emoji; 7]> {
         self.inner.lock().unwrap().emoji()
     }
 

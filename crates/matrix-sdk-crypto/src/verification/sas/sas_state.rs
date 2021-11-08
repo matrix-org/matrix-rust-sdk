@@ -60,7 +60,7 @@ use crate::{
         },
         Cancelled, Done, FlowId,
     },
-    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
@@ -780,7 +780,7 @@ impl SasState<KeyReceived> {
     ///
     /// Returns a seven tuples where the first element is the emoji and the
     /// second element the English description of the emoji.
-    pub fn get_emoji(&self) -> [(&'static str, &'static str); 7] {
+    pub fn get_emoji(&self) -> [Emoji; 7] {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -1009,7 +1009,7 @@ impl SasState<MacReceived> {
     ///
     /// Returns a vector of tuples where the first element is the emoji and the
     /// second element the English description of the emoji.
-    pub fn get_emoji(&self) -> [(&'static str, &'static str); 7] {
+    pub fn get_emoji(&self) -> [Emoji; 7] {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,

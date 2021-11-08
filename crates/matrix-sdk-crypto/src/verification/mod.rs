@@ -64,6 +64,22 @@ pub(crate) struct VerificationStore {
     inner: Arc<dyn CryptoStore>,
 }
 
+/// An emoji that is used for interactive verification using a short auth
+/// string.
+///
+/// This will contain a single emoji and description from the list of emojis
+/// from the [spec].
+///
+/// [spec]: https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+pub struct Emoji {
+    /// The emoji symbol that represents a part of the short auth string, for
+    /// example: 🐶
+    pub symbol: &'static str,
+    /// The description of the emoji, for example 'Dog'.
+    pub description: &'static str,
+}
+
 impl VerificationStore {
     pub async fn get_device(
         &self,

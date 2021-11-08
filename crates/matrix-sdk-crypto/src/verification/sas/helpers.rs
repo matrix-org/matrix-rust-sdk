@@ -34,7 +34,7 @@ use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     utilities::encode,
     verification::event_enums::{MacContent, StartContent},
-    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 #[derive(Clone, Debug)]
@@ -72,72 +72,72 @@ pub fn calculate_commitment(public_key: &str, content: &StartContent) -> String 
 /// bigger than 63.
 ///
 /// [spec]: https://matrix.org/docs/spec/client_server/latest#sas-method-emoji
-fn emoji_from_index(index: u8) -> (&'static str, &'static str) {
+fn emoji_from_index(index: u8) -> Emoji {
     match index {
-        0 => ("🐶", "Dog"),
-        1 => ("🐱", "Cat"),
-        2 => ("🦁", "Lion"),
-        3 => ("🐎", "Horse"),
-        4 => ("🦄", "Unicorn"),
-        5 => ("🐷", "Pig"),
-        6 => ("🐘", "Elephant"),
-        7 => ("🐰", "Rabbit"),
-        8 => ("🐼", "Panda"),
-        9 => ("🐓", "Rooster"),
-        10 => ("🐧", "Penguin"),
-        11 => ("🐢", "Turtle"),
-        12 => ("🐟", "Fish"),
-        13 => ("🐙", "Octopus"),
-        14 => ("🦋", "Butterfly"),
-        15 => ("🌷", "Flower"),
-        16 => ("🌳", "Tree"),
-        17 => ("🌵", "Cactus"),
-        18 => ("🍄", "Mushroom"),
-        19 => ("🌏", "Globe"),
-        20 => ("🌙", "Moon"),
-        21 => ("☁️", "Cloud"),
-        22 => ("🔥", "Fire"),
-        23 => ("🍌", "Banana"),
-        24 => ("🍎", "Apple"),
-        25 => ("🍓", "Strawberry"),
-        26 => ("🌽", "Corn"),
-        27 => ("🍕", "Pizza"),
-        28 => ("🎂", "Cake"),
-        29 => ("❤️", "Heart"),
-        30 => ("😀", "Smiley"),
-        31 => ("🤖", "Robot"),
-        32 => ("🎩", "Hat"),
-        33 => ("👓", "Glasses"),
-        34 => ("🔧", "Spanner"),
-        35 => ("🎅", "Santa"),
-        36 => ("👍", "Thumbs up"),
-        37 => ("☂️", "Umbrella"),
-        38 => ("⌛", "Hourglass"),
-        39 => ("⏰", "Clock"),
-        40 => ("🎁", "Gift"),
-        41 => ("💡", "Light Bulb"),
-        42 => ("📕", "Book"),
-        43 => ("✏️", "Pencil"),
-        44 => ("📎", "Paperclip"),
-        45 => ("✂️", "Scissors"),
-        46 => ("🔒", "Lock"),
-        47 => ("🔑", "Key"),
-        48 => ("🔨", "Hammer"),
-        49 => ("☎️", "Telephone"),
-        50 => ("🏁", "Flag"),
-        51 => ("🚂", "Train"),
-        52 => ("🚲", "Bicycle"),
-        53 => ("✈️", "Airplane"),
-        54 => ("🚀", "Rocket"),
-        55 => ("🏆", "Trophy"),
-        56 => ("⚽", "Ball"),
-        57 => ("🎸", "Guitar"),
-        58 => ("🎺", "Trumpet"),
-        59 => ("🔔", "Bell"),
-        60 => ("⚓", "Anchor"),
-        61 => ("🎧", "Headphones"),
-        62 => ("📁", "Folder"),
-        63 => ("📌", "Pin"),
+        0 => Emoji { symbol: "🐶", description: "Dog" },
+        1 => Emoji { symbol: "🐱", description: "Cat" },
+        2 => Emoji { symbol: "🦁", description: "Lion" },
+        3 => Emoji { symbol: "🐎", description: "Horse" },
+        4 => Emoji { symbol: "🦄", description: "Unicorn" },
+        5 => Emoji { symbol: "🐷", description: "Pig" },
+        6 => Emoji { symbol: "🐘", description: "Elephant" },
+        7 => Emoji { symbol: "🐰", description: "Rabbit" },
+        8 => Emoji { symbol: "🐼", description: "Panda" },
+        9 => Emoji { symbol: "🐓", description: "Rooster" },
+        10 => Emoji { symbol: "🐧", description: "Penguin" },
+        11 => Emoji { symbol: "🐢", description: "Turtle" },
+        12 => Emoji { symbol: "🐟", description: "Fish" },
+        13 => Emoji { symbol: "🐙", description: "Octopus" },
+        14 => Emoji { symbol: "🦋", description: "Butterfly" },
+        15 => Emoji { symbol: "🌷", description: "Flower" },
+        16 => Emoji { symbol: "🌳", description: "Tree" },
+        17 => Emoji { symbol: "🌵", description: "Cactus" },
+        18 => Emoji { symbol: "🍄", description: "Mushroom" },
+        19 => Emoji { symbol: "🌏", description: "Globe" },
+        20 => Emoji { symbol: "🌙", description: "Moon" },
+        21 => Emoji { symbol: "☁️", description: "Cloud" },
+        22 => Emoji { symbol: "🔥", description: "Fire" },
+        23 => Emoji { symbol: "🍌", description: "Banana" },
+        24 => Emoji { symbol: "🍎", description: "Apple" },
+        25 => Emoji { symbol: "🍓", description: "Strawberry" },
+        26 => Emoji { symbol: "🌽", description: "Corn" },
+        27 => Emoji { symbol: "🍕", description: "Pizza" },
+        28 => Emoji { symbol: "🎂", description: "Cake" },
+        29 => Emoji { symbol: "❤️", description: "Heart" },
+        30 => Emoji { symbol: "😀", description: "Smiley" },
+        31 => Emoji { symbol: "🤖", description: "Robot" },
+        32 => Emoji { symbol: "🎩", description: "Hat" },
+        33 => Emoji { symbol: "👓", description: "Glasses" },
+        34 => Emoji { symbol: "🔧", description: "Spanner" },
+        35 => Emoji { symbol: "🎅", description: "Santa" },
+        36 => Emoji { symbol: "👍", description: "Thumbs up" },
+        37 => Emoji { symbol: "☂️", description: "Umbrella" },
+        38 => Emoji { symbol: "⌛", description: "Hourglass" },
+        39 => Emoji { symbol: "⏰", description: "Clock" },
+        40 => Emoji { symbol: "🎁", description: "Gift" },
+        41 => Emoji { symbol: "💡", description: "Light Bulb" },
+        42 => Emoji { symbol: "📕", description: "Book" },
+        43 => Emoji { symbol: "✏️", description: "Pencil" },
+        44 => Emoji { symbol: "📎", description: "Paperclip" },
+        45 => Emoji { symbol: "✂️", description: "Scissors" },
+        46 => Emoji { symbol: "🔒", description: "Lock" },
+        47 => Emoji { symbol: "🔑", description: "Key" },
+        48 => Emoji { symbol: "🔨", description: "Hammer" },
+        49 => Emoji { symbol: "☎️", description: "Telephone" },
+        50 => Emoji { symbol: "🏁", description: "Flag" },
+        51 => Emoji { symbol: "🚂", description: "Train" },
+        52 => Emoji { symbol: "🚲", description: "Bicycle" },
+        53 => Emoji { symbol: "✈️", description: "Airplane" },
+        54 => Emoji { symbol: "🚀", description: "Rocket" },
+        55 => Emoji { symbol: "🏆", description: "Trophy" },
+        56 => Emoji { symbol: "⚽", description: "Ball" },
+        57 => Emoji { symbol: "🎸", description: "Guitar" },
+        58 => Emoji { symbol: "🎺", description: "Trumpet" },
+        59 => Emoji { symbol: "🔔", description: "Bell" },
+        60 => Emoji { symbol: "⚓", description: "Anchor" },
+        61 => Emoji { symbol: "🎧", description: "Headphones" },
+        62 => Emoji { symbol: "📁", description: "Folder" },
+        63 => Emoji { symbol: "📌", description: "Pin" },
         _ => panic!("Trying to fetch an emoji outside the allowed range"),
     }
 }
@@ -405,7 +405,7 @@ pub fn get_emoji(
     their_pubkey: &str,
     flow_id: &str,
     we_started: bool,
-) -> [(&'static str, &'static str); 7] {
+) -> [Emoji; 7] {
     let bytes = sas
         .generate_bytes(
             &extra_info_sas(ids, &sas.public_key(), their_pubkey, flow_id, we_started),
@@ -477,7 +477,7 @@ fn bytes_to_emoji_index(bytes: Vec<u8>) -> [u8; 7] {
     ]
 }
 
-fn bytes_to_emoji(bytes: Vec<u8>) -> [(&'static str, &'static str); 7] {
+fn bytes_to_emoji(bytes: Vec<u8>) -> [Emoji; 7] {
     let numbers = bytes_to_emoji_index(bytes);
 
     // Convert the 6 bit number into a emoji/description tuple.
@@ -550,7 +550,7 @@ mod test {
         bytes_to_decimal, bytes_to_emoji, bytes_to_emoji_index, calculate_commitment,
         emoji_from_index,
     };
-    use crate::verification::event_enums::StartContent;
+    use crate::{verification::event_enums::StartContent, Emoji};
 
     #[test]
     fn commitment_calculation() {
@@ -578,13 +578,13 @@ mod test {
     #[test]
     fn emoji_generation() {
         let bytes = vec![0, 0, 0, 0, 0, 0];
-        let index: Vec<(&'static str, &'static str)> =
+        let index: Vec<Emoji> =
             vec![0, 0, 0, 0, 0, 0, 0].into_iter().map(emoji_from_index).collect();
         assert_eq!(bytes_to_emoji(bytes), index.as_ref());
 
         let bytes = vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
 
-        let index: Vec<(&'static str, &'static str)> =
+        let index: Vec<Emoji> =
             vec![63, 63, 63, 63, 63, 63, 63].into_iter().map(emoji_from_index).collect();
         assert_eq!(bytes_to_emoji(bytes), index.as_ref());
     }

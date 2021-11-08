@@ -99,7 +99,7 @@ impl SasVerification {
     }
 
     /// Get the emoji version of the short auth string.
-    pub fn emoji(&self) -> Option<[(&'static str, &'static str); 7]> {
+    pub fn emoji(&self) -> Option<[super::Emoji; 7]> {
         self.inner.emoji()
     }
 

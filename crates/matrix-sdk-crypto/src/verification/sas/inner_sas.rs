@@ -34,7 +34,7 @@ use crate::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
         Cancelled, Done,
     },
-    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
+    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 #[derive(Clone, Debug)]
@@ -391,7 +391,7 @@ impl InnerSas {
         }
     }
 
-    pub fn emoji(&self) -> Option<[(&'static str, &'static str); 7]> {
+    pub fn emoji(&self) -> Option<[Emoji; 7]> {
         match self {
             InnerSas::KeyReceived(s) => Some(s.get_emoji()),
             InnerSas::MacReceived(s) => Some(s.get_emoji()),

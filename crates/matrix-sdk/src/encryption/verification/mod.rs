@@ -38,7 +38,7 @@ mod sas;
 #[cfg(feature = "qrcode")]
 #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 pub use matrix_sdk_base::crypto::{matrix_qrcode::QrVerificationData, ScanError};
-pub use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo};
+pub use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, Emoji};
 #[cfg(feature = "qrcode")]
 #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 pub use qrcode::QrVerification;
