@@ -58,7 +58,7 @@ use crate::{
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
     utilities::encode,
-    OlmError, SignatureError,
+    CryptoStoreError, OlmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
@@ -136,6 +136,10 @@ impl Account {
             .map_err(|_| EventError::UnsupportedOlmType(message_type.into()))?;
 
         Ok((message, message_hash))
+    }
+
+    pub(crate) async fn save(&self) -> Result<(), CryptoStoreError> {
+        self.store.save_account(self.inner.clone()).await
     }
 
     async fn decrypt_olm_v1(
