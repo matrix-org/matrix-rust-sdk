@@ -382,7 +382,6 @@ impl Common {
     ///
     /// Returns true if all devices in the room are verified, otherwise false.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
         let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
 

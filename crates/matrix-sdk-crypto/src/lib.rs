@@ -48,7 +48,6 @@ pub use identities::{
 };
 pub use machine::OlmMachine;
 #[cfg(feature = "qrcode")]
-#[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 pub use matrix_qrcode;
 pub(crate) use olm::ReadOnlyAccount;
 pub use olm::{CrossSigningStatus, EncryptionSettings};
@@ -59,5 +58,4 @@ pub use requests::{
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError};
 pub use verification::{AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest};
 #[cfg(feature = "qrcode")]
-#[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 pub use verification::{QrVerification, ScanError};

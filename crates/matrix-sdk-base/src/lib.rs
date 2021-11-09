@@ -41,7 +41,6 @@ mod store;
 
 pub use client::{BaseClient, BaseClientConfig};
 #[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_crypto as crypto;
 pub use rooms::{Room, RoomInfo, RoomMember, RoomType};
 pub use store::{StateChanges, StateStore, Store, StoreError};

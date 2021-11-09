@@ -293,7 +293,6 @@ impl Client {
     /// Get the public ed25519 key of our own device. This is usually what is
     /// called the fingerprint of the device.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn ed25519_key(&self) -> Option<String> {
         self.base_client.olm_machine().await.map(|o| o.identity_keys().ed25519().to_owned())
     }
@@ -303,7 +302,6 @@ impl Client {
     /// This can be used to check which private cross signing keys we have
     /// stored locally.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
         if let Some(machine) = self.base_client.olm_machine().await {
             Some(machine.cross_signing_status().await)
@@ -317,14 +315,12 @@ impl Client {
     /// Tracked users are users for which we keep the device list of E2EE
     /// capable devices up to date.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn tracked_users(&self) -> HashSet<UserId> {
         self.base_client.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
     }
 
     /// Get a verification object with the given flow id.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
         let olm = self.base_client.olm_machine().await?;
         olm.get_verification(user_id, flow_id).map(|v| match v {
@@ -341,7 +337,6 @@ impl Client {
     /// Get a `VerificationRequest` object for the given user with the given
     /// flow id.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification_request(
         &self,
         user_id: &UserId,
@@ -388,7 +383,6 @@ impl Client {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -427,7 +421,6 @@ impl Client {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
@@ -469,7 +462,6 @@ impl Client {
     /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_user_identity(
         &self,
         user_id: &UserId,
@@ -533,7 +525,6 @@ impl Client {
     /// }
     /// # })
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
         let olm = self.base_client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
 
@@ -606,7 +597,6 @@ impl Client {
     /// # });
     /// ```
     #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
-    #[cfg_attr(feature = "docs", doc(cfg(all(encryption, not(target_arch = "wasm32")))))]
     pub async fn export_keys(
         &self,
         path: PathBuf,
@@ -666,7 +656,6 @@ impl Client {
     /// # });
     /// ```
     #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
-    #[cfg_attr(feature = "docs", doc(cfg(all(encryption, not(target_arch = "wasm32")))))]
     pub async fn import_keys(
         &self,
         path: PathBuf,
@@ -689,7 +678,6 @@ impl Client {
     /// Tries to decrypt a `AnyRoomEvent`. Returns unencrypted room event when
     /// decryption fails.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub(crate) async fn decrypt_room_event(
         &self,
         event: &AnyRoomEvent,
@@ -730,7 +718,6 @@ impl Client {
     ///
     /// Panics if no key query needs to be done.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     pub(crate) async fn keys_query(
         &self,
@@ -746,7 +733,6 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     async fn send_account_data(
         &self,
         content: ruma::events::AnyGlobalAccountDataEventContent,
@@ -765,7 +751,6 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub(crate) async fn create_dm_room(&self, user_id: UserId) -> Result<Option<room::Joined>> {
         use ruma::{
             api::client::r0::room::create_room::RoomPreset,
@@ -830,7 +815,6 @@ impl Client {
     ///
     /// * `users` - The list of user/device pairs that we should claim keys for.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument(skip(users))]
     pub(crate) async fn claim_one_time_keys(
         &self,
@@ -856,7 +840,6 @@ impl Client {
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     pub(crate) async fn keys_upload(
         &self,
@@ -924,7 +907,6 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
         let rooms = self.joined_rooms();
         let room_pairs: Vec<_> =

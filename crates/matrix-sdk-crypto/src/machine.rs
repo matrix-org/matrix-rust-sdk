@@ -265,7 +265,6 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     #[cfg(feature = "sled_cryptostore")]
-    #[cfg_attr(feature = "docs", doc(cfg(sled_cryptostore)))]
     pub async fn new_with_default_store(
         user_id: &UserId,
         device_id: &DeviceId,

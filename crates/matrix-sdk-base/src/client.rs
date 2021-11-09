@@ -1003,7 +1003,6 @@ impl BaseClient {
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
         let olm = self.olm.lock().await;
 
@@ -1023,7 +1022,6 @@ impl BaseClient {
     /// * `response` - The response that was received from the server after the
     /// outgoing request was sent out.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &Uuid,
@@ -1041,7 +1039,6 @@ impl BaseClient {
     ///
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -1056,7 +1053,6 @@ impl BaseClient {
 
     /// Get a to-device request that will share a group session for a room.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
         let olm = self.olm.lock().await;
 
@@ -1098,7 +1094,6 @@ impl BaseClient {
 
     /// Encrypt a message event content.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
@@ -1118,7 +1113,6 @@ impl BaseClient {
     /// Returns true if a session was invalidated, false if there was no session
     /// to invalidate.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn invalidate_group_session(
         &self,
         room_id: &RoomId,
@@ -1160,7 +1154,6 @@ impl BaseClient {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -1219,7 +1212,6 @@ impl BaseClient {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
@@ -1236,7 +1228,6 @@ impl BaseClient {
 
     /// Get the olm machine.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn olm_machine(&self) -> Option<OlmMachine> {
         let olm = self.olm.lock().await;
         olm.as_ref().cloned()

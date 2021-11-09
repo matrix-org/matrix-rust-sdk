@@ -310,7 +310,6 @@ impl VerificationRequest {
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     #[cfg(feature = "qrcode")]
-    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
         let inner = self.inner.lock().unwrap().clone();
 
@@ -325,7 +324,6 @@ impl VerificationRequest {
     /// code verification, otherwise a newly created `QrVerification` object
     /// which will be used for the remainder of the verification flow.
     #[cfg(feature = "qrcode")]
-    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub async fn scan_qr_code(
         &self,
         data: QrVerificationData,

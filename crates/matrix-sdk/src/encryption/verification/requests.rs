@@ -123,7 +123,6 @@ impl VerificationRequest {
 
     /// Generate a QR code
     #[cfg(feature = "qrcode")]
-    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>> {
         Ok(self
             .inner
@@ -141,7 +140,6 @@ impl VerificationRequest {
     /// otherwise a newly created `QrVerification` object which will be used
     /// for the remainder of the verification flow.
     #[cfg(feature = "qrcode")]
-    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub async fn scan_qr_code(&self, data: QrVerificationData) -> Result<Option<QrVerification>> {
         if let Some(qr) = self.inner.scan_qr_code(data).await? {
             if let Some(request) = qr.reciprocate() {

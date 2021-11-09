@@ -31,11 +31,9 @@ mod utils;
 
 pub use error::{DecodingError, EncodingError};
 #[cfg(feature = "decode_image")]
-#[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
 pub use image;
 pub use qrcode;
 #[cfg(feature = "decode_image")]
-#[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
 pub use rqrr;
 pub use types::{
     QrVerificationData, SelfVerificationData, SelfVerificationNoMasterKey, VerificationData,

@@ -57,7 +57,6 @@ pub mod room;
 mod room_member;
 
 #[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub mod encryption;
 
 pub use client::{Client, LoopCtrl};

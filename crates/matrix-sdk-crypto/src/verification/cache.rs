@@ -55,13 +55,11 @@ impl VerificationCache {
     }
 
     #[cfg(feature = "qrcode")]
-    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub fn insert_qr(&self, qr: QrVerification) {
         self.insert(qr)
     }
 
     #[cfg(feature = "qrcode")]
-    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub fn get_qr(&self, sender: &UserId, flow_id: &str) -> Option<QrVerification> {
         self.get(sender, flow_id).and_then(|v| {
             if let Verification::QrV1(qr) = v {

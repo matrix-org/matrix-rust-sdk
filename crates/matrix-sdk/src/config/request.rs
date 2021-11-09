@@ -116,7 +116,6 @@ impl RequestConfig {
     ///
     /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
     #[cfg(feature = "appservice")]
-    #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
     pub fn assert_identity(mut self) -> Self {
         self.assert_identity = true;
         self

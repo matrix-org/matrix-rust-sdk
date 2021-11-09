@@ -305,7 +305,6 @@ impl Client {
     ///
     /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
     #[cfg(feature = "appservice")]
-    #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
     pub async fn receive_transaction(
         &self,
         incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest,
@@ -910,7 +909,6 @@ impl Client {
     /// [`login_with_token`]: #method.login_with_token
     /// [`restore_login`]: #method.restore_login
     #[cfg(all(feature = "sso_login", not(target_arch = "wasm32")))]
-    #[cfg_attr(feature = "docs", doc(cfg(all(sso_login, not(target_arch = "wasm32")))))]
     pub async fn login_with_sso<C>(
         &self,
         use_sso_login_url: impl Fn(String) -> C,

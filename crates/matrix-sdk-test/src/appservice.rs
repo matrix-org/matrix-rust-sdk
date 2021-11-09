@@ -52,7 +52,6 @@ impl TransactionBuilder {
 
     /// Build the transaction
     #[cfg(feature = "appservice")]
-    #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
     pub fn build_json_transaction(&self) -> Value {
         let body = serde_json::json! {
             {

@@ -24,7 +24,6 @@ use qrcode::QrCode;
 use ruma_identifiers::EventId;
 
 #[cfg(feature = "decode_image")]
-#[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
 use crate::utils::decode_qr;
 use crate::{
     error::{DecodingError, EncodingError},
@@ -45,7 +44,6 @@ pub enum QrVerificationData {
 }
 
 #[cfg(feature = "decode_image")]
-#[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
 impl TryFrom<DynamicImage> for QrVerificationData {
     type Error = DecodingError;
 
@@ -55,7 +53,6 @@ impl TryFrom<DynamicImage> for QrVerificationData {
 }
 
 #[cfg(feature = "decode_image")]
-#[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
 impl TryFrom<ImageBuffer<Luma<u8>, Vec<u8>>> for QrVerificationData {
     type Error = DecodingError;
 
@@ -102,7 +99,6 @@ impl QrVerificationData {
     /// # }
     /// ```
     #[cfg(feature = "decode_image")]
-    #[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
     pub fn from_image(image: DynamicImage) -> Result<Self, DecodingError> {
         let image = image.to_luma8();
         Self::decode(image)
@@ -128,7 +124,6 @@ impl QrVerificationData {
     /// # }
     /// ```
     #[cfg(feature = "decode_image")]
-    #[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
     pub fn from_luma(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<Self, DecodingError> {
         Self::decode(image)
     }

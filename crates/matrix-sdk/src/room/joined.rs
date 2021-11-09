@@ -314,7 +314,6 @@ impl Joined {
     ///
     /// Does nothing if no group session needs to be shared.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     async fn preshare_group_session(&self) -> Result<()> {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
@@ -361,9 +360,8 @@ impl Joined {
     /// # Panics
     ///
     /// Panics if the client isn't logged in.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
+    #[cfg(feature = "encryption")]
     async fn share_group_session(&self) -> Result<()> {
         let mut requests =
             self.client.base_client.share_group_session(self.inner.room_id()).await?;

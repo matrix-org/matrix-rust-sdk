@@ -123,25 +123,21 @@ pub enum Error {
 
     /// An error occurred in the crypto store.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     OlmError(#[from] OlmError),
 
     /// An error occurred during a E2EE group operation.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
 
     /// An error occurred during decryption.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
 
@@ -165,7 +161,6 @@ pub enum Error {
 
 /// Error for the room key importing functionality.
 #[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 #[derive(Error, Debug)]
 // This is allowed because key importing isn't enabled under wasm.
 #[allow(dead_code)]
