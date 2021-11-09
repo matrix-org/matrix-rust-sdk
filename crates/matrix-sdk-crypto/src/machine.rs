@@ -316,6 +316,7 @@ impl OlmMachine {
             .await
             .map(|r| OutgoingRequest { request_id: Uuid::new_v4(), request: Arc::new(r.into()) })
         {
+            self.account.save().await?;
             requests.push(r);
         }
 

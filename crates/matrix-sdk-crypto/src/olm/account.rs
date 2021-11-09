@@ -58,7 +58,7 @@ use crate::{
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
     utilities::encode,
-    OlmError, SignatureError,
+    CryptoStoreError, OlmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
@@ -136,6 +136,10 @@ impl Account {
             .map_err(|_| EventError::UnsupportedOlmType(message_type.into()))?;
 
         Ok((message, message_hash))
+    }
+
+    pub(crate) async fn save(&self) -> Result<(), CryptoStoreError> {
+        self.store.save_account(self.inner.clone()).await
     }
 
     async fn decrypt_olm_v1(
@@ -610,19 +614,26 @@ impl ReadOnlyAccount {
     ///
     /// Returns an empty error if no keys need to be uploaded.
     pub(crate) async fn generate_one_time_keys(&self) -> Result<u64, ()> {
-        let count = self.uploaded_key_count();
-        let max_keys = self.max_one_time_keys().await;
-        let max_on_server = (max_keys as u64) / 2;
+        // Only generate one-time keys if there aren't any, otherwise the caller
+        // might have failed to upload them the last time this method was
+        // called.
+        if self.one_time_keys().await.curve25519().is_empty() {
+            let count = self.uploaded_key_count();
+            let max_keys = self.max_one_time_keys().await;
+            let max_on_server = (max_keys as u64) / 2;
 
-        if count >= (max_on_server) {
-            return Err(());
+            if count >= (max_on_server) {
+                return Err(());
+            }
+
+            let key_count = max_on_server - count;
+            let key_count: usize = key_count.try_into().unwrap_or(max_keys);
+
+            self.generate_one_time_keys_helper(key_count).await;
+            Ok(key_count as u64)
+        } else {
+            Ok(0)
         }
-
-        let key_count = max_on_server - count;
-        let key_count: usize = key_count.try_into().unwrap_or(max_keys);
-
-        self.generate_one_time_keys_helper(key_count).await;
-        Ok(key_count as u64)
     }
 
     /// Should account or one-time keys be uploaded to the server.
@@ -1123,5 +1134,67 @@ impl ReadOnlyAccount {
 impl PartialEq for ReadOnlyAccount {
     fn eq(&self, other: &Self) -> bool {
         self.identity_keys() == other.identity_keys() && self.shared() == other.shared()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeSet;
+
+    use matrix_sdk_test::async_test;
+    use ruma::{identifiers::DeviceIdBox, user_id, DeviceKeyId, UserId};
+
+    use super::ReadOnlyAccount;
+    use crate::error::OlmResult as Result;
+
+    fn user_id() -> UserId {
+        user_id!("@alice:localhost")
+    }
+
+    fn device_id() -> DeviceIdBox {
+        "DEVICEID".into()
+    }
+
+    #[async_test]
+    async fn one_time_key_creation() -> Result<()> {
+        let account = ReadOnlyAccount::new(&user_id(), &device_id());
+
+        let one_time_keys = account
+            .keys_for_upload()
+            .await
+            .and_then(|(_, k)| k)
+            .expect("Initial keys can't be generated");
+
+        let second_one_time_keys = account
+            .keys_for_upload()
+            .await
+            .and_then(|(_, k)| k)
+            .expect("Second round of one-time keys isn't generated");
+
+        let device_key_ids: BTreeSet<&DeviceKeyId> = one_time_keys.keys().collect();
+        let second_device_key_ids: BTreeSet<&DeviceKeyId> = second_one_time_keys.keys().collect();
+
+        assert_eq!(device_key_ids, second_device_key_ids);
+
+        account.mark_keys_as_published().await;
+        account.update_uploaded_key_count(50);
+
+        let third_one_time_keys = account.keys_for_upload().await.and_then(|(_, k)| k);
+
+        assert!(third_one_time_keys.is_none());
+
+        account.update_uploaded_key_count(0);
+
+        let fourth_one_time_keys = account
+            .keys_for_upload()
+            .await
+            .and_then(|(_, k)| k)
+            .expect("Fourth round of one-time keys isn't generated");
+
+        let fourth_device_key_ids: BTreeSet<&DeviceKeyId> = fourth_one_time_keys.keys().collect();
+
+        assert_ne!(device_key_ids, fourth_device_key_ids);
+
+        Ok(())
     }
 }
