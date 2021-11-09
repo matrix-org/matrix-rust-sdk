@@ -19,7 +19,7 @@ use std::{
 
 use byteorder::{BigEndian, ReadBytesExt};
 #[cfg(feature = "decode_image")]
-use image::{DynamicImage, ImageBuffer, Luma};
+use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Luma};
 use qrcode::QrCode;
 use ruma_identifiers::EventId;
 
@@ -52,6 +52,7 @@ impl TryFrom<DynamicImage> for QrVerificationData {
     }
 }
 
+// FIXME: We can't implement the generic trait because of https://github.com/rust-lang/rust/issues/50133
 #[cfg(feature = "decode_image")]
 impl TryFrom<ImageBuffer<Luma<u8>, Vec<u8>>> for QrVerificationData {
     type Error = DecodingError;
@@ -124,7 +125,10 @@ impl QrVerificationData {
     /// # }
     /// ```
     #[cfg(feature = "decode_image")]
-    pub fn from_luma(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<Self, DecodingError> {
+    pub fn from_luma<I>(image: I) -> Result<Self, DecodingError>
+    where
+        I: GenericImage<Pixel = Luma<u8>> + GenericImageView<Pixel = Luma<u8>>,
+    {
         Self::decode(image)
     }
 
@@ -290,7 +294,10 @@ impl QrVerificationData {
     /// Decode the given image of an QR code and if we find a valid code, try to
     /// decode it as a `QrVerification`.
     #[cfg(feature = "decode_image")]
-    fn decode(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<QrVerificationData, DecodingError> {
+    fn decode<I>(image: I) -> Result<QrVerificationData, DecodingError>
+    where
+        I: GenericImage<Pixel = Luma<u8>> + GenericImageView<Pixel = Luma<u8>>,
+    {
         let decoded = decode_qr(image)?;
         Self::decode_bytes(decoded)
     }

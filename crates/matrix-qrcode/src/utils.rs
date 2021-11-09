@@ -16,7 +16,7 @@ use std::convert::TryInto;
 
 use base64::{decode_config, encode_config, STANDARD_NO_PAD};
 #[cfg(feature = "decode_image")]
-use image::{ImageBuffer, Luma};
+use image::{GenericImage, GenericImageView, Luma};
 use qrcode::{bits::Bits, EcLevel, QrCode, Version};
 
 #[cfg(feature = "decode_image")]
@@ -91,7 +91,10 @@ pub(crate) fn to_qr_code(
 }
 
 #[cfg(feature = "decode_image")]
-pub(crate) fn decode_qr(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<Vec<u8>, DecodingError> {
+pub(crate) fn decode_qr<I>(image: I) -> Result<Vec<u8>, DecodingError>
+where
+    I: GenericImage<Pixel = Luma<u8>> + GenericImageView<Pixel = Luma<u8>>,
+{
     let mut image = rqrr::PreparedImage::prepare(image);
     let grids = image.detect_grids();
 
