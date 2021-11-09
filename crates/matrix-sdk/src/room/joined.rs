@@ -258,13 +258,13 @@ impl Joined {
 
     /// Enable End-to-end encryption in this room.
     ///
-    /// This method will bea noop if encryption is already enabled, otherwise
+    /// This method will be a noop if encryption is already enabled, otherwise
     /// sends a `m.room.encryption` state event to the room. This might fail if
     /// you don't have the appropriate power level to enable end-to-end
     /// encryption.
     ///
     /// A sync needs to be received to update the local room state. This method
-    /// will wait for a sync to be received though this might time out if no
+    /// will wait for a sync to be received, this might time out if no
     /// sync loop is running or if the server is slow.
     ///
     /// # Examples
