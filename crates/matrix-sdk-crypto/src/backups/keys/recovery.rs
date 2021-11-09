@@ -71,12 +71,6 @@ pub struct RecoveryKey {
     version: Option<String>,
 }
 
-impl RecoveryKey {
-    fn as_bytes(&self) -> &[u8] {
-        &self.key
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledRecoveryKey(String);
 
