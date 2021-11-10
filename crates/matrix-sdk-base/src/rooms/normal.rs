@@ -17,10 +17,7 @@ use std::{
     sync::{Arc, RwLock as SyncRwLock},
 };
 
-use futures::{
-    future,
-    stream::{self, StreamExt},
-};
+use futures::stream::{self, StreamExt};
 use ruma::{
     api::client::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
@@ -348,14 +345,14 @@ impl Room {
         let members: Vec<RoomMember> = if summary.heroes.is_empty() {
             self.active_members().await?.into_iter().filter(|u| !is_own_member(u)).take(5).collect()
         } else {
-            let members: Vec<_> = stream::iter(summary.heroes.iter())
-                .filter(|u| future::ready(!is_own_user_id(u)))
-                .filter_map(|u| async move {
-                    let user_id = UserId::try_from(u.as_str()).ok()?;
-                    self.get_member(&user_id).await.transpose()
-                })
-                .collect()
-                .await;
+            let members: Vec<_> =
+                stream::iter(summary.heroes.iter().filter(|u| !is_own_user_id(u)))
+                    .filter_map(|u| async move {
+                        let user_id = UserId::try_from(u.as_str()).ok()?;
+                        self.get_member(&user_id).await.transpose()
+                    })
+                    .collect()
+                    .await;
 
             let members: StoreResult<Vec<_>> = members.into_iter().collect();
 
