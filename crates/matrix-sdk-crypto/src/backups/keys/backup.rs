@@ -19,7 +19,7 @@ use std::{
 
 use olm_rs::pk::OlmPkEncryption;
 use ruma::{
-    api::client::r0::backup::{BackupAlgorithm, KeyBackupData, KeyBackupDataInit, SessionDataInit},
+    api::client::r0::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
     DeviceKeyId, UserId,
 };
 use zeroize::Zeroizing;
@@ -34,6 +34,7 @@ struct InnerBackupKey {
     version: Mutex<Option<String>>,
 }
 
+/// The public part of a backup key.
 #[derive(Clone)]
 pub struct MegolmV1BackupKey {
     inner: Arc<InnerBackupKey>,
@@ -43,7 +44,7 @@ impl std::fmt::Debug for MegolmV1BackupKey {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("MegolmV1BackupKey")
-            .field("key", &self.encoded_key())
+            .field("key", &self.to_base64())
             .field("version", &self.backup_version())
             .finish()
     }
@@ -62,7 +63,12 @@ impl MegolmV1BackupKey {
         key
     }
 
-    /// TODO
+    /// Get all the signatures of this `MegolmV1BackupKey`.
+    pub fn signatures(&self) -> BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
+        self.inner.signatures.to_owned()
+    }
+
+    /// Try to create a new `MegolmV1BackupKey` from a base 64 encoded string.
     pub fn from_base64(public_key: &str) -> Result<Self, DecodeError> {
         let mut key = [0u8; Self::KEY_SIZE];
         let decoded_key = crate::utilities::decode(public_key)?;
@@ -79,18 +85,26 @@ impl MegolmV1BackupKey {
         }
     }
 
-    /// TODO
+    /// Convert the [`MegolmV1BackupKey`] to a base 64 encoded string.
+    pub fn to_base64(&self) -> String {
+        crate::utilities::encode(&self.inner.key)
+    }
+
+    /// Get the backup version that this key is used with, if any.
     pub fn backup_version(&self) -> Option<String> {
         self.inner.version.lock().unwrap().clone()
     }
 
-    /// TODO
+    /// Set the backup version that this `MegolmV1BackupKey` will be used with.
+    ///
+    /// The key won't be able to encrypt room keys unless a version has been
+    /// set.
     pub fn set_version(&self, version: String) {
         *self.inner.version.lock().unwrap() = Some(version);
     }
 
     pub(crate) async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
-        let pk = OlmPkEncryption::new(&self.encoded_key());
+        let pk = OlmPkEncryption::new(&self.to_base64());
 
         // It's ok to truncate here, there's a semantic difference only between
         // 0 and 1+ anyways.
@@ -119,24 +133,11 @@ impl MegolmV1BackupKey {
             forwarded_count,
             // TODO is this actually used anywhere? seems to be completely
             // useless and requires us to get the Device out of the store?
+            // Also should this be checked at the time of the backup or at the
+            // time of the room key receival?
             is_verified: false,
             session_data,
         }
         .into()
-    }
-
-    pub fn encoded_key(&self) -> String {
-        crate::utilities::encode(&self.inner.key)
-    }
-
-    pub fn signatures(&self) -> BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
-        self.inner.signatures.to_owned()
-    }
-
-    pub fn to_backup_algorithm(&self) -> BackupAlgorithm {
-        BackupAlgorithm::MegolmBackupV1Curve25519AesSha2 {
-            public_key: self.encoded_key(),
-            signatures: self.inner.signatures.to_owned(),
-        }
     }
 }

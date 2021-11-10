@@ -12,7 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(missing_docs)]
+//! Server-side backup support for room keys
+//!
+//! This module largely implements support for server-side backups using the
+//! `m.megolm_backup.v1.curve25519-aes-sha2` backup algorithm.
+//!
+//! Due to various flaws in this backup algorithm it is **not** recommended to
+//! use this module or any of its functionality. The module is only provided for
+//! backwards compatibility.
+//!
+//! [spec]: https://spec.matrix.org/unstable/client-server-api/#server-side-key-backups
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -38,7 +47,12 @@ mod keys;
 pub use keys::{DecodeError, MegolmV1BackupKey, PickledRecoveryKey, RecoveryKey};
 pub use olm_rs::errors::OlmPkDecryptionError;
 
-/// TODO
+/// A state machine that handles backing up room keys.
+///
+/// The state machine can be activated using the
+/// [`BackupMachine::enable_backup`] method. After the state machine has been
+/// enabled a request that will upload encrypted room keys can be generated
+/// using the [`BackupMachine::backup`] method.
 #[derive(Debug, Clone)]
 pub struct BackupMachine {
     account: Account,
@@ -85,11 +99,23 @@ impl BackupMachine {
         }
     }
 
+    /// Are we able to back up room keys to the server?
     pub async fn enabled(&self) -> bool {
         self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
     }
 
-    /// TODO
+    /// Verify some backup auth data that we downloaded from the server.
+    ///
+    /// The auth data should be fetched from the server using the
+    /// [`/room_keys/version`] endpoint.
+    ///
+    /// Ruma models this using the [`BackupAlgorithm`] struct, but care needs to
+    /// be taken if that struct is used. Some clients might use unspecced fields
+    /// and the given Ruma struct will lose the unspecced fields after a
+    /// serialization cycle.
+    ///
+    /// [`BackupAlgorithm`]: ruma::api::client::r0::backup::BackupAlgorithm
+    /// [`/room_keys/verson`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
     pub async fn verify_backup(
         &self,
         mut serialized_auth_data: Value,
@@ -151,7 +177,8 @@ impl BackupMachine {
         })
     }
 
-    /// TODO
+    /// Activate the given backup key to be used to encrypt and backup room
+    /// keys.
     pub async fn enable_backup(&self, key: MegolmV1BackupKey) -> Result<(), CryptoStoreError> {
         if key.backup_version().is_some() {
             *self.backup_key.write().await = Some(key.clone());
@@ -163,12 +190,15 @@ impl BackupMachine {
         Ok(())
     }
 
-    /// TODO
+    /// Get the number of backed up room keys and the total number of room keys.
     pub async fn room_key_counts(&self) -> Result<RoomKeyCounts, CryptoStoreError> {
         self.store.inbound_group_session_counts().await
     }
 
-    /// TODO
+    /// Disable and reset our backup state.
+    ///
+    /// This will remove any pending backup request, remove the backup key and
+    /// reset the backup state of each room key we have.
     #[instrument(skip(self))]
     pub async fn disable_backup(&self) -> Result<(), CryptoStoreError> {
         debug!("Disabling key backup and resetting backup state for room keys");
@@ -183,7 +213,10 @@ impl BackupMachine {
         Ok(())
     }
 
-    /// TODO
+    /// Store the recovery key in the cryptostore.
+    ///
+    /// This is useful if the client wants to support gossiping of the backup
+    /// key.
     pub async fn save_recovery_key(
         &self,
         recovery_key: Option<RecoveryKey>,
@@ -193,12 +226,13 @@ impl BackupMachine {
         self.store.save_changes(changes).await
     }
 
-    /// TODO
+    /// Get the backup keys we have saved in our crypto store.
     pub async fn get_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
         self.store.load_backup_keys().await
     }
 
-    /// TODO
+    /// Encrypt a batch of room keys and return a request that needs to be sent
+    /// out to backup room keys.
     pub async fn backup(&self) -> Result<Option<OutgoingRequest>, CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
 

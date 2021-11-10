@@ -176,14 +176,13 @@ pub struct RoomKeyCounts {
     pub backed_up: usize,
 }
 
-/// TODO
-#[derive(Default)]
-#[allow(missing_debug_implementations)]
+/// Stored versions of the backup keys.
+#[derive(Default, Debug)]
 pub struct BackupKeys {
-    /// TODO
+    /// The recovery key, the one used to decrypt backed up room keys.
     #[cfg(feature = "backups_v1")]
     pub recovery_key: Option<crate::backups::RecoveryKey>,
-    /// TODO
+    /// The version that we are using for backups.
     #[cfg(feature = "backups_v1")]
     pub backup_version: Option<String>,
 }
@@ -657,7 +656,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Reset the backup state of all the stored inbound group sessions.
     async fn reset_backup_state(&self) -> Result<()>;
 
-    /// TODO
+    /// Get the backup keys we have stored.
     async fn load_backup_keys(&self) -> Result<BackupKeys>;
 
     /// Get the outbound group sessions we have stored that is used for the

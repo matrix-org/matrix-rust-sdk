@@ -37,18 +37,25 @@ use crate::utilities::{decode_url_safe, encode, encode_url_safe};
 
 const NONCE_SIZE: usize = 12;
 
+/// Error type for the decoding of a RecoveryKey.
 #[derive(Debug, Error)]
 pub enum DecodeError {
+    /// The decoded recovery key has an invalid prefix.
     #[error("The decoded recovery key has an invalid prefix: expected {0:?}, got {1:?}")]
     Prefix([u8; 2], [u8; 2]),
+    /// The parity byte of the recovery key didn't match.
     #[error("The parity byte of the recovery key doesn't match: expected {0:?}, got {1:?}")]
     Parity(u8, u8),
+    /// The recovery key has an invalid length.
     #[error("The decoded recovery key has a invalid length: expected {0}, got {1}")]
     Length(usize, usize),
+    /// The recovry key isn't valid base58.
     #[error(transparent)]
     Base58(#[from] bs58::decode::Error),
+    /// The  recovery key isn't valid base64.
     #[error(transparent)]
     Base64(#[from] base64::DecodeError),
+    /// The recovery key is too short, we couldn't read enough data.
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -63,14 +70,25 @@ pub enum UnpicklingError {
     Decode(#[from] DecodeError),
 }
 
+/// The private part of a backup key.
 #[derive(Zeroize)]
-#[zeroize(drop)]
-#[allow(missing_debug_implementations)]
 pub struct RecoveryKey {
     key: [u8; RecoveryKey::KEY_SIZE],
-    version: Option<String>,
 }
 
+impl Drop for RecoveryKey {
+    fn drop(&mut self) {
+        self.key.zeroize()
+    }
+}
+
+impl std::fmt::Debug for RecoveryKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecoveryKey").finish()
+    }
+}
+
+/// The pickled version of a recovery key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledRecoveryKey(String);
 
@@ -83,7 +101,6 @@ impl AsRef<str> for PickledRecoveryKey {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct InnerPickle {
     version: u8,
-    backup_version: Option<String>,
     nonce: String,
     ciphertext: String,
 }
@@ -124,19 +141,26 @@ impl RecoveryKey {
         bytes.iter().fold(Self::PREFIX_PARITY, |acc, x| acc ^ x)
     }
 
+    /// Create a new random recovery key.
     pub fn new() -> Result<Self, RandomError> {
         let mut rng = thread_rng();
 
         let mut key = [0u8; Self::KEY_SIZE];
         key.try_fill(&mut rng)?;
 
-        Ok(Self { key, version: None })
+        Ok(Self { key })
     }
 
+    /// Create a new recovery key from the given byte array.
+    ///
+    /// **Warning**: You need to make sure that the byte array contains correct
+    /// random data, either by using a random number generator or by using an
+    /// exported version of a previously created [`RecoveryKey`].
     pub fn from_bytes(key: [u8; Self::KEY_SIZE]) -> Self {
-        Self { key, version: None }
+        Self { key }
     }
 
+    /// Try to create a [`RecoveryKey`] from a base64 export of a `RecoveryKey`.
     pub fn from_base64(key: &str) -> Result<Self, DecodeError> {
         let decoded = Zeroizing::new(crate::utilities::decode(key)?);
 
@@ -146,14 +170,16 @@ impl RecoveryKey {
             let mut key = [0u8; Self::KEY_SIZE];
             key.copy_from_slice(&decoded);
 
-            Ok(Self { key, version: None })
+            Ok(Self { key })
         }
     }
 
+    /// Export the `RecoveryKey` as a base64 encoded string.
     pub fn to_base64(&self) -> String {
         encode(self.key)
     }
 
+    /// Try to create a [`RecoveryKey`] from a base58 export of a `RecoveryKey`.
     pub fn from_base58(value: &str) -> Result<Self, DecodeError> {
         // Remove any whitespace we might have
         let value: String = value.chars().filter(|c| !c.is_whitespace()).collect();
@@ -179,24 +205,11 @@ impl RecoveryKey {
         } else if expected_parity != parity {
             Err(DecodeError::Parity(expected_parity, parity))
         } else {
-            Ok(Self { key, version: None })
+            Ok(Self { key })
         }
     }
 
-    pub fn set_version(&mut self, version: String) {
-        self.version = Some(version)
-    }
-
-    fn get_pk_decrytpion(&self) -> OlmPkDecryption {
-        OlmPkDecryption::from_private_key(self.key.as_ref()).expect("Hello world")
-    }
-
-    pub fn public_key(&self) -> MegolmV1BackupKey {
-        let pk = self.get_pk_decrytpion();
-        let public_key = MegolmV1BackupKey::new(pk.public_key(), self.version.clone());
-        public_key
-    }
-
+    /// Export the `RecoveryKey` as a base58 encoded string.
     pub fn to_base58(&self) -> String {
         let bytes = Zeroizing::new(
             [
@@ -210,6 +223,19 @@ impl RecoveryKey {
         bs58::encode(bytes.as_slice()).with_alphabet(bs58::Alphabet::BITCOIN).into_string()
     }
 
+    fn get_pk_decrytpion(&self) -> OlmPkDecryption {
+        OlmPkDecryption::from_private_key(self.key.as_ref()).expect("Hello world")
+    }
+
+    /// Extract the public key from this `RecoveryKey`.
+    pub fn public_key(&self) -> MegolmV1BackupKey {
+        let pk = self.get_pk_decrytpion();
+        let public_key = MegolmV1BackupKey::new(pk.public_key(), None);
+        public_key
+    }
+
+    /// Export this [`RecoveryKey`] as an encrypted pickle that can be safely
+    /// stored.
     pub fn pickle(&self, pickle_key: &[u8]) -> PickledRecoveryKey {
         let key = GenericArray::from_slice(pickle_key);
         let cipher = Aes256Gcm::new(key);
@@ -225,16 +251,13 @@ impl RecoveryKey {
 
         let ciphertext = encode_url_safe(ciphertext);
 
-        let pickle = InnerPickle {
-            version: 1,
-            nonce: encode_url_safe(nonce.as_slice()),
-            ciphertext,
-            backup_version: self.version.clone(),
-        };
+        let pickle =
+            InnerPickle { version: 1, nonce: encode_url_safe(nonce.as_slice()), ciphertext };
 
         PickledRecoveryKey(serde_json::to_string(&pickle).expect("Can't encode pickled signing"))
     }
 
+    /// Try to import a `RecoveryKey` from a previously exported pickle.
     pub fn from_pickle(
         &self,
         pickle: PickledRecoveryKey,
@@ -259,10 +282,11 @@ impl RecoveryKey {
             let mut key = [0u8; Self::KEY_SIZE];
             key.copy_from_slice(&decrypted);
 
-            Ok(Self { key, version: pickled.backup_version })
+            Ok(Self { key })
         }
     }
 
+    /// Try to decrypt the given ciphertext using this `RecoveryKey`.
     pub fn decrypt(
         &self,
         mac: String,
