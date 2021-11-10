@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, RwLock as SyncRwLock},
 };
 
-use futures::stream::{self, StreamExt};
+use futures_util::stream::{self, StreamExt};
 use ruma::{
     api::client::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{

@@ -2,12 +2,13 @@
 //! we do usually.
 #[cfg(target_arch = "wasm32")]
 use std::{
+    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
 
 #[cfg(target_arch = "wasm32")]
-use futures::{future::RemoteHandle, Future, FutureExt};
+use futures_util::{future::RemoteHandle, FutureExt};
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::spawn;
 #[cfg(target_arch = "wasm32")]

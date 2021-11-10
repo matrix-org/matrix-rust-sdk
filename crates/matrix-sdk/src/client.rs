@@ -24,7 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use futures::FutureExt;
+use futures_core::stream::Stream;
 use futures_timer::Delay as sleep;
 use matrix_sdk_base::{
     deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
@@ -608,7 +608,7 @@ impl Client {
             let maybe_fut = serde_json::from_str(data.raw.get())
                 .map(|ev| handler.clone().handle_event(ev, data));
 
-            async move {
+            Box::pin(async move {
                 match maybe_fut {
                     Ok(Some(fut)) => {
                         fut.await.print_error(event_type);
@@ -624,8 +624,7 @@ impl Client {
                         );
                     }
                 }
-            }
-            .boxed()
+            })
         }));
 
         self
@@ -642,7 +641,7 @@ impl Client {
         Fut: Future<Output = ()> + Send + 'static,
     {
         self.notification_handlers.write().await.push(Box::new(
-            move |notification, room, client| (handler)(notification, room, client).boxed(),
+            move |notification, room, client| Box::pin((handler)(notification, room, client)),
         ));
 
         self
@@ -2049,7 +2048,7 @@ impl Client {
     pub async fn sync_stream<'a>(
         &'a self,
         mut sync_settings: crate::config::SyncSettings<'a>,
-    ) -> impl futures::stream::Stream<Item = Result<SyncResponse>> + 'a {
+    ) -> impl Stream<Item = Result<SyncResponse>> + 'a {
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {

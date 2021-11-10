@@ -1,6 +1,5 @@
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
-use futures::future::BoxFuture;
 use matrix_sdk::locks::Mutex;
 
 use crate::{
@@ -10,6 +9,7 @@ use crate::{
     AppService,
 };
 
+pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub(crate) type AppserviceFn<A, R> =
     Box<dyn FnMut(AppService, A) -> BoxFuture<'static, R> + Send + Sync + 'static>;
 

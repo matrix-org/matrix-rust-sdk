@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use futures::future::join_all;
+use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,

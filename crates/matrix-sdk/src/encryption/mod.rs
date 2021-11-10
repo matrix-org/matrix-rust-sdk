@@ -254,7 +254,7 @@ use std::{
     result::Result as StdResult,
 };
 
-use futures::StreamExt;
+use futures_util::stream::{self, StreamExt};
 pub use matrix_sdk_base::crypto::{MediaEncryptionInfo, LocalTrust};
 use matrix_sdk_base::{
     crypto::{
@@ -959,7 +959,7 @@ impl Client {
             warn!("Error while claiming one-time keys {:?}", e);
         }
 
-        let outgoing_requests = futures::stream::iter(self.base_client.outgoing_requests().await?)
+        let outgoing_requests = stream::iter(self.base_client.outgoing_requests().await?)
             .map(|r| self.send_outgoing_request(r));
 
         let requests = outgoing_requests.buffer_unordered(MAX_CONCURRENT_REQUESTS);

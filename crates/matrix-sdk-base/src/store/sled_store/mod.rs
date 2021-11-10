@@ -22,10 +22,8 @@ use std::{
     time::Instant,
 };
 
-use futures::{
-    stream::{self, Stream},
-    TryStreamExt,
-};
+use futures_core::stream::Stream;
+use futures_util::stream::{self, TryStreamExt};
 use matrix_sdk_common::async_trait;
 use ruma::{
     events::{

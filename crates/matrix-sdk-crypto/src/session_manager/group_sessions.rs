@@ -18,7 +18,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use futures::future::join_all;
+use futures_util::future::join_all;
 use matrix_sdk_common::{executor::spawn, uuid::Uuid};
 use ruma::{
     events::{
