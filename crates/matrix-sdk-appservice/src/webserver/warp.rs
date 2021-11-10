@@ -14,7 +14,6 @@
 
 use std::{net::ToSocketAddrs, result::Result as StdResult};
 
-use futures::TryFutureExt;
 use matrix_sdk::{
     bytes::Bytes,
     ruma::{
@@ -208,7 +207,7 @@ mod handlers {
             ruma::api::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
 
         let client = appservice.get_cached_client(None)?;
-        client.receive_transaction(incoming_transaction).map_err(Error::from).await?;
+        client.receive_transaction(incoming_transaction).await.map_err(Error::from)?;
 
         Ok(warp::reply::json(&String::from("{}")))
     }
