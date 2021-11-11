@@ -124,10 +124,10 @@ impl MediaEventContent for StickerEventContent {
 
 impl MediaEventContent for AudioMessageEventContent {
     fn file(&self) -> Option<MediaType> {
-        self.url
+        self.file
             .as_ref()
-            .map(|uri| MediaType::Uri(uri.clone()))
-            .or_else(|| self.file.as_ref().map(|e| MediaType::Encrypted(e.clone())))
+            .map(|e| MediaType::Encrypted(e.clone()))
+            .or_else(|| self.url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
     }
 
     fn thumbnail(&self) -> Option<MediaType> {
@@ -137,40 +137,38 @@ impl MediaEventContent for AudioMessageEventContent {
 
 impl MediaEventContent for FileMessageEventContent {
     fn file(&self) -> Option<MediaType> {
-        self.url
+        self.file
             .as_ref()
-            .map(|uri| MediaType::Uri(uri.clone()))
-            .or_else(|| self.file.as_ref().map(|e| MediaType::Encrypted(e.clone())))
+            .map(|e| MediaType::Encrypted(e.clone()))
+            .or_else(|| self.url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
     }
 
     fn thumbnail(&self) -> Option<MediaType> {
         self.info.as_ref().and_then(|info| {
-            if let Some(uri) = info.thumbnail_url.as_ref() {
-                Some(MediaType::Uri(uri.clone()))
-            } else {
-                info.thumbnail_file.as_ref().map(|file| MediaType::Encrypted(file.clone()))
-            }
+            info.thumbnail_file
+                .as_ref()
+                .map(|file| MediaType::Encrypted(file.clone()))
+                .or_else(|| info.thumbnail_url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
         })
     }
 }
 
 impl MediaEventContent for ImageMessageEventContent {
     fn file(&self) -> Option<MediaType> {
-        self.url
+        self.file
             .as_ref()
-            .map(|uri| MediaType::Uri(uri.clone()))
-            .or_else(|| self.file.as_ref().map(|e| MediaType::Encrypted(e.clone())))
+            .map(|e| MediaType::Encrypted(e.clone()))
+            .or_else(|| self.url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
     }
 
     fn thumbnail(&self) -> Option<MediaType> {
         self.info
             .as_ref()
             .and_then(|info| {
-                if let Some(uri) = info.thumbnail_url.as_ref() {
-                    Some(MediaType::Uri(uri.clone()))
-                } else {
-                    info.thumbnail_file.as_ref().map(|file| MediaType::Encrypted(file.clone()))
-                }
+                info.thumbnail_file
+                    .as_ref()
+                    .map(|file| MediaType::Encrypted(file.clone()))
+                    .or_else(|| info.thumbnail_url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
             })
             .or_else(|| self.url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
     }
@@ -178,21 +176,20 @@ impl MediaEventContent for ImageMessageEventContent {
 
 impl MediaEventContent for VideoMessageEventContent {
     fn file(&self) -> Option<MediaType> {
-        self.url
+        self.file
             .as_ref()
-            .map(|uri| MediaType::Uri(uri.clone()))
-            .or_else(|| self.file.as_ref().map(|e| MediaType::Encrypted(e.clone())))
+            .map(|e| MediaType::Encrypted(e.clone()))
+            .or_else(|| self.url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
     }
 
     fn thumbnail(&self) -> Option<MediaType> {
         self.info
             .as_ref()
             .and_then(|info| {
-                if let Some(uri) = info.thumbnail_url.as_ref() {
-                    Some(MediaType::Uri(uri.clone()))
-                } else {
-                    info.thumbnail_file.as_ref().map(|file| MediaType::Encrypted(file.clone()))
-                }
+                info.thumbnail_file
+                    .as_ref()
+                    .map(|file| MediaType::Encrypted(file.clone()))
+                    .or_else(|| info.thumbnail_url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
             })
             .or_else(|| self.url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
     }
@@ -205,11 +202,95 @@ impl MediaEventContent for LocationMessageEventContent {
 
     fn thumbnail(&self) -> Option<MediaType> {
         self.info.as_ref().and_then(|info| {
-            if let Some(uri) = info.thumbnail_url.as_ref() {
-                Some(MediaType::Uri(uri.clone()))
-            } else {
-                info.thumbnail_file.as_ref().map(|file| MediaType::Encrypted(file.clone()))
-            }
+            info.thumbnail_file
+                .as_ref()
+                .map(|file| MediaType::Encrypted(file.clone()))
+                .or_else(|| info.thumbnail_url.as_ref().map(|uri| MediaType::Uri(uri.clone())))
         })
+    }
+}
+
+#[cfg(all(feature = "encryption", test))]
+pub(crate) mod test {
+    use ruma::events::room::{
+        message::{FileInfo, LocationInfo, VideoInfo},
+        ImageInfo,
+    };
+
+    use super::*;
+
+    fn encrypted_test_data() -> (MxcUri, EncryptedFile) {
+        let c = &mut std::io::Cursor::new("some content");
+        let reader = crate::crypto::AttachmentEncryptor::new(c);
+
+        let keys = reader.finish();
+        let file: EncryptedFile = ruma::events::room::EncryptedFileInit {
+            url: "foobar".into(),
+            key: keys.web_key,
+            iv: keys.iv,
+            hashes: keys.hashes,
+            v: keys.version,
+        }
+        .into();
+        let url = file.url.clone();
+        (url, file)
+    }
+
+    #[test]
+    fn test_audio_content_prefer_crypt_type() {
+        let (u, f) = encrypted_test_data();
+        let mut c = AudioMessageEventContent::encrypted("foo".to_owned(), f);
+        c.url = Some(u);
+        assert!(matches!(c.file(), Some(MediaType::Encrypted(_))));
+    }
+
+    #[test]
+    fn test_file_content_prefer_crypt_type() {
+        let (u, f) = encrypted_test_data();
+        let mut c = FileMessageEventContent::encrypted("foo".to_owned(), f.clone());
+        c.url = Some(u.clone());
+        let mut info = FileInfo::default();
+        info.thumbnail_url = Some(u);
+        info.thumbnail_file = Some(Box::new(f));
+        c.info = Some(Box::new(info));
+        assert!(matches!(c.file(), Some(MediaType::Encrypted(_))));
+        assert!(matches!(c.thumbnail(), Some(MediaType::Encrypted(_))));
+    }
+
+    #[test]
+    fn test_image_content_prefer_crypt_type() {
+        let (u, f) = encrypted_test_data();
+        let mut c = ImageMessageEventContent::encrypted("foo".to_owned(), f.clone());
+        c.url = Some(u.clone());
+        let mut info = ImageInfo::default();
+        info.thumbnail_url = Some(u);
+        info.thumbnail_file = Some(Box::new(f));
+        c.info = Some(Box::new(info));
+        assert!(matches!(c.file(), Some(MediaType::Encrypted(_))));
+        assert!(matches!(c.thumbnail(), Some(MediaType::Encrypted(_))));
+    }
+
+    #[test]
+    fn test_video_content_prefer_crypt_type() {
+        let (u, f) = encrypted_test_data();
+        let mut c = VideoMessageEventContent::encrypted("foo".to_owned(), f.clone());
+        c.url = Some(u.clone());
+        let mut info = VideoInfo::default();
+        info.thumbnail_url = Some(u);
+        info.thumbnail_file = Some(Box::new(f));
+        c.info = Some(Box::new(info));
+        assert!(matches!(c.file(), Some(MediaType::Encrypted(_))));
+        assert!(matches!(c.thumbnail(), Some(MediaType::Encrypted(_))));
+    }
+
+    #[test]
+    fn test_location_content_prefer_crypt_type() {
+        let (u, f) = encrypted_test_data();
+        let mut c = LocationMessageEventContent::new("foo".to_owned(), "27,37".to_owned());
+        let mut info = LocationInfo::default();
+        info.thumbnail_url = Some(u);
+        info.thumbnail_file = Some(Box::new(f));
+        c.info = Some(Box::new(info));
+        assert!(matches!(c.thumbnail(), Some(MediaType::Encrypted(_))));
     }
 }
