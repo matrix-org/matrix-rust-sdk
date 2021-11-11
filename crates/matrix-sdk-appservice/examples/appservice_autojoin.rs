@@ -2,6 +2,7 @@ use std::{convert::TryFrom, env};
 
 use matrix_sdk_appservice::{
     matrix_sdk::{
+        event_handler::Ctx,
         room::Room,
         ruma::{
             events::room::member::{MembershipState, SyncRoomMemberEvent},
@@ -41,12 +42,12 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let appservice = AppService::new(homeserver_url, server_name, registration).await?;
     appservice
-        .register_event_handler({
-            let appservice = appservice.clone();
-            move |event: SyncRoomMemberEvent, room: Room| {
-                handle_room_member(appservice.clone(), room, event)
-            }
-        })
+        .register_event_handler_context(appservice.clone())?
+        .register_event_handler(
+            move |event: SyncRoomMemberEvent, room: Room, Ctx(appservice): Ctx<AppService>| {
+                handle_room_member(appservice, room, event)
+            },
+        )
         .await?;
 
     let (host, port) = appservice.registration().get_host_and_port()?;

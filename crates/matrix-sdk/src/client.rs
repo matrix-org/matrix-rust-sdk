@@ -20,9 +20,10 @@ use std::{
     io::Read,
     pin::Pin,
     result::Result as StdResult,
-    sync::Arc,
+    sync::{Arc, RwLock as StdRwLock},
 };
 
+use anymap2::any::CloneAnySendSync;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
 use futures_timer::Delay as sleep;
@@ -87,6 +88,8 @@ type NotificationHandlerFut = EventHandlerFut;
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
 
+type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
+
 /// Enum controlling if a loop running callbacks should continue or abort.
 ///
 /// This is mainly used in the [`sync_with_callback`] method, the return value
@@ -123,6 +126,8 @@ pub struct Client {
     pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
     /// Event handlers. See `register_event_handler`.
     pub(crate) event_handlers: Arc<RwLock<EventHandlerMap>>,
+    /// Custom event handler context. See `register_event_handler_context`.
+    pub(crate) event_handler_data: Arc<StdRwLock<AnyMap>>,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: Arc<RwLock<Vec<NotificationHandlerFn>>>,
     /// Whether the client should operate in application service style mode.
@@ -192,6 +197,7 @@ impl Client {
             members_request_locks: Default::default(),
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
+            event_handler_data: Default::default(),
             notification_handlers: Default::default(),
             appservice_mode: config.appservice_mode,
             use_discovery_response: config.use_discovery_response,
@@ -627,6 +633,50 @@ impl Client {
             })
         }));
 
+        self
+    }
+
+    /// Add an arbitrary value for use as event handler context.
+    ///
+    /// The value can be obtained in an event handler by adding an argument of
+    /// the type [`Ctx<T>`][crate::event_handler::Ctx].
+    ///
+    /// If a value of the same type has been added before, it will be
+    /// overwritten.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use matrix_sdk::{
+    ///     event_handler::Ctx,
+    ///     room::Room,
+    ///     ruma::events::room::message::SyncRoomMessageEvent,
+    /// };
+    /// # #[derive(Clone)]
+    /// # struct SomeType;
+    /// # fn obtain_gui_handle() -> SomeType { SomeType }
+    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
+    /// # let client = matrix_sdk::Client::new(homeserver).unwrap();
+    /// # let _ = async {
+    ///
+    /// // Handle used to send messages to the UI part of the app
+    /// let my_gui_handle: SomeType = obtain_gui_handle();
+    ///
+    /// client
+    ///     .register_event_handler_context(my_gui_handle.clone())
+    ///     .register_event_handler(
+    ///         |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| async move {
+    ///             // gui_handle.send(DisplayMessage { message: ev });
+    ///         },
+    ///     )
+    ///     .await;
+    /// # };
+    /// ```
+    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.event_handler_data.write().unwrap().insert(ctx);
         self
     }
 

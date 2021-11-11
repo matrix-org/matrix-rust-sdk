@@ -46,6 +46,7 @@ docs = [
 
 [dependencies]
 anyhow = { version = "1.0.42", optional = true }
+anymap2 = "0.13.0"
 bytes = "1.0.1"
 dashmap = "4.0.2"
 event-listener = "2.5.1"

@@ -179,6 +179,26 @@ impl EventHandlerContext for Option<EncryptionInfo> {
     }
 }
 
+/// A custom value registered with
+/// [`.register_event_handler_context`][Client::register_event_handler_context].
+#[derive(Debug)]
+pub struct Ctx<T>(pub T);
+
+impl<T: Clone + Send + Sync + 'static> EventHandlerContext for Ctx<T> {
+    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+        let anymap = data.client.event_handler_data.read().unwrap();
+        Some(Ctx(anymap.get::<T>()?.clone()))
+    }
+}
+
+impl<T> Deref for Ctx<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// Return types supported for event handlers implement this trait.
 ///
 /// It is not meant to be implemented outside of matrix-sdk.

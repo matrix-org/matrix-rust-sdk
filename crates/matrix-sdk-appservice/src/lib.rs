@@ -392,6 +392,18 @@ impl AppService {
         Ok(self)
     }
 
+    /// Convenience wrapper around [`Client::register_event_handler_context`]
+    /// attaches the event handler context to the [`MainUser`]'s [`Client`].
+    pub fn register_event_handler_context<T>(&self, ctx: T) -> Result<&Self>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let client = self.get_cached_client(None)?;
+        client.register_event_handler_context(ctx);
+
+        Ok(self)
+    }
+
     /// Register a responder for queries about the existence of a user with a
     /// given mxid.
     ///
