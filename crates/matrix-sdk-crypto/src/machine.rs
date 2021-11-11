@@ -651,6 +651,19 @@ impl OlmMachine {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) async fn create_inbound_session(
+        &self,
+        room_id: &RoomId,
+    ) -> OlmResult<InboundGroupSession> {
+        let (_, session) = self
+            .group_session_manager
+            .create_outbound_group_session(room_id, EncryptionSettings::default())
+            .await?;
+
+        Ok(session)
+    }
+
     /// Encrypt a room message for the given room.
     ///
     /// Beware that a group session needs to be shared before this method can be
@@ -1285,15 +1298,23 @@ impl OlmMachine {
         exported_keys: Vec<ExportedRoomKey>,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<(usize, usize)> {
+        type SessionIdToIndexMap = BTreeMap<Arc<str>, u32>;
+
+        #[derive(Debug)]
         struct ShallowSessions {
-            inner: BTreeMap<Arc<RoomId>, u32>,
+            inner: BTreeMap<Arc<RoomId>, BTreeMap<Arc<str>, SessionIdToIndexMap>>,
         }
 
         impl ShallowSessions {
             fn has_better_session(&self, session: &InboundGroupSession) -> bool {
                 self.inner
                     .get(&session.room_id)
-                    .map(|existing| existing <= &session.first_known_index())
+                    .and_then(|m| {
+                        m.get(&session.sender_key).and_then(|m| {
+                            m.get(&session.session_id)
+                                .map(|existing| existing <= &session.first_known_index())
+                        })
+                    })
                     .unwrap_or(false)
             }
         }
@@ -1301,16 +1322,20 @@ impl OlmMachine {
         let mut sessions = Vec::new();
 
         let existing_sessions = ShallowSessions {
-            inner: self
-                .store
-                .get_inbound_group_sessions()
-                .await?
-                .into_iter()
-                .map(|s| {
+            inner: self.store.get_inbound_group_sessions().await?.into_iter().fold(
+                BTreeMap::new(),
+                |mut acc, s| {
                     let index = s.first_known_index();
-                    (s.room_id, index)
-                })
-                .collect(),
+
+                    acc.entry(s.room_id)
+                        .or_default()
+                        .entry(s.sender_key)
+                        .or_default()
+                        .insert(s.session_id, index);
+
+                    acc
+                },
+            ),
         };
 
         let total_sessions = exported_keys.len();

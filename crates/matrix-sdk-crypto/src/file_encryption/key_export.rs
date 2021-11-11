@@ -243,7 +243,7 @@ mod test {
     use ruma::room_id;
 
     use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
-    use crate::machine::test::get_prepared_machine;
+    use crate::{error::OlmResult, machine::test::get_prepared_machine};
 
     const PASSPHRASE: &str = "1234";
 
@@ -312,6 +312,28 @@ mod test {
 
         assert_eq!(export, decrypted);
         assert_eq!(machine.import_keys(decrypted, |_, _| {}).await.unwrap(), (0, 1));
+    }
+
+    #[async_test]
+    async fn test_importing_better_session() -> OlmResult<()> {
+        let (machine, _) = get_prepared_machine().await;
+        let room_id = room_id!("!test:localhost");
+        let session = machine.create_inbound_session(&room_id).await?;
+
+        let export = vec![session.export_at_index(10).await];
+
+        assert_eq!(machine.import_keys(export.clone(), |_, _| {}).await?, (1, 1));
+        assert_eq!(machine.import_keys(export, |_, _| {}).await?, (0, 1));
+
+        let better_export = vec![session.export().await];
+
+        assert_eq!(machine.import_keys(better_export, |_, _| {}).await?, (1, 1));
+
+        let another_session = machine.create_inbound_session(&room_id).await?;
+        let export = vec![another_session.export_at_index(10).await];
+        assert_eq!(machine.import_keys(export, |_, _| {}).await?, (1, 1));
+
+        Ok(())
     }
 
     #[test]

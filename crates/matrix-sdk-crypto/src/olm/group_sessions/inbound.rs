@@ -54,7 +54,7 @@ use crate::error::{EventError, MegolmResult};
 pub struct InboundGroupSession {
     inner: Arc<Mutex<OlmInboundGroupSession>>,
     history_visibility: Arc<Option<HistoryVisibility>>,
-    session_id: Arc<str>,
+    pub(crate) session_id: Arc<str>,
     first_known_index: u32,
     pub(crate) sender_key: Arc<str>,
     pub(crate) signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
