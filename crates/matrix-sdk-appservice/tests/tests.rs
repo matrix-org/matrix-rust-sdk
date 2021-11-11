@@ -199,7 +199,7 @@ async fn test_no_access_token() -> Result<()> {
 
 #[async_test]
 async fn test_event_handler() -> Result<()> {
-    let mut appservice = appservice(None).await?;
+    let appservice = appservice(None).await?;
 
     #[allow(clippy::mutex_atomic)]
     let on_state_member = Arc::new(Mutex::new(false));

@@ -380,7 +380,7 @@ impl AppService {
     ///
     /// [`join` room `timeline` events]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientr0sync
     /// [MSC2409]: https://github.com/matrix-org/matrix-doc/pull/2409
-    pub async fn register_event_handler<Ev, Ctx, H>(&mut self, handler: H) -> Result<()>
+    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> Result<&Self>
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
@@ -389,7 +389,7 @@ impl AppService {
         let client = self.get_cached_client(None)?;
         client.register_event_handler(handler).await;
 
-        Ok(())
+        Ok(self)
     }
 
     /// Register a responder for queries about the existence of a user with a

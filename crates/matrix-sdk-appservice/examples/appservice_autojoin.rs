@@ -39,7 +39,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_name = "localhost";
     let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
 
-    let mut appservice = AppService::new(homeserver_url, server_name, registration).await?;
+    let appservice = AppService::new(homeserver_url, server_name, registration).await?;
     appservice
         .register_event_handler({
             let appservice = appservice.clone();
