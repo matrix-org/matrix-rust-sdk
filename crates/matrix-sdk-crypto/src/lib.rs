@@ -37,6 +37,21 @@ pub mod store;
 mod utilities;
 mod verification;
 
+/// Return type for the room key importing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoomKeyImportResult {
+    /// The number of room keys that were imported.
+    pub imported_count: usize,
+    /// The total number of room keys that were found in the export.
+    pub total_count: usize,
+}
+
+impl RoomKeyImportResult {
+    pub(crate) fn new(imported_count: usize, total_count: usize) -> Self {
+        Self { imported_count, total_count }
+    }
+}
+
 pub use error::{MegolmError, OlmError, SignatureError};
 pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,

@@ -255,7 +255,7 @@ use std::{
 };
 
 use futures_util::stream::{self, StreamExt};
-pub use matrix_sdk_base::crypto::{MediaEncryptionInfo, LocalTrust};
+pub use matrix_sdk_base::crypto::{MediaEncryptionInfo, LocalTrust, RoomKeyImportResult};
 use matrix_sdk_base::{
     crypto::{
         store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
@@ -646,21 +646,23 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
-    /// client
-    ///     .import_keys(path, "secret-passphrase")
-    ///     .await
-    ///     .expect("Can't import keys");
-    /// # });
+    /// let result = client.import_keys(path, "secret-passphrase").await?;
+    ///
+    /// println!(
+    ///     "Imported {} room keys out of {}",
+    ///     result.imported_count, result.total_count
+    /// );
+    /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
     pub async fn import_keys(
         &self,
         path: PathBuf,
         passphrase: &str,
-    ) -> StdResult<(usize, usize), RoomKeyImportError> {
+    ) -> StdResult<RoomKeyImportResult, RoomKeyImportError> {
         let olm = self.base_client.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 

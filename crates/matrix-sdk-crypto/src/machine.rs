@@ -69,7 +69,7 @@ use crate::{
         SecretImportError, Store,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, ToDeviceRequest,
+    CrossSigningKeyExport, RoomKeyImportResult, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1297,7 +1297,7 @@ impl OlmMachine {
         &self,
         exported_keys: Vec<ExportedRoomKey>,
         progress_listener: impl Fn(usize, usize),
-    ) -> StoreResult<(usize, usize)> {
+    ) -> StoreResult<RoomKeyImportResult> {
         type SessionIdToIndexMap = BTreeMap<Arc<str>, u32>;
 
         #[derive(Debug)]
@@ -1338,7 +1338,7 @@ impl OlmMachine {
             ),
         };
 
-        let total_sessions = exported_keys.len();
+        let total_count = exported_keys.len();
 
         for (i, key) in exported_keys.into_iter().enumerate() {
             let session = InboundGroupSession::from_export(key)?;
@@ -1350,18 +1350,18 @@ impl OlmMachine {
                 sessions.push(session)
             }
 
-            progress_listener(i, total_sessions)
+            progress_listener(i, total_count)
         }
 
-        let num_sessions = sessions.len();
+        let imported_count = sessions.len();
 
         let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
 
         self.store.save_changes(changes).await?;
 
-        info!("Successfully imported {} inbound group sessions", num_sessions);
+        info!(total_count, imported_count, "Successfully imported room keys");
 
-        Ok((num_sessions, total_sessions))
+        Ok(RoomKeyImportResult::new(imported_count, total_count))
     }
 
     /// Export the keys that match the given predicate.
