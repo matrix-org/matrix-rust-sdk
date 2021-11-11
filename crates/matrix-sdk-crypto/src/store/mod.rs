@@ -100,8 +100,8 @@ pub(crate) struct Store {
     verification_machine: VerificationMachine,
 }
 
-#[derive(Default)]
-#[allow(missing_docs, missing_debug_implementations)]
+#[derive(Default, Debug)]
+#[allow(missing_docs)]
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
