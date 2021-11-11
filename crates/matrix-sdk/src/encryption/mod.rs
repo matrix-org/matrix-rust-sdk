@@ -368,19 +368,18 @@ impl Client {
     /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
-    /// let device = client.get_device(&alice, "DEVICEID".into())
-    ///     .await
-    ///     .unwrap()
-    ///     .unwrap();
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
+    /// if let Some(device) = client.get_device(&alice, "DEVICEID".into()).await? {
+    ///     println!("{:?}", device.verified());
     ///
-    /// println!("{:?}", device.verified());
-    ///
-    /// let verification = device.request_verification().await.unwrap();
-    /// # });
+    ///     if !device.verified() {
+    ///         let verification = device.request_verification().await?;
+    ///     }
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     #[cfg(feature = "encryption")]
     pub async fn get_device(
@@ -409,16 +408,16 @@ impl Client {
     /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
-    /// let devices = client.get_user_devices(&alice).await.unwrap();
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
+    /// let devices = client.get_user_devices(&alice).await?;
     ///
     /// for device in devices.devices() {
     ///     println!("{:?}", device);
     /// }
-    /// # });
+    /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     #[cfg(feature = "encryption")]
     pub async fn get_user_devices(
@@ -448,10 +447,10 @@ impl Client {
     /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {
@@ -504,10 +503,10 @@ impl Client {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
-    /// # let user_id = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let user_id = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// if let Err(e) = client.bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.uiaa_response() {
     ///         let auth_data = uiaa::AuthData::Password(assign!(
@@ -523,7 +522,7 @@ impl Client {
     ///         panic!("Error durign cross signing bootstrap {:#?}", e);
     ///     }
     /// }
-    /// # })
+    /// # anyhow::Result::<()>::Ok(()) });
     #[cfg(feature = "encryption")]
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
         let olm = self.base_client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
@@ -577,14 +576,13 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
     /// // Export all room keys.
     /// client
     ///     .export_keys(path, "secret-passphrase", |_| true)
-    ///     .await
-    ///     .expect("Can't export keys.");
+    ///     .await?;
     ///
     /// // Export only the room keys for a certain room.
     /// let path = PathBuf::from("/home/example/e2e-room-keys.txt");
@@ -592,9 +590,8 @@ impl Client {
     ///
     /// client
     ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == &room_id)
-    ///     .await
-    ///     .expect("Can't export keys.");
-    /// # });
+    ///     .await?;
+    /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
     pub async fn export_keys(
