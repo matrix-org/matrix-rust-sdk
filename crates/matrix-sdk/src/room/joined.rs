@@ -26,15 +26,8 @@ use ruma::{
     },
     assign,
     events::{
-        room::{
-            message::{
-                AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
-                MessageType, RoomMessageEventContent, VideoMessageEventContent,
-            },
-            EncryptedFile,
-        },
-        tag::TagInfo,
-        MessageEventContent, StateEventContent,
+        room::message::RoomMessageEventContent, tag::TagInfo, MessageEventContent,
+        StateEventContent,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -644,63 +637,18 @@ impl Joined {
         &self,
         body: &str,
         content_type: &Mime,
-        mut reader: &mut R,
+        reader: &mut R,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let (response, file) = if self.is_encrypted() {
-            #[cfg(feature = "encryption")]
-            let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
-            #[cfg(feature = "encryption")]
-            let content_type = &mime::APPLICATION_OCTET_STREAM;
-
-            let response = self.client.upload(content_type, &mut reader).await?;
-
-            #[cfg(feature = "encryption")]
-            let file: Option<Box<EncryptedFile>> = {
-                let keys = reader.finish();
-                Some(Box::new(
-                    ruma::events::room::EncryptedFileInit {
-                        url: response.content_uri.clone(),
-                        key: keys.web_key,
-                        iv: keys.iv,
-                        hashes: keys.hashes,
-                        v: keys.version,
-                    }
-                    .into(),
-                ))
-            };
-            #[cfg(not(feature = "encryption"))]
-            let file: Option<Box<EncryptedFile>> = None;
-
-            (response, file)
+        #[cfg(feature = "encryption")]
+        let content = if self.is_encrypted() {
+            self.client.prepare_encrypted_attachment_message(body, content_type, reader).await?
         } else {
-            let response = self.client.upload(content_type, &mut reader).await?;
-            (response, None)
+            self.client.prepare_attachment_message(body, content_type, reader).await?
         };
 
-        let url = response.content_uri;
-
-        let content = match content_type.type_() {
-            mime::IMAGE => {
-                // TODO create a thumbnail using the image crate?.
-                MessageType::Image(assign!(
-                    ImageMessageEventContent::plain(body.to_owned(), url, None),
-                    { file }
-                ))
-            }
-            mime::AUDIO => MessageType::Audio(assign!(
-                AudioMessageEventContent::plain(body.to_owned(), url, None),
-                { file }
-            )),
-            mime::VIDEO => MessageType::Video(assign!(
-                VideoMessageEventContent::plain(body.to_owned(), url, None),
-                { file }
-            )),
-            _ => MessageType::File(assign!(
-                FileMessageEventContent::plain(body.to_owned(), url, None),
-                { file }
-            )),
-        };
+        #[cfg(not(feature = "encryption"))]
+        let content = self.client.prepare_attachment_message(body, content_type, reader).await?;
 
         self.send(RoomMessageEventContent::new(content), txn_id).await
     }

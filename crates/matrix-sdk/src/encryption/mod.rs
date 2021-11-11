@@ -249,7 +249,7 @@ pub mod identities;
 pub mod verification;
 use std::{
     collections::{BTreeMap, HashSet},
-    io::Write,
+    io::{Read,Write},
     path::PathBuf,
     result::Result as StdResult,
 };
@@ -729,6 +729,46 @@ impl Client {
         self.base_client.mark_request_as_sent(request_id, &response).await?;
 
         Ok(response)
+    }
+
+    /// Encrypt and upload the file to be read from `reader` and construct an
+    /// attachment message with `body` and the specified `content_type`.
+    #[cfg(feature = "encryption")]
+    pub(crate) async fn prepare_encrypted_attachment_message<R: Read>(
+        &self,
+        body: &str,
+        content_type: &mime::Mime,
+        reader: &mut R,
+    ) -> Result<ruma::events::room::message::MessageType> {
+        let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
+
+        let response = self.upload(content_type, &mut reader).await?;
+
+        let file: ruma::events::room::EncryptedFile = {
+            let keys = reader.finish();
+            ruma::events::room::EncryptedFileInit {
+                url: response.content_uri,
+                key: keys.web_key,
+                iv: keys.iv,
+                hashes: keys.hashes,
+                v: keys.version,
+            }
+            .into()
+        };
+
+        use ruma::events::room::message;
+        Ok(match content_type.type_() {
+            mime::IMAGE => {
+                message::MessageType::Image(message::ImageMessageEventContent::encrypted(body.to_owned(), file))
+            }
+            mime::AUDIO => {
+                message::MessageType::Audio(message::AudioMessageEventContent::encrypted(body.to_owned(), file))
+            }
+            mime::VIDEO => {
+                message::MessageType::Video(message::VideoMessageEventContent::encrypted(body.to_owned(), file))
+            }
+            _ => message::MessageType::File(message::FileMessageEventContent::encrypted(body.to_owned(), file)),
+        })
     }
 
     #[cfg(feature = "encryption")]

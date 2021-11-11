@@ -2327,6 +2327,46 @@ impl Client {
         let request = whoami::Request::new();
         self.send(request, None).await
     }
+
+    /// Upload the file to be read from `reader` and construct an attachment
+    /// message with `body` and the specified `content_type`.
+    pub(crate) async fn prepare_attachment_message<R: Read>(
+        &self,
+        body: &str,
+        content_type: &Mime,
+        reader: &mut R,
+    ) -> Result<ruma::events::room::message::MessageType> {
+        let response = self.upload(content_type, reader).await?;
+
+        let url = response.content_uri;
+
+        use ruma::events::room::message;
+        Ok(match content_type.type_() {
+            mime::IMAGE => {
+                // TODO create a thumbnail using the image crate?.
+                message::MessageType::Image(message::ImageMessageEventContent::plain(
+                    body.to_owned(),
+                    url,
+                    None,
+                ))
+            }
+            mime::AUDIO => message::MessageType::Audio(message::AudioMessageEventContent::plain(
+                body.to_owned(),
+                url,
+                None,
+            )),
+            mime::VIDEO => message::MessageType::Video(message::VideoMessageEventContent::plain(
+                body.to_owned(),
+                url,
+                None,
+            )),
+            _ => message::MessageType::File(message::FileMessageEventContent::plain(
+                body.to_owned(),
+                url,
+                None,
+            )),
+        })
+    }
 }
 
 #[cfg(test)]
