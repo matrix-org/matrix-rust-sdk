@@ -73,12 +73,12 @@ pub enum UnpicklingError {
 /// The private part of a backup key.
 #[derive(Zeroize)]
 pub struct RecoveryKey {
-    key: [u8; RecoveryKey::KEY_SIZE],
+    inner: [u8; RecoveryKey::KEY_SIZE],
 }
 
 impl Drop for RecoveryKey {
     fn drop(&mut self) {
-        self.key.zeroize()
+        self.inner.zeroize()
     }
 }
 
@@ -148,7 +148,7 @@ impl RecoveryKey {
         let mut key = [0u8; Self::KEY_SIZE];
         key.try_fill(&mut rng)?;
 
-        Ok(Self { key })
+        Ok(Self { inner: key })
     }
 
     /// Create a new recovery key from the given byte array.
@@ -157,7 +157,7 @@ impl RecoveryKey {
     /// random data, either by using a random number generator or by using an
     /// exported version of a previously created [`RecoveryKey`].
     pub fn from_bytes(key: [u8; Self::KEY_SIZE]) -> Self {
-        Self { key }
+        Self { inner: key }
     }
 
     /// Try to create a [`RecoveryKey`] from a base64 export of a `RecoveryKey`.
@@ -170,13 +170,13 @@ impl RecoveryKey {
             let mut key = [0u8; Self::KEY_SIZE];
             key.copy_from_slice(&decoded);
 
-            Ok(Self { key })
+            Ok(Self::from_bytes(key))
         }
     }
 
     /// Export the `RecoveryKey` as a base64 encoded string.
     pub fn to_base64(&self) -> String {
-        encode(self.key)
+        encode(self.inner)
     }
 
     /// Try to create a [`RecoveryKey`] from a base58 export of a `RecoveryKey`.
@@ -205,7 +205,7 @@ impl RecoveryKey {
         } else if expected_parity != parity {
             Err(DecodeError::Parity(expected_parity, parity))
         } else {
-            Ok(Self { key })
+            Ok(Self::from_bytes(key))
         }
     }
 
@@ -214,8 +214,8 @@ impl RecoveryKey {
         let bytes = Zeroizing::new(
             [
                 Self::PREFIX.as_ref(),
-                self.key.as_ref(),
-                [Self::parity_byte(self.key.as_ref())].as_ref(),
+                self.inner.as_ref(),
+                [Self::parity_byte(self.inner.as_ref())].as_ref(),
             ]
             .concat(),
         );
@@ -224,7 +224,7 @@ impl RecoveryKey {
     }
 
     fn get_pk_decrytpion(&self) -> OlmPkDecryption {
-        OlmPkDecryption::from_bytes(self.key.as_ref())
+        OlmPkDecryption::from_bytes(self.inner.as_ref())
             .expect("Can't generate a libom PkDecryption object from our private key")
     }
 
@@ -248,7 +248,7 @@ impl RecoveryKey {
         let nonce = GenericArray::from_slice(nonce.as_slice());
 
         let ciphertext =
-            cipher.encrypt(nonce, self.key.as_ref()).expect("Can't encrypt recovery key");
+            cipher.encrypt(nonce, self.inner.as_ref()).expect("Can't encrypt recovery key");
 
         let ciphertext = encode_url_safe(ciphertext);
 
@@ -282,7 +282,7 @@ impl RecoveryKey {
             let mut key = [0u8; Self::KEY_SIZE];
             key.copy_from_slice(&decrypted);
 
-            Ok(Self { key })
+            Ok(Self { inner: key })
         }
     }
 
@@ -297,5 +297,52 @@ impl RecoveryKey {
         let pk = self.get_pk_decrytpion();
 
         pk.decrypt(message)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{DecodeError, RecoveryKey};
+
+    const TEST_KEY: [u8; 32] = [
+        0x77, 0x07, 0x6D, 0x0A, 0x73, 0x18, 0xA5, 0x7D, 0x3C, 0x16, 0xC1, 0x72, 0x51, 0xB2, 0x66,
+        0x45, 0xDF, 0x4C, 0x2F, 0x87, 0xEB, 0xC0, 0x99, 0x2A, 0xB1, 0x77, 0xFB, 0xA5, 0x1D, 0xB9,
+        0x2C, 0x2A,
+    ];
+
+    #[test]
+    fn base64_decoding() -> Result<(), DecodeError> {
+        let key = RecoveryKey::new().expect("Can't create a new recovery key");
+
+        let base64 = key.to_base64();
+        let decoded_key = RecoveryKey::from_base64(&base64)?;
+        assert_eq!(key.inner, decoded_key.inner, "The decode key doens't match the original");
+
+        RecoveryKey::from_base64("i").expect_err("The recovery key is too short");
+
+        Ok(())
+    }
+
+    #[test]
+    fn base58_decoding() -> Result<(), DecodeError> {
+        let key = RecoveryKey::new().expect("Can't create a new recovery key");
+
+        let base64 = key.to_base58();
+        let decoded_key = RecoveryKey::from_base58(&base64)?;
+        assert_eq!(key.inner, decoded_key.inner, "The decode key doens't match the original");
+
+        let test_key =
+            RecoveryKey::from_base58("EsTcLW2KPGiFwKEA3As5g5c4BXwkqeeJZJV8Q9fugUMNUE4d")?;
+        assert_eq!(test_key.inner, TEST_KEY, "The decoded recovery key doesn't match the test key");
+
+        let test_key = RecoveryKey::from_base58(
+            "EsTc LW2K PGiF wKEA 3As5 g5c4 BXwk qeeJ ZJV8 Q9fu gUMN UE4d",
+        )?;
+        assert_eq!(test_key.inner, TEST_KEY, "The decoded recovery key doesn't match the test key");
+
+        RecoveryKey::from_base58("EsTc LW2K PGiF wKEA 3As5 g5c4 BXwk qeeJ ZJV8 Q9fu gUMN UE4e")
+            .expect_err("Can't create a recovery key if the parity byte is invalid");
+
+        Ok(())
     }
 }
