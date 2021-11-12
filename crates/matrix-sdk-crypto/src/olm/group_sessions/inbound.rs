@@ -232,6 +232,7 @@ impl InboundGroupSession {
         self.backed_up.store(false, SeqCst)
     }
 
+    #[cfg(feature = "backups_v1")]
     pub(crate) fn mark_as_backed_up(&self) {
         self.backed_up.store(true, SeqCst)
     }
