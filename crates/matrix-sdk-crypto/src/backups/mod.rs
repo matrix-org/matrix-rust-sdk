@@ -115,7 +115,7 @@ impl BackupMachine {
     /// serialization cycle.
     ///
     /// [`BackupAlgorithm`]: ruma::api::client::r0::backup::BackupAlgorithm
-    /// [`/room_keys/verson`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
+    /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
     pub async fn verify_backup(
         &self,
         mut serialized_auth_data: Value,
