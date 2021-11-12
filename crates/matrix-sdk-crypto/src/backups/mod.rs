@@ -373,4 +373,141 @@ impl BackupMachine {
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use matrix_sdk_test::async_test;
+    use ruma::{room_id, user_id, DeviceIdBox, RoomId, UserId};
+
+    use super::RecoveryKey;
+    use crate::{OlmError, OlmMachine};
+
+    fn alice_id() -> UserId {
+        user_id!("@alice:example.org")
+    }
+
+    fn alice_device_id() -> DeviceIdBox {
+        "JLAFKJWSCS".into()
+    }
+
+    fn room_id() -> RoomId {
+        room_id!("!test:localhost")
+    }
+
+    fn room_id2() -> RoomId {
+        room_id!("!test2:localhost")
+    }
+
+    async fn backup_flow(machine: OlmMachine) -> Result<(), OlmError> {
+        let backup_machine = machine.backup_machine();
+        let counts = backup_machine.store.inbound_group_session_counts().await?;
+
+        assert_eq!(counts.total, 0, "Initially no keys exist");
+        assert_eq!(counts.backed_up, 0, "Initially no backed up keys exist");
+
+        machine.create_outbound_group_session_with_defaults(&room_id()).await?;
+        machine.create_outbound_group_session_with_defaults(&room_id2()).await?;
+
+        let counts = backup_machine.store.inbound_group_session_counts().await?;
+        assert_eq!(counts.total, 2, "Two room keys need to exist in the store");
+        assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
+
+        let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
+        let backup_key = recovery_key.public_key();
+        backup_key.set_version("1".to_owned());
+
+        backup_machine.enable_backup(backup_key).await?;
+
+        let request =
+            backup_machine.backup().await?.expect("Created a backup request successfully");
+        assert_eq!(
+            Some(request.request_id),
+            backup_machine.backup().await?.map(|r| r.request_id),
+            "Calling backup again without uploading creates the same backup request"
+        );
+
+        backup_machine.mark_request_as_sent(request.request_id).await?;
+
+        let counts = backup_machine.store.inbound_group_session_counts().await?;
+        assert_eq!(counts.total, 2);
+        assert_eq!(counts.backed_up, 2, "All room keys have been backed up");
+
+        assert!(
+            backup_machine.backup().await?.is_none(),
+            "No room keys need to be backed up, no request needs to be created"
+        );
+
+        backup_machine.disable_backup().await?;
+
+        let counts = backup_machine.store.inbound_group_session_counts().await?;
+        assert_eq!(counts.total, 2);
+        assert_eq!(
+            counts.backed_up, 0,
+            "Disabling the backup resets the backup flag on the room keys"
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn memory_store_backups() -> Result<(), OlmError> {
+        let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+
+        backup_flow(machine).await
+    }
+
+    #[async_test]
+    #[cfg(feature = "sled_cryptostore")]
+    async fn default_store_backups() -> Result<(), OlmError> {
+        use tempfile::tempdir;
+
+        let tmpdir = tempdir().expect("Can't create a temporary dir");
+        let machine = OlmMachine::new_with_default_store(
+            &alice_id(),
+            &alice_device_id(),
+            tmpdir.as_ref(),
+            None,
+        )
+        .await?;
+
+        backup_flow(machine).await
+    }
+
+    #[async_test]
+    #[cfg(feature = "sled_cryptostore")]
+    async fn recovery_key_storing() -> Result<(), OlmError> {
+        use tempfile::tempdir;
+
+        let tmpdir = tempdir().expect("Can't create a temporary dir");
+        let machine = OlmMachine::new_with_default_store(
+            &alice_id(),
+            &alice_device_id(),
+            tmpdir.as_ref(),
+            Some("test"),
+        )
+        .await?;
+        let backup_machine = machine.backup_machine();
+
+        let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
+        let encoded_key = recovery_key.to_base64();
+
+        backup_machine.save_recovery_key(Some(recovery_key), Some("1".to_owned())).await?;
+
+        let loded_backup = backup_machine.get_backup_keys().await?;
+
+        assert_eq!(
+            encoded_key,
+            loded_backup
+                .recovery_key
+                .expect("The recovery key wasn't loaded from the store")
+                .to_base64(),
+            "The loaded key matches to the one we stored"
+        );
+
+        assert_eq!(
+            Some("1"),
+            loded_backup.backup_version.as_deref(),
+            "The loaded version matches to the one we stored"
+        );
+
+        Ok(())
+    }
+}
