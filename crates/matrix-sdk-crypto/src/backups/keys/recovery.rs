@@ -224,7 +224,8 @@ impl RecoveryKey {
     }
 
     fn get_pk_decrytpion(&self) -> OlmPkDecryption {
-        OlmPkDecryption::from_private_key(self.key.as_ref()).expect("Hello world")
+        OlmPkDecryption::from_bytes(self.key.as_ref())
+            .expect("Can't generate a libom PkDecryption object from our private key")
     }
 
     /// Extract the public key from this `RecoveryKey`.
