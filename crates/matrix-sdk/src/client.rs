@@ -535,6 +535,7 @@ impl Client {
     /// # Examples
     ///
     /// ```
+    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
@@ -553,7 +554,7 @@ impl Client {
     /// };
     /// use serde::{Deserialize, Serialize};
     ///
-    /// # let _ = async {
+    /// # block_on(async {
     /// client
     ///     .register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
@@ -601,7 +602,7 @@ impl Client {
     ///         }
     ///     }
     /// }).await;
-    /// # };
+    /// # });
     /// ```
     pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
     where
@@ -646,7 +647,8 @@ impl Client {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// ```
+    /// # use futures::executor::block_on;
     /// use matrix_sdk::{
     ///     event_handler::Ctx,
     ///     room::Room,
@@ -657,7 +659,7 @@ impl Client {
     /// # fn obtain_gui_handle() -> SomeType { SomeType }
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
     /// # let client = matrix_sdk::Client::new(homeserver).unwrap();
-    /// # let _ = async {
+    /// # block_on(async {
     ///
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
@@ -670,7 +672,7 @@ impl Client {
     ///         },
     ///     )
     ///     .await;
-    /// # };
+    /// # });
     /// ```
     pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
     where
