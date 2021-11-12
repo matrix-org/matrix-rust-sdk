@@ -166,7 +166,7 @@ impl CryptoStore for MemoryStore {
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
         let backed_up =
-            self.get_inbound_group_sessions().await?.into_iter().filter(|s| !s.backed_up()).count();
+            self.get_inbound_group_sessions().await?.into_iter().filter(|s| s.backed_up()).count();
 
         Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
     }
@@ -302,7 +302,7 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        todo!()
+        Ok(BackupKeys::default())
     }
 }
 
