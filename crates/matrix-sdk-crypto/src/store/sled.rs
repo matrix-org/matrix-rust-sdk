@@ -917,11 +917,23 @@ impl CryptoStore for SledStore {
             .map(|v| serde_json::from_slice(&v))
             .transpose()?;
 
-        Ok(BackupKeys {
-            backup_version: version,
-            // TODO fetch the key as well.
-            recovery_key: None,
-        })
+        #[cfg(feature = "backups_v1")]
+        let recovery_key = {
+            self.account
+                .get("recovery_key_v1".encode())?
+                .map(|p| serde_json::from_slice(&p))
+                .transpose()?
+                .map(|p| {
+                    crate::backups::RecoveryKey::from_pickle(p, self.get_pickle_key())
+                        .map_err(|_| CryptoStoreError::UnpicklingError)
+                })
+                .transpose()?
+        };
+
+        #[cfg(not(feature = "backups_v1"))]
+        let recovery_key = None;
+
+        Ok(BackupKeys { backup_version: version, recovery_key })
     }
 }
 

@@ -260,7 +260,6 @@ impl RecoveryKey {
 
     /// Try to import a `RecoveryKey` from a previously exported pickle.
     pub fn from_pickle(
-        &self,
         pickle: PickledRecoveryKey,
         pickle_key: &[u8],
     ) -> Result<Self, UnpicklingError> {
