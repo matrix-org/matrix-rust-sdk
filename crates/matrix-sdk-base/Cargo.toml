@@ -20,12 +20,14 @@ default = []
 encryption = ["matrix-sdk-crypto"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
 sled_state_store = ["sled", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
+indexeddb_state_store = ["indexed_db_futures", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
 sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
 
 docs = ["encryption", "sled_cryptostore"]
 
 [dependencies]
 chacha20poly1305 = { version = "0.9.0", optional = true }
+indexed_db_futures = { version = "0.2.0", optional = true }
 dashmap = "4.0.2"
 futures-core = "0.3.15"
 futures-util = { version = "0.3.15", default-features = false }

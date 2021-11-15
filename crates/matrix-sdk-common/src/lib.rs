@@ -28,6 +28,6 @@ impl<T: std::fmt::Debug + Send + Sync> AsyncTraitDeps for T {}
 /// it's used on WASM. WASM targets will not require `Send` and `Sync` to have
 /// implemented, while other targets will.
 #[cfg(target_arch = "wasm32")]
-pub trait AsyncTraitDeps: std::fmt::Debug + Send + Sync {}
+pub trait AsyncTraitDeps: std::fmt::Debug {}
 #[cfg(target_arch = "wasm32")]
-impl<T: std::fmt::Debug + Send + Sync> AsyncTraitDeps for T {}
+impl<T: std::fmt::Debug> AsyncTraitDeps for T {}

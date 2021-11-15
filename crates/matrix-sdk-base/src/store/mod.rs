@@ -38,6 +38,9 @@ use ruma::{
 #[cfg(feature = "sled_state_store")]
 use sled::Db;
 
+#[cfg(feature = "indexeddb_state_store")]
+mod indexeddb_store;
+
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
     media::MediaRequest,
@@ -50,10 +53,13 @@ mod memory_store;
 #[cfg(feature = "sled_state_store")]
 mod sled_store;
 
-#[cfg(not(feature = "sled_state_store"))]
+#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
 use self::memory_store::MemoryStore;
 #[cfg(feature = "sled_state_store")]
 use self::sled_store::SledStore;
+
+#[cfg(feature = "indexeddb_state_store")]
+use self::indexeddb_store::IndexeddbStore;
 
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
@@ -62,6 +68,10 @@ pub enum StoreError {
     #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Sled(#[from] sled::Error),
+    /// An error happened in the underlying sled database.
+    #[cfg(feature = "indexeddb_state_store")]
+    #[error(transparent)]
+    Indexeddb(#[from] indexed_db_futures::web_sys::DomException),
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
@@ -328,6 +338,65 @@ pub struct Store {
     stripped_rooms: Arc<DashMap<RoomId, Room>>,
 }
 
+#[cfg(feature = "sled_state_store")]
+impl Store {
+    /// Open the default Sled store.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the store should reside in.
+    ///
+    /// * `passphrase` - A passphrase that should be used to encrypt the state
+    /// store.
+    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
+        let inner = if let Some(passphrase) = passphrase {
+            SledStore::open_with_passphrase(path, passphrase)?
+        } else {
+            SledStore::open_with_path(path)?
+        };
+
+        Ok((Self::new(Box::new(inner.clone())), inner.inner))
+    }
+
+    pub(crate) fn open_temporary() -> Result<(Self, Db)> {
+        let inner = SledStore::open()?;
+
+        Ok((Self::new(Box::new(inner.clone())), inner.inner))
+    }
+}
+
+
+#[cfg(feature = "indexeddb_state_store")]
+impl Store {
+    /// Open the default IndexedDB store.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the store should reside in.
+    ///
+    /// * `passphrase` - A passphrase that should be used to encrypt the state
+    /// store.
+    pub fn open_default(name: String, passphrase: Option<&str>) -> Result<(Self, IndexeddbStore)> {
+        let inner = if let Some(passphrase) = passphrase {
+            IndexeddbStore::open_with_passphrase(name, passphrase)?
+        } else {
+            IndexeddbStore::open_with_name(name)?
+        };
+
+        Ok((Self::new(Box::new(inner.clone())), inner.inner))
+    }
+
+}
+
+#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
+impl Store {
+    pub(crate) fn open_memory_store() -> Self {
+        let inner = Box::new(MemoryStore::new());
+
+        Self::new(inner)
+    }
+}
+
 impl Store {
     fn new(inner: Box<dyn StateStore>) -> Self {
         Self {
@@ -356,39 +425,6 @@ impl Store {
         *self.session.write().await = Some(session);
 
         Ok(())
-    }
-
-    #[cfg(not(feature = "sled_state_store"))]
-    pub(crate) fn open_memory_store() -> Self {
-        let inner = Box::new(MemoryStore::new());
-
-        Self::new(inner)
-    }
-
-    /// Open the default Sled store.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path where the store should reside in.
-    ///
-    /// * `passphrase` - A passphrase that should be used to encrypt the state
-    /// store.
-    #[cfg(feature = "sled_state_store")]
-    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
-        let inner = if let Some(passphrase) = passphrase {
-            SledStore::open_with_passphrase(path, passphrase)?
-        } else {
-            SledStore::open_with_path(path)?
-        };
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
-    }
-
-    #[cfg(feature = "sled_state_store")]
-    pub(crate) fn open_temporary() -> Result<(Self, Db)> {
-        let inner = SledStore::open()?;
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
     /// Get all the rooms this store knows about.
