@@ -232,7 +232,7 @@ impl BackupMachine {
     }
 
     /// Encrypt a batch of room keys and return a request that needs to be sent
-    /// out to backup room keys.
+    /// out to backup the room keys.
     pub async fn backup(&self) -> Result<Option<OutgoingRequest>, CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
 

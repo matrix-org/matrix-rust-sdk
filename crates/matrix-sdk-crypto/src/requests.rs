@@ -198,7 +198,7 @@ pub enum OutgoingRequests {
     /// A room message request, usually for sending in-room interactive
     /// verification events.
     RoomMessage(RoomMessageRequest),
-    /// TODO
+    /// A request that will back up a batch of room keys to the server.
     KeysBackup(KeysBackupRequest),
 }
 
@@ -287,7 +287,7 @@ pub enum IncomingResponse<'a> {
     SignatureUpload(&'a SignatureUploadResponse),
     /// A room message response, usually for interactive verifications.
     RoomMessage(&'a RoomMessageResponse),
-    /// TODO
+    /// Response for the server-side room key backup request.
     KeysBackup(&'a KeysBackupResponse),
 }
 
@@ -373,12 +373,13 @@ pub struct RoomMessageRequest {
     pub content: AnyMessageEventContent,
 }
 
-/// TODO
+/// A request that will back up a batch of room keys to the server.
 #[derive(Clone, Debug)]
 pub struct KeysBackupRequest {
-    /// TODO
+    /// The backup version that these room keys should be part of.
     pub version: String,
-    /// TODO
+    /// The map from room id to a backed up room key that we're going to upload
+    /// to the server.
     pub rooms: BTreeMap<RoomId, RoomKeyBackup>,
 }
 

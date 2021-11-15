@@ -1502,7 +1502,8 @@ impl OlmMachine {
         Ok(())
     }
 
-    /// TODO
+    /// Sign the given message using our device key and if available cross
+    /// signing master key.
     pub async fn sign(&self, message: &str) -> BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
         let mut signatures: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
@@ -1515,7 +1516,10 @@ impl OlmMachine {
         signatures
     }
 
-    /// TODO
+    /// Get a reference to the backup related state machine.
+    ///
+    /// This state machine can be used to incrementally backup all room keys to
+    /// the server.
     #[cfg(feature = "backups_v1")]
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.backup_machine
