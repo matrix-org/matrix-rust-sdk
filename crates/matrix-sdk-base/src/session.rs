@@ -15,7 +15,7 @@
 
 //! User sessions.
 
-use ruma::{DeviceId, UserId};
+use ruma::{DeviceIdBox, UserId};
 use serde::{Deserialize, Serialize};
 
 /// A user session, containing an access token and information about the
@@ -27,5 +27,5 @@ pub struct Session {
     /// The user the access token was issued for.
     pub user_id: UserId,
     /// The ID of the client device
-    pub device_id: Box<DeviceId>,
+    pub device_id: DeviceIdBox,
 }

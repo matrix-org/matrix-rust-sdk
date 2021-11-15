@@ -1192,6 +1192,27 @@ impl Client {
     /// * `session` - A session that the user already has from a
     /// previous login call.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use matrix_sdk::{Client, Session, ruma::{DeviceIdBox, user_id}};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    ///
+    /// let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver)?;
+    ///
+    /// let session = Session {
+    ///     access_token: "My-Token".to_owned(),
+    ///     user_id: user_id!("@example:localhost"),
+    ///     device_id: DeviceIdBox::from("MYDEVICEID"),
+    /// };
+    ///
+    /// client.restore_login(session).await?;
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    ///
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.base_client.restore_login(session).await?)
@@ -1931,7 +1952,7 @@ impl Client {
     /// method to react to individual events. If you instead wish to handle
     /// events in a bulk manner the [`Client::sync_with_callback`] and
     /// [`Client::sync_stream`] methods can be used instead. Those two methods
-    /// repeadetly return the whole sync response.
+    /// repeatedly return the whole sync response.
     ///
     /// # Arguments
     ///
