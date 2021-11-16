@@ -287,7 +287,13 @@ impl RecoveryKey {
     }
 
     /// Try to decrypt the given ciphertext using this `RecoveryKey`.
-    pub fn decrypt(
+    ///
+    /// This will use the [`m.megolm_backup.v1.curve25519-aes-sha2`] algorithm
+    /// to decrypt the given ciphertext.
+    ///
+    /// [`m.megolm_backup.v1.curve25519-aes-sha2`]:
+    /// https://spec.matrix.org/unstable/client-server-api/#backup-algorithm-mmegolm_backupv1curve25519-aes-sha2
+    pub fn decrypt_v1(
         &self,
         mac: String,
         ephemeral_key: String,
