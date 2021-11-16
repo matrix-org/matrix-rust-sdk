@@ -179,7 +179,13 @@ impl BackupMachine {
 
     /// Activate the given backup key to be used to encrypt and backup room
     /// keys.
-    pub async fn enable_backup(&self, key: MegolmV1BackupKey) -> Result<(), CryptoStoreError> {
+    ///
+    /// This will use the [`m.megolm_backup.v1.curve25519-aes-sha2`] algorithm
+    /// to encrypt the room keys.
+    ///
+    /// [`m.megolm_backup.v1.curve25519-aes-sha2`]:
+    /// https://spec.matrix.org/unstable/client-server-api/#backup-algorithm-mmegolm_backupv1curve25519-aes-sha2
+    pub async fn enable_backup_v1(&self, key: MegolmV1BackupKey) -> Result<(), CryptoStoreError> {
         if key.backup_version().is_some() {
             *self.backup_key.write().await = Some(key.clone());
             info!(backup_key =? key, "Activated a backup");
@@ -414,7 +420,7 @@ mod test {
         let backup_key = recovery_key.public_key();
         backup_key.set_version("1".to_owned());
 
-        backup_machine.enable_backup(backup_key).await?;
+        backup_machine.enable_backup_v1(backup_key).await?;
 
         let request =
             backup_machine.backup().await?.expect("Created a backup request successfully");
