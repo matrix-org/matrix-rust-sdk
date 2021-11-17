@@ -417,7 +417,7 @@ mod test {
         assert_eq!(counts.backed_up, 0, "No room keys have been backed up yet");
 
         let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
-        let backup_key = recovery_key.public_key();
+        let backup_key = recovery_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
 
         backup_machine.enable_backup_v1(backup_key).await?;

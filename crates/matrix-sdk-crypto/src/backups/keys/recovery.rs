@@ -228,8 +228,8 @@ impl RecoveryKey {
             .expect("Can't generate a libom PkDecryption object from our private key")
     }
 
-    /// Extract the public key from this `RecoveryKey`.
-    pub fn public_key(&self) -> MegolmV1BackupKey {
+    /// Extract the megolm.v1 public key from this `RecoveryKey`.
+    pub fn megolm_v1_public_key(&self) -> MegolmV1BackupKey {
         let pk = self.get_pk_decrytpion();
         let public_key = MegolmV1BackupKey::new(pk.public_key(), None);
         public_key

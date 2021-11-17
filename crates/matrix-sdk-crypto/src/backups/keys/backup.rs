@@ -63,6 +63,11 @@ impl MegolmV1BackupKey {
         key
     }
 
+    /// Get the full name of the backup algorithm this backup key supports.
+    pub fn backup_algorithm(&self) -> &str {
+        "m.megolm_backup.v1.curve25519-aes-sha2"
+    }
+
     /// Get all the signatures of this `MegolmV1BackupKey`.
     pub fn signatures(&self) -> BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
         self.inner.signatures.to_owned()
