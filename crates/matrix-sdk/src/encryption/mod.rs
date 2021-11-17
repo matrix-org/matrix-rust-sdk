@@ -249,7 +249,7 @@ pub mod identities;
 pub mod verification;
 use std::{
     collections::{BTreeMap, HashSet},
-    io::{Read,Write},
+    io::{Read, Write},
     path::PathBuf,
     result::Result as StdResult,
 };

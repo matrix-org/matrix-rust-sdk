@@ -14,15 +14,12 @@
 
 mod store_key;
 use indexed_db_futures::prelude::*;
-use indexed_db_futures::js_sys::JsValue;
-
-// use std::{
-//     collections::BTreeSet,
-//     convert::{TryFrom, TryInto},
-//     path::{Path, PathBuf},
-//     sync::Arc,
-//     time::Instant,
-// };
+use wasm_bindgen::JsValue;
+use indexed_db_futures::web_sys::IdbKeyRange;
+use core::{
+     convert::{TryFrom, TryInto},
+};
+use std::collections::BTreeSet;
 
 use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
@@ -39,11 +36,6 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-// use sled::{
-//     transaction::{ConflictableTransactionError, TransactionError},
-//     Config, Db, Transactional, Tree,
-// };
-//use tokio::task::spawn_blocking;
 use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
@@ -67,14 +59,41 @@ pub enum SerializationError {
     Encryption(#[from] store_key::Error),
 }
 
-// impl From<TransactionError<SerializationError>> for StoreError {
-//     fn from(e: TransactionError<SerializationError>) -> Self {
-//         match e {
-//             TransactionError::Abort(e) => e.into(),
-//             TransactionError::Storage(e) => StoreError::Indexeddb(e),
-//         }
-//     }
-// }
+mod KEYS {
+
+    // STORES
+
+    pub const SESSION: &'static str = "session";
+    pub const ACCOUNT_DATA: &'static str = "account_data";
+
+    pub const MEMBERS: &'static str = "members";
+    pub const PROFILES: &'static str = "profiles";
+    pub const DISPLAY_NAMES: &'static str = "display_names";
+    pub const JOINED_USER_IDS: &'static str = "joined_user_ids";
+    pub const INVITED_USER_IDS: &'static str = "invited_user_ids";
+
+    pub const ROOM_STATE: &'static str = "room_state";
+    pub const ROOM_INFOS: &'static str = "room_infos";
+    pub const PRESENCE: &'static str = "presence";
+    pub const ROOM_ACCOUNT_DATA: &'static str = "room_account_data";
+
+    pub const STRIPPED_ROOM_INFO: &'static str = "stripped_room_info";
+    pub const STRIPPED_MEMBERS: &'static str = "stripped_members";
+    pub const STRIPPED_ROOM_STATE: &'static str = "stripped_room_state";
+
+    pub const ROOM_USER_RECEIPTS: &'static str = "room_user_receipts";
+    pub const ROOM_EVENT_RECEIPTS: &'static str = "room_event_receipts";
+
+    pub const MEDIA: &'static str = "media";
+
+    pub const CUSTOM: &'static str = "custom";
+
+    // static keys
+
+    pub const STORE_KEY: &'static str = "store_key";
+    pub const FILTER: &'static str = "filter";
+    pub const SYNC_TOKEN: &'static str = "sync_token";
+}
 
 impl From<SerializationError> for StoreError {
     fn from(e: SerializationError) -> Self {
@@ -89,86 +108,13 @@ impl From<SerializationError> for StoreError {
     }
 }
 
-const ENCODE_SEPARATOR: u8 = 0xff;
-
-trait EncodeKey {
-    fn encode(&self) -> Vec<u8>;
+fn make_range(key: String) -> Result<IdbKeyRange, StoreError> {
+    IdbKeyRange::bound(
+        &JsValue::from_str(&format!("{}:", key)),
+        &JsValue::from_str(&format!("{};", key)),
+    ).map_err(|e| StoreError::Codec(e.as_string().unwrap_or(format!("Creating key range for {:} failed", key))))
 }
 
-impl EncodeKey for &UserId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for &RoomId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for &str {
-    fn encode(&self) -> Vec<u8> {
-        [self.as_bytes(), &[ENCODE_SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [self.0.as_bytes(), &[ENCODE_SEPARATOR], self.1.as_bytes(), &[ENCODE_SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&str, &str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.1.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.2.as_bytes(),
-            &[ENCODE_SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
-impl EncodeKey for (&str, &str, &str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.1.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.2.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.3.as_bytes(),
-            &[ENCODE_SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
-impl EncodeKey for EventType {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-/// Get the value at `position` in encoded `key`.
-///
-/// The key must have been encoded with the `EncodeKey` trait. `position`
-/// corresponds to the position in the tuple before the key was encoded. If it
-/// wasn't encoded in a tuple, use `0`.
-///
-/// Returns `None` if there is no key at `position`.
-pub fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
-    let values: Vec<&[u8]> = key.split(|v| *v == ENCODE_SEPARATOR).collect();
-
-    values.get(position).map(|s| String::from_utf8_lossy(s).to_string())
-}
-
-#[derive(Clone)]
 pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
@@ -184,37 +130,38 @@ impl std::fmt::Debug for IndexeddbStore {
 impl IndexeddbStore {
     async fn open_helper(name: String, store_key: Option<StoreKey>) -> Result<Self> {
         // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
-        db_req.set_on_upgrade_needed(Some(|evt: IdbVersionChangeEvent| -> Result<(), JsValue> {
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
+        db_req.set_on_upgrade_needed(Some(|evt: &
+            IdbVersionChangeEvent| -> Result<(), JsValue> {
 
-            if evt.old_version < 1 {
+            if evt.old_version() < 1.0 {
                 // migrating to version 1
                 let db = evt.db();
 
-                db.create_object_store("session")?;
-                db.create_object_store("account_data")?;
+                db.create_object_store(KEYS::SESSION)?;
+                db.create_object_store(KEYS::ACCOUNT_DATA)?;
 
-                db.create_object_store("members")?;
-                db.create_object_store("profiles")?;
-                db.create_object_store("display_names")?;
-                db.create_object_store("joined_user_ids")?;
-                db.create_object_store("invited_user_ids")?;
+                db.create_object_store(KEYS::MEMBERS)?;
+                db.create_object_store(KEYS::PROFILES)?;
+                db.create_object_store(KEYS::DISPLAY_NAMES)?;
+                db.create_object_store(KEYS::JOINED_USER_IDS)?;
+                db.create_object_store(KEYS::INVITED_USER_IDS)?;
 
-                db.create_object_store("room_state")?;
-                db.create_object_store("room_infos")?;
-                db.create_object_store("presence")?;
-                db.create_object_store("room_account_data")?;
+                db.create_object_store(KEYS::ROOM_STATE)?;
+                db.create_object_store(KEYS::ROOM_INFOS)?;
+                db.create_object_store(KEYS::PRESENCE)?;
+                db.create_object_store(KEYS::ROOM_ACCOUNT_DATA)?;
 
-                db.create_object_store("stripped_room_info")?;
-                db.create_object_store("stripped_members")?;
-                db.create_object_store("stripped_room_state")?;
+                db.create_object_store(KEYS::STRIPPED_ROOM_INFO)?;
+                db.create_object_store(KEYS::STRIPPED_MEMBERS)?;
+                db.create_object_store(KEYS::STRIPPED_ROOM_STATE)?;
 
-                db.create_object_store("room_user_receipts")?;
-                db.create_object_store("room_event_receipts")?;
+                db.create_object_store(KEYS::ROOM_USER_RECEIPTS)?;
+                db.create_object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
 
-                db.create_object_store("media")?;
+                db.create_object_store(KEYS::MEDIA)?;
 
-                db.create_object_store("custom")?;
+                db.create_object_store(KEYS::CUSTOM)?;
 
             }
             Ok(())
@@ -230,16 +177,16 @@ impl IndexeddbStore {
     }
 
     pub async fn open() -> Result<Self> {
-        IndexeddbStore::open_helper("state".to_owned, None)
+        IndexeddbStore::open_helper("state".to_owned(), None).await
     }
 
     pub async fn open_with_passphrase(name: String, passphrase: &str) -> Result<Self> {
         let path = format!("{:0}::matrix-sdk-state", name);
 
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(path, 1)?;
-        db_req.set_on_upgrade_needed(Some(|evt: IdbVersionChangeEvent| -> Result<(), JsValue> {
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&path, 1)?;
+        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
 
-            if evt.old_version < 1 {
+            if evt.old_version() < 1.0 {
                 // migrating to version 1
                 let db = evt.db();
 
@@ -250,13 +197,14 @@ impl IndexeddbStore {
 
         let db: IdbDatabase = db_req.into_future().await?;
 
-        let tx: IdbTransaction = db.transaction_on_one_with_mode(path, IdbTransactionMode::Readwrite)?;
-        let ob = tx.object_store("matrix-sdk-state").await?;
+        let tx: IdbTransaction = db.transaction_on_one_with_mode(&path, IdbTransactionMode::Readwrite)?;
+        let ob = tx.object_store("matrix-sdk-state")?;
 
 
         let store_key: Option<DatabaseType> = ob
-            .get("store_key")?
-            .map(|k| serde_json::from_slice(&k).map_err(StoreError::Json))
+            .get(&JsValue::from_str(KEYS::STORE_KEY))?
+            .await?
+            .map(|k| k.into_serde())
             .transpose()?;
 
         let store_key = if let Some(key) = store_key {
@@ -270,298 +218,327 @@ impl IndexeddbStore {
             let encrypted_key = DatabaseType::Encrypted(
                 key.export(passphrase).map_err::<StoreError, _>(|e| e.into())?,
             );
-            ob.put_key_val("store_key", serde_json::to_vec(&encrypted_key)?)?;
+            ob.put_key_val(&JsValue::from_str(KEYS::STORE_KEY), &JsValue::from_serde(&encrypted_key)?)?;
             key
         };
 
-        IndexeddbStore::open_helper(name, Some(store_key))
+
+        tx.await.into_result()?;
+
+        IndexeddbStore::open_helper(name, Some(store_key)).await
     }
 
     pub async fn open_with_name(name: String) -> Result<Self> {
-        IndexeddbStore::open_helper(name, None)
+        IndexeddbStore::open_helper(name, None).await
     }
 
-    fn serialize_event(&self, event: &impl Serialize) -> Result<Vec<u8>, SerializationError> {
-        if let Some(key) = self.store_key {
-            let encrypted = key.encrypt(event)?;
-            Ok(serde_json::to_vec(&encrypted)?)
-        } else {
-            Ok(serde_json::to_vec(event)?)
-        }
+    fn serialize_event(&self, event: &impl Serialize) -> Result<JsValue, SerializationError> {
+        Ok(match self.store_key {
+            Some(ref key) => JsValue::from_serde(&key.encrypt(event)?)?,
+            None => JsValue::from_serde(event)?
+        })
     }
 
     fn deserialize_event<T: for<'b> Deserialize<'b>>(
         &self,
-        event: &[u8],
+        event: JsValue,
     ) -> Result<T, SerializationError> {
-        if let Some(key) = self.store_key {
-            let encrypted: EncryptedEvent = serde_json::from_slice(event)?;
-            Ok(key.decrypt(encrypted)?)
-        } else {
-            Ok(serde_json::from_slice(event)?)
+        match self.store_key {
+            Some(ref key) => {
+                let encrypted: EncryptedEvent = event.into_serde()?;
+                Ok(key.decrypt(encrypted)?)
+            },
+            None => Ok(event.into_serde()?)
         }
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.session.insert(("filter", filter_name).encode(), filter_id)?;
+        let tx = self.inner
+            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(KEYS::SESSION)?;
+
+        obj.put_key_val(
+            &JsValue::from_str(&format!("{}:{}", KEYS::FILTER, filter_name)),
+            &JsValue::from_str(filter_id)
+        )?;
+
+        tx.await.into_result()?;
 
         Ok(())
     }
 
     pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        Ok(self
-            .session
-            .get(("filter", filter_name).encode())?
-            .map(|f| String::from_utf8_lossy(&f).to_string()))
+
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::SESSION)?
+            .get(&JsValue::from_str(&format!("{}:{}", KEYS::FILTER, filter_name)))?
+            .await?
+            .map(|f| f.as_string())
+            .flatten())
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
-        Ok(self
-            .session
-            .get("sync_token".encode())?
-            .map(|t| String::from_utf8_lossy(&t).to_string()))
+
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::SESSION)?
+            .get(&JsValue::from_str(KEYS::SYNC_TOKEN))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        unimplemented!()
-        // let now = Instant::now();
+        let mut stores : Vec<&'static str> = [
+            (changes.sync_token.is_some(), KEYS::SYNC_TOKEN),
+            (changes.session.is_some(), KEYS::SESSION ),
 
-        // let ret: Result<(), TransactionError<SerializationError>> = (
-        //     &self.session,
-        //     &self.account_data,
-        //     &self.members,
-        //     &self.profiles,
-        //     &self.display_names,
-        //     &self.joined_user_ids,
-        //     &self.invited_user_ids,
-        //     &self.room_info,
-        //     &self.room_state,
-        //     &self.room_account_data,
-        //     &self.presence,
-        //     &self.stripped_room_info,
-        //     &self.stripped_members,
-        //     &self.stripped_room_state,
-        // )
-        //     .transaction(
-        //         |(
-        //             session,
-        //             account_data,
-        //             members,
-        //             profiles,
-        //             display_names,
-        //             joined,
-        //             invited,
-        //             rooms,
-        //             state,
-        //             room_account_data,
-        //             presence,
-        //             striped_rooms,
-        //             stripped_members,
-        //             stripped_state,
-        //         )| {
-        //             if let Some(s) = &changes.sync_token {
-        //                 session.insert("sync_token".encode(), s.as_str())?;
-        //             }
+            (!changes.ambiguity_maps.is_empty() , KEYS::DISPLAY_NAMES ),
+            (!changes.account_data.is_empty() , KEYS::ACCOUNT_DATA ),
+            (!changes.presence.is_empty() , KEYS::PRESENCE ),
+            (!changes.profiles.is_empty() , KEYS::PROFILES ),
+            (!changes.state.is_empty() , KEYS::ROOM_STATE ),
+            (!changes.room_account_data.is_empty() , KEYS::ROOM_ACCOUNT_DATA ),
+            (!changes.room_infos.is_empty() , KEYS::ROOM_INFOS ),
+            (!changes.receipts.is_empty() , KEYS::ROOM_EVENT_RECEIPTS ),
+            (!changes.stripped_state.is_empty() , KEYS::STRIPPED_ROOM_STATE ),
+            (!changes.stripped_members.is_empty() , KEYS::STRIPPED_MEMBERS ),
+            (!changes.invited_room_info.is_empty() , KEYS::STRIPPED_ROOM_INFO ),
+        ].iter()
+        .filter_map(|(id, key)| if *id { Some(*key) } else { None })
+        .collect();
 
-        //             for (room, events) in &changes.members {
-        //                 let profile_changes = changes.profiles.get(room);
+        if !changes.members.is_empty() {
+            stores.extend([KEYS::MEMBERS, KEYS::INVITED_USER_IDS, KEYS::JOINED_USER_IDS])
+        }
 
-        //                 for event in events.values() {
-        //                     let key = (room.as_str(), event.state_key.as_str()).encode();
 
-        //                     match event.content.membership {
-        //                         MembershipState::Join => {
-        //                             joined.insert(key.as_slice(), event.state_key.as_str())?;
-        //                             invited.remove(key.as_slice())?;
-        //                         }
-        //                         MembershipState::Invite => {
-        //                             invited.insert(key.as_slice(), event.state_key.as_str())?;
-        //                             joined.remove(key.as_slice())?;
-        //                         }
-        //                         _ => {
-        //                             joined.remove(key.as_slice())?;
-        //                             invited.remove(key.as_slice())?;
-        //                         }
-        //                     }
+        if !changes.receipts.is_empty() {
+            stores.extend([KEYS::ROOM_EVENT_RECEIPTS, KEYS::ROOM_USER_RECEIPTS])
+        }
 
-        //                     members.insert(
-        //                         key.as_slice(),
-        //                         self.serialize_event(&event)
-        //                             .map_err(ConflictableTransactionError::Abort)?,
-        //                     )?;
+        if stores.len() == 0 {
+            // nothing to do, quit early
+            return Ok(())
+        }
 
-        //                     if let Some(profile) =
-        //                         profile_changes.and_then(|p| p.get(&event.state_key))
-        //                     {
-        //                         profiles.insert(
-        //                             key.as_slice(),
-        //                             self.serialize_event(&profile)
-        //                                 .map_err(ConflictableTransactionError::Abort)?,
-        //                         )?;
-        //                     }
-        //                 }
-        //             }
+        let tx = self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
-        //             for (room_id, ambiguity_maps) in &changes.ambiguity_maps {
-        //                 for (display_name, map) in ambiguity_maps {
-        //                     display_names.insert(
-        //                         (room_id.as_str(), display_name.as_str()).encode(),
-        //                         self.serialize_event(&map)
-        //                             .map_err(ConflictableTransactionError::Abort)?,
-        //                     )?;
-        //                 }
-        //             }
+        if let Some(s) = &changes.sync_token {
+            tx
+                .object_store(KEYS::SYNC_TOKEN)?
+                .put_key_val(&JsValue::from_str(KEYS::SYNC_TOKEN), &self.serialize_event(s)?)?;
+        }
 
-        //             for (event_type, event) in &changes.account_data {
-        //                 account_data.insert(
-        //                     event_type.as_str().encode(),
-        //                     self.serialize_event(&event)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
 
-        //             for (room, events) in &changes.room_account_data {
-        //                 for (event_type, event) in events {
-        //                     room_account_data.insert(
-        //                         (room.as_str(), event_type.as_str()).encode(),
-        //                         self.serialize_event(&event)
-        //                             .map_err(ConflictableTransactionError::Abort)?,
-        //                     )?;
-        //                 }
-        //             }
 
-        //             for (room, event_types) in &changes.state {
-        //                 for (event_type, events) in event_types {
-        //                     for (state_key, event) in events {
-        //                         state.insert(
-        //                             (room.as_str(), event_type.as_str(), state_key.as_str())
-        //                                 .encode(),
-        //                             self.serialize_event(&event)
-        //                                 .map_err(ConflictableTransactionError::Abort)?,
-        //                         )?;
-        //                     }
-        //                 }
-        //             }
+        if !changes.ambiguity_maps.is_empty() {
+            let store = tx.object_store(KEYS::DISPLAY_NAMES)?;
+            for (room_id, ambiguity_maps) in &changes.ambiguity_maps {
+                for (display_name, map) in ambiguity_maps {
+                    let key = format!("{}:{}", room_id.as_str(), display_name);
 
-        //             for (room_id, room_info) in &changes.room_infos {
-        //                 rooms.insert(
-        //                     room_id.encode(),
-        //                     self.serialize_event(room_info)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
+                    store.put_key_val(
+                        &JsValue::from_str(&key),
+                        &self.serialize_event(&map)?
+                    )?;
+                }
+            }
+        }
 
-        //             for (sender, event) in &changes.presence {
-        //                 presence.insert(
-        //                     sender.encode(),
-        //                     self.serialize_event(&event)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
 
-        //             for (room_id, info) in &changes.invited_room_info {
-        //                 striped_rooms.insert(
-        //                     room_id.encode(),
-        //                     self.serialize_event(&info)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
+        if !changes.account_data.is_empty() {
+            let store = tx.object_store(KEYS::ACCOUNT_DATA)?;
+            for (event_type, event) in &changes.account_data {
+                store.put_key_val(
+                    &JsValue::from_str(event_type.as_str()),
+                    &self.serialize_event(&event)?
+                )?;
+            }
+        }
 
-        //             for (room, events) in &changes.stripped_members {
-        //                 for event in events.values() {
-        //                     stripped_members.insert(
-        //                         (room.as_str(), event.state_key.as_str()).encode(),
-        //                         self.serialize_event(&event)
-        //                             .map_err(ConflictableTransactionError::Abort)?,
-        //                     )?;
-        //                 }
-        //             }
+        if !changes.room_account_data.is_empty() {
+            let store = tx.object_store(KEYS::ROOM_ACCOUNT_DATA)?;
+            for (room, events) in &changes.room_account_data {
+                for (event_type, event) in events {
+                    let key = format!("{}:{}", room.as_str(), event_type.as_str());
+                    store.put_key_val(
+                        &JsValue::from_str(&key),
+                        &self.serialize_event(&event)?
+                    )?;
+                }
+            }
+        }
 
-        //             for (room, event_types) in &changes.stripped_state {
-        //                 for (event_type, events) in event_types {
-        //                     for (state_key, event) in events {
-        //                         stripped_state.insert(
-        //                             (room.as_str(), event_type.as_str(), state_key.as_str())
-        //                                 .encode(),
-        //                             self.serialize_event(&event)
-        //                                 .map_err(ConflictableTransactionError::Abort)?,
-        //                         )?;
-        //                     }
-        //                 }
-        //             }
+        if !changes.state.is_empty() {
+            let store = tx.object_store(KEYS::ROOM_STATE)?;
+            for (room, event_types) in &changes.state {
+                for (event_type, events) in event_types {
+                    for (state_key, event) in events {
+                        let key = format!("{}:{}:{}", room.as_str(), event_type.as_str(), state_key.as_str());
+                        store.put_key_val(
+                            &JsValue::from_str(&key),
+                            &self.serialize_event(&event)?
+                        )?;
+                    }
+                }
+            }
+        }
 
-        //             Ok(())
-        //         },
-        //     );
+        if !changes.room_infos.is_empty() {
+            let store = tx.object_store(KEYS::ROOM_INFOS)?;
+            for (room_id, room_info) in &changes.room_infos {
+                store.put_key_val(
+                    &JsValue::from_str(room_id.as_str()),
+                    &self.serialize_event(&room_info)?
+                )?;
+            }
+        }
 
-        // ret?;
+        if !changes.presence.is_empty() {
+            let store = tx.object_store(KEYS::PRESENCE)?;
+            for (sender, event) in &changes.presence {
+                store.put_key_val(
+                    &JsValue::from_str(sender.as_str()),
+                    &self.serialize_event(&event)?
+                )?;
+            }
+        }
 
-        // let ret: Result<(), TransactionError<SerializationError>> =
-        //     (&self.room_user_receipts, &self.room_event_receipts).transaction(
-        //         |(room_user_receipts, room_event_receipts)| {
-        //             for (room, content) in &changes.receipts {
-        //                 for (event_id, receipts) in &content.0 {
-        //                     for (receipt_type, receipts) in receipts {
-        //                         for (user_id, receipt) in receipts {
-        //                             // Add the receipt to the room user receipts
-        //                             if let Some(old) = room_user_receipts.insert(
-        //                                 (room.as_str(), receipt_type.as_ref(), user_id.as_str())
-        //                                     .encode(),
-        //                                 self.serialize_event(&(event_id, receipt))
-        //                                     .map_err(ConflictableTransactionError::Abort)?,
-        //                             )? {
-        //                                 // Remove the old receipt from the room event receipts
-        //                                 let (old_event, _): (EventId, Receipt) = self
-        //                                     .deserialize_event(&old)
-        //                                     .map_err(ConflictableTransactionError::Abort)?;
-        //                                 room_event_receipts.remove(
-        //                                     (
-        //                                         room.as_str(),
-        //                                         receipt_type.as_ref(),
-        //                                         old_event.as_str(),
-        //                                         user_id.as_str(),
-        //                                     )
-        //                                         .encode(),
-        //                                 )?;
-        //                             }
+        if !changes.invited_room_info.is_empty() {
+            let store = tx.object_store(KEYS::STRIPPED_ROOM_INFO)?;
+            for (room_id, info) in &changes.invited_room_info {
+                store.put_key_val(
+                    &JsValue::from_str(room_id.as_str()),
+                    &self.serialize_event(&info)?
+                )?;
+            }
+        }
 
-        //                             // Add the receipt to the room event receipts
-        //                             room_event_receipts.insert(
-        //                                 (
-        //                                     room.as_str(),
-        //                                     receipt_type.as_ref(),
-        //                                     event_id.as_str(),
-        //                                     user_id.as_str(),
-        //                                 )
-        //                                     .encode(),
-        //                                 self.serialize_event(receipt)
-        //                                     .map_err(ConflictableTransactionError::Abort)?,
-        //                             )?;
-        //                         }
-        //                     }
-        //                 }
-        //             }
+        if !changes.stripped_members.is_empty() {
+            let store = tx.object_store(KEYS::STRIPPED_MEMBERS)?;
+            for (room, events) in &changes.stripped_members {
+                for event in events.values() {
+                    let key = format!("{}:{}", room.as_str(), event.state_key.as_str());
+                    store.put_key_val(
+                        &JsValue::from_str(&key),
+                        &self.serialize_event(&event)?
+                    )?;
+                }
+            }
+        }
 
-        //             Ok(())
-        //         },
-        //     );
+        if !changes.stripped_state.is_empty() {
+            let store = tx.object_store(KEYS::STRIPPED_ROOM_STATE)?;
+            for (room, event_types) in &changes.stripped_state {
+                for (event_type, events) in event_types {
+                    for (state_key, event) in events {
+                        let key = format!("{}:{}:{}", room.as_str(), event_type.as_str(), state_key.as_str());
+                        store.put_key_val(
+                            &JsValue::from_str(&key),
+                            &self.serialize_event(&event)?
+                        )?;
+                    }
+                }
+            }
+        }
 
-        // ret?;
+        if !changes.members.is_empty() {
+            for (room, events) in &changes.members {
+                let profile_changes = changes.profiles.get(room);
 
-        // self.inner.flush_async().await?;
+                let profiles_store = tx.object_store(KEYS::PROFILES)?;
+                let joined = tx.object_store(KEYS::JOINED_USER_IDS)?;
+                let invited = tx.object_store(KEYS::INVITED_USER_IDS)?;
+                let members = tx.object_store(KEYS::MEMBERS)?;
 
-        // info!("Saved changes in {:?}", now.elapsed());
+                for event in events.values() {
+                    let key = JsValue::from_str(&format!("{}:{}", room.as_str(), event.state_key.as_str()));
 
-        // Ok(())
+                    match event.content.membership {
+                        MembershipState::Join => {
+                            joined.put_key_val_owned(&key, &JsValue::from_str(event.state_key.as_str()))?;
+                            invited.delete(&key)?;
+                        }
+                        MembershipState::Invite => {
+                            invited.put_key_val_owned(&key, &JsValue::from_str(event.state_key.as_str()))?;
+                            joined.delete(&key)?;
+                        }
+                        _ => {
+                            joined.delete(&key)?;
+                            invited.delete(&key)?;
+                        }
+                    }
+
+                    members.put_key_val_owned(&key, &self.serialize_event(&event)?)?;
+
+                    if let Some(profile) = profile_changes.and_then(|p| p.get(&event.state_key)) {
+                        profiles_store.put_key_val_owned(&key, &self.serialize_event(&profile)?)?;
+                    }
+                }
+            }
+        }
+
+        if !changes.receipts.is_empty() {
+            let room_user_receipts = tx.object_store(KEYS::ROOM_USER_RECEIPTS)?;
+            let room_event_receipts = tx.object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
+
+            for (room, content) in &changes.receipts {
+                for (event_id, receipts) in &content.0 {
+                    for (receipt_type, receipts) in receipts {
+                        for (user_id, receipt) in receipts {
+
+                            let key = JsValue::from_str(&format!("{}:{}:{}",
+                                room.as_str(), receipt_type.as_str(), user_id.as_str()));
+
+                            if let Some((old_event, _)) = room_user_receipts
+                                .get(&key)?
+                                .await?
+                                .map(|f| self.deserialize_event::<(EventId, Receipt)>(f).ok())
+                                .flatten()
+                            {
+                                room_event_receipts.delete(&JsValue::from_str(&format!("{}:{}:{}:{}",
+                                    room.as_str(),
+                                    receipt_type.as_ref(),
+                                    old_event.as_str(),
+                                    user_id.as_str(),
+                                )))?;
+                            }
+
+                            room_user_receipts.put_key_val(&key, &self.serialize_event(&(event_id, receipt))?)?;
+
+                            // Add the receipt to the room event receipts
+                            room_event_receipts.put_key_val(
+                                &JsValue::from_str(
+                                    &format!("{}:{}:{}:{}",
+                                        room.as_str(),
+                                        receipt_type.as_ref(),
+                                        event_id.as_str(),
+                                        user_id.as_str(),
+                                    )
+                                ),
+                                &self.serialize_event(&receipt)?
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+
+        tx.await.into_result().map_err::<StoreError, _>(|e| e.into())
     }
 
+
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        let db = self.clone();
-        let key = user_id.encode();
-        spawn_blocking(move || {
-            Ok(db.presence.get(key)?.map(|e| db.deserialize_event(&e)).transpose()?)
-        })
-        .await?
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::PRESENCE, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::PRESENCE)?
+            .get(&JsValue::from_str(user_id.as_str()))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     pub async fn get_state_event(
@@ -570,12 +547,13 @@ impl IndexeddbStore {
         event_type: EventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), event_type.as_str(), state_key).encode();
-        spawn_blocking(move || {
-            Ok(db.room_state.get(key)?.map(|e| db.deserialize_event(&e)).transpose()?)
-        })
-        .await?
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::ROOM_STATE)?
+            .get(&JsValue::from_str(&format!("{}:{}:{}", room_id.as_str(), event_type.as_str(), state_key)))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     pub async fn get_state_events(
@@ -583,16 +561,15 @@ impl IndexeddbStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), event_type.as_str()).encode();
-        spawn_blocking(move || {
-            Ok(db
-                .room_state
-                .scan_prefix(key)
-                .flat_map(|e| e.map(|(_, e)| db.deserialize_event(&e)))
-                .collect::<Result<_, _>>()?)
-        })
-        .await?
+        let range = make_range(format!("{}:{}", room_id.as_str(), event_type.as_str()))?;
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::ROOM_STATE)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event(f).ok())
+            .collect::<Vec<_>>())
     }
 
     pub async fn get_profile(
@@ -600,12 +577,13 @@ impl IndexeddbStore {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<RoomMemberEventContent>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), user_id.as_str()).encode();
-        spawn_blocking(move || {
-            Ok(db.profiles.get(key)?.map(|p| db.deserialize_event(&p)).transpose()?)
-        })
-        .await?
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::PROFILES, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::PROFILES)?
+            .get(&JsValue::from_str(&format!("{}:{}", room_id.as_str(), user_id.as_str())))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     pub async fn get_member_event(
@@ -613,91 +591,97 @@ impl IndexeddbStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), state_key.as_str()).encode();
-        spawn_blocking(move || {
-            Ok(db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()?)
-        })
-        .await?
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::MEMBERS)?
+            .get(&JsValue::from_str(&format!("{}:{}", room_id.as_str(), state_key.as_str())))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     pub async fn get_user_ids_stream(
         &self,
         room_id: &RoomId,
     ) -> Result<impl Stream<Item = Result<UserId>>> {
-        let decode = |key: &[u8]| -> Result<UserId> {
-            let mut iter = key.split(|c| c == &ENCODE_SEPARATOR);
-            // Our key is a the room id separated from the user id by a null
-            // byte, discard the first value of the split.
-            iter.next();
+        let range = make_range(room_id.as_str().to_owned())?;
+        let skip = room_id.as_str().len();
+        let entries = self.inner
+            .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::MEMBERS)?
+            .get_all_keys_with_key(&range)?
+            .await?
+            .iter()
+            .map(|key| {
+                if let Some(k) = key.as_string() {
+                    UserId::try_from(k[skip..].to_owned()).map_err(|e| StoreError::Codec(e.to_string()))
+                } else {
+                    Err(StoreError::Codec(format!("{:?}", key)))
+                }
+            })
+            .collect::<Vec<_>>();
 
-            let user_id = iter.next().expect("User ids weren't properly encoded");
-
-            Ok(UserId::try_from(String::from_utf8_lossy(user_id).to_string())?)
-        };
-
-        let members = self.members.clone();
-        let key = room_id.encode();
-
-        spawn_blocking(move || stream::iter(members.scan_prefix(key).map(move |u| decode(&u?.0))))
-            .await
-            .map_err(Into::into)
+        Ok(stream::iter(entries))
     }
 
     pub async fn get_invited_user_ids(
         &self,
         room_id: &RoomId,
     ) -> Result<impl Stream<Item = Result<UserId>>> {
-        let db = self.clone();
-        let key = room_id.encode();
-        spawn_blocking(move || {
-            stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
-                    .map_err(StoreError::Identifier)
-            }))
-        })
-        .await
-        .map_err(Into::into)
+        let range = make_range(room_id.as_str().to_owned())?;
+        let entries = self.inner
+            .transaction_on_one_with_mode(KEYS::INVITED_USER_IDS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::INVITED_USER_IDS)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .collect::<Vec<_>>();
+
+        Ok(stream::iter(entries))
     }
 
     pub async fn get_joined_user_ids(
         &self,
         room_id: &RoomId,
     ) -> Result<impl Stream<Item = Result<UserId>>> {
-        let db = self.clone();
-        let key = room_id.encode();
-        spawn_blocking(move || {
-            stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
-                    .map_err(StoreError::Identifier)
-            }))
-        })
-        .await
-        .map_err(Into::into)
+        let range = make_range(room_id.as_str().to_owned())?;
+        let entries = self.inner
+            .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::JOINED_USER_IDS)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .collect::<Vec<_>>();
+
+        Ok(stream::iter(entries))
     }
 
     pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
-        let db = self.clone();
-        spawn_blocking(move || {
-            stream::iter(
-                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
-            )
-        })
-        .await
-        .map_err(Into::into)
+        let entries: Vec<_> = self.inner
+            .transaction_on_one_with_mode(KEYS::ROOM_INFOS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::ROOM_INFOS)?
+            .get_all()?
+            .await?
+            .iter()
+            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .collect();
+
+        Ok(stream::iter(entries))
     }
 
     pub async fn get_stripped_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
-        let db = self.clone();
-        spawn_blocking(move || {
-            stream::iter(
-                db.stripped_room_info
-                    .iter()
-                    .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
-            )
-        })
-        .await
-        .map_err(Into::into)
+        let entries = self.inner
+            .transaction_on_one_with_mode(KEYS::STRIPPED_ROOM_INFO, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::STRIPPED_ROOM_INFO)?
+            .get_all()?
+            .await?
+            .iter()
+            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .collect::<Vec<_>>();
+
+        Ok(stream::iter(entries))
     }
 
     pub async fn get_users_with_display_name(
@@ -705,29 +689,29 @@ impl IndexeddbStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), display_name).encode();
-        spawn_blocking(move || {
-            Ok(db
-                .display_names
-                .get(key)?
-                .map(|m| db.deserialize_event(&m))
-                .transpose()?
-                .unwrap_or_default())
-        })
-        .await?
+
+        let range = make_range(format!("{}:{}", room_id.as_str(), display_name))?;
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::JOINED_USER_IDS)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event::<UserId>(f).ok())
+            .collect::<BTreeSet<_>>())
     }
 
     pub async fn get_account_data_event(
         &self,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        let db = self.clone();
-        let key = event_type.encode();
-        spawn_blocking(move || {
-            Ok(db.account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
-        })
-        .await?
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::ACCOUNT_DATA, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::ACCOUNT_DATA)?
+            .get(&JsValue::from_str(event_type.as_str()))?
+            .await?
+            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .transpose()?)
     }
 
     pub async fn get_room_account_data_event(
@@ -735,12 +719,13 @@ impl IndexeddbStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), event_type.as_str()).encode();
-        spawn_blocking(move || {
-            Ok(db.room_account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
-        })
-        .await?
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::ROOM_ACCOUNT_DATA, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::ROOM_ACCOUNT_DATA)?
+            .get(&JsValue::from_str(&format!("{}:{}", room_id.as_str(), event_type)))?
+            .await?
+            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .transpose()?)
     }
 
     async fn get_user_room_receipt_event(
@@ -749,12 +734,13 @@ impl IndexeddbStore {
         receipt_type: ReceiptType,
         user_id: &UserId,
     ) -> Result<Option<(EventId, Receipt)>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode();
-        spawn_blocking(move || {
-            Ok(db.room_user_receipts.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
-        })
-        .await?
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::ROOM_USER_RECEIPTS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::ROOM_USER_RECEIPTS)?
+            .get(&JsValue::from_str(&format!("{}:{}:{}", room_id.as_str(), receipt_type.as_ref(), user_id.as_str())))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     async fn get_event_room_receipt_events(
@@ -763,66 +749,72 @@ impl IndexeddbStore {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>> {
-        let db = self.clone();
-        let key = (room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode();
-        spawn_blocking(move || {
-            db.room_event_receipts
-                .scan_prefix(key)
-                .map(|u| {
-                    u.map_err(StoreError::Indexeddb).and_then(|(key, value)| {
-                        db.deserialize_event(&value)
-                            // TODO remove this unwrapping
-                            .map(|receipt| {
-                                (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
-                            })
-                            .map_err(Into::into)
-                    })
-                })
-                .collect()
-        })
-        .await?
+        unimplemented!()
+        // let db = self.clone();
+        // let key = (room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode();
+        // spawn_blocking(move || {
+        //     db.room_event_receipts
+        //         .scan_prefix(key)
+        //         .map(|u| {
+        //             u.map_err(StoreError::Indexeddb).and_then(|(key, value)| {
+        //                 db.deserialize_event(&value)
+        //                     // TODO remove this unwrapping
+        //                     .map(|receipt| {
+        //                         (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
+        //                     })
+        //                     .map_err(Into::into)
+        //             })
+        //         })
+        //         .collect()
+        // })
+        // .await?
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.media.insert(
-            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-                .encode(),
-            data,
-        )?;
+        unimplemented!()
+        // self.media.insert(
+        //     (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+        //         .encode(),
+        //     data,
+        // )?;
 
-        self.inner.flush_async().await?;
+        // self.inner.flush_async().await?;
 
-        Ok(())
+        // Ok(())
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let db = self.clone();
-        let key = (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-            .encode();
+        unimplemented!()
+        // let db = self.clone();
+        // let key = (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+        //     .encode();
 
-        spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
+        // spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let custom = self.custom.clone();
-        let key = key.to_owned();
-        spawn_blocking(move || Ok(custom.get(key)?.map(|v| v.to_vec()))).await?
+        // let custom = self.custom.clone();
+        // let key = key.to_owned();
+        // spawn_blocking(move || Ok(custom.get(key)?.map(|v| v.to_vec()))).await?
+        unimplemented!()
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        let ret = self.custom.insert(key, value)?.map(|v| v.to_vec());
-        self.inner.flush_async().await?;
+        // let ret = self.custom.insert(key, value)?.map(|v| v.to_vec());
+        // self.inner.flush_async().await?;
 
-        Ok(ret)
+        // Ok(ret)
+        unimplemented!()
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.media.remove(
-            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-                .encode(),
-        )?;
+        // self.media.remove(
+        //     (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+        //         .encode(),
+        // )?;
 
-        Ok(())
+        // Ok(())
+        unimplemented!()
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {

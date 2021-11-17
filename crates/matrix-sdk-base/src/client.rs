@@ -87,8 +87,8 @@ pub struct BaseClient {
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
-    #[cfg(feature = "encryption")]
-    store_path: Arc<Option<PathBuf>>,
+    #[cfg(feature = "sled_state_store")]
+    store_path: Option<PathBuf>,
     #[cfg(feature = "sled_cryptostore")]
     store_passphrase: Arc<Option<Zeroizing<String>>>,
 }
@@ -118,7 +118,10 @@ impl fmt::Debug for BaseClient {
 pub struct BaseClientConfig {
     #[cfg(feature = "encryption")]
     crypto_store: Option<Box<dyn CryptoStore>>,
+    #[cfg(feature = "sled_state_store")]
     store_path: Option<PathBuf>,
+    #[cfg(feature = "indexeddb_state_store")]
+    name: String,
     passphrase: Option<Zeroizing<String>>,
 }
 
@@ -144,6 +147,18 @@ impl BaseClientConfig {
         self
     }
 
+    /// Set the indexeddb database name for storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name where the stores should save data in. Indexeddb
+    ////           separates database through these nanmes
+    #[cfg(feature = "indexeddb_state_store")]
+    pub fn name<>(mut self, name: String) -> Self {
+        self.name = name;
+        self
+    }
+
     /// Set the path for storage.
     ///
     /// # Arguments
@@ -155,6 +170,7 @@ impl BaseClientConfig {
     /// implementations for the crypto store and the state store. It will use
     /// the given path to open the stores. If no path is provided no store will
     /// be opened
+    #[cfg(feature = "sled_state_store")]
     pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.store_path = Some(path.as_ref().into());
         self
@@ -176,8 +192,8 @@ impl BaseClientConfig {
 
 impl BaseClient {
     /// Create a new default client.
-    pub fn new() -> Result<Self> {
-        BaseClient::new_with_config(BaseClientConfig::default())
+    pub async fn new() -> Result<Self> {
+        BaseClient::new_with_config(BaseClientConfig::default()).await
     }
 
     /// Create a new client.
@@ -186,9 +202,9 @@ impl BaseClient {
     ///
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         #[cfg_attr(
-            not(any(feature = "sled_state_store", feature = "sled_cryptostore")),
+            not(any(feature = "indexeddb_state_store", feature = "sled_state_store", feature = "sled_cryptostore")),
             allow(unused_variables)
         )]
         let config = config;
@@ -204,7 +220,14 @@ impl BaseClient {
         } else {
             Store::open_temporary()?
         };
-        #[cfg(not(feature = "sled_state_store"))]
+
+        #[cfg(feature = "indexeddb_state_store")]
+        let store = Store::open_default(
+            config.name.clone(),
+            config.passphrase.as_deref().map(|p| p.as_str())
+        ).await?;
+
+        #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
         let stores = Store::open_memory_store();
 
         #[cfg(all(feature = "encryption", feature = "sled_state_store"))]
@@ -229,7 +252,7 @@ impl BaseClient {
 
         #[cfg(feature = "sled_state_store")]
         let store = stores.0;
-        #[cfg(not(feature = "sled_state_store"))]
+        #[cfg(all(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")), feature = "encryption"))]
         let store = stores;
 
         Ok(BaseClient {
@@ -240,7 +263,7 @@ impl BaseClient {
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
             cryptostore: Mutex::new(crypto_store).into(),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "sled_cryptostore")]
             store_path: config.store_path.into(),
             #[cfg(feature = "sled_cryptostore")]
             store_passphrase: config.passphrase.into(),
@@ -308,27 +331,29 @@ impl BaseClient {
                     .await
                     .map_err(OlmError::from)?,
                 );
-            } else if let Some(path) = self.store_path.as_ref() {
+            } else {
                 #[cfg(feature = "sled_cryptostore")]
                 {
-                    *olm = Some(
-                        OlmMachine::new_with_default_store(
-                            &session.user_id,
-                            &session.device_id,
-                            path,
-                            self.store_passphrase.as_deref().map(|p| p.as_str()),
-                        )
-                        .await
-                        .map_err(OlmError::from)?,
-                    );
+                    if let Some(path) = self.store_path.as_ref() {
+                        *olm = Some(
+                            OlmMachine::new_with_default_store(
+                                &session.user_id,
+                                &session.device_id,
+                                path,
+                                self.store_passphrase.as_deref().map(|p| p.as_str()),
+                            )
+                            .await
+                            .map_err(OlmError::from)?,
+                        );
+                    } else {
+                        *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+                    }
                 }
+
                 #[cfg(not(feature = "sled_cryptostore"))]
                 {
-                    let _ = path;
                     *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
                 }
-            } else {
-                *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
             }
         }
 

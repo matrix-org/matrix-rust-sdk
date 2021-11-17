@@ -70,11 +70,18 @@ pub enum StoreError {
     Sled(#[from] sled::Error),
     /// An error happened in the underlying sled database.
     #[cfg(feature = "indexeddb_state_store")]
-    #[error(transparent)]
-    Indexeddb(#[from] indexed_db_futures::web_sys::DomException),
+    #[error("IndexDB error: {name} ({code}): {message}")]
+    Indexeddb {
+        /// DomException code
+        code: u16,
+        /// Specific name of the DomException
+        name: String,
+        /// Message given to the DomException
+        message: String
+    },
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
-    Json(#[from] serde_json::Error),
+    Json(serde_json::Error),
     /// An error happened while deserializing a Matrix identifier, e.g. an user
     /// id.
     #[error(transparent)]
@@ -89,10 +96,30 @@ pub enum StoreError {
     /// The store failed to encrypt or decrypt some data.
     #[error("Error encrypting or decrypting data from the store: {0}")]
     Encryption(String),
+    /// The store failed to encode or decode some data.
+    #[error("Error encoding or decoding data from the store: {0}")]
+    Codec(String),
     /// An error happened while running a tokio task.
     #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Task(#[from] tokio::task::JoinError),
+}
+
+#[cfg(target_arch = "wasm32")]
+impl From<indexed_db_futures::web_sys::DomException> for StoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> StoreError {
+        StoreError::Indexeddb {
+            name: frm.name(),
+            message: frm.message(),
+            code: frm.code(),
+        }
+    }
+}
+
+impl From<serde_json::Error> for StoreError {
+    fn from(frm: serde_json::Error) -> StoreError {
+        StoreError::Json(frm)
+    }
 }
 
 /// A `StateStore` specific result type.
@@ -376,14 +403,14 @@ impl Store {
     ///
     /// * `passphrase` - A passphrase that should be used to encrypt the state
     /// store.
-    pub fn open_default(name: String, passphrase: Option<&str>) -> Result<(Self, IndexeddbStore)> {
+    pub async fn open_default(name: String, passphrase: Option<&str>) -> Result<Self> {
         let inner = if let Some(passphrase) = passphrase {
-            IndexeddbStore::open_with_passphrase(name, passphrase)?
+            IndexeddbStore::open_with_passphrase(name, passphrase).await?
         } else {
-            IndexeddbStore::open_with_name(name)?
+            IndexeddbStore::open_with_name(name).await?
         };
 
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
+        Ok(Self::new(Box::new(inner)))
     }
 
 }
