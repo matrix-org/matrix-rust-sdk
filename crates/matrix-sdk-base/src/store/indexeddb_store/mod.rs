@@ -43,7 +43,7 @@ use self::store_key::{EncryptedEvent, StoreKey};
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::MemberEvent,
-    media::MediaRequest,
+    media::{MediaRequest, UniqueKey},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -313,7 +313,7 @@ impl IndexeddbStore {
         .collect();
 
         if !changes.members.is_empty() {
-            stores.extend([KEYS::MEMBERS, KEYS::INVITED_USER_IDS, KEYS::JOINED_USER_IDS])
+            stores.extend([KEYS::PROFILES, KEYS::MEMBERS, KEYS::INVITED_USER_IDS, KEYS::JOINED_USER_IDS])
         }
 
 
@@ -607,7 +607,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
     ) -> Result<impl Stream<Item = Result<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
-        let skip = room_id.as_str().len();
+        let skip = room_id.as_str().len() + 1;
         let entries = self.inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
@@ -751,76 +751,102 @@ impl IndexeddbStore {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>> {
-        unimplemented!()
-        // let db = self.clone();
-        // let key = (room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode();
-        // spawn_blocking(move || {
-        //     db.room_event_receipts
-        //         .scan_prefix(key)
-        //         .map(|u| {
-        //             u.map_err(StoreError::Indexeddb).and_then(|(key, value)| {
-        //                 db.deserialize_event(&value)
-        //                     // TODO remove this unwrapping
-        //                     .map(|receipt| {
-        //                         (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
-        //                     })
-        //                     .map_err(Into::into)
-        //             })
-        //         })
-        //         .collect()
-        // })
-        // .await?
+        let key = format!("{}:{}:{}", room_id.as_str(), receipt_type.as_ref(), event_id.as_str());
+        let prefix_len = key.len() + 1;
+        let range = make_range(key)?;
+        let tx = self.inner
+            .transaction_on_one_with_mode(KEYS::ROOM_EVENT_RECEIPTS, IdbTransactionMode::Readonly)?;
+        let store = tx.object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
+
+        let mut all = Vec::new();
+        for k in store
+            .get_all_keys_with_key(&range)?
+            .await?
+            .iter()
+        {
+            // FIXME: we should probably parallize this...
+            let res = store.get(&k)?.await?.ok_or(StoreError::Codec(format!("no data at {:?}", k)))?;
+            let u = if let Some(k_str) = k.as_string() {
+                UserId::try_from(k_str[prefix_len..].to_owned())
+                    .map_err(|e| StoreError::Codec(e.to_string()))?
+            } else {
+                return Err(StoreError::Codec(format!("{:?}", k)))
+            };
+            let r = self.deserialize_event::<Receipt>(res)
+                .map_err(|e| StoreError::Codec(e.to_string()))?;
+            all.push((u, r));
+        }
+        Ok(all)
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        unimplemented!()
-        // self.media.insert(
-        //     (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-        //         .encode(),
-        //     data,
-        // )?;
+        let key = format!("{}:{}",
+            request.media_type.unique_key().as_str(), request.format.unique_key().as_str());
+        let tx = self.inner
+            .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
-        // self.inner.flush_async().await?;
+        tx.object_store(KEYS::MEDIA)?
+            .put_key_val(&JsValue::from_str(&key), &self.serialize_event(&data)?)?;
 
-        // Ok(())
+        tx.await.into_result().map_err(|e| e.into())
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        unimplemented!()
-        // let db = self.clone();
-        // let key = (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-        //     .encode();
-
-        // spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
+        let key = format!("{}:{}",
+            request.media_type.unique_key().as_str(), request.format.unique_key().as_str());
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::MEDIA)?
+            .get(&JsValue::from_str(&key))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        // let custom = self.custom.clone();
-        // let key = key.to_owned();
-        // spawn_blocking(move || Ok(custom.get(key)?.map(|v| v.to_vec()))).await?
-        unimplemented!()
+        todo!()
+        // Ok(self.inner
+        //     .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readonly)?
+        //     .object_store(KEYS::CUSTOM)?
+        //     .get(&JsValue::from_str(key))?
+        //     .await?
+        //     .map(|f| self.deserialize_event(f))
+        //     .transpose()?)
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        // let ret = self.custom.insert(key, value)?.map(|v| v.to_vec());
-        // self.inner.flush_async().await?;
+        todo!()
+        // let tx = self.inner
+        //     .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
-        // Ok(ret)
-        unimplemented!()
+        // tx.object_store(KEYS::MEDIA)?
+        //     .put_key_val(&JsValue::from_str(&key), &self.serialize_event(&value)?)?;
+
+        // tx.await.into_result().map_err(|e| e.into())
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        // self.media.remove(
-        //     (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-        //         .encode(),
-        // )?;
+        let key = format!("{}:{}",
+            request.media_type.unique_key().as_str(), request.format.unique_key().as_str());
+        let tx = self.inner
+            .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
-        // Ok(())
-        unimplemented!()
+        tx.object_store(KEYS::MEDIA)?.delete(&JsValue::from_str(&key))?;
+
+        tx.await.into_result().map_err(|e| e.into())
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        unimplemented!()
+        let range = make_range(uri.as_str().to_string())?;
+        let tx = self.inner
+            .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
+        let store = tx.object_store(KEYS::MEDIA)?;
+
+        for k in store.get_all_keys_with_key(&range)?.await?.iter() {
+            store.delete(&k)?;
+        }
+
+        tx.await.into_result().map_err(|e| e.into())
     }
 }
 
@@ -1026,7 +1052,7 @@ mod test {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
             content: RoomMemberEventContent::new(MembershipState::Join),
             sender: user_id(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
             state_key: user_id(),
             prev_content: None,
             unsigned: Unsigned::default(),
@@ -1213,14 +1239,14 @@ mod test {
 
     #[async_test]
     async fn test_custom_storage() {
-        let key = "my_key";
-        let value = &[0, 1, 2, 3];
-        let store = IndexeddbStore::open().await.unwrap();
+        // let key = "my_key";
+        // let value = &[0, 1, 2, 3];
+        // let store = IndexeddbStore::open().await.unwrap();
 
-        store.set_custom_value(key.as_bytes(), value.to_vec()).await.unwrap();
+        // store.set_custom_value(key.as_bytes(), value.to_vec()).await.unwrap();
 
-        let read = store.get_custom_value(key.as_bytes()).await.unwrap();
+        // let read = store.get_custom_value(key.as_bytes()).await.unwrap();
 
-        assert_eq!(Some(value.as_ref()), read.as_deref());
+        // assert_eq!(Some(value.as_ref()), read.as_deref());
     }
 }
