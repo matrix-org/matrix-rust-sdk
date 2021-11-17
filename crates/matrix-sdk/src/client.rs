@@ -152,15 +152,16 @@ impl Debug for Client {
     }
 }
 
+
 impl Client {
     /// Create a new [`Client`] that will use the given homeserver.
     ///
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    pub fn new(homeserver_url: Url) -> Result<Self> {
+    pub async fn new(homeserver_url: Url) -> Result<Self> {
         let config = ClientConfig::new();
-        Client::new_with_config(homeserver_url, config)
+        Client::new_with_config(homeserver_url, config).await
     }
 
     /// Create a new [`Client`] for the given homeserver and use the given
@@ -171,7 +172,7 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     ///
     /// * `config` - Configuration for the client.
-    pub fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
+    pub async fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
         let homeserver = Arc::new(RwLock::new(homeserver_url));
 
         let client = if let Some(client) = config.client {
@@ -180,7 +181,7 @@ impl Client {
             Arc::new(client_with_config(&config)?)
         };
 
-        let base_client = BaseClient::new_with_config(config.base_config)?;
+        let base_client = BaseClient::new_with_config(config.base_config).await?;
         let session = base_client.session().clone();
 
         let http_client =
@@ -259,7 +260,7 @@ impl Client {
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = Client::homeserver_from_user_id(user_id)?;
-        let client = Client::new_with_config(homeserver, config)?;
+        let client = Client::new_with_config(homeserver, config).await?;
 
         let well_known = client.discover_homeserver().await?;
         let well_known = Url::parse(well_known.homeserver.base_url.as_ref())?;

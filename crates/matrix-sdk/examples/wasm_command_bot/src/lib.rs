@@ -79,7 +79,7 @@ pub async fn run() -> Result<JsValue, JsValue> {
     let password = "wordpass";
 
     let homeserver_url = Url::parse(&homeserver_url).unwrap();
-    let client = Client::new(homeserver_url).unwrap();
+    let client = Client::new(homeserver_url).await.unwrap();
 
     client.login(username, password, None, Some("rust-sdk-wasm")).await.unwrap();
 

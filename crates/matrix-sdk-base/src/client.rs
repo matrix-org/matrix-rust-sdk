@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[allow(unused_imports)]
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
@@ -250,6 +251,8 @@ impl BaseClient {
         #[cfg(all(not(feature = "sled_state_store"), feature = "encryption"))]
         let crypto_store = config.crypto_store;
 
+        #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
+        let store = stores;
         #[cfg(feature = "sled_state_store")]
         let store = stores.0;
         #[cfg(all(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")), feature = "encryption"))]

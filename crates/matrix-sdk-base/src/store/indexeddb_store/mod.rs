@@ -16,6 +16,8 @@ mod store_key;
 use indexed_db_futures::prelude::*;
 use wasm_bindgen::JsValue;
 use indexed_db_futures::web_sys::IdbKeyRange;
+
+#[allow(unused_imports)]
 use core::{
      convert::{TryFrom, TryInto},
 };
@@ -36,13 +38,12 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::MemberEvent,
-    media::{MediaRequest, UniqueKey},
+    media::MediaRequest,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -59,6 +60,7 @@ pub enum SerializationError {
     Encryption(#[from] store_key::Error),
 }
 
+#[allow(non_snake_case)]
 mod KEYS {
 
     // STORES
@@ -965,6 +967,11 @@ impl StateStore for IndexeddbStore {
 
 #[cfg(test)]
 mod test {
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
     use std::convert::TryFrom;
 
     use matrix_sdk_test::async_test;
@@ -987,10 +994,11 @@ mod test {
     use serde_json::json;
 
     use super::{Result, IndexeddbStore, StateChanges};
+
     use crate::{
         deserialized_responses::MemberEvent,
         media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
-        StateStore,
+        store::StateStore,
     };
 
     fn user_id() -> UserId {
@@ -1027,7 +1035,7 @@ mod test {
 
     #[async_test]
     async fn test_member_saving() {
-        let store = IndexeddbStore::open().unwrap();
+        let store = IndexeddbStore::open().await.unwrap();
         let room_id = room_id!("!test:localhost");
         let user_id = user_id();
 
@@ -1048,7 +1056,7 @@ mod test {
 
     #[async_test]
     async fn test_power_level_saving() {
-        let store = IndexeddbStore::open().unwrap();
+        let store = IndexeddbStore::open().await.unwrap();
         let room_id = room_id!("!test:localhost");
 
         let raw_event = power_level_event();
@@ -1072,7 +1080,7 @@ mod test {
 
     #[async_test]
     async fn test_receipts_saving() {
-        let store = IndexeddbStore::open().unwrap();
+        let store = IndexeddbStore::open().await.unwrap();
 
         let room_id = room_id!("!test:localhost");
 
@@ -1166,7 +1174,7 @@ mod test {
 
     #[async_test]
     async fn test_media_content() {
-        let store = IndexeddbStore::open().unwrap();
+        let store = IndexeddbStore::open().await.unwrap();
 
         let uri = mxc_uri!("mxc://localhost/media");
         let content: Vec<u8> = "somebinarydata".into();
@@ -1204,17 +1212,15 @@ mod test {
     }
 
     #[async_test]
-    async fn test_custom_storage() -> Result<()> {
+    async fn test_custom_storage() {
         let key = "my_key";
         let value = &[0, 1, 2, 3];
-        let store = IndexeddbStore::open()?;
+        let store = IndexeddbStore::open().await.unwrap();
 
-        store.set_custom_value(key.as_bytes(), value.to_vec()).await?;
+        store.set_custom_value(key.as_bytes(), value.to_vec()).await.unwrap();
 
-        let read = store.get_custom_value(key.as_bytes()).await?;
+        let read = store.get_custom_value(key.as_bytes()).await.unwrap();
 
         assert_eq!(Some(value.as_ref()), read.as_deref());
-
-        Ok(())
     }
 }

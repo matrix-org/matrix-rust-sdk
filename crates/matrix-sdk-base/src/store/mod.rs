@@ -105,7 +105,7 @@ pub enum StoreError {
     Task(#[from] tokio::task::JoinError),
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "indexeddb_state_store")]
 impl From<indexed_db_futures::web_sys::DomException> for StoreError {
     fn from(frm: indexed_db_futures::web_sys::DomException) -> StoreError {
         StoreError::Indexeddb {

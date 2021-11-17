@@ -19,6 +19,7 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use lru::LruCache;
+#[allow(unused_imports)]
 use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
 use ruma::{
     events::{
@@ -32,6 +33,7 @@ use ruma::{
     serde::Raw,
     EventId, MxcUri, RoomId, UserId,
 };
+#[allow(unused_imports)]
 use tracing::info;
 
 use super::{Result, RoomInfo, StateChanges, StateStore};
@@ -110,6 +112,7 @@ impl MemoryStore {
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
+        #[cfg(not(target_arch = "wasm32"))]
         let now = Instant::now();
 
         if let Some(s) = &changes.sync_token {
@@ -273,6 +276,7 @@ impl MemoryStore {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
@@ -589,6 +593,8 @@ impl StateStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::r0::media::get_content_thumbnail::Method, event_id, mxc_uri,

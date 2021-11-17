@@ -128,6 +128,7 @@ impl ClientConfig {
     /// implementations for the crypto store and the state store. It will use
     /// the given path to open the stores. If no path is provided no store will
     /// be opened
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn store_path(mut self, path: impl AsRef<Path>) -> Self {
         self.base_config = self.base_config.store_path(path);
         self
