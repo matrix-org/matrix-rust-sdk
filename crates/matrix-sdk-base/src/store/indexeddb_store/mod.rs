@@ -804,25 +804,35 @@ impl IndexeddbStore {
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        todo!()
-        // Ok(self.inner
-        //     .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readonly)?
-        //     .object_store(KEYS::CUSTOM)?
-        //     .get(&JsValue::from_str(key))?
-        //     .await?
-        //     .map(|f| self.deserialize_event(f))
-        //     .transpose()?)
+        let jskey = &JsValue::from_str(
+                core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?);
+        self.get_custom_value_for_js(&jskey).await
+    }
+
+    async fn get_custom_value_for_js(&self, jskey: &JsValue) -> Result<Option<Vec<u8>>> {
+        Ok(self.inner
+            .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::CUSTOM)?
+            .get(jskey)?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?)
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        todo!()
-        // let tx = self.inner
-        //     .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
+        let jskey = JsValue::from_str(
+                core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?);
 
-        // tx.object_store(KEYS::MEDIA)?
-        //     .put_key_val(&JsValue::from_str(&key), &self.serialize_event(&value)?)?;
+        let prev = self.get_custom_value_for_js(&jskey).await?;
 
-        // tx.await.into_result().map_err(|e| e.into())
+        let tx = self.inner
+            .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
+
+        tx.object_store(KEYS::CUSTOM)?
+            .put_key_val(&jskey, &self.serialize_event(&value)?)?;
+
+        tx.await.into_result().map_err::<StoreError, _>(|e| e.into())?;
+        Ok(prev)
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
@@ -1239,14 +1249,14 @@ mod test {
 
     #[async_test]
     async fn test_custom_storage() {
-        // let key = "my_key";
-        // let value = &[0, 1, 2, 3];
-        // let store = IndexeddbStore::open().await.unwrap();
+        let key = "my_key";
+        let value = &[0, 1, 2, 3];
+        let store = IndexeddbStore::open().await.unwrap();
 
-        // store.set_custom_value(key.as_bytes(), value.to_vec()).await.unwrap();
+        store.set_custom_value(key.as_bytes(), value.to_vec()).await.unwrap();
 
-        // let read = store.get_custom_value(key.as_bytes()).await.unwrap();
+        let read = store.get_custom_value(key.as_bytes()).await.unwrap();
 
-        // assert_eq!(Some(value.as_ref()), read.as_deref());
+        assert_eq!(Some(value.as_ref()), read.as_deref());
     }
 }
