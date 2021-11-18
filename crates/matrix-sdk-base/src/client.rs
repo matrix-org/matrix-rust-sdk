@@ -275,7 +275,7 @@ impl BaseClient {
             #[cfg(feature = "encryption")]
             cryptostore: Mutex::new(crypto_store).into(),
             #[cfg(feature = "sled_cryptostore")]
-            store_path: config.store_path.into(),
+            store_path: config.store_path,
             #[cfg(feature = "sled_cryptostore")]
             store_passphrase: config.passphrase.into(),
         })
