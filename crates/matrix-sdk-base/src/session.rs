@@ -20,6 +20,22 @@ use serde::{Deserialize, Serialize};
 
 /// A user session, containing an access token and information about the
 /// associated user account.
+///
+/// # Example
+///
+/// ```
+/// use matrix_sdk_base::Session;
+/// use ruma::UserId;
+/// use std::str::FromStr;
+///
+/// let session = Session {
+///     access_token: String::from("abcdefgh012345678"),
+///     user_id: UserId::from_str("@name:example.com").unwrap(),
+///     device_id: "zyxwv54321".into(),
+/// };
+///
+/// assert_eq!(session.device_id.as_str(), "zyxwv54321");
+/// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     /// The access token used for this session.
