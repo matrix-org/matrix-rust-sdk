@@ -114,6 +114,15 @@ jobs:
     - name: Install emscripten
       uses: mymindstorm/setup-emsdk@v7
 
+    - name: Install wasm-pack
+      run: cargo install wasm-pack
+
+    - name: Unit tests
+      run: |
+        cd crates/matrix-sdk-base/
+        wasm-pack test --node
+        wasm-pack test --firefox --headless --features indexeddb_state_store
+
     - name: Check
       run: |
         cd crates/matrix-sdk/examples/wasm_command_bot
