@@ -25,16 +25,19 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```
 /// use matrix_sdk_base::Session;
-/// use ruma::UserId;
-/// use std::str::FromStr;
+/// use ruma::{DeviceIdBox, user_id};
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// let session = Session {
-///     access_token: String::from("abcdefgh012345678"),
-///     user_id: UserId::from_str("@name:example.com").unwrap(),
-///     device_id: "zyxwv54321".into(),
+///     access_token: "My-Token".to_owned(),
+///     user_id: user_id!("@example:localhost"),
+///     device_id: DeviceIdBox::from("MYDEVICEID"),
 /// };
 ///
-/// assert_eq!(session.device_id.as_str(), "zyxwv54321");
+/// assert_eq!(session.device_id.as_str(), "MYDEVICEID");
+///
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Session {
