@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod store_key;
+use super::store_key;
 use indexed_db_futures::prelude::*;
 use wasm_bindgen::JsValue;
 use indexed_db_futures::web_sys::IdbKeyRange;

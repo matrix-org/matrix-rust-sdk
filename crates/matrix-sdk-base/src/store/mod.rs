@@ -35,6 +35,10 @@ use ruma::{
     serde::Raw,
     EventId, MxcUri, RoomId, UserId,
 };
+
+#[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
+mod store_key;
+
 #[cfg(feature = "sled_state_store")]
 use sled::Db;
 
