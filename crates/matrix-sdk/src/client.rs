@@ -2646,7 +2646,6 @@ pub(crate) mod test {
         assert!(client.devices().await.is_ok());
     }
 
-
     #[tokio::test]
     async fn test_join_leave_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
