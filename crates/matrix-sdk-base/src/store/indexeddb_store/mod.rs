@@ -796,7 +796,7 @@ impl IndexeddbStore {
 
         let mut all = Vec::new();
         for k in store.get_all_keys_with_key(&range)?.await?.iter() {
-            // FIXME: we should probably parallize this...
+            // FIXME: we should probably parallelize this...
             let res =
                 store.get(&k)?.await?.ok_or(StoreError::Codec(format!("no data at {:?}", k)))?;
             let u = if let Some(k_str) = k.as_string() {
