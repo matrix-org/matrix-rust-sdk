@@ -50,7 +50,7 @@ pub use olm_rs::errors::OlmPkDecryptionError;
 /// A state machine that handles backing up room keys.
 ///
 /// The state machine can be activated using the
-/// [`BackupMachine::enable_backup`] method. After the state machine has been
+/// [`BackupMachine::enable_backup_v1`] method. After the state machine has been
 /// enabled a request that will upload encrypted room keys can be generated
 /// using the [`BackupMachine::backup`] method.
 #[derive(Debug, Clone)]
