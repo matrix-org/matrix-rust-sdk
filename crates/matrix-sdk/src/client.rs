@@ -152,7 +152,6 @@ impl Debug for Client {
     }
 }
 
-
 impl Client {
     /// Create a new [`Client`] that will use the given homeserver.
     ///

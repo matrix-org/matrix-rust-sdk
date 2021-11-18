@@ -57,13 +57,12 @@ mod memory_store;
 #[cfg(feature = "sled_state_store")]
 mod sled_store;
 
+#[cfg(feature = "indexeddb_state_store")]
+use self::indexeddb_store::IndexeddbStore;
 #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
 use self::memory_store::MemoryStore;
 #[cfg(feature = "sled_state_store")]
 use self::sled_store::SledStore;
-
-#[cfg(feature = "indexeddb_state_store")]
-use self::indexeddb_store::IndexeddbStore;
 
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
@@ -81,7 +80,7 @@ pub enum StoreError {
         /// Specific name of the DomException
         name: String,
         /// Message given to the DomException
-        message: String
+        message: String,
     },
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
@@ -112,11 +111,7 @@ pub enum StoreError {
 #[cfg(feature = "indexeddb_state_store")]
 impl From<indexed_db_futures::web_sys::DomException> for StoreError {
     fn from(frm: indexed_db_futures::web_sys::DomException) -> StoreError {
-        StoreError::Indexeddb {
-            name: frm.name(),
-            message: frm.message(),
-            code: frm.code(),
-        }
+        StoreError::Indexeddb { name: frm.name(), message: frm.message(), code: frm.code() }
     }
 }
 
@@ -396,7 +391,6 @@ impl Store {
     }
 }
 
-
 #[cfg(feature = "indexeddb_state_store")]
 impl Store {
     /// Open the default IndexedDB store.
@@ -416,7 +410,6 @@ impl Store {
 
         Ok(Self::new(Box::new(inner)))
     }
-
 }
 
 #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]

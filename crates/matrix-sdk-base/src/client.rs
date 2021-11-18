@@ -155,7 +155,7 @@ impl BaseClientConfig {
     /// * `name` - The name where the stores should save data in. Indexeddb
     ////           separates database through these nanmes
     #[cfg(feature = "indexeddb_state_store")]
-    pub fn name<>(mut self, name: String) -> Self {
+    pub fn name(mut self, name: String) -> Self {
         self.name = name;
         self
     }
@@ -205,7 +205,11 @@ impl BaseClient {
     /// previous login call.
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         #[cfg_attr(
-            not(any(feature = "indexeddb_state_store", feature = "sled_state_store", feature = "sled_cryptostore")),
+            not(any(
+                feature = "indexeddb_state_store",
+                feature = "sled_state_store",
+                feature = "sled_cryptostore"
+            )),
             allow(unused_variables)
         )]
         let config = config;
@@ -225,8 +229,9 @@ impl BaseClient {
         #[cfg(feature = "indexeddb_state_store")]
         let store = Store::open_default(
             config.name.clone(),
-            config.passphrase.as_deref().map(|p| p.as_str())
-        ).await?;
+            config.passphrase.as_deref().map(|p| p.as_str()),
+        )
+        .await?;
 
         #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
         let stores = Store::open_memory_store();
@@ -255,7 +260,10 @@ impl BaseClient {
         let store = stores;
         #[cfg(feature = "sled_state_store")]
         let store = stores.0;
-        #[cfg(all(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")), feature = "encryption"))]
+        #[cfg(all(
+            not(any(feature = "sled_state_store", feature = "indexeddb_state_store")),
+            feature = "encryption"
+        ))]
         let store = stores;
 
         Ok(BaseClient {

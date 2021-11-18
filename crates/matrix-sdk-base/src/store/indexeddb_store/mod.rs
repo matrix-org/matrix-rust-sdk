@@ -12,19 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::store_key;
-use indexed_db_futures::prelude::*;
-use wasm_bindgen::JsValue;
-use indexed_db_futures::web_sys::IdbKeyRange;
-
 #[allow(unused_imports)]
-use core::{
-     convert::{TryFrom, TryInto},
-};
+use core::convert::{TryFrom, TryInto};
 use std::collections::BTreeSet;
 
 use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
+use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
 use matrix_sdk_common::async_trait;
 use ruma::{
     events::{
@@ -38,9 +32,10 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsValue;
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
@@ -114,7 +109,12 @@ fn make_range(key: String) -> Result<IdbKeyRange, StoreError> {
     IdbKeyRange::bound(
         &JsValue::from_str(&format!("{}:", key)),
         &JsValue::from_str(&format!("{};", key)),
-    ).map_err(|e| StoreError::Codec(e.as_string().unwrap_or(format!("Creating key range for {:} failed", key))))
+    )
+    .map_err(|e| {
+        StoreError::Codec(
+            e.as_string().unwrap_or(format!("Creating key range for {:} failed", key)),
+        )
+    })
 }
 
 pub struct IndexeddbStore {
@@ -133,9 +133,7 @@ impl IndexeddbStore {
     async fn open_helper(name: String, store_key: Option<StoreKey>) -> Result<Self> {
         // Open my_db v1
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
-        db_req.set_on_upgrade_needed(Some(|evt: &
-            IdbVersionChangeEvent| -> Result<(), JsValue> {
-
+        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             if evt.old_version() < 1.0 {
                 // migrating to version 1
                 let db = evt.db();
@@ -164,18 +162,13 @@ impl IndexeddbStore {
                 db.create_object_store(KEYS::MEDIA)?;
 
                 db.create_object_store(KEYS::CUSTOM)?;
-
             }
             Ok(())
         }));
 
         let db: IdbDatabase = db_req.into_future().await?;
 
-        Ok(Self {
-            name,
-            inner: db,
-            store_key,
-        })
+        Ok(Self { name, inner: db, store_key })
     }
 
     pub async fn open() -> Result<Self> {
@@ -187,7 +180,6 @@ impl IndexeddbStore {
 
         let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&path, 1)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-
             if evt.old_version() < 1.0 {
                 // migrating to version 1
                 let db = evt.db();
@@ -199,9 +191,9 @@ impl IndexeddbStore {
 
         let db: IdbDatabase = db_req.into_future().await?;
 
-        let tx: IdbTransaction = db.transaction_on_one_with_mode(&path, IdbTransactionMode::Readwrite)?;
+        let tx: IdbTransaction =
+            db.transaction_on_one_with_mode(&path, IdbTransactionMode::Readwrite)?;
         let ob = tx.object_store("matrix-sdk-state")?;
-
 
         let store_key: Option<DatabaseType> = ob
             .get(&JsValue::from_str(KEYS::STORE_KEY))?
@@ -220,10 +212,12 @@ impl IndexeddbStore {
             let encrypted_key = DatabaseType::Encrypted(
                 key.export(passphrase).map_err::<StoreError, _>(|e| e.into())?,
             );
-            ob.put_key_val(&JsValue::from_str(KEYS::STORE_KEY), &JsValue::from_serde(&encrypted_key)?)?;
+            ob.put_key_val(
+                &JsValue::from_str(KEYS::STORE_KEY),
+                &JsValue::from_serde(&encrypted_key)?,
+            )?;
             key
         };
-
 
         tx.await.into_result()?;
 
@@ -237,7 +231,7 @@ impl IndexeddbStore {
     fn serialize_event(&self, event: &impl Serialize) -> Result<JsValue, SerializationError> {
         Ok(match self.store_key {
             Some(ref key) => JsValue::from_serde(&key.encrypt(event)?)?,
-            None => JsValue::from_serde(event)?
+            None => JsValue::from_serde(event)?,
         })
     }
 
@@ -249,20 +243,21 @@ impl IndexeddbStore {
             Some(ref key) => {
                 let encrypted: EncryptedEvent = event.into_serde()?;
                 Ok(key.decrypt(encrypted)?)
-            },
-            None => Ok(event.into_serde()?)
+            }
+            None => Ok(event.into_serde()?),
         }
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        let tx = self.inner
+        let tx = self
+            .inner
             .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readwrite)?;
 
         let obj = tx.object_store(KEYS::SESSION)?;
 
         obj.put_key_val(
             &JsValue::from_str(&format!("{}:{}", KEYS::FILTER, filter_name)),
-            &JsValue::from_str(filter_id)
+            &JsValue::from_str(filter_id),
         )?;
 
         tx.await.into_result()?;
@@ -271,8 +266,8 @@ impl IndexeddbStore {
     }
 
     pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
             .object_store(KEYS::SESSION)?
             .get(&JsValue::from_str(&format!("{}:{}", KEYS::FILTER, filter_name)))?
@@ -282,8 +277,8 @@ impl IndexeddbStore {
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
-
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
             .object_store(KEYS::SESSION)?
             .get(&JsValue::from_str(KEYS::SYNC_TOKEN))?
@@ -293,29 +288,33 @@ impl IndexeddbStore {
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        let mut stores : Vec<&'static str> = [
+        let mut stores: Vec<&'static str> = [
             (changes.sync_token.is_some(), KEYS::SYNC_TOKEN),
-            (changes.session.is_some(), KEYS::SESSION ),
-
-            (!changes.ambiguity_maps.is_empty() , KEYS::DISPLAY_NAMES ),
-            (!changes.account_data.is_empty() , KEYS::ACCOUNT_DATA ),
-            (!changes.presence.is_empty() , KEYS::PRESENCE ),
-            (!changes.profiles.is_empty() , KEYS::PROFILES ),
-            (!changes.state.is_empty() , KEYS::ROOM_STATE ),
-            (!changes.room_account_data.is_empty() , KEYS::ROOM_ACCOUNT_DATA ),
-            (!changes.room_infos.is_empty() , KEYS::ROOM_INFOS ),
-            (!changes.receipts.is_empty() , KEYS::ROOM_EVENT_RECEIPTS ),
-            (!changes.stripped_state.is_empty() , KEYS::STRIPPED_ROOM_STATE ),
-            (!changes.stripped_members.is_empty() , KEYS::STRIPPED_MEMBERS ),
-            (!changes.invited_room_info.is_empty() , KEYS::STRIPPED_ROOM_INFO ),
-        ].iter()
+            (changes.session.is_some(), KEYS::SESSION),
+            (!changes.ambiguity_maps.is_empty(), KEYS::DISPLAY_NAMES),
+            (!changes.account_data.is_empty(), KEYS::ACCOUNT_DATA),
+            (!changes.presence.is_empty(), KEYS::PRESENCE),
+            (!changes.profiles.is_empty(), KEYS::PROFILES),
+            (!changes.state.is_empty(), KEYS::ROOM_STATE),
+            (!changes.room_account_data.is_empty(), KEYS::ROOM_ACCOUNT_DATA),
+            (!changes.room_infos.is_empty(), KEYS::ROOM_INFOS),
+            (!changes.receipts.is_empty(), KEYS::ROOM_EVENT_RECEIPTS),
+            (!changes.stripped_state.is_empty(), KEYS::STRIPPED_ROOM_STATE),
+            (!changes.stripped_members.is_empty(), KEYS::STRIPPED_MEMBERS),
+            (!changes.invited_room_info.is_empty(), KEYS::STRIPPED_ROOM_INFO),
+        ]
+        .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
         .collect();
 
         if !changes.members.is_empty() {
-            stores.extend([KEYS::PROFILES, KEYS::MEMBERS, KEYS::INVITED_USER_IDS, KEYS::JOINED_USER_IDS])
+            stores.extend([
+                KEYS::PROFILES,
+                KEYS::MEMBERS,
+                KEYS::INVITED_USER_IDS,
+                KEYS::JOINED_USER_IDS,
+            ])
         }
-
 
         if !changes.receipts.is_empty() {
             stores.extend([KEYS::ROOM_EVENT_RECEIPTS, KEYS::ROOM_USER_RECEIPTS])
@@ -323,18 +322,16 @@ impl IndexeddbStore {
 
         if stores.len() == 0 {
             // nothing to do, quit early
-            return Ok(())
+            return Ok(());
         }
 
-        let tx = self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
+        let tx =
+            self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
         if let Some(s) = &changes.sync_token {
-            tx
-                .object_store(KEYS::SYNC_TOKEN)?
+            tx.object_store(KEYS::SYNC_TOKEN)?
                 .put_key_val(&JsValue::from_str(KEYS::SYNC_TOKEN), &self.serialize_event(s)?)?;
         }
-
-
 
         if !changes.ambiguity_maps.is_empty() {
             let store = tx.object_store(KEYS::DISPLAY_NAMES)?;
@@ -342,21 +339,17 @@ impl IndexeddbStore {
                 for (display_name, map) in ambiguity_maps {
                     let key = format!("{}:{}", room_id.as_str(), display_name);
 
-                    store.put_key_val(
-                        &JsValue::from_str(&key),
-                        &self.serialize_event(&map)?
-                    )?;
+                    store.put_key_val(&JsValue::from_str(&key), &self.serialize_event(&map)?)?;
                 }
             }
         }
-
 
         if !changes.account_data.is_empty() {
             let store = tx.object_store(KEYS::ACCOUNT_DATA)?;
             for (event_type, event) in &changes.account_data {
                 store.put_key_val(
                     &JsValue::from_str(event_type.as_str()),
-                    &self.serialize_event(&event)?
+                    &self.serialize_event(&event)?,
                 )?;
             }
         }
@@ -366,10 +359,7 @@ impl IndexeddbStore {
             for (room, events) in &changes.room_account_data {
                 for (event_type, event) in events {
                     let key = format!("{}:{}", room.as_str(), event_type.as_str());
-                    store.put_key_val(
-                        &JsValue::from_str(&key),
-                        &self.serialize_event(&event)?
-                    )?;
+                    store.put_key_val(&JsValue::from_str(&key), &self.serialize_event(&event)?)?;
                 }
             }
         }
@@ -379,10 +369,15 @@ impl IndexeddbStore {
             for (room, event_types) in &changes.state {
                 for (event_type, events) in event_types {
                     for (state_key, event) in events {
-                        let key = format!("{}:{}:{}", room.as_str(), event_type.as_str(), state_key.as_str());
+                        let key = format!(
+                            "{}:{}:{}",
+                            room.as_str(),
+                            event_type.as_str(),
+                            state_key.as_str()
+                        );
                         store.put_key_val(
                             &JsValue::from_str(&key),
-                            &self.serialize_event(&event)?
+                            &self.serialize_event(&event)?,
                         )?;
                     }
                 }
@@ -394,7 +389,7 @@ impl IndexeddbStore {
             for (room_id, room_info) in &changes.room_infos {
                 store.put_key_val(
                     &JsValue::from_str(room_id.as_str()),
-                    &self.serialize_event(&room_info)?
+                    &self.serialize_event(&room_info)?,
                 )?;
             }
         }
@@ -404,7 +399,7 @@ impl IndexeddbStore {
             for (sender, event) in &changes.presence {
                 store.put_key_val(
                     &JsValue::from_str(sender.as_str()),
-                    &self.serialize_event(&event)?
+                    &self.serialize_event(&event)?,
                 )?;
             }
         }
@@ -414,7 +409,7 @@ impl IndexeddbStore {
             for (room_id, info) in &changes.invited_room_info {
                 store.put_key_val(
                     &JsValue::from_str(room_id.as_str()),
-                    &self.serialize_event(&info)?
+                    &self.serialize_event(&info)?,
                 )?;
             }
         }
@@ -424,10 +419,7 @@ impl IndexeddbStore {
             for (room, events) in &changes.stripped_members {
                 for event in events.values() {
                     let key = format!("{}:{}", room.as_str(), event.state_key.as_str());
-                    store.put_key_val(
-                        &JsValue::from_str(&key),
-                        &self.serialize_event(&event)?
-                    )?;
+                    store.put_key_val(&JsValue::from_str(&key), &self.serialize_event(&event)?)?;
                 }
             }
         }
@@ -437,10 +429,15 @@ impl IndexeddbStore {
             for (room, event_types) in &changes.stripped_state {
                 for (event_type, events) in event_types {
                     for (state_key, event) in events {
-                        let key = format!("{}:{}:{}", room.as_str(), event_type.as_str(), state_key.as_str());
+                        let key = format!(
+                            "{}:{}:{}",
+                            room.as_str(),
+                            event_type.as_str(),
+                            state_key.as_str()
+                        );
                         store.put_key_val(
                             &JsValue::from_str(&key),
-                            &self.serialize_event(&event)?
+                            &self.serialize_event(&event)?,
                         )?;
                     }
                 }
@@ -457,15 +454,25 @@ impl IndexeddbStore {
                 let members = tx.object_store(KEYS::MEMBERS)?;
 
                 for event in events.values() {
-                    let key = JsValue::from_str(&format!("{}:{}", room.as_str(), event.state_key.as_str()));
+                    let key = JsValue::from_str(&format!(
+                        "{}:{}",
+                        room.as_str(),
+                        event.state_key.as_str()
+                    ));
 
                     match event.content.membership {
                         MembershipState::Join => {
-                            joined.put_key_val_owned(&key, &JsValue::from_str(event.state_key.as_str()))?;
+                            joined.put_key_val_owned(
+                                &key,
+                                &JsValue::from_str(event.state_key.as_str()),
+                            )?;
                             invited.delete(&key)?;
                         }
                         MembershipState::Invite => {
-                            invited.put_key_val_owned(&key, &JsValue::from_str(event.state_key.as_str()))?;
+                            invited.put_key_val_owned(
+                                &key,
+                                &JsValue::from_str(event.state_key.as_str()),
+                            )?;
                             joined.delete(&key)?;
                         }
                         _ => {
@@ -491,9 +498,12 @@ impl IndexeddbStore {
                 for (event_id, receipts) in &content.0 {
                     for (receipt_type, receipts) in receipts {
                         for (user_id, receipt) in receipts {
-
-                            let key = JsValue::from_str(&format!("{}:{}:{}",
-                                room.as_str(), receipt_type.as_str(), user_id.as_str()));
+                            let key = JsValue::from_str(&format!(
+                                "{}:{}:{}",
+                                room.as_str(),
+                                receipt_type.as_str(),
+                                user_id.as_str()
+                            ));
 
                             if let Some((old_event, _)) = room_user_receipts
                                 .get(&key)?
@@ -501,7 +511,8 @@ impl IndexeddbStore {
                                 .map(|f| self.deserialize_event::<(EventId, Receipt)>(f).ok())
                                 .flatten()
                             {
-                                room_event_receipts.delete(&JsValue::from_str(&format!("{}:{}:{}:{}",
+                                room_event_receipts.delete(&JsValue::from_str(&format!(
+                                    "{}:{}:{}:{}",
                                     room.as_str(),
                                     receipt_type.as_ref(),
                                     old_event.as_str(),
@@ -509,19 +520,19 @@ impl IndexeddbStore {
                                 )))?;
                             }
 
-                            room_user_receipts.put_key_val(&key, &self.serialize_event(&(event_id, receipt))?)?;
+                            room_user_receipts
+                                .put_key_val(&key, &self.serialize_event(&(event_id, receipt))?)?;
 
                             // Add the receipt to the room event receipts
                             room_event_receipts.put_key_val(
-                                &JsValue::from_str(
-                                    &format!("{}:{}:{}:{}",
-                                        room.as_str(),
-                                        receipt_type.as_ref(),
-                                        event_id.as_str(),
-                                        user_id.as_str(),
-                                    )
-                                ),
-                                &self.serialize_event(&receipt)?
+                                &JsValue::from_str(&format!(
+                                    "{}:{}:{}:{}",
+                                    room.as_str(),
+                                    receipt_type.as_ref(),
+                                    event_id.as_str(),
+                                    user_id.as_str(),
+                                )),
+                                &self.serialize_event(&receipt)?,
                             )?;
                         }
                     }
@@ -532,9 +543,9 @@ impl IndexeddbStore {
         tx.await.into_result().map_err::<StoreError, _>(|e| e.into())
     }
 
-
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::PRESENCE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PRESENCE)?
             .get(&JsValue::from_str(user_id.as_str()))?
@@ -549,10 +560,16 @@ impl IndexeddbStore {
         event_type: EventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_STATE)?
-            .get(&JsValue::from_str(&format!("{}:{}:{}", room_id.as_str(), event_type.as_str(), state_key)))?
+            .get(&JsValue::from_str(&format!(
+                "{}:{}:{}",
+                room_id.as_str(),
+                event_type.as_str(),
+                state_key
+            )))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()?)
@@ -564,7 +581,8 @@ impl IndexeddbStore {
         event_type: EventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         let range = make_range(format!("{}:{}", room_id.as_str(), event_type.as_str()))?;
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_STATE)?
             .get_all_with_key(&range)?
@@ -579,7 +597,8 @@ impl IndexeddbStore {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<RoomMemberEventContent>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::PROFILES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PROFILES)?
             .get(&JsValue::from_str(&format!("{}:{}", room_id.as_str(), user_id.as_str())))?
@@ -593,7 +612,8 @@ impl IndexeddbStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
             .get(&JsValue::from_str(&format!("{}:{}", room_id.as_str(), state_key.as_str())))?
@@ -608,7 +628,8 @@ impl IndexeddbStore {
     ) -> Result<impl Stream<Item = Result<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
         let skip = room_id.as_str().len() + 1;
-        let entries = self.inner
+        let entries = self
+            .inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
             .get_all_keys_with_key(&range)?
@@ -616,7 +637,8 @@ impl IndexeddbStore {
             .iter()
             .map(|key| {
                 if let Some(k) = key.as_string() {
-                    UserId::try_from(k[skip..].to_owned()).map_err(|e| StoreError::Codec(e.to_string()))
+                    UserId::try_from(k[skip..].to_owned())
+                        .map_err(|e| StoreError::Codec(e.to_string()))
                 } else {
                     Err(StoreError::Codec(format!("{:?}", key)))
                 }
@@ -631,7 +653,8 @@ impl IndexeddbStore {
         room_id: &RoomId,
     ) -> Result<impl Stream<Item = Result<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
-        let entries = self.inner
+        let entries = self
+            .inner
             .transaction_on_one_with_mode(KEYS::INVITED_USER_IDS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::INVITED_USER_IDS)?
             .get_all_with_key(&range)?
@@ -648,7 +671,8 @@ impl IndexeddbStore {
         room_id: &RoomId,
     ) -> Result<impl Stream<Item = Result<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
-        let entries = self.inner
+        let entries = self
+            .inner
             .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::JOINED_USER_IDS)?
             .get_all_with_key(&range)?
@@ -661,7 +685,8 @@ impl IndexeddbStore {
     }
 
     pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
-        let entries: Vec<_> = self.inner
+        let entries: Vec<_> = self
+            .inner
             .transaction_on_one_with_mode(KEYS::ROOM_INFOS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_INFOS)?
             .get_all()?
@@ -674,7 +699,8 @@ impl IndexeddbStore {
     }
 
     pub async fn get_stripped_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
-        let entries = self.inner
+        let entries = self
+            .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_ROOM_INFO, IdbTransactionMode::Readonly)?
             .object_store(KEYS::STRIPPED_ROOM_INFO)?
             .get_all()?
@@ -691,9 +717,9 @@ impl IndexeddbStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>> {
-
         let range = make_range(format!("{}:{}", room_id.as_str(), display_name))?;
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::JOINED_USER_IDS)?
             .get_all_with_key(&range)?
@@ -707,7 +733,8 @@ impl IndexeddbStore {
         &self,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ACCOUNT_DATA)?
             .get(&JsValue::from_str(event_type.as_str()))?
@@ -721,7 +748,8 @@ impl IndexeddbStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::ROOM_ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
             .get(&JsValue::from_str(&format!("{}:{}", room_id.as_str(), event_type)))?
@@ -736,10 +764,16 @@ impl IndexeddbStore {
         receipt_type: ReceiptType,
         user_id: &UserId,
     ) -> Result<Option<(EventId, Receipt)>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::ROOM_USER_RECEIPTS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_USER_RECEIPTS)?
-            .get(&JsValue::from_str(&format!("{}:{}:{}", room_id.as_str(), receipt_type.as_ref(), user_id.as_str())))?
+            .get(&JsValue::from_str(&format!(
+                "{}:{}:{}",
+                room_id.as_str(),
+                receipt_type.as_ref(),
+                user_id.as_str()
+            )))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()?)
@@ -754,25 +788,25 @@ impl IndexeddbStore {
         let key = format!("{}:{}:{}", room_id.as_str(), receipt_type.as_ref(), event_id.as_str());
         let prefix_len = key.len() + 1;
         let range = make_range(key)?;
-        let tx = self.inner
-            .transaction_on_one_with_mode(KEYS::ROOM_EVENT_RECEIPTS, IdbTransactionMode::Readonly)?;
+        let tx = self.inner.transaction_on_one_with_mode(
+            KEYS::ROOM_EVENT_RECEIPTS,
+            IdbTransactionMode::Readonly,
+        )?;
         let store = tx.object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
 
         let mut all = Vec::new();
-        for k in store
-            .get_all_keys_with_key(&range)?
-            .await?
-            .iter()
-        {
+        for k in store.get_all_keys_with_key(&range)?.await?.iter() {
             // FIXME: we should probably parallize this...
-            let res = store.get(&k)?.await?.ok_or(StoreError::Codec(format!("no data at {:?}", k)))?;
+            let res =
+                store.get(&k)?.await?.ok_or(StoreError::Codec(format!("no data at {:?}", k)))?;
             let u = if let Some(k_str) = k.as_string() {
                 UserId::try_from(k_str[prefix_len..].to_owned())
                     .map_err(|e| StoreError::Codec(e.to_string()))?
             } else {
-                return Err(StoreError::Codec(format!("{:?}", k)))
+                return Err(StoreError::Codec(format!("{:?}", k)));
             };
-            let r = self.deserialize_event::<Receipt>(res)
+            let r = self
+                .deserialize_event::<Receipt>(res)
                 .map_err(|e| StoreError::Codec(e.to_string()))?;
             all.push((u, r));
         }
@@ -780,10 +814,13 @@ impl IndexeddbStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        let key = format!("{}:{}",
-            request.media_type.unique_key().as_str(), request.format.unique_key().as_str());
-        let tx = self.inner
-            .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
+        let key = format!(
+            "{}:{}",
+            request.media_type.unique_key().as_str(),
+            request.format.unique_key().as_str()
+        );
+        let tx =
+            self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
         tx.object_store(KEYS::MEDIA)?
             .put_key_val(&JsValue::from_str(&key), &self.serialize_event(&data)?)?;
@@ -792,9 +829,13 @@ impl IndexeddbStore {
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let key = format!("{}:{}",
-            request.media_type.unique_key().as_str(), request.format.unique_key().as_str());
-        Ok(self.inner
+        let key = format!(
+            "{}:{}",
+            request.media_type.unique_key().as_str(),
+            request.format.unique_key().as_str()
+        );
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEDIA)?
             .get(&JsValue::from_str(&key))?
@@ -805,12 +846,14 @@ impl IndexeddbStore {
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let jskey = &JsValue::from_str(
-                core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?);
+            core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?,
+        );
         self.get_custom_value_for_js(&jskey).await
     }
 
     async fn get_custom_value_for_js(&self, jskey: &JsValue) -> Result<Option<Vec<u8>>> {
-        Ok(self.inner
+        Ok(self
+            .inner
             .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readonly)?
             .object_store(KEYS::CUSTOM)?
             .get(jskey)?
@@ -821,25 +864,28 @@ impl IndexeddbStore {
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let jskey = JsValue::from_str(
-                core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?);
+            core::str::from_utf8(key).map_err(|e| StoreError::Codec(format!("{:}", e)))?,
+        );
 
         let prev = self.get_custom_value_for_js(&jskey).await?;
 
-        let tx = self.inner
-            .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
+        let tx =
+            self.inner.transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readwrite)?;
 
-        tx.object_store(KEYS::CUSTOM)?
-            .put_key_val(&jskey, &self.serialize_event(&value)?)?;
+        tx.object_store(KEYS::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
 
         tx.await.into_result().map_err::<StoreError, _>(|e| e.into())?;
         Ok(prev)
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        let key = format!("{}:{}",
-            request.media_type.unique_key().as_str(), request.format.unique_key().as_str());
-        let tx = self.inner
-            .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
+        let key = format!(
+            "{}:{}",
+            request.media_type.unique_key().as_str(),
+            request.format.unique_key().as_str()
+        );
+        let tx =
+            self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
         tx.object_store(KEYS::MEDIA)?.delete(&JsValue::from_str(&key))?;
 
@@ -848,8 +894,8 @@ impl IndexeddbStore {
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         let range = make_range(uri.as_str().to_string())?;
-        let tx = self.inner
-            .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
+        let tx =
+            self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
         let store = tx.object_store(KEYS::MEDIA)?;
 
         for k in store.get_all_keys_with_key(&range)?.await?.iter() {
@@ -1029,8 +1075,7 @@ mod test {
     };
     use serde_json::json;
 
-    use super::{Result, IndexeddbStore, StateChanges};
-
+    use super::{IndexeddbStore, Result, StateChanges};
     use crate::{
         deserialized_responses::MemberEvent,
         media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},

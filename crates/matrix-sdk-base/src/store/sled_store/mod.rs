@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::store_key;
-
 use std::{
     collections::BTreeSet,
     convert::{TryFrom, TryInto},
@@ -45,7 +43,7 @@ use tokio::task::spawn_blocking;
 use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},

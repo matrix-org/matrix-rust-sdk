@@ -593,14 +593,14 @@ impl StateStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::r0::media::get_content_thumbnail::Method, event_id, mxc_uri,
         receipt::ReceiptType, room_id, uint, user_id, UserId,
     };
     use serde_json::json;
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::{MemoryStore, StateChanges};
     use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
