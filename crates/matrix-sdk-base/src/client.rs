@@ -84,12 +84,12 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
+    #[allow(dead_code)]
+    store_path: Option<PathBuf>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
-    #[cfg(feature = "sled_state_store")]
-    store_path: Option<PathBuf>,
     #[cfg(feature = "sled_cryptostore")]
     store_passphrase: Arc<Option<Zeroizing<String>>>,
 }
@@ -119,10 +119,9 @@ impl fmt::Debug for BaseClient {
 pub struct BaseClientConfig {
     #[cfg(feature = "encryption")]
     crypto_store: Option<Box<dyn CryptoStore>>,
-    #[cfg(feature = "sled_state_store")]
-    store_path: Option<PathBuf>,
     #[cfg(feature = "indexeddb_state_store")]
     name: String,
+    store_path: Option<PathBuf>,
     passphrase: Option<Zeroizing<String>>,
 }
 
@@ -171,7 +170,6 @@ impl BaseClientConfig {
     /// implementations for the crypto store and the state store. It will use
     /// the given path to open the stores. If no path is provided no store will
     /// be opened
-    #[cfg(feature = "sled_state_store")]
     pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.store_path = Some(path.as_ref().into());
         self
@@ -269,13 +267,12 @@ impl BaseClient {
         Ok(BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
+            store_path: config.store_path,
             store,
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
             cryptostore: Mutex::new(crypto_store).into(),
-            #[cfg(feature = "sled_cryptostore")]
-            store_path: config.store_path,
             #[cfg(feature = "sled_cryptostore")]
             store_passphrase: config.passphrase.into(),
         })

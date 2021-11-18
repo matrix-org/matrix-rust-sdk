@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[allow(unused_imports)]
 use std::{
     fmt::{self, Debug},
     path::Path,
@@ -128,7 +129,6 @@ impl ClientConfig {
     /// implementations for the crypto store and the state store. It will use
     /// the given path to open the stores. If no path is provided no store will
     /// be opened
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn store_path(mut self, path: impl AsRef<Path>) -> Self {
         self.base_config = self.base_config.store_path(path);
         self

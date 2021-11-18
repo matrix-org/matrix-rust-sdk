@@ -2428,7 +2428,7 @@ pub(crate) mod test {
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
         client.restore_login(session).await.unwrap();
 
         client
@@ -2438,7 +2438,7 @@ pub(crate) mod test {
     async fn set_homeserver() {
         let homeserver = Url::from_str("http://example.com/").unwrap();
 
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
@@ -2493,7 +2493,7 @@ pub(crate) mod test {
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let client = Client::new(homeserver.clone()).unwrap();
+        let client = Client::new(homeserver.clone()).await.unwrap();
 
         let _m_types = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2527,7 +2527,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
 
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2547,7 +2547,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
 
-        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
+        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2604,7 +2604,7 @@ pub(crate) mod test {
     async fn login_with_sso_token() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2646,6 +2646,7 @@ pub(crate) mod test {
         assert!(client.devices().await.is_ok());
     }
 
+
     #[tokio::test]
     async fn test_join_leave_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
@@ -2675,7 +2676,7 @@ pub(crate) mod test {
         let config = ClientConfig::default()
             .store_path(path)
             .request_config(RequestConfig::new().disable_retry());
-        let joined_client = Client::new_with_config(homeserver, config).unwrap();
+        let joined_client = Client::new_with_config(homeserver, config).await.unwrap();
         joined_client.restore_login(session).await.unwrap();
 
         // joined room reloaded from state store
@@ -2737,7 +2738,7 @@ pub(crate) mod test {
     async fn login_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
@@ -2766,7 +2767,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn register_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_string()))
             .with_status(403)
@@ -2910,7 +2911,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn room_search_all() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()))
             .with_status(200)
@@ -3405,7 +3406,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn delete_devices() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/delete_devices")
             .with_status(401)
@@ -3460,7 +3461,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
         assert!(config.request_config.retry_limit.unwrap() == 3);
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
@@ -3479,7 +3480,7 @@ pub(crate) mod test {
         let config = ClientConfig::default()
             .request_config(RequestConfig::new().retry_timeout(retry_timeout));
         assert!(config.request_config.retry_timeout.unwrap() == retry_timeout);
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
@@ -3496,7 +3497,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
         assert!(config.request_config.retry_limit.unwrap() == 0);
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).create();
 
@@ -3664,7 +3665,7 @@ pub(crate) mod test {
             .create();
 
         let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
-        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
+        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
         client.restore_login(session.clone()).await.unwrap();
 
         let room = client.get_joined_room(&room_id);
