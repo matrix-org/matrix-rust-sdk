@@ -55,6 +55,7 @@ mod http_client;
 pub mod room;
 /// High-level room API
 mod room_member;
+mod sync;
 
 #[cfg(feature = "encryption")]
 pub mod encryption;
