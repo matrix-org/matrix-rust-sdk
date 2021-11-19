@@ -170,7 +170,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.typing_notice(true).await?
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn typing_notice(&self, typing: bool) -> Result<()> {
         // Only send a request to the homeserver if the old timeout has elapsed
@@ -278,7 +278,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.enable_encryption().await?
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn enable_encryption(&self) -> Result<()> {
         use ruma::{
@@ -449,7 +449,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send(content, Some(txn_id)).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
@@ -517,7 +517,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_raw(content, "m.room.message", None).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
@@ -631,7 +631,7 @@ impl Joined {
     ///         None,
     ///     ).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn send_attachment<R: Read>(
         &self,
@@ -698,7 +698,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event(content, "").await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn send_state_event(
         &self,
@@ -791,7 +791,7 @@ impl Joined {
     ///     let reason = Some("Indecent material");
     ///     room.redact(&event_id, reason, None).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn redact(
         &self,
@@ -834,7 +834,7 @@ impl Joined {
     ///
     ///     room.set_tag("u.work", tag_info ).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> HttpResult<create_tag::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;

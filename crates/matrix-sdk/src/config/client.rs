@@ -89,7 +89,7 @@ impl ClientConfig {
     /// let client_config = ClientConfig::new()
     ///     .proxy("http://localhost:8080")?;
     ///
-    /// # matrix_sdk::Result::Ok(())
+    /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self, proxy: &str) -> Result<Self> {
@@ -104,7 +104,7 @@ impl ClientConfig {
     }
 
     /// Set a custom HTTP user agent for the client.
-    pub fn user_agent(mut self, user_agent: &str) -> std::result::Result<Self, InvalidHeaderValue> {
+    pub fn user_agent(mut self, user_agent: &str) -> Result<Self, InvalidHeaderValue> {
         self.user_agent = Some(HeaderValue::from_str(user_agent)?);
         Ok(self)
     }

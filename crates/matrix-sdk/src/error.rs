@@ -40,7 +40,7 @@ use thiserror::Error;
 use url::ParseError as UrlParseError;
 
 /// Result type of the matrix-sdk.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Result type of a pure HTTP request.
 pub type HttpResult<T> = std::result::Result<T, HttpError>;

@@ -230,7 +230,7 @@ impl Client {
     ///
     /// // Finally let's try to login.
     /// client.login(alice, "password", None, None).await?;
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
@@ -866,7 +866,7 @@ impl Client {
     ///     "Logged in as {}, got device_id {} and access_token {}",
     ///     user, response.device_id, response.access_token
     /// );
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
@@ -1528,7 +1528,7 @@ impl Client {
     /// for room in response.chunk {
     ///     println!("Found room {:?}", room);
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn public_rooms_filtered(
         &self,
@@ -1628,7 +1628,7 @@ impl Client {
     ///
     /// // Check the corresponding Response struct to find out what types are
     /// // returned
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn send<Request>(
         &self,
@@ -1663,7 +1663,7 @@ impl Client {
     ///         device.display_name.as_deref().unwrap_or("")
     ///     );
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn devices(&self) -> HttpResult<get_devices::Response> {
         let request = get_devices::Request::new();
@@ -1716,7 +1716,7 @@ impl Client {
     ///             .await?;
     ///     }
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     pub async fn delete_devices(
         &self,
         devices: &[DeviceIdBox],
@@ -1805,7 +1805,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
     /// client.sync(SyncSettings::default()).await;
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`sync`]: #method.sync
@@ -1896,7 +1896,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
     /// client.sync(SyncSettings::default()).await;
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [argument docs]: #method.sync_once
@@ -2025,7 +2025,7 @@ impl Client {
     ///     }
     /// }
     ///
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     #[instrument]
     pub async fn sync_stream<'a>(
