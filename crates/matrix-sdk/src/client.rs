@@ -34,7 +34,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{
     instant::{Duration, Instant},
-    locks::{Mutex, RwLock},
+    locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
 use ruma::{
@@ -125,9 +125,9 @@ pub struct Client {
     pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
     pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
     /// Event handlers. See `register_event_handler`.
-    pub(crate) event_handlers: Arc<RwLock<EventHandlerMap>>,
+    event_handlers: Arc<RwLock<EventHandlerMap>>,
     /// Custom event handler context. See `register_event_handler_context`.
-    pub(crate) event_handler_data: Arc<StdRwLock<AnyMap>>,
+    event_handler_data: Arc<StdRwLock<AnyMap>>,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: Arc<RwLock<Vec<NotificationHandlerFn>>>,
     /// Whether the client should operate in application service style mode.
@@ -637,6 +637,10 @@ impl Client {
         self
     }
 
+    pub(crate) async fn event_handlers(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
+        self.event_handlers.read().await
+    }
+
     /// Add an arbitrary value for use as event handler context.
     ///
     /// The value can be obtained in an event handler by adding an argument of
@@ -680,6 +684,14 @@ impl Client {
     {
         self.event_handler_data.write().unwrap().insert(ctx);
         self
+    }
+
+    pub(crate) fn event_handler_context<T>(&self) -> Option<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let map = self.event_handler_data.read().unwrap();
+        map.get::<T>().cloned()
     }
 
     /// Register a handler for a notification.

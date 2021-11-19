@@ -186,8 +186,7 @@ pub struct Ctx<T>(pub T);
 
 impl<T: Clone + Send + Sync + 'static> EventHandlerContext for Ctx<T> {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        let anymap = data.client.event_handler_data.read().unwrap();
-        Some(Ctx(anymap.get::<T>()?.clone()))
+        data.client.event_handler_context::<T>().map(Ctx)
     }
 }
 
@@ -330,8 +329,7 @@ impl Client {
 
             // Construct event handler futures
             let futures: Vec<_> = self
-                .event_handlers
-                .read()
+                .event_handlers()
                 .await
                 .get(&event_handler_id)
                 .into_iter()
