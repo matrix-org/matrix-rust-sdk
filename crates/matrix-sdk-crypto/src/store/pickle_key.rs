@@ -74,7 +74,7 @@ pub struct EncryptedPickleKey {
 /// Olm uses AES256 to encrypt accounts, sessions, inbound group sessions. We
 /// also implement our own pickling for the cross-signing types using
 /// AES256-GCM so the key sizes match.
-#[derive(Debug, Zeroize, PartialEq)]
+#[derive(Debug, Zeroize, Serialize, Deserialize, PartialEq)]
 pub struct PickleKey {
     aes256_key: Vec<u8>,
 }

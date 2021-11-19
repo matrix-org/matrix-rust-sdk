@@ -233,7 +233,7 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     Ok(String::from_utf8(ciphertext.to_owned())?)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use std::io::Cursor;
 

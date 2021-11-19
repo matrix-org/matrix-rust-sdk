@@ -135,7 +135,7 @@ mod test {
     use super::EncryptionSettings;
     use crate::{MegolmError, ReadOnlyAccount};
 
-    #[tokio::test]
+    #[async_test]
     #[cfg(target_os = "linux")]
     async fn expiration() -> Result<(), MegolmError> {
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };

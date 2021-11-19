@@ -59,6 +59,9 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use matrix_sdk_test::async_test;
     use std::{collections::BTreeMap, convert::TryInto};
 
     use matches::assert_matches;
@@ -129,7 +132,7 @@ pub(crate) mod test {
         assert!(account.shared());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn one_time_keys_creation() {
         let account = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let one_time_keys = account.one_time_keys().await;
@@ -153,7 +156,7 @@ pub(crate) mod test {
         assert!(one_time_keys.curve25519().is_empty());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn session_creation() {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
@@ -194,7 +197,7 @@ pub(crate) mod test {
         assert_eq!(plaintext, decyrpted);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn group_session_creation() {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
@@ -225,8 +228,8 @@ pub(crate) mod test {
         assert_eq!(plaintext, inbound.decrypt_helper(ciphertext).await.unwrap().0);
     }
 
-    #[tokio::test]
-    async fn edit_decryption() -> Result<(), MegolmError> {
+    #[async_test]
+    async fn edit_decryption() {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
@@ -250,19 +253,19 @@ pub(crate) mod test {
             &room_id,
             outbound.session_key().await,
             None,
-        )?;
+        ).unwrap();
 
         assert_eq!(0, inbound.first_known_index());
 
         assert_eq!(outbound.session_id(), inbound.session_id());
 
         let encrypted_content =
-            outbound.encrypt(serde_json::to_value(content)?, "m.room.message").await;
+            outbound.encrypt(serde_json::to_value(content).unwrap(), "m.room.message").await;
 
         let event = json!({
             "sender": alice.user_id(),
             "event_id": event_id,
-            "origin_server_ts": 0,
+            "origin_server_ts": 0u64,
             "room_id": room_id,
             "type": "m.room.encrypted",
             "content": encrypted_content,
@@ -278,20 +281,18 @@ pub(crate) mod test {
                 panic!("Invalid event type")
             };
 
-        let decrypted = inbound.decrypt(&event).await?.0;
+        let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
         if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(e)) =
-            decrypted.deserialize()?
+            decrypted.deserialize().unwrap()
         {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {
             panic!("Invalid event type")
         }
-
-        Ok(())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn group_session_export() {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");

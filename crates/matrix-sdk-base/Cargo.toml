@@ -19,9 +19,12 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 default = []
 encryption = ["matrix-sdk-crypto"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
+
 sled_state_store = ["sled", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
-indexeddb_state_store = ["indexed_db_futures", "wasm-bindgen", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
 sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
+
+indexeddb_state_store = ["indexed_db_futures", "wasm-bindgen", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
+indexeddb_cryptostore = ["matrix-sdk-crypto/indexeddb_cryptostore"]
 
 docs = ["encryption", "sled_cryptostore"]
 

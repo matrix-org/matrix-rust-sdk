@@ -461,6 +461,8 @@ impl IdentityManager {
 
 #[cfg(test)]
 pub(crate) mod test {
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
     use std::sync::Arc;
 
     use matrix_sdk_common::locks::Mutex;

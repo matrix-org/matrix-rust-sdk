@@ -583,6 +583,10 @@ mod test {
     };
     use serde_json::Value;
 
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use matrix_sdk_test::async_test;
+
     use crate::{EncryptionSettings, OlmMachine};
 
     fn alice_id() -> UserId {
@@ -622,7 +626,7 @@ mod test {
         machine
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_sharing() {
         let machine = machine().await;
         let room_id = room_id!("!test:localhost");

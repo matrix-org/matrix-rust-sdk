@@ -651,18 +651,18 @@ impl OlmMachine {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) async fn create_inbound_session(
-        &self,
-        room_id: &RoomId,
-    ) -> OlmResult<InboundGroupSession> {
-        let (_, session) = self
-            .group_session_manager
-            .create_outbound_group_session(room_id, EncryptionSettings::default())
-            .await?;
+    // #[cfg(test)]
+    // pub(crate) async fn create_inbound_session(
+    //     &self,
+    //     room_id: &RoomId,
+    // ) -> OlmResult<InboundGroupSession> {
+    //     let (_, session) = self
+    //         .group_session_manager
+    //         .create_outbound_group_session(room_id, EncryptionSettings::default())
+    //         .await?;
 
-        Ok(session)
-    }
+    //     Ok(session)
+    // }
 
     /// Encrypt a room message for the given room.
     ///
@@ -1459,6 +1459,10 @@ impl OlmMachine {
 pub(crate) mod test {
     static USER_ID: &str = "@bob:example.org";
 
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use matrix_sdk_test::async_test;
+
     use std::{
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
@@ -1616,13 +1620,13 @@ pub(crate) mod test {
         (alice, bob)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn create_olm_machine() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         assert!(machine.should_upload_keys().await);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn receive_keys_upload_response() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         let mut response = keys_upload_response();
@@ -1646,7 +1650,7 @@ pub(crate) mod test {
         assert!(!machine.should_upload_keys().await);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn generate_one_time_keys() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
@@ -1663,7 +1667,7 @@ pub(crate) mod test {
         assert!(machine.account.generate_one_time_keys().await.is_err());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_device_key_signing() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
@@ -1681,7 +1685,7 @@ pub(crate) mod test {
         assert!(ret.is_ok());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn tests_session_invalidation() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         let room_id = room_id!("!test:example.org");
@@ -1698,7 +1702,7 @@ pub(crate) mod test {
             .invalidated());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_invalid_signature() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
@@ -1714,7 +1718,7 @@ pub(crate) mod test {
         assert!(ret.is_err());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_one_time_key_signing() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.account.inner.update_uploaded_key_count(49);
@@ -1735,7 +1739,7 @@ pub(crate) mod test {
         assert!(ret.is_ok());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_keys_for_upload() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.account.inner.update_uploaded_key_count(0);
@@ -1776,7 +1780,7 @@ pub(crate) mod test {
         assert!(ret.is_none());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_keys_query() {
         let (machine, _) = get_prepared_machine().await;
         let response = keys_query_response();
@@ -1793,7 +1797,7 @@ pub(crate) mod test {
         assert_eq!(device.device_id(), alice_device_id);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_missing_sessions_calculation() {
         let (machine, _) = get_machine_after_query().await;
 
@@ -1808,7 +1812,7 @@ pub(crate) mod test {
         assert!(user_sessions.contains_key(&alice_device));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_session_creation() {
         let (alice_machine, bob_machine, one_time_keys) = get_machine_pair().await;
 
@@ -1836,7 +1840,7 @@ pub(crate) mod test {
         assert!(!session.lock().await.is_empty())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_olm_encryption() {
         let (alice, bob) = get_machine_pair_with_session().await;
 
@@ -1860,7 +1864,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_room_key_sharing() {
         let (alice, bob) = get_machine_pair_with_session().await;
 
@@ -1911,7 +1915,7 @@ pub(crate) mod test {
         assert!(session.unwrap().is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_megolm_encryption() {
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
         let room_id = room_id!("!test:example.org");
@@ -1971,7 +1975,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     #[cfg(feature = "sled_cryptostore")]
     async fn test_machine_with_default_store() {
         use tempfile::tempdir;
@@ -2009,7 +2013,7 @@ pub(crate) mod test {
         assert_eq!(ed25519_key, machine.identity_keys().ed25519());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn interactive_verification() {
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
 

@@ -42,6 +42,8 @@ mod memorystore;
 mod pickle_key;
 #[cfg(feature = "sled_cryptostore")]
 pub(crate) mod sled;
+#[cfg(feature = "indexeddb_cryptostore")]
+pub(crate) mod indexeddb;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -67,6 +69,11 @@ use zeroize::Zeroize;
 
 #[cfg(feature = "sled_cryptostore")]
 pub use self::sled::SledStore;
+#[cfg(feature = "indexeddb_cryptostore")]
+pub use self::indexeddb::IndexeddbStore;
+#[cfg(feature = "indexeddb_cryptostore")]
+use indexed_db_futures::web_sys::DomException;
+
 use crate::{
     error::SessionUnpicklingError,
     identities::{
@@ -520,6 +527,18 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     Database(#[from] sled::Error),
 
+    /// Error in the internal database
+    #[cfg(feature = "indexeddb_cryptostore")]
+    #[error("IndexDB error: {name} ({code}): {message}")]
+    IndexedDatabase {
+        /// DomException code
+        code: u16,
+        /// Specific name of the DomException
+        name: String,
+        /// Message given to the DomException
+        message: String,
+    },
+
     /// An IO error occurred.
     #[error(transparent)]
     Io(#[from] IoError),
@@ -551,6 +570,14 @@ pub enum CryptoStoreError {
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]
     Serialization(#[from] SerdeError),
+}
+
+
+#[cfg(feature = "indexeddb_cryptostore")]
+impl From<DomException> for CryptoStoreError {
+    fn from(frm: DomException) -> CryptoStoreError {
+        CryptoStoreError::IndexedDatabase { name: frm.name(), message: frm.message(), code: frm.code() }
+    }
 }
 
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic

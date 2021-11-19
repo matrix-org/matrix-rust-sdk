@@ -540,7 +540,7 @@ fn bytes_to_decimal(bytes: Vec<u8>) -> (u16, u16, u16) {
     (first + 1000, second + 1000, third + 1000)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use proptest::prelude::*;
     use ruma::events::key::verification::start::ToDeviceKeyVerificationStartEventContent;

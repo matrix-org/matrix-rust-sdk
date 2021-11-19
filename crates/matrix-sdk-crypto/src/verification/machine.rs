@@ -523,6 +523,10 @@ mod test {
     };
 
     use matrix_sdk_common::locks::Mutex;
+
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use matrix_sdk_test::async_test;
     use ruma::{DeviceId, UserId};
 
     use super::{Sas, VerificationMachine};
@@ -596,7 +600,7 @@ mod test {
         let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
@@ -643,7 +647,7 @@ mod test {
     }
 
     #[cfg(target_os = "linux")]
-    #[tokio::test]
+    #[async_test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
         let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();

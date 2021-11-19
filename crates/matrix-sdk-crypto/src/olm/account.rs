@@ -1141,6 +1141,8 @@ impl PartialEq for ReadOnlyAccount {
 mod test {
     use std::collections::BTreeSet;
 
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
     use matrix_sdk_test::async_test;
     use ruma::{identifiers::DeviceIdBox, user_id, DeviceKeyId, UserId};
 
@@ -1156,7 +1158,7 @@ mod test {
     }
 
     #[async_test]
-    async fn one_time_key_creation() -> Result<()> {
+    async fn one_time_key_creation() {
         let account = ReadOnlyAccount::new(&user_id(), &device_id());
 
         let one_time_keys = account
@@ -1194,7 +1196,5 @@ mod test {
         let fourth_device_key_ids: BTreeSet<&DeviceKeyId> = fourth_one_time_keys.keys().collect();
 
         assert_ne!(device_key_ids, fourth_device_key_ids);
-
-        Ok(())
     }
 }

@@ -14,7 +14,7 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
-#![deny(
+#![allow(
     missing_debug_implementations,
     dead_code,
     missing_docs,
@@ -24,6 +24,11 @@
     unused_import_braces,
     unused_qualifications
 )]
+
+
+#[cfg(all(feature = "indexeddb_cryptostore", not(target_arch = "wasm32")))]
+compile_error!("indexeddb_cryptostore only works for wasm32 target");
+
 
 mod error;
 mod file_encryption;

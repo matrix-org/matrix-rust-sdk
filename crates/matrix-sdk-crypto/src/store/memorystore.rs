@@ -277,13 +277,17 @@ impl CryptoStore for MemoryStore {
 mod test {
     use ruma::room_id;
 
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use matrix_sdk_test::async_test;
+
     use crate::{
         identities::device::test::get_device,
         olm::{test::get_account_and_session, InboundGroupSession, OlmMessageHash},
         store::{memorystore::MemoryStore, Changes, CryptoStore},
     };
 
-    #[tokio::test]
+    #[async_test]
     async fn test_session_store() {
         let (account, session) = get_account_and_session().await;
         let store = MemoryStore::new();
@@ -301,7 +305,7 @@ mod test {
         assert_eq!(&session, loaded_session);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_group_session_store() {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
@@ -328,7 +332,7 @@ mod test {
         assert_eq!(inbound, loaded_session);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_device_store() {
         let device = get_device();
         let store = MemoryStore::new();
@@ -353,7 +357,7 @@ mod test {
         assert!(store.get_device(device.user_id(), device.device_id()).await.unwrap().is_none());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_tracked_users() {
         let device = get_device();
         let store = MemoryStore::new();
@@ -364,7 +368,7 @@ mod test {
         assert!(store.is_user_tracked(device.user_id()));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_message_hash() {
         let store = MemoryStore::new();
 
