@@ -10,13 +10,14 @@ use tracing::{error, warn};
 
 use crate::{event_handler::EventKind, Client, Result};
 
-/// Internal functionality related to getting events from the server (`sync_events` endpoint)
+/// Internal functionality related to getting events from the server
+/// (`sync_events` endpoint)
 impl Client {
     pub(crate) async fn process_sync(
         &self,
         response: sync_events::Response,
     ) -> Result<SyncResponse> {
-        let response = self.base_client.receive_sync_response(response).await?;
+        let response = self.base_client().receive_sync_response(response).await?;
         let SyncResponse {
             next_batch: _,
             rooms,
