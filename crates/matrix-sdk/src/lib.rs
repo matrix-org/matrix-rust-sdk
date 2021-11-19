@@ -53,7 +53,6 @@ pub mod event_handler;
 mod http_client;
 /// High-level room API
 pub mod room;
-/// High-level room API
 mod room_member;
 mod sync;
 
