@@ -88,7 +88,7 @@ impl Common {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
     /// let room = client
@@ -132,12 +132,12 @@ impl Common {
     /// let room_id = room_id!("!roomid:example.com");
     /// let request = MessagesRequest::backward(&room_id, "t47429-4392820_219380_26003_2265");
     ///
-    /// let mut client = Client::new(homeserver).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// let mut client = Client::new(homeserver).await.unwrap();
     /// # let room = client
     /// #    .get_joined_room(&room_id)
     /// #    .unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
     /// assert!(room.messages(request).await.is_ok());
     /// # });
     /// ```

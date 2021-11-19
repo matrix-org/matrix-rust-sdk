@@ -364,7 +364,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// if let Some(name) = client.display_name().await.unwrap() {
@@ -389,7 +389,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// client.set_display_name(Some("Alice")).await.expect("Failed setting display name");
@@ -412,7 +412,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// if let Some(url) = client.avatar_url().await.unwrap() {
@@ -450,7 +450,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// if let Some(avatar) = client.avatar(MediaFormat::File).await.unwrap() {
@@ -498,7 +498,7 @@ impl Client {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let path = Path::new("/home/example/selfie.jpg");
     /// let mut image = File::open(&path).unwrap();
     ///
@@ -538,7 +538,6 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// use matrix_sdk::{
     ///     deserialized_responses::EncryptionInfo,
     ///     room::Room,
@@ -555,6 +554,7 @@ impl Client {
     /// use serde::{Deserialize, Serialize};
     ///
     /// # block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// client
     ///     .register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
@@ -658,8 +658,8 @@ impl Client {
     /// # struct SomeType;
     /// # fn obtain_gui_handle() -> SomeType { SomeType }
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
-    /// # let client = matrix_sdk::Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let client = matrix_sdk::Client::new(homeserver).await.unwrap();
     ///
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
@@ -839,7 +839,7 @@ impl Client {
     /// # block_on(async {
     /// use matrix_sdk::Client;
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// let user = "example";
     ///
     /// let response = client
@@ -935,7 +935,7 @@ impl Client {
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # block_on(async {
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     ///
     /// let response = client
     ///     .login_with_sso(
@@ -1118,7 +1118,7 @@ impl Client {
     /// # let redirect_url = "http://localhost:1234";
     /// # let login_token = "token";
     /// # block_on(async {
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// let sso_url = client.get_sso_login_url(redirect_url);
     ///
     /// // Let the user authenticate at the SSO URL
@@ -1229,7 +1229,7 @@ impl Client {
     ///         uiaa::FallbackAcknowledgement::new("foobar"),
     ///     )),
     /// });
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.register(request).await;
     /// # })
     /// ```
@@ -1278,9 +1278,9 @@ impl Client {
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let mut filter = FilterDefinition::default();
     /// let mut room_filter = RoomFilter::default();
     /// let mut event_filter = RoomEventFilter::default();
@@ -1376,10 +1376,10 @@ impl Client {
     /// # let limit = Some(10);
     /// # let since = Some("since token");
     /// # let server = Some("servername.com".try_into().unwrap());
-    ///
-    /// let mut client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
+    ///
+    /// let mut client = Client::new(homeserver).await.unwrap();
     ///
     /// client.public_rooms(limit, since, server).await;
     /// # });
@@ -1419,11 +1419,11 @@ impl Client {
     /// # };
     /// # use url::Url;
     ///
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let request = CreateRoomRequest::new();
-    /// let client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let request = CreateRoomRequest::new();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// assert!(client.create_room(request).await.is_ok());
     /// # });
     /// ```
@@ -1457,7 +1457,7 @@ impl Client {
     ///         assign,
     ///     }
     /// };
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     ///
     /// let generic_search_term = Some("rust");
     /// let filter = assign!(Filter::new(), { generic_search_term });
@@ -1498,7 +1498,7 @@ impl Client {
     /// # use mime;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
     /// let mut image = File::open(path)?;
     ///
@@ -1554,7 +1554,7 @@ impl Client {
     /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// use matrix_sdk::ruma::{api::client::r0::profile, user_id};
     ///
     /// // First construct the request you want to make
@@ -1593,7 +1593,7 @@ impl Client {
     /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let response = client.devices().await?;
     ///
     /// for device in response.devices {
@@ -1641,7 +1641,7 @@ impl Client {
     /// # use std::{collections::BTreeMap, convert::TryFrom};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let devices = &["DEVICEID".into()];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
@@ -1859,7 +1859,7 @@ impl Client {
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
     /// // Sync once so we receive the client state and old messages.
@@ -1953,7 +1953,7 @@ impl Client {
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
     /// // Register our handler so we start responding once we receive a new
@@ -2001,7 +2001,7 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let mut client = Client::new(homeserver).await.unwrap();
     ///
     /// use tokio::sync::mpsc::channel;
     ///
@@ -2079,7 +2079,7 @@ impl Client {
     /// use futures::StreamExt;
     /// use matrix_sdk::{Client, config::SyncSettings};
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
     /// let mut sync_stream = Box::pin(client.sync_stream(SyncSettings::default()).await);
@@ -2571,7 +2571,7 @@ pub(crate) mod test {
             .create();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         client
             .login_with_sso(

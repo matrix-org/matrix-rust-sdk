@@ -90,7 +90,7 @@ pub struct BaseClient {
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
-    #[cfg(feature = "sled_cryptostore")]
+    #[allow(dead_code)]
     store_passphrase: Arc<Option<Zeroizing<String>>>,
 }
 
@@ -189,12 +189,8 @@ impl BaseClientConfig {
     }
 }
 
+#[cfg(feature = "sled_state_store")]
 impl BaseClient {
-    /// Create a new default client.
-    pub async fn new() -> Result<Self> {
-        BaseClient::new_with_config(BaseClientConfig::default()).await
-    }
-
     /// Create a new client.
     ///
     /// # Arguments
@@ -202,14 +198,7 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        #[cfg_attr(
-            not(any(
-                feature = "indexeddb_state_store",
-                feature = "sled_state_store",
-                feature = "sled_cryptostore"
-            )),
-            allow(unused_variables)
-        )]
+        #[cfg_attr(not(feature = "sled_cryptostore"), allow(unused_variables))]
         let config = config;
 
         #[cfg(feature = "sled_state_store")]
@@ -231,7 +220,7 @@ impl BaseClient {
         )
         .await?;
 
-        #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
+        #[cfg(not(feature = "sled_state_store"))]
         let stores = Store::open_memory_store();
 
         #[cfg(all(feature = "encryption", feature = "sled_state_store"))]
@@ -254,14 +243,9 @@ impl BaseClient {
         #[cfg(all(not(feature = "sled_state_store"), feature = "encryption"))]
         let crypto_store = config.crypto_store;
 
-        #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
-        let store = stores;
         #[cfg(feature = "sled_state_store")]
         let store = stores.0;
-        #[cfg(all(
-            not(any(feature = "sled_state_store", feature = "indexeddb_state_store")),
-            feature = "encryption"
-        ))]
+        #[cfg(not(feature = "sled_state_store"))]
         let store = stores;
 
         Ok(BaseClient {
@@ -273,11 +257,77 @@ impl BaseClient {
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
             cryptostore: Mutex::new(crypto_store).into(),
-            #[cfg(feature = "sled_cryptostore")]
             store_passphrase: config.passphrase.into(),
         })
     }
+}
 
+#[cfg(feature = "indexeddb_state_store")]
+impl BaseClient {
+    /// Create a new client.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - An optional session if the user already has one from a
+    /// previous login call.
+    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+        let store = Store::open_default(
+            config.name.clone(),
+            config.passphrase.as_deref().map(|p| p.as_str()),
+        )
+        .await?;
+
+        #[cfg((feature = "encryption"))]
+        // FIXME: add support for IndexedDB Crypto Store
+        let crypto_store = Store::open_memory_store();
+
+        Ok(BaseClient {
+            session: store.session.clone(),
+            sync_token: store.sync_token.clone(),
+            store_path: config.store_path,
+            store,
+            #[cfg(feature = "encryption")]
+            olm: Mutex::new(None).into(),
+            #[cfg(feature = "encryption")]
+            cryptostore: Mutex::new(crypto_store).into(),
+            store_passphrase: config.passphrase.into(),
+        })
+    }
+}
+
+#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
+impl BaseClient {
+    /// Create a new client.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - An optional session if the user already has one from a
+    /// previous login call.
+    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+        let store = Store::open_memory_store();
+
+        #[cfg(feature = "encryption")]
+        let crypto_store = config.crypto_store;
+
+        Ok(BaseClient {
+            session: store.session.clone(),
+            sync_token: store.sync_token.clone(),
+            store_path: config.store_path,
+            store,
+            #[cfg(feature = "encryption")]
+            olm: Mutex::new(None).into(),
+            #[cfg(feature = "encryption")]
+            cryptostore: Mutex::new(crypto_store).into(),
+            store_passphrase: config.passphrase.into(),
+        })
+    }
+}
+
+impl BaseClient {
+    /// Create a new default client.
+    pub async fn new() -> Result<Self> {
+        BaseClient::new_with_config(BaseClientConfig::default()).await
+    }
     /// The current client session containing our user id, device id and access
     /// token.
     pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
@@ -1179,8 +1229,8 @@ impl BaseClient {
     /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let client = BaseClient::new().unwrap();
     /// # block_on(async {
+    /// # let client = BaseClient::new().await.unwrap();
     /// let device = client.get_device(&alice, "DEVICEID".into()).await;
     ///
     /// println!("{:?}", device);
@@ -1235,8 +1285,8 @@ impl BaseClient {
     /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let client = BaseClient::new().unwrap();
     /// # block_on(async {
+    /// # let client = BaseClient::new().await.unwrap();
     /// let devices = client.get_user_devices(&alice).await.unwrap();
     ///
     /// for device in devices.devices() {

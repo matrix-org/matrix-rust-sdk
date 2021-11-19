@@ -95,8 +95,8 @@ impl UserIdentity {
     /// # use url::Url;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # futures::executor::block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {
@@ -147,8 +147,8 @@ impl UserIdentity {
     /// # use url::Url;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # futures::executor::block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {
@@ -206,8 +206,8 @@ impl UserIdentity {
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
@@ -285,8 +285,8 @@ impl UserIdentity {
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {
@@ -328,8 +328,8 @@ impl UserIdentity {
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {
@@ -368,8 +368,8 @@ impl UserIdentity {
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {

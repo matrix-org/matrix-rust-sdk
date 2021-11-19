@@ -46,7 +46,7 @@ impl RoomMember {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
     /// let room = client
