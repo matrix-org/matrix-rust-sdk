@@ -277,10 +277,6 @@ impl BaseClient {
         )
         .await?;
 
-        #[cfg((feature = "encryption"))]
-        // FIXME: add support for IndexedDB Crypto Store
-        let crypto_store = Store::open_memory_store();
-
         Ok(BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
@@ -289,7 +285,7 @@ impl BaseClient {
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
-            cryptostore: Mutex::new(crypto_store).into(),
+            cryptostore: config.crypto_store.into(),
             store_passphrase: config.passphrase.into(),
         })
     }

@@ -1075,7 +1075,7 @@ mod test {
     };
     use serde_json::json;
 
-    use super::{IndexeddbStore, Result, StateChanges};
+    use super::{IndexeddbStore, StateChanges};
     use crate::{
         deserialized_responses::MemberEvent,
         media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
