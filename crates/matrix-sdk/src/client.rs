@@ -225,7 +225,7 @@ impl Client {
     /// // First let's try to construct an user id, presumably from user input.
     /// let alice = UserId::try_from("@alice:example.org")?;
     ///
-    /// // Now let's try to discover the homeserver and create client object.
+    /// // Now let's try to discover the homeserver and create a client object.
     /// let client = Client::new_from_user_id(&alice).await?;
     ///
     /// // Finally let's try to login.
