@@ -44,3 +44,13 @@ pub struct Session {
     /// The ID of the client device
     pub device_id: DeviceIdBox,
 }
+
+impl From<ruma::api::client::r0::session::login::Response> for Session {
+    fn from(response: ruma::api::client::r0::session::login::Response) -> Self {
+        Self {
+            access_token: response.access_token,
+            user_id: response.user_id,
+            device_id: response.device_id,
+        }
+    }
+}

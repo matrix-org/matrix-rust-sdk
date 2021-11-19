@@ -1213,6 +1213,28 @@ impl Client {
     /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     ///
+    /// The `Session` object can also be created from the response the
+    /// [`Client::login()`] method returns:
+    ///
+    /// ```no_run
+    /// use matrix_sdk::{Client, Session, ruma::{DeviceIdBox, user_id}};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    ///
+    /// let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver)?;
+    ///
+    /// let session: Session = client
+    ///     .login("example", "my-password", None, None)
+    ///     .await?
+    ///     .into();
+    ///
+    /// // Persist the `Session` so it can later be used to restore the login.
+    /// // client.restore_session(session).await?;
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    ///
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.base_client.restore_login(session).await?)
