@@ -50,7 +50,6 @@ default-features = false
 features = ["sync", "fs"]
 
 [dev-dependencies]
-anyhow = "1.0.45"
 futures = { version = "0.3.15", default-features = false }
 http = "0.2.4"
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
