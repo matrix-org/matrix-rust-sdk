@@ -1,8 +1,4 @@
-// could switch to futures-lock completely at some point, blocker:
-// https://github.com/asomers/futures-locks/issues/34
-// https://www.reddit.com/r/rust/comments/f4zldz/i_audited_3_different_implementation_of_async/
-
 #[cfg(target_arch = "wasm32")]
-pub use futures_locks::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+pub use async_lock::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
