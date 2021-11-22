@@ -266,7 +266,7 @@ impl SledStore {
             self.outbound_group_sessions.clear()?;
         }
 
-        self.inner.insert("version", DATABASE_VERSION.to_be_bytes().as_ref())?;
+        self.inner.insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())?;
         self.inner.flush()?;
 
         Ok(())
