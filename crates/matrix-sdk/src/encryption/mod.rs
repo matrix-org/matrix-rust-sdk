@@ -295,7 +295,7 @@ impl Client {
     /// called the fingerprint of the device.
     #[cfg(feature = "encryption")]
     pub async fn ed25519_key(&self) -> Option<String> {
-        self.base_client.olm_machine().await.map(|o| o.identity_keys().ed25519().to_owned())
+        self.olm_machine().await.map(|o| o.identity_keys().ed25519().to_owned())
     }
 
     /// Get the status of the private cross signing keys.
@@ -304,7 +304,7 @@ impl Client {
     /// stored locally.
     #[cfg(feature = "encryption")]
     pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
-        if let Some(machine) = self.base_client.olm_machine().await {
+        if let Some(machine) = self.olm_machine().await {
             Some(machine.cross_signing_status().await)
         } else {
             None
@@ -317,13 +317,13 @@ impl Client {
     /// capable devices up to date.
     #[cfg(feature = "encryption")]
     pub async fn tracked_users(&self) -> HashSet<UserId> {
-        self.base_client.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
+        self.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
     }
 
     /// Get a verification object with the given flow id.
     #[cfg(feature = "encryption")]
     pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
-        let olm = self.base_client.olm_machine().await?;
+        let olm = self.olm_machine().await?;
         olm.get_verification(user_id, flow_id).map(|v| match v {
             matrix_sdk_base::crypto::Verification::SasV1(s) => {
                 SasVerification { inner: s, client: self.clone() }.into()
@@ -343,7 +343,7 @@ impl Client {
         user_id: &UserId,
         flow_id: impl AsRef<str>,
     ) -> Option<VerificationRequest> {
-        let olm = self.base_client.olm_machine().await?;
+        let olm = self.olm_machine().await?;
 
         olm.get_verification_request(user_id, flow_id)
             .map(|r| VerificationRequest { inner: r, client: self.clone() })
@@ -388,7 +388,7 @@ impl Client {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> StdResult<Option<Device>, CryptoStoreError> {
-        let device = self.base_client.get_device(user_id, device_id).await?;
+        let device = self.base_client().get_device(user_id, device_id).await?;
 
         Ok(device.map(|d| Device { inner: d, client: self.clone() }))
     }
@@ -425,7 +425,7 @@ impl Client {
         &self,
         user_id: &UserId,
     ) -> StdResult<UserDevices, CryptoStoreError> {
-        let devices = self.base_client.get_user_devices(user_id).await?;
+        let devices = self.base_client().get_user_devices(user_id).await?;
 
         Ok(UserDevices { inner: devices, client: self.clone() })
     }
@@ -468,7 +468,7 @@ impl Client {
     ) -> StdResult<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
         use crate::encryption::identities::UserIdentity;
 
-        if let Some(olm) = self.base_client.olm_machine().await {
+        if let Some(olm) = self.olm_machine().await {
             let identity = olm.get_identity(user_id).await?;
 
             Ok(identity.map(|i| match i {
@@ -526,7 +526,7 @@ impl Client {
     /// # anyhow::Result::<()>::Ok(()) });
     #[cfg(feature = "encryption")]
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
-        let olm = self.base_client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
+        let olm = self.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
 
@@ -601,7 +601,7 @@ impl Client {
         passphrase: &str,
         predicate: impl FnMut(&matrix_sdk_base::crypto::olm::InboundGroupSession) -> bool,
     ) -> Result<()> {
-        let olm = self.base_client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
+        let olm = self.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
 
         let keys = olm.export_keys(predicate).await?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
@@ -661,7 +661,7 @@ impl Client {
         path: PathBuf,
         passphrase: &str,
     ) -> StdResult<RoomKeyImportResult, RoomKeyImportError> {
-        let olm = self.base_client.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
+        let olm = self.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 
         let decrypt = move || {
@@ -684,7 +684,7 @@ impl Client {
     ) -> serde_json::Result<RoomEvent> {
         use ruma::serde::JsonObject;
 
-        if let Some(machine) = self.base_client.olm_machine().await {
+        if let Some(machine) = self.olm_machine().await {
             if let AnyRoomEvent::Message(event) = event {
                 if let AnyMessageEvent::RoomEncrypted(_) = event {
                     let room_id = event.room_id();
@@ -727,7 +727,7 @@ impl Client {
         let request = assign!(get_keys::Request::new(), { device_keys });
 
         let response = self.send(request, None).await?;
-        self.base_client.mark_request_as_sent(request_id, &response).await?;
+        self.mark_request_as_sent(request_id, &response).await?;
 
         Ok(response)
     }
@@ -844,7 +844,7 @@ impl Client {
         if let Some(room) = self.get_joined_room(&response.room_id) {
             Ok(Some(room))
         } else {
-            self.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+            self.inner.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
             Ok(self.get_joined_room(&response.room_id))
         }
     }
@@ -860,11 +860,11 @@ impl Client {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<()> {
-        let _lock = self.key_claim_lock.lock().await;
+        let _lock = self.inner.key_claim_lock.lock().await;
 
-        if let Some((request_id, request)) = self.base_client.get_missing_sessions(users).await? {
+        if let Some((request_id, request)) = self.base_client().get_missing_sessions(users).await? {
             let response = self.send(request, None).await?;
-            self.base_client.mark_request_as_sent(&request_id, &response).await?;
+            self.mark_request_as_sent(&request_id, &response).await?;
         }
 
         Ok(())
@@ -893,7 +893,7 @@ impl Client {
         );
 
         let response = self.send(request.clone(), None).await?;
-        self.base_client.mark_request_as_sent(request_id, &response).await?;
+        self.mark_request_as_sent(request_id, &response).await?;
 
         Ok(response)
     }
@@ -971,23 +971,23 @@ impl Client {
             }
             OutgoingRequests::ToDeviceRequest(request) => {
                 let response = self.send_to_device(request).await?;
-                self.base_client.mark_request_as_sent(r.request_id(), &response).await?;
+                self.mark_request_as_sent(r.request_id(), &response).await?;
             }
             OutgoingRequests::SignatureUpload(request) => {
                 let response = self.send(request.clone(), None).await?;
-                self.base_client.mark_request_as_sent(r.request_id(), &response).await?;
+                self.mark_request_as_sent(r.request_id(), &response).await?;
             }
             OutgoingRequests::RoomMessage(request) => {
                 let response = self.room_send_helper(request).await?;
-                self.base_client.mark_request_as_sent(r.request_id(), &response).await?;
+                self.mark_request_as_sent(r.request_id(), &response).await?;
             }
             OutgoingRequests::KeysClaim(request) => {
                 let response = self.send(request.clone(), None).await?;
-                self.base_client.mark_request_as_sent(r.request_id(), &response).await?;
+                self.mark_request_as_sent(r.request_id(), &response).await?;
             }
             OutgoingRequests::KeysBackup(request) => {
                 let response = self.send_backup_request(request).await?;
-                self.base_client.mark_request_as_sent(r.request_id(), &response).await?;
+                self.mark_request_as_sent(r.request_id(), &response).await?;
             }
         }
 
@@ -1015,7 +1015,7 @@ impl Client {
             warn!("Error while claiming one-time keys {:?}", e);
         }
 
-        let outgoing_requests = stream::iter(self.base_client.outgoing_requests().await?)
+        let outgoing_requests = stream::iter(self.base_client().outgoing_requests().await?)
             .map(|r| self.send_outgoing_request(r));
 
         let requests = outgoing_requests.buffer_unordered(MAX_CONCURRENT_REQUESTS);

@@ -170,37 +170,39 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.typing_notice(true).await?
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn typing_notice(&self, typing: bool) -> Result<()> {
         // Only send a request to the homeserver if the old timeout has elapsed
         // or the typing notice changed state within the
         // TYPING_NOTICE_TIMEOUT
-        let send =
-            if let Some(typing_time) = self.client.typing_notice_times.get(self.inner.room_id()) {
-                if typing_time.elapsed() > TYPING_NOTICE_RESEND_TIMEOUT {
-                    // We always reactivate the typing notice if typing is true or
-                    // we may need to deactivate it if it's
-                    // currently active if typing is false
-                    typing || typing_time.elapsed() <= TYPING_NOTICE_TIMEOUT
-                } else {
-                    // Only send a request when we need to deactivate typing
-                    !typing
-                }
+        let send = if let Some(typing_time) =
+            self.client.inner.typing_notice_times.get(self.inner.room_id())
+        {
+            if typing_time.elapsed() > TYPING_NOTICE_RESEND_TIMEOUT {
+                // We always reactivate the typing notice if typing is true or
+                // we may need to deactivate it if it's
+                // currently active if typing is false
+                typing || typing_time.elapsed() <= TYPING_NOTICE_TIMEOUT
             } else {
-                // Typing notice is currently deactivated, therefore, send a request
-                // only when it's about to be activated
-                typing
-            };
+                // Only send a request when we need to deactivate typing
+                !typing
+            }
+        } else {
+            // Typing notice is currently deactivated, therefore, send a request
+            // only when it's about to be activated
+            typing
+        };
 
         if send {
             let typing = if typing {
                 self.client
+                    .inner
                     .typing_notice_times
                     .insert(self.inner.room_id().clone(), Instant::now());
                 Typing::Yes(TYPING_NOTICE_TIMEOUT)
             } else {
-                self.client.typing_notice_times.remove(self.inner.room_id());
+                self.client.inner.typing_notice_times.remove(self.inner.room_id());
                 Typing::No
             };
 
@@ -278,7 +280,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.enable_encryption().await?
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn enable_encryption(&self) -> Result<()> {
         use ruma::{
@@ -294,7 +296,7 @@ impl Joined {
             // TODO do we want to return an error here if we time out? This
             // could be quite useful if someone wants to enable encryption and
             // send a message right after it's enabled.
-            self.client.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+            self.client.inner.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
         }
 
         Ok(())
@@ -311,7 +313,7 @@ impl Joined {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
         if let Some(mutex) =
-            self.client.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
+            self.client.inner.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
         {
             // If a group session share request is already going on,
             // await the release of the lock.
@@ -320,7 +322,10 @@ impl Joined {
             // Otherwise create a new lock and share the group
             // session.
             let mutex = Arc::new(Mutex::new(()));
-            self.client.group_session_locks.insert(self.inner.room_id().clone(), mutex.clone());
+            self.client
+                .inner
+                .group_session_locks
+                .insert(self.inner.room_id().clone(), mutex.clone());
 
             let _guard = mutex.lock().await;
 
@@ -334,13 +339,13 @@ impl Joined {
 
             let response = self.share_group_session().await;
 
-            self.client.group_session_locks.remove(self.inner.room_id());
+            self.client.inner.group_session_locks.remove(self.inner.room_id());
 
             // If one of the responses failed invalidate the group
             // session as using it would end up in undecryptable
             // messages.
             if let Err(r) = response {
-                self.client.base_client.invalidate_group_session(self.inner.room_id()).await?;
+                self.client.base_client().invalidate_group_session(self.inner.room_id()).await?;
                 return Err(r);
             }
         }
@@ -357,12 +362,12 @@ impl Joined {
     #[cfg(feature = "encryption")]
     async fn share_group_session(&self) -> Result<()> {
         let mut requests =
-            self.client.base_client.share_group_session(self.inner.room_id()).await?;
+            self.client.base_client().share_group_session(self.inner.room_id()).await?;
 
         for request in requests.drain(..) {
             let response = self.client.send_to_device(&request).await?;
 
-            self.client.base_client.mark_request_as_sent(&request.txn_id, &response).await?;
+            self.client.mark_request_as_sent(&request.txn_id, &response).await?;
         }
 
         Ok(())
@@ -449,7 +454,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send(content, Some(txn_id)).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
@@ -517,7 +522,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_raw(content, "m.room.message", None).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
@@ -554,8 +559,7 @@ impl Joined {
 
             self.preshare_group_session().await?;
 
-            let olm =
-                self.client.base_client.olm_machine().await.expect("Olm machine wasn't started");
+            let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
 
             let encrypted_content =
                 olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
@@ -631,7 +635,7 @@ impl Joined {
     ///         None,
     ///     ).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn send_attachment<R: Read>(
         &self,
@@ -698,7 +702,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event(content, "").await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn send_state_event(
         &self,
@@ -791,7 +795,7 @@ impl Joined {
     ///     let reason = Some("Indecent material");
     ///     room.redact(&event_id, reason, None).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn redact(
         &self,
@@ -834,7 +838,7 @@ impl Joined {
     ///
     ///     room.set_tag("u.work", tag_info ).await?;
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> HttpResult<create_tag::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;

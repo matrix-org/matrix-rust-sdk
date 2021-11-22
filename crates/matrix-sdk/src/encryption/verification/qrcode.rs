@@ -71,7 +71,7 @@ impl QrVerification {
     ///
     /// The [`to_bytes()`](#method.to_bytes) method can be used to instead
     /// output the raw bytes that should be encoded as a QR code.
-    pub fn to_qr_code(&self) -> std::result::Result<QrCode, EncodingError> {
+    pub fn to_qr_code(&self) -> Result<QrCode, EncodingError> {
         self.inner.to_qr_code()
     }
 
@@ -80,7 +80,7 @@ impl QrVerification {
     ///
     /// The [`to_qr_code()`](#method.to_qr_code) method can be used to instead
     /// output a `QrCode` object that can be rendered.
-    pub fn to_bytes(&self) -> std::result::Result<Vec<u8>, EncodingError> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, EncodingError> {
         self.inner.to_bytes()
     }
 

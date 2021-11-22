@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{net::ToSocketAddrs, result::Result as StdResult};
+use std::net::ToSocketAddrs;
 
 use matrix_sdk::{
     bytes::Bytes,
@@ -168,7 +168,7 @@ mod handlers {
         _user_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
-    ) -> StdResult<impl warp::Reply, Rejection> {
+    ) -> Result<impl warp::Reply, Rejection> {
         if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
             let request =
                 query_user::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
@@ -185,7 +185,7 @@ mod handlers {
         _room_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
-    ) -> StdResult<impl warp::Reply, Rejection> {
+    ) -> Result<impl warp::Reply, Rejection> {
         if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
             let request =
                 query_room::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
@@ -202,7 +202,7 @@ mod handlers {
         _txn_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
-    ) -> StdResult<impl warp::Reply, Rejection> {
+    ) -> Result<impl warp::Reply, Rejection> {
         let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
             ruma::api::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
 
@@ -224,7 +224,7 @@ struct ErrorMessage {
     message: String,
 }
 
-pub async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Rejection> {
+pub async fn handle_rejection(err: Rejection) -> Result<impl Reply, Rejection> {
     if err.find::<Unauthorized>().is_some() || err.find::<warp::reject::InvalidQuery>().is_some() {
         let code = http::StatusCode::UNAUTHORIZED;
         let message = "UNAUTHORIZED";
