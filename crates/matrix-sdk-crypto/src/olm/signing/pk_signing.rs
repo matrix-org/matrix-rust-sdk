@@ -207,10 +207,10 @@ impl UserSigning {
         &self,
         user: &ReadOnlyUserIdentity,
     ) -> Result<CrossSigningKey, SignatureError> {
-        let signature = self.sign_user_helper(user).await?;
+        let signatures = self.sign_user_helper(user).await?;
         let mut master_key: CrossSigningKey = user.master_key().to_owned().into();
 
-        master_key.signatures.extend(signature);
+        master_key.signatures = signatures;
 
         Ok(master_key)
     }

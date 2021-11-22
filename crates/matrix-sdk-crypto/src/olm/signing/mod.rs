@@ -779,6 +779,9 @@ mod test {
 
         let master = user_signing.sign_user(&bob_public).await.unwrap();
 
+        let num_signatures: usize = master.signatures.iter().map(|(_, u)| u.len()).sum();
+        assert_eq!(num_signatures, 1, "We're only uploading our own signature");
+
         bob_public.master_key = master.into();
 
         user_signing.public_key.verify_master_key(bob_public.master_key()).unwrap();
