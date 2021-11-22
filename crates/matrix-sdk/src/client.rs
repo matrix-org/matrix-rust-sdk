@@ -1231,7 +1231,7 @@ impl Client {
     ///     .into();
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
-    /// // client.restore_session(session).await?;
+    /// client.restore_login(session).await?;
     /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     ///
