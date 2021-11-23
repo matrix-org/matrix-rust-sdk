@@ -397,13 +397,11 @@ impl Signing {
     }
 
     pub fn cross_signing_key(&self, user_id: UserId, usage: KeyUsage) -> CrossSigningKey {
-        let mut keys = BTreeMap::new();
-
-        keys.insert(
+        let keys = BTreeMap::from([(
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.public_key().as_str().into())
                 .to_string(),
             self.public_key().to_string(),
-        );
+        )]);
 
         CrossSigningKey::new(user_id, vec![usage], keys, BTreeMap::new())
     }

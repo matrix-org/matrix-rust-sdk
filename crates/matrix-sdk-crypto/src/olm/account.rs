@@ -746,17 +746,16 @@ impl ReadOnlyAccount {
 
     pub(crate) fn unsigned_device_keys(&self) -> DeviceKeys {
         let identity_keys = self.identity_keys();
-
-        let mut keys = BTreeMap::new();
-
-        keys.insert(
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
-            identity_keys.curve25519().to_owned(),
-        );
-        keys.insert(
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-            identity_keys.ed25519().to_owned(),
-        );
+        let keys = BTreeMap::from([
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
+                identity_keys.curve25519().to_owned(),
+            ),
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+                identity_keys.ed25519().to_owned(),
+            ),
+        ]);
 
         DeviceKeys::new(
             (*self.user_id).clone(),
