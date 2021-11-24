@@ -23,7 +23,8 @@ use ruma::{DeviceId, DeviceIdBox, RoomId, UserId};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
-    Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
+    BackupKeys, Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, RoomKeyCounts,
+    Session,
 };
 use crate::{
     gossiping::{GossipRequest, SecretInfo},
@@ -163,6 +164,34 @@ impl CryptoStore for MemoryStore {
         Ok(self.inbound_group_sessions.get_all())
     }
 
+    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+        let backed_up =
+            self.get_inbound_group_sessions().await?.into_iter().filter(|s| s.backed_up()).count();
+
+        Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
+    }
+
+    async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        Ok(self
+            .get_inbound_group_sessions()
+            .await?
+            .into_iter()
+            .filter(|s| !s.backed_up())
+            .take(limit)
+            .collect())
+    }
+
+    async fn reset_backup_state(&self) -> Result<()> {
+        for session in self.get_inbound_group_sessions().await? {
+            session.reset_backup_state()
+        }
+
+        Ok(())
+    }
+
     async fn get_outbound_group_sessions(
         &self,
         _: &RoomId,
@@ -270,6 +299,10 @@ impl CryptoStore for MemoryStore {
         });
 
         Ok(())
+    }
+
+    async fn load_backup_keys(&self) -> Result<BackupKeys> {
+        Ok(BackupKeys::default())
     }
 }
 

@@ -458,6 +458,17 @@ impl PrivateCrossSigningIdentity {
         Ok(SignatureUploadRequest::new(signed_keys))
     }
 
+    pub(crate) async fn sign(&self, message: &str) -> Result<String, SignatureError> {
+        Ok(self
+            .master_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .sign(message)
+            .await)
+    }
+
     /// Create a new identity for the given Olm Account.
     ///
     /// Returns the new identity, the upload signing keys request and a
@@ -769,6 +780,9 @@ mod test {
         let user_signing = user_signing.as_ref().unwrap();
 
         let master = user_signing.sign_user(&bob_public).await.unwrap();
+
+        let num_signatures: usize = master.signatures.iter().map(|(_, u)| u.len()).sum();
+        assert_eq!(num_signatures, 1, "We're only uploading our own signature");
 
         bob_public.master_key = master.into();
 

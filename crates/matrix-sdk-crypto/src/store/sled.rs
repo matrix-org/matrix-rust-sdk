@@ -29,14 +29,14 @@ use ruma::{
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, Transactional, Tree,
+    Config, Db, IVec, Transactional, Tree,
 };
 use tracing::trace;
 use uuid::Uuid;
 
 use super::{
-    caches::SessionStore, Changes, CryptoStore, CryptoStoreError, InboundGroupSession, PickleKey,
-    ReadOnlyAccount, Result, Session,
+    caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, InboundGroupSession,
+    PickleKey, ReadOnlyAccount, Result, RoomKeyCounts, Session,
 };
 use crate::{
     gossiping::{GossipRequest, SecretInfo},
@@ -205,9 +205,46 @@ impl SledStore {
         self.account_info.read().unwrap().clone()
     }
 
-    fn upgrade_database(db: &Db) -> Result<()> {
-        let version = db
-            .get("version")?
+    async fn reset_backup_state(&self) -> Result<()> {
+        let mut pickles: Vec<(IVec, PickledInboundGroupSession)> = self
+            .inbound_group_sessions
+            .iter()
+            .map(|p| {
+                let item = p?;
+                Ok((
+                    item.0,
+                    serde_json::from_slice(&item.1).map_err(CryptoStoreError::Serialization)?,
+                ))
+            })
+            .collect::<Result<_>>()?;
+
+        for (_, pickle) in &mut pickles {
+            pickle.backed_up = false;
+        }
+
+        let ret: Result<(), TransactionError<serde_json::Error>> =
+            self.inbound_group_sessions.transaction(|inbound_sessions| {
+                for (key, pickle) in &pickles {
+                    inbound_sessions.insert(
+                        key,
+                        serde_json::to_vec(&pickle).map_err(ConflictableTransactionError::Abort)?,
+                    )?;
+                }
+
+                Ok(())
+            });
+
+        ret?;
+
+        self.inner.flush_async().await?;
+
+        Ok(())
+    }
+
+    fn upgrade(&self) -> Result<()> {
+        let version = self
+            .inner
+            .get("store_version")?
             .map(|v| {
                 let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
                 u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
@@ -225,17 +262,17 @@ impl SledStore {
         if version == 0 {
             // We changed the schema but migrating this isn't important since we
             // rotate the group sessions relatively often anyways so we just
-            // drop it.
-            db.drop_tree("outbound_group_sessions")?;
+            // clear the tree.
+            self.outbound_group_sessions.clear()?;
         }
 
-        db.insert("version", DATABASE_VERSION.to_be_bytes().as_ref())?;
+        self.inner.insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())?;
+        self.inner.flush()?;
 
         Ok(())
     }
 
     fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self> {
-        Self::upgrade_database(&db)?;
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 
@@ -263,7 +300,7 @@ impl SledStore {
                 .expect("Can't create default pickle key")
         };
 
-        Ok(Self {
+        let database = Self {
             account_info: RwLock::new(None).into(),
             path,
             inner: db,
@@ -283,7 +320,11 @@ impl SledStore {
             tracked_users,
             olm_hashes,
             identities,
-        })
+        };
+
+        database.upgrade()?;
+
+        Ok(database)
     }
 
     fn get_or_create_pickle_key(passphrase: &str, database: &Db) -> Result<PickleKey> {
@@ -361,6 +402,9 @@ impl SledStore {
             None
         };
 
+        #[cfg(feature = "backups_v1")]
+        let recovery_key_pickle = changes.recovery_key.map(|r| r.pickle(self.get_pickle_key()));
+
         let device_changes = changes.devices;
         let mut session_changes = HashMap::new();
 
@@ -399,6 +443,8 @@ impl SledStore {
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
+        #[cfg(feature = "backups_v1")]
+        let backup_version = changes.backup_version;
 
         let ret: Result<(), TransactionError<serde_json::Error>> = (
             &self.account,
@@ -438,6 +484,22 @@ impl SledStore {
                         private_identity.insert(
                             "identity".encode(),
                             serde_json::to_vec(&i).map_err(ConflictableTransactionError::Abort)?,
+                        )?;
+                    }
+
+                    #[cfg(feature = "backups_v1")]
+                    if let Some(r) = &recovery_key_pickle {
+                        account.insert(
+                            "recovery_key_v1".encode(),
+                            serde_json::to_vec(r).map_err(ConflictableTransactionError::Abort)?,
+                        )?;
+                    }
+
+                    #[cfg(feature = "backups_v1")]
+                    if let Some(b) = &backup_version {
+                        account.insert(
+                            "backup_version_v1".encode(),
+                            serde_json::to_vec(b).map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
 
@@ -655,6 +717,57 @@ impl CryptoStore for SledStore {
             .collect())
     }
 
+    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+        let pickles: Vec<PickledInboundGroupSession> = self
+            .inbound_group_sessions
+            .iter()
+            .map(|p| {
+                let item = p?;
+                serde_json::from_slice(&item.1).map_err(CryptoStoreError::Serialization)
+            })
+            .collect::<Result<_>>()?;
+
+        let total = pickles.len();
+        let backed_up = pickles.into_iter().filter(|p| p.backed_up).count();
+
+        Ok(RoomKeyCounts { total, backed_up })
+    }
+
+    async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let pickles: Vec<InboundGroupSession> = self
+            .inbound_group_sessions
+            .iter()
+            .map(|p| {
+                let item = p?;
+                serde_json::from_slice(&item.1).map_err(CryptoStoreError::from)
+            })
+            .filter_map(|p: Result<PickledInboundGroupSession, CryptoStoreError>| match p {
+                Ok(p) => {
+                    if !p.backed_up {
+                        Some(
+                            InboundGroupSession::from_pickle(p, self.get_pickle_mode())
+                                .map_err(CryptoStoreError::from),
+                        )
+                    } else {
+                        None
+                    }
+                }
+
+                Err(p) => Some(Err(p)),
+            })
+            .take(limit)
+            .collect::<Result<_>>()?;
+
+        Ok(pickles)
+    }
+
+    async fn reset_backup_state(&self) -> Result<()> {
+        self.reset_backup_state().await
+    }
+
     async fn get_outbound_group_sessions(
         &self,
         room_id: &RoomId,
@@ -670,12 +783,12 @@ impl CryptoStore for SledStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn tracked_users(&self) -> HashSet<UserId> {
-        self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
-    }
-
     fn users_for_key_query(&self) -> HashSet<UserId> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
+    }
+
+    fn tracked_users(&self) -> HashSet<UserId> {
+        self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -795,6 +908,32 @@ impl CryptoStore for SledStore {
         self.inner.flush_async().await?;
 
         Ok(())
+    }
+
+    async fn load_backup_keys(&self) -> Result<BackupKeys> {
+        let version = self
+            .account
+            .get("backup_version_v1".encode())?
+            .map(|v| serde_json::from_slice(&v))
+            .transpose()?;
+
+        #[cfg(feature = "backups_v1")]
+        let recovery_key = {
+            self.account
+                .get("recovery_key_v1".encode())?
+                .map(|p| serde_json::from_slice(&p))
+                .transpose()?
+                .map(|p| {
+                    crate::backups::RecoveryKey::from_pickle(p, self.get_pickle_key())
+                        .map_err(|_| CryptoStoreError::UnpicklingError)
+                })
+                .transpose()?
+        };
+
+        #[cfg(not(feature = "backups_v1"))]
+        let recovery_key = None;
+
+        Ok(BackupKeys { backup_version: version, recovery_key })
     }
 }
 

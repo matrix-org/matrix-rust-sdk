@@ -17,6 +17,7 @@ use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::{
+        backup::{add_backup_keys::Response as KeysBackupResponse, RoomKeyBackup},
         keys::{
             claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::Response as KeysQueryResponse,
@@ -197,6 +198,8 @@ pub enum OutgoingRequests {
     /// A room message request, usually for sending in-room interactive
     /// verification events.
     RoomMessage(RoomMessageRequest),
+    /// A request that will back up a batch of room keys to the server.
+    KeysBackup(KeysBackupRequest),
 }
 
 #[cfg(test)]
@@ -212,6 +215,12 @@ impl OutgoingRequests {
 impl From<KeysQueryRequest> for OutgoingRequests {
     fn from(request: KeysQueryRequest) -> Self {
         OutgoingRequests::KeysQuery(request)
+    }
+}
+
+impl From<KeysBackupRequest> for OutgoingRequests {
+    fn from(r: KeysBackupRequest) -> Self {
+        OutgoingRequests::KeysBackup(r)
     }
 }
 
@@ -278,11 +287,19 @@ pub enum IncomingResponse<'a> {
     SignatureUpload(&'a SignatureUploadResponse),
     /// A room message response, usually for interactive verifications.
     RoomMessage(&'a RoomMessageResponse),
+    /// Response for the server-side room key backup request.
+    KeysBackup(&'a KeysBackupResponse),
 }
 
 impl<'a> From<&'a KeysUploadResponse> for IncomingResponse<'a> {
     fn from(response: &'a KeysUploadResponse) -> Self {
         IncomingResponse::KeysUpload(response)
+    }
+}
+
+impl<'a> From<&'a KeysBackupResponse> for IncomingResponse<'a> {
+    fn from(response: &'a KeysBackupResponse) -> Self {
+        IncomingResponse::KeysBackup(response)
     }
 }
 
@@ -354,6 +371,16 @@ pub struct RoomMessageRequest {
 
     /// The event content to send.
     pub content: AnyMessageEventContent,
+}
+
+/// A request that will back up a batch of room keys to the server.
+#[derive(Clone, Debug)]
+pub struct KeysBackupRequest {
+    /// The backup version that these room keys should be part of.
+    pub version: String,
+    /// The map from room id to a backed up room key that we're going to upload
+    /// to the server.
+    pub rooms: BTreeMap<RoomId, RoomKeyBackup>,
 }
 
 /// An enum over the different outgoing verification based requests.

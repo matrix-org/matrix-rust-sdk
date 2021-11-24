@@ -46,11 +46,14 @@ use ruma::{
         secret::request::SecretName,
         AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent,
     },
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UInt, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt,
+    UserId,
 };
 use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
 
+#[cfg(feature = "backups_v1")]
+use crate::backups::BackupMachine;
 #[cfg(feature = "sled_cryptostore")]
 use crate::store::sled::SledStore;
 use crate::{
@@ -104,6 +107,9 @@ pub struct OlmMachine {
     /// State machine handling public user identities and devices, keeping track
     /// of when a key query needs to be done and handling one.
     identity_manager: IdentityManager,
+    /// A state machine that handles creating room key backups.
+    #[cfg(feature = "backups_v1")]
+    backup_machine: BackupMachine,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -180,6 +186,9 @@ impl OlmMachine {
         let identity_manager =
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
+        #[cfg(feature = "backups_v1")]
+        let backup_machine = BackupMachine::new(account.clone(), store.clone(), None);
+
         OlmMachine {
             user_id,
             device_id,
@@ -191,6 +200,8 @@ impl OlmMachine {
             verification_machine,
             key_request_machine,
             identity_manager,
+            #[cfg(feature = "backups_v1")]
+            backup_machine,
         }
     }
 
@@ -370,6 +381,10 @@ impl OlmMachine {
             }
             IncomingResponse::RoomMessage(_) => {
                 self.verification_machine.mark_request_as_sent(request_id);
+            }
+            IncomingResponse::KeysBackup(_) => {
+                #[cfg(feature = "backups_v1")]
+                self.backup_machine.mark_request_as_sent(*request_id).await?;
             }
         };
 
@@ -651,18 +666,18 @@ impl OlmMachine {
         Ok(())
     }
 
-    // #[cfg(test)]
-    // pub(crate) async fn create_inbound_session(
-    //     &self,
-    //     room_id: &RoomId,
-    // ) -> OlmResult<InboundGroupSession> {
-    //     let (_, session) = self
-    //         .group_session_manager
-    //         .create_outbound_group_session(room_id, EncryptionSettings::default())
-    //         .await?;
+    #[cfg(test)]
+    pub(crate) async fn create_inbound_session(
+        &self,
+        room_id: &RoomId,
+    ) -> OlmResult<InboundGroupSession> {
+        let (_, session) = self
+            .group_session_manager
+            .create_outbound_group_session(room_id, EncryptionSettings::default())
+            .await?;
 
-    //     Ok(session)
-    // }
+        Ok(session)
+    }
 
     /// Encrypt a room message for the given room.
     ///
@@ -1452,6 +1467,62 @@ impl OlmMachine {
         export: CrossSigningKeyExport,
     ) -> Result<CrossSigningStatus, SecretImportError> {
         self.store.import_cross_signing_keys(export).await
+    }
+
+    async fn sign_account(
+        &self,
+        message: &str,
+        signatures: &mut BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+    ) {
+        let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
+        let signature = self.account.sign(message).await;
+
+        signatures.entry(self.user_id().to_owned()).or_default().insert(device_key_id, signature);
+    }
+
+    async fn sign_master(
+        &self,
+        message: &str,
+        signatures: &mut BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+    ) -> Result<(), crate::SignatureError> {
+        let identity = &*self.user_identity.lock().await;
+
+        let master_key: DeviceIdBox = identity
+            .master_public_key()
+            .await
+            .and_then(|m| m.get_first_key().map(|k| k.to_owned()))
+            .ok_or(crate::SignatureError::MissingSigningKey)?
+            .into();
+
+        let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key);
+        let signature = identity.sign(message).await?;
+
+        signatures.entry(self.user_id().to_owned()).or_default().insert(device_key_id, signature);
+
+        Ok(())
+    }
+
+    /// Sign the given message using our device key and if available cross
+    /// signing master key.
+    pub async fn sign(&self, message: &str) -> BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
+        let mut signatures: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+
+        self.sign_account(message, &mut signatures).await;
+
+        if let Err(e) = self.sign_master(message, &mut signatures).await {
+            warn!(error =? e, "Couldn't sign the message using the cross signing master key")
+        }
+
+        signatures
+    }
+
+    /// Get a reference to the backup related state machine.
+    ///
+    /// This state machine can be used to incrementally backup all room keys to
+    /// the server.
+    #[cfg(feature = "backups_v1")]
+    pub fn backup_machine(&self) -> &BackupMachine {
+        &self.backup_machine
     }
 }
 

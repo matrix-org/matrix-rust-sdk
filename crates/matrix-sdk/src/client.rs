@@ -26,15 +26,14 @@ use std::{
 use anymap2::any::CloneAnySendSync;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
-use futures_timer::Delay as sleep;
 use matrix_sdk_base::{
-    deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
+    deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
     BaseClient, Session, Store,
 };
 use matrix_sdk_common::{
     instant::{Duration, Instant},
-    locks::{Mutex, RwLock},
+    locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
 use ruma::{
@@ -109,27 +108,31 @@ pub enum LoopCtrl {
 /// All of the state is held in an `Arc` so the `Client` can be cloned freely.
 #[derive(Clone)]
 pub struct Client {
+    pub(crate) inner: Arc<ClientInner>,
+}
+
+pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: Arc<RwLock<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
-    pub(crate) base_client: BaseClient,
+    base_client: BaseClient,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
-    pub(crate) group_session_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
+    pub(crate) group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
-    pub(crate) key_claim_lock: Arc<Mutex<()>>,
-    pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
-    pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
+    pub(crate) key_claim_lock: Mutex<()>,
+    pub(crate) members_request_locks: DashMap<RoomId, Arc<Mutex<()>>>,
+    pub(crate) typing_notice_times: DashMap<RoomId, Instant>,
     /// Event handlers. See `register_event_handler`.
-    pub(crate) event_handlers: Arc<RwLock<EventHandlerMap>>,
+    event_handlers: RwLock<EventHandlerMap>,
     /// Custom event handler context. See `register_event_handler_context`.
-    pub(crate) event_handler_data: Arc<StdRwLock<AnyMap>>,
+    event_handler_data: StdRwLock<AnyMap>,
     /// Notification handlers. See `register_notification_handler`.
-    notification_handlers: Arc<RwLock<Vec<NotificationHandlerFn>>>,
+    notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
@@ -142,7 +145,7 @@ pub struct Client {
     /// synchronization, e.g. if we send out a request to create a room, we can
     /// wait for the sync to get the data to fetch a room object from the state
     /// store.
-    pub(crate) sync_beat: Arc<event_listener::Event>,
+    pub(crate) sync_beat: event_listener::Event,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -186,7 +189,7 @@ impl Client {
         let http_client =
             HttpClient::new(client, homeserver.clone(), session, config.request_config);
 
-        Ok(Self {
+        let inner = Arc::new(ClientInner {
             homeserver,
             http_client,
             base_client,
@@ -201,8 +204,10 @@ impl Client {
             notification_handlers: Default::default(),
             appservice_mode: config.appservice_mode,
             use_discovery_response: config.use_discovery_response,
-            sync_beat: event_listener::Event::new().into(),
-        })
+            sync_beat: event_listener::Event::new(),
+        });
+
+        Ok(Self { inner })
     }
 
     /// Create a new [`Client`] using homeserver auto discovery.
@@ -226,12 +231,12 @@ impl Client {
     /// // First let's try to construct an user id, presumably from user input.
     /// let alice = UserId::try_from("@alice:example.org")?;
     ///
-    /// // Now let's try to discover the homeserver and create client object.
+    /// // Now let's try to discover the homeserver and create a client object.
     /// let client = Client::new_from_user_id(&alice).await?;
     ///
     /// // Finally let's try to login.
     /// client.login(alice, "password", None, None).await?;
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
@@ -268,6 +273,24 @@ impl Client {
         Ok(client)
     }
 
+    pub(crate) fn base_client(&self) -> &BaseClient {
+        &self.inner.base_client
+    }
+
+    #[cfg(feature = "encryption")]
+    pub(crate) async fn olm_machine(&self) -> Option<matrix_sdk_base::crypto::OlmMachine> {
+        self.base_client().olm_machine().await
+    }
+
+    #[cfg(feature = "encryption")]
+    pub(crate) async fn mark_request_as_sent(
+        &self,
+        request_id: &matrix_sdk_base::uuid::Uuid,
+        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
+    ) -> Result<(), matrix_sdk_base::Error> {
+        self.base_client().mark_request_as_sent(request_id, response).await
+    }
+
     fn homeserver_from_user_id(user_id: &UserId) -> Result<Url> {
         let homeserver = format!("https://{}", user_id.server_name());
         #[allow(unused_mut)]
@@ -290,7 +313,7 @@ impl Client {
     ///
     /// * `homeserver_url` - The new URL to use.
     pub async fn set_homeserver(&self, homeserver_url: Url) {
-        let mut homeserver = self.homeserver.write().await;
+        let mut homeserver = self.inner.homeserver.write().await;
         *homeserver = homeserver_url;
     }
 
@@ -324,23 +347,23 @@ impl Client {
 
     /// Is the client logged in.
     pub async fn logged_in(&self) -> bool {
-        self.base_client.logged_in().await
+        self.inner.base_client.logged_in().await
     }
 
     /// The Homeserver of the client.
     pub async fn homeserver(&self) -> Url {
-        self.homeserver.read().await.clone()
+        self.inner.homeserver.read().await.clone()
     }
 
     /// Get the user id of the current owner of the client.
     pub async fn user_id(&self) -> Option<UserId> {
-        let session = self.base_client.session().read().await;
+        let session = self.inner.base_client.session().read().await;
         session.as_ref().cloned().map(|s| s.user_id)
     }
 
     /// Get the device id that identifies the current session.
     pub async fn device_id(&self) -> Option<DeviceIdBox> {
-        let session = self.base_client.session().read().await;
+        let session = self.inner.base_client.session().read().await;
         session.as_ref().map(|s| s.device_id.clone())
     }
 
@@ -351,7 +374,7 @@ impl Client {
     /// Can be used with [`Client::restore_login`] to restore a previously
     /// logged in session.
     pub async fn session(&self) -> Option<Session> {
-        self.base_client.session().read().await.clone()
+        self.inner.base_client.session().read().await.clone()
     }
 
     /// Fetches the display name of the owner of the client.
@@ -469,7 +492,7 @@ impl Client {
 
     /// Get a reference to the store.
     pub fn store(&self) -> &Store {
-        self.base_client.store()
+        self.inner.base_client.store()
     }
 
     /// Sets the mxc avatar url of the client's owner. The avatar gets unset if
@@ -611,30 +634,39 @@ impl Client {
         <H::Future as Future>::Output: EventHandlerResult,
     {
         let event_type = H::ID.1;
-        self.event_handlers.write().await.entry(H::ID).or_default().push(Box::new(move |data| {
-            let maybe_fut = serde_json::from_str(data.raw.get())
-                .map(|ev| handler.clone().handle_event(ev, data));
+        self.inner.event_handlers.write().await.entry(H::ID).or_default().push(Box::new(
+            move |data| {
+                let maybe_fut = serde_json::from_str(data.raw.get())
+                    .map(|ev| handler.clone().handle_event(ev, data));
 
-            Box::pin(async move {
-                match maybe_fut {
-                    Ok(Some(fut)) => {
-                        fut.await.print_error(event_type);
-                    }
-                    Ok(None) => {
-                        error!("Event handler for {} has an invalid context argument", event_type);
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to deserialize `{}` event, skipping event handler.\n\
+                Box::pin(async move {
+                    match maybe_fut {
+                        Ok(Some(fut)) => {
+                            fut.await.print_error(event_type);
+                        }
+                        Ok(None) => {
+                            error!(
+                                "Event handler for {} has an invalid context argument",
+                                event_type
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to deserialize `{}` event, skipping event handler.\n\
                                  Deserialization error: {}",
-                            event_type, e,
-                        );
+                                event_type, e,
+                            );
+                        }
                     }
-                }
-            })
-        }));
+                })
+            },
+        ));
 
         self
+    }
+
+    pub(crate) async fn event_handlers(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
+        self.inner.event_handlers.read().await
     }
 
     /// Add an arbitrary value for use as event handler context.
@@ -678,8 +710,16 @@ impl Client {
     where
         T: Clone + Send + Sync + 'static,
     {
-        self.event_handler_data.write().unwrap().insert(ctx);
+        self.inner.event_handler_data.write().unwrap().insert(ctx);
         self
+    }
+
+    pub(crate) fn event_handler_context<T>(&self) -> Option<T>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let map = self.inner.event_handler_data.read().unwrap();
+        map.get::<T>().cloned()
     }
 
     /// Register a handler for a notification.
@@ -692,11 +732,17 @@ impl Client {
         H: Fn(Notification, room::Room, Client) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.notification_handlers.write().await.push(Box::new(
+        self.inner.notification_handlers.write().await.push(Box::new(
             move |notification, room, client| Box::pin((handler)(notification, room, client)),
         ));
 
         self
+    }
+
+    pub(crate) async fn notification_handlers(
+        &self,
+    ) -> RwLockReadGuard<'_, Vec<NotificationHandlerFn>> {
+        self.inner.notification_handlers.read().await
     }
 
     /// Get all the rooms the client knows about.
@@ -849,7 +895,7 @@ impl Client {
     ///     "Logged in as {}, got device_id {} and access_token {}",
     ///     user, response.device_id, response.access_token
     /// );
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
@@ -1166,7 +1212,7 @@ impl Client {
     ///
     /// * `response` - A successful login response.
     async fn receive_login_response(&self, response: &login::Response) -> Result<()> {
-        if self.use_discovery_response {
+        if self.inner.use_discovery_response {
             if let Some(well_known) = &response.well_known {
                 if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
                     self.set_homeserver(homeserver).await;
@@ -1174,7 +1220,7 @@ impl Client {
             }
         }
 
-        self.base_client.receive_login_response(response).await?;
+        self.inner.base_client.receive_login_response(response).await?;
 
         Ok(())
     }
@@ -1192,9 +1238,52 @@ impl Client {
     /// * `session` - A session that the user already has from a
     /// previous login call.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use matrix_sdk::{Client, Session, ruma::{DeviceIdBox, user_id}};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    ///
+    /// let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let session = Session {
+    ///     access_token: "My-Token".to_owned(),
+    ///     user_id: user_id!("@example:localhost"),
+    ///     device_id: DeviceIdBox::from("MYDEVICEID"),
+    /// };
+    ///
+    /// client.restore_login(session).await?;
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    ///
+    /// The `Session` object can also be created from the response the
+    /// [`Client::login()`] method returns:
+    ///
+    /// ```no_run
+    /// use matrix_sdk::{Client, Session, ruma::{DeviceIdBox, user_id}};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    ///
+    /// let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let session: Session = client
+    ///     .login("example", "my-password", None, None)
+    ///     .await?
+    ///     .into();
+    ///
+    /// // Persist the `Session` so it can later be used to restore the login.
+    /// client.restore_login(session).await?;
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    ///
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
-        Ok(self.base_client.restore_login(session).await?)
+        Ok(self.inner.base_client.restore_login(session).await?)
     }
 
     /// Register a user to the server.
@@ -1241,8 +1330,8 @@ impl Client {
         let homeserver = self.homeserver().await;
         info!("Registering to {}", homeserver);
 
-        let config = if self.appservice_mode {
-            Some(self.http_client.request_config.force_auth())
+        let config = if self.inner.appservice_mode {
+            Some(self.inner.http_client.request_config.force_auth())
         } else {
             None
         };
@@ -1307,14 +1396,14 @@ impl Client {
         filter_name: &str,
         definition: FilterDefinition<'_>,
     ) -> Result<String> {
-        if let Some(filter) = self.base_client.get_filter(filter_name).await? {
+        if let Some(filter) = self.inner.base_client.get_filter(filter_name).await? {
             Ok(filter)
         } else {
             let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
             let request = FilterUploadRequest::new(&user_id, definition);
             let response = self.send(request, None).await?;
 
-            self.base_client.receive_filter_upload(filter_name, &response).await?;
+            self.inner.base_client.receive_filter_upload(filter_name, &response).await?;
 
             Ok(response.filter_id)
         }
@@ -1468,7 +1557,7 @@ impl Client {
     /// for room in response.chunk {
     ///     println!("Found room {:?}", room);
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn public_rooms_filtered(
         &self,
@@ -1526,8 +1615,8 @@ impl Client {
             content_type: Some(content_type.essence_str()),
         });
 
-        let request_config = self.http_client.request_config.timeout(timeout);
-        Ok(self.http_client.upload(request, Some(request_config)).await?)
+        let request_config = self.inner.http_client.request_config.timeout(timeout);
+        Ok(self.inner.http_client.upload(request, Some(request_config)).await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1568,7 +1657,7 @@ impl Client {
     ///
     /// // Check the corresponding Response struct to find out what types are
     /// // returned
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn send<Request>(
         &self,
@@ -1579,7 +1668,7 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        Ok(self.http_client.send(request, config).await?)
+        Ok(self.inner.http_client.send(request, config).await?)
     }
 
     /// Get information of all our own devices.
@@ -1603,7 +1692,7 @@ impl Client {
     ///         device.display_name.as_deref().unwrap_or("")
     ///     );
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn devices(&self) -> HttpResult<get_devices::Response> {
         let request = get_devices::Request::new();
@@ -1656,7 +1745,7 @@ impl Client {
     ///             .await?;
     ///     }
     /// }
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     pub async fn delete_devices(
         &self,
         devices: &[DeviceIdBox],
@@ -1666,135 +1755,6 @@ impl Client {
         request.auth = auth_data;
 
         self.send(request, None).await
-    }
-
-    pub(crate) async fn process_sync(
-        &self,
-        response: sync_events::Response,
-    ) -> Result<SyncResponse> {
-        let response = self.base_client.receive_sync_response(response).await?;
-        let SyncResponse {
-            next_batch: _,
-            rooms,
-            presence,
-            account_data,
-            to_device: _,
-            device_lists: _,
-            device_one_time_keys_count: _,
-            ambiguity_changes: _,
-            notifications,
-        } = &response;
-
-        self.handle_sync_events(EventKind::GlobalAccountData, &None, &account_data.events).await?;
-        self.handle_sync_events(EventKind::Presence, &None, &presence.events).await?;
-
-        for (room_id, room_info) in &rooms.join {
-            let room = self.get_room(room_id);
-            if room.is_none() {
-                error!("Can't call event handler, room {} not found", room_id);
-                continue;
-            }
-
-            let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
-                room_info;
-
-            self.handle_sync_events(EventKind::EphemeralRoomData, &room, &ephemeral.events).await?;
-            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
-                .await?;
-            self.handle_sync_state_events(&room, &state.events).await?;
-            self.handle_sync_timeline_events(&room, &timeline.events).await?;
-        }
-
-        for (room_id, room_info) in &rooms.leave {
-            let room = self.get_room(room_id);
-            if room.is_none() {
-                error!("Can't call event handler, room {} not found", room_id);
-                continue;
-            }
-
-            let LeftRoom { timeline, state, account_data } = room_info;
-
-            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
-                .await?;
-            self.handle_sync_state_events(&room, &state.events).await?;
-            self.handle_sync_timeline_events(&room, &timeline.events).await?;
-        }
-
-        for (room_id, room_info) in &rooms.invite {
-            let room = self.get_room(room_id);
-            if room.is_none() {
-                error!("Can't call event handler, room {} not found", room_id);
-                continue;
-            }
-
-            // FIXME: Destructure room_info
-            self.handle_sync_events(
-                EventKind::StrippedState,
-                &room,
-                &room_info.invite_state.events,
-            )
-            .await?;
-        }
-
-        // Construct notification event handler futures
-        let mut futures = Vec::new();
-        for handler in &*self.notification_handlers.read().await {
-            for (room_id, room_notifications) in notifications {
-                let room = match self.get_room(room_id) {
-                    Some(room) => room,
-                    None => {
-                        warn!("Can't call notification handler, room {} not found", room_id);
-                        continue;
-                    }
-                };
-
-                futures.extend(room_notifications.iter().map(|notification| {
-                    (handler)(notification.clone(), room.clone(), self.clone())
-                }));
-            }
-        }
-
-        // Run the notification handler futures with the
-        // `self.notification_handlers` lock no longer being held, in order.
-        for fut in futures {
-            fut.await;
-        }
-
-        Ok(response)
-    }
-
-    async fn sync_loop_helper(
-        &self,
-        sync_settings: &mut crate::config::SyncSettings<'_>,
-    ) -> Result<SyncResponse> {
-        let response = self.sync_once(sync_settings.clone()).await;
-
-        match response {
-            Ok(r) => {
-                sync_settings.token = Some(r.next_batch.clone());
-                Ok(r)
-            }
-            Err(e) => {
-                error!("Received an invalid response: {}", e);
-                sleep::new(Duration::from_secs(1)).await;
-                Err(e)
-            }
-        }
-    }
-
-    async fn delay_sync(last_sync_time: &mut Option<Instant>) {
-        let now = Instant::now();
-
-        // If the last sync happened less than a second ago, sleep for a
-        // while to not hammer out requests if the server doesn't respect
-        // the sync timeout.
-        if let Some(t) = last_sync_time {
-            if now - *t <= Duration::from_secs(1) {
-                sleep::new(Duration::from_secs(1)).await;
-            }
-        }
-
-        *last_sync_time = Some(now);
     }
 
     /// Synchronize the client's state with the latest state on the server.
@@ -1874,7 +1834,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
     /// client.sync(SyncSettings::default()).await;
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [`sync`]: #method.sync
@@ -1901,9 +1861,9 @@ impl Client {
             timeout: sync_settings.timeout,
         });
 
-        let request_config = self.http_client.request_config.timeout(
+        let request_config = self.inner.http_client.request_config.timeout(
             sync_settings.timeout.unwrap_or_else(|| Duration::from_secs(0))
-                + self.http_client.request_config.timeout,
+                + self.inner.http_client.request_config.timeout,
         );
 
         let response = self.send(request, Some(request_config)).await?;
@@ -1914,7 +1874,7 @@ impl Client {
             error!(error =? e, "Error while sending outgoing E2EE requests");
         };
 
-        self.sync_beat.notify(usize::MAX);
+        self.inner.sync_beat.notify(usize::MAX);
 
         Ok(response)
     }
@@ -1931,7 +1891,7 @@ impl Client {
     /// method to react to individual events. If you instead wish to handle
     /// events in a bulk manner the [`Client::sync_with_callback`] and
     /// [`Client::sync_stream`] methods can be used instead. Those two methods
-    /// repeadetly return the whole sync response.
+    /// repeatedly return the whole sync response.
     ///
     /// # Arguments
     ///
@@ -1965,7 +1925,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
     /// client.sync(SyncSettings::default()).await;
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
     /// [argument docs]: #method.sync_once
@@ -2094,7 +2054,7 @@ impl Client {
     ///     }
     /// }
     ///
-    /// # matrix_sdk::Result::Ok(()) });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     #[instrument]
     pub async fn sync_stream<'a>(
@@ -2119,7 +2079,7 @@ impl Client {
     /// Get the current, if any, sync token of the client.
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
-        self.base_client.sync_token().await
+        self.inner.base_client.sync_token().await
     }
 
     /// Get a media file's content.
@@ -2138,7 +2098,7 @@ impl Client {
         use_cache: bool,
     ) -> Result<Vec<u8>> {
         let content = if use_cache {
-            self.base_client.store().get_media_content(request).await?
+            self.inner.base_client.store().get_media_content(request).await?
         } else {
             None
         };
@@ -2182,7 +2142,7 @@ impl Client {
             };
 
             if use_cache {
-                self.base_client.store().add_media_content(request, content.clone()).await?;
+                self.inner.base_client.store().add_media_content(request, content.clone()).await?;
             }
 
             Ok(content)
@@ -2195,7 +2155,7 @@ impl Client {
     ///
     /// * `request` - The `MediaRequest` of the content.
     pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        Ok(self.base_client.store().remove_media_content(request).await?)
+        Ok(self.inner.base_client.store().remove_media_content(request).await?)
     }
 
     /// Delete all the media content corresponding to the given
@@ -2205,7 +2165,7 @@ impl Client {
     ///
     /// * `uri` - The `MxcUri` of the files.
     pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        Ok(self.base_client.store().remove_media_content_for_uri(uri).await?)
+        Ok(self.inner.base_client.store().remove_media_content_for_uri(uri).await?)
     }
 
     /// Get the file of the given media event content.
@@ -2724,7 +2684,7 @@ pub(crate) mod test {
             .add_state_event(EventsJson::PowerLevels)
             .build_sync_response();
 
-        client.base_client.receive_sync_response(response).await.unwrap();
+        client.inner.base_client.receive_sync_response(response).await.unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());

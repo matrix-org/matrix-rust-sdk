@@ -155,6 +155,10 @@ impl MasterSigning {
         Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 
+    pub async fn sign(&self, message: &str) -> String {
+        self.inner.sign(message).await.0
+    }
+
     pub async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
         let subkey_without_signatures = json!({
             "user_id": subkey.user_id.clone(),
@@ -164,7 +168,7 @@ impl MasterSigning {
 
         let message = serde_json::to_string(&subkey_without_signatures)
             .expect("Can't serialize cross signing subkey");
-        let signature = self.inner.sign(&message).await;
+        let signature = self.sign(&message).await;
 
         subkey
             .signatures
@@ -176,7 +180,7 @@ impl MasterSigning {
                     self.inner.public_key().as_str().into(),
                 )
                 .to_string(),
-                signature.0,
+                signature,
             );
     }
 }
@@ -203,10 +207,10 @@ impl UserSigning {
         &self,
         user: &ReadOnlyUserIdentity,
     ) -> Result<CrossSigningKey, SignatureError> {
-        let signature = self.sign_user_helper(user).await?;
+        let signatures = self.sign_user_helper(user).await?;
         let mut master_key: CrossSigningKey = user.master_key().to_owned().into();
 
-        master_key.signatures.extend(signature);
+        master_key.signatures = signatures;
 
         Ok(master_key)
     }

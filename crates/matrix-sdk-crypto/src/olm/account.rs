@@ -686,6 +686,19 @@ impl ReadOnlyAccount {
         self.inner.lock().await.sign(string)
     }
 
+    #[cfg(feature = "backups_v1")]
+    pub(crate) fn is_signed(&self, json: &mut Value) -> Result<(), SignatureError> {
+        let signing_key = self.identity_keys.ed25519();
+        let utility = crate::olm::Utility::new();
+
+        utility.verify_json(
+            &self.user_id,
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signing_key,
+            json,
+        )
+    }
+
     /// Store the account as a base64 encoded string.
     ///
     /// # Arguments
@@ -806,7 +819,8 @@ impl ReadOnlyAccount {
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let public_key =
             master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_string();
-        let mut cross_signing_key = master_key.into();
+        let mut cross_signing_key: CrossSigningKey = master_key.into();
+        cross_signing_key.signatures.clear();
         self.sign_cross_signing_key(&mut cross_signing_key).await?;
 
         let mut signed_keys = BTreeMap::new();

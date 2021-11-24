@@ -535,7 +535,7 @@ impl IdentitiesBeingVerified {
         };
 
         if should_request_secrets {
-            let secret_requests = self.request_missing_secrets().await;
+            let secret_requests = self.request_missing_secrets().await?;
             changes.key_requests = secret_requests;
         }
 
@@ -547,9 +547,16 @@ impl IdentitiesBeingVerified {
             .unwrap_or(VerificationResult::Ok))
     }
 
-    async fn request_missing_secrets(&self) -> Vec<GossipRequest> {
-        let secrets = self.private_identity.get_missing_secrets().await;
-        GossipMachine::request_missing_secrets(self.user_id(), secrets)
+    async fn request_missing_secrets(&self) -> Result<Vec<GossipRequest>, CryptoStoreError> {
+        #[allow(unused_mut)]
+        let mut secrets = self.private_identity.get_missing_secrets().await;
+
+        #[cfg(feature = "backups_v1")]
+        if self.store.inner.load_backup_keys().await?.recovery_key.is_none() {
+            secrets.push(ruma::events::secret::request::SecretName::RecoveryKey);
+        }
+
+        Ok(GossipMachine::request_missing_secrets(self.user_id(), secrets))
     }
 
     async fn mark_identity_as_verified(
@@ -667,9 +674,6 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod test {
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
-    use matrix_sdk_test::async_test;
     use std::convert::TryInto;
 
     use ruma::{

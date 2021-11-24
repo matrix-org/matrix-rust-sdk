@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Deref, result::Result as StdResult};
+use std::ops::Deref;
 
 use matrix_sdk_base::crypto::{
     store::CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
@@ -250,7 +250,7 @@ impl Device {
     /// }
     /// # anyhow::Result::<()>::Ok(()) });
     /// ```
-    pub async fn verify(&self) -> std::result::Result<(), ManualVerifyError> {
+    pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         let request = self.inner.verify().await?;
         self.client.send(request, None).await?;
 
@@ -391,10 +391,7 @@ impl Device {
     /// # Arguments
     ///
     /// * `trust_state` - The new trust state that should be set for the device.
-    pub async fn set_local_trust(
-        &self,
-        trust_state: LocalTrust,
-    ) -> StdResult<(), CryptoStoreError> {
+    pub async fn set_local_trust(&self, trust_state: LocalTrust) -> Result<(), CryptoStoreError> {
         self.inner.set_local_trust(trust_state).await
     }
 }

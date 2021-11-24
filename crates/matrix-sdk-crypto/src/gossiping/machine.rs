@@ -770,6 +770,8 @@ impl GossipMachine {
             return Ok(None);
         };
 
+        let secret = std::mem::take(&mut event.content.secret);
+
         if let Some(request) = self.store.get_outgoing_secret_requests(request_id).await? {
             match &request.info {
                 SecretInfo::KeyRequest(_) => {
@@ -791,30 +793,32 @@ impl GossipMachine {
                         self.store.get_device_from_curve_key(&event.sender, sender_key).await?
                     {
                         if device.verified() {
-                            match self
-                                .store
-                                .import_secret(
-                                    secret_name,
-                                    std::mem::take(&mut event.content.secret),
-                                )
-                                .await
-                            {
-                                Ok(_) => self.mark_as_done(request).await?,
-                                Err(e) => {
-                                    // If this is a store error propagate it up
-                                    // the call stack.
-                                    if let SecretImportError::Store(e) = e {
-                                        return Err(e);
-                                    } else {
-                                        // Otherwise warn that there was
-                                        // something wrong with the secret.
-                                        warn!(
-                                            secret_name = secret_name.as_ref(),
-                                            error =? e,
-                                            "Error while importing a secret"
-                                        )
+                            if secret_name != &SecretName::RecoveryKey {
+                                match self.store.import_secret(secret_name, secret).await {
+                                    Ok(_) => self.mark_as_done(request).await?,
+                                    Err(e) => {
+                                        // If this is a store error propagate it up
+                                        // the call stack.
+                                        if let SecretImportError::Store(e) = e {
+                                            return Err(e);
+                                        } else {
+                                            // Otherwise warn that there was
+                                            // something wrong with the secret.
+                                            warn!(
+                                                secret_name = secret_name.as_ref(),
+                                                error =? e,
+                                                "Error while importing a secret"
+                                            )
+                                        }
                                     }
                                 }
+                            } else {
+                                // Skip importing the recovery key here since
+                                // we'll want to check if the public key matches
+                                // to the latest version on the server. We
+                                // instead leave the key in the event and let
+                                // the user import it later.
+                                event.content.secret = secret;
                             }
                         } else {
                             warn!(

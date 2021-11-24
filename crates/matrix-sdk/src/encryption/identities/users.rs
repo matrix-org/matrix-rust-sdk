@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{result::Result, sync::Arc};
+use std::sync::Arc;
 
 use matrix_sdk_base::{
     crypto::{

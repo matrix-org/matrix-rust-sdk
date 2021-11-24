@@ -15,11 +15,26 @@
 
 //! User sessions.
 
-use ruma::{DeviceId, UserId};
+use ruma::{DeviceIdBox, UserId};
 use serde::{Deserialize, Serialize};
 
 /// A user session, containing an access token and information about the
 /// associated user account.
+///
+/// # Example
+///
+/// ```
+/// use matrix_sdk_base::Session;
+/// use ruma::{DeviceIdBox, user_id};
+///
+/// let session = Session {
+///     access_token: "My-Token".to_owned(),
+///     user_id: user_id!("@example:localhost"),
+///     device_id: DeviceIdBox::from("MYDEVICEID"),
+/// };
+///
+/// assert_eq!(session.device_id.as_str(), "MYDEVICEID");
+/// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     /// The access token used for this session.
@@ -27,5 +42,15 @@ pub struct Session {
     /// The user the access token was issued for.
     pub user_id: UserId,
     /// The ID of the client device
-    pub device_id: Box<DeviceId>,
+    pub device_id: DeviceIdBox,
+}
+
+impl From<ruma::api::client::r0::session::login::Response> for Session {
+    fn from(response: ruma::api::client::r0::session::login::Response) -> Self {
+        Self {
+            access_token: response.access_token,
+            user_id: response.user_id,
+            device_id: response.device_id,
+        }
+    }
 }
