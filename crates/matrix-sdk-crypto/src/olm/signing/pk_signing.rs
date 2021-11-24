@@ -272,16 +272,7 @@ impl SelfSigning {
     }
 
     pub async fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
-        // Create a copy of the device keys containing only fields that will
-        // get signed.
-        let json_device = json!({
-            "user_id": device_keys.user_id,
-            "device_id": device_keys.device_id,
-            "algorithms": device_keys.algorithms,
-            "keys": device_keys.keys,
-        });
-
-        let signature = self.sign_device_helper(json_device).await?;
+        let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?).await?;
 
         device_keys
             .signatures
@@ -419,8 +410,11 @@ impl Signing {
     pub async fn sign_json(&self, mut json: Value) -> Result<Signature, SignatureError> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let _ = json_object.remove("signatures");
+        let _ = json_object.remove("unsigned");
+
         let canonical_json: CanonicalJsonValue =
             json.try_into().expect("Can't canonicalize the json value");
+
         Ok(self.sign(&canonical_json.to_string()).await)
     }
 
