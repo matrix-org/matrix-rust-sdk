@@ -404,6 +404,18 @@ impl IdentityManager {
     pub async fn users_for_key_query(&self) -> Vec<KeysQueryRequest> {
         let users = self.store.users_for_key_query();
 
+        // We always want to track our own user, but in case we aren't in an encrypted
+        // room yet, we won't be tracking ourselves yet. This ensures we are always
+        // tracking ourselves.
+        //
+        // The check for emptiness is done first for performance.
+        let users = if users.is_empty() && !self.store.tracked_users().contains(self.user_id()) {
+            self.update_tracked_users([self.user_id()]).await;
+            self.store.users_for_key_query()
+        } else {
+            users
+        };
+
         if users.is_empty() {
             Vec::new()
         } else {
@@ -665,7 +677,7 @@ pub(crate) mod test {
     #[async_test]
     async fn test_manager_creation() {
         let manager = manager();
-        assert!(manager.users_for_key_query().await.is_empty())
+        assert!(manager.store.tracked_users().is_empty())
     }
 
     #[async_test]
@@ -714,5 +726,20 @@ pub(crate) mod test {
         let identity = identity.other().unwrap();
 
         assert!(identity.is_device_signed(&device).is_ok())
+    }
+
+    #[async_test]
+    async fn no_tracked_users_key_query_request() {
+        let manager = manager();
+
+        assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
+
+        let requests = manager.users_for_key_query().await;
+
+        assert!(!requests.is_empty(), "We query the keys for our own user");
+        assert!(
+            manager.store.tracked_users().contains(manager.user_id()),
+            "Our own user is now tracked"
+        );
     }
 }
