@@ -36,4 +36,4 @@ features = ["now"]
 async-lock = "2.4.0"
 futures-util = { version = "0.3.15", default-features = false, features = ["channel"] }
 wasm-bindgen-futures = "0.4.24"
-uuid = { version = "0.8.2", default-features = false, features = ["v4", "wasm-bindgen"] }
+uuid = { version = "0.8.2", default-features = false, features = ["v4", "wasm-bindgen", "serde"] }
