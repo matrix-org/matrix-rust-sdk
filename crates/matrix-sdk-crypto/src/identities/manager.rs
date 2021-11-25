@@ -74,7 +74,7 @@ impl IdentityManager {
         &self,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        info!(
+        debug!(
             users =? response.device_keys.keys().collect::<BTreeSet<&UserId>>(),
             failures =? response.failures,
             "Handling a keys query response"

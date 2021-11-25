@@ -37,7 +37,7 @@ use ruma::{
     EventId, MxcUri, RoomAliasId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::debug;
 
 use super::{BaseRoomInfo, RoomMember};
 use crate::{
@@ -359,12 +359,12 @@ impl Room {
             members?
         };
 
-        info!(
-            "Calculating name for {}, own user {} hero count {} heroes {:#?}",
-            self.room_id(),
-            self.own_user_id,
-            heroes_count,
-            summary.heroes
+        debug!(
+            room_id = self.room_id().as_str(),
+            own_user = self.own_user_id.as_str(),
+            heroes_count = heroes_count,
+            heroes =? summary.heroes,
+            "Calculating name for a room",
         );
 
         let inner = self.inner.read().unwrap();
