@@ -285,7 +285,7 @@ impl BaseClient {
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
-            cryptostore: config.crypto_store.into(),
+            cryptostore: Mutex::new(config.crypto_store).into(),
             store_passphrase: config.passphrase.into(),
         })
     }
@@ -302,9 +302,6 @@ impl BaseClient {
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         let store = Store::open_memory_store();
 
-        #[cfg(feature = "encryption")]
-        let crypto_store = config.crypto_store;
-
         Ok(BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
@@ -313,7 +310,7 @@ impl BaseClient {
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
-            cryptostore: Mutex::new(crypto_store).into(),
+            cryptostore: Mutex::new(config.crypto_store).into(),
             store_passphrase: config.passphrase.into(),
         })
     }
