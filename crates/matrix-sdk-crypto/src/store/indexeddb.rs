@@ -661,7 +661,39 @@ impl CryptoStore for IndexeddbStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        self.load_outbound_group_session(room_id).await
+        todo!()
+        // self.load_outbound_group_session(room_id).await
+    }
+
+    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
+        todo!()
+        // let backed_up =
+        //     self.get_inbound_group_sessions().await?.into_iter().filter(|s| s.backed_up()).count();
+
+        // Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
+    }
+
+    async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>> {
+        todo!()
+        // Ok(self
+        //     .get_inbound_group_sessions()
+        //     .await?
+        //     .into_iter()
+        //     .filter(|s| !s.backed_up())
+        //     .take(limit)
+        //     .collect())
+    }
+
+    async fn reset_backup_state(&self) -> Result<()> {
+        todo!()
+        // for session in self.get_inbound_group_sessions().await? {
+        //     session.reset_backup_state()
+        // }
+
+        // Ok(())
     }
 
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
@@ -678,6 +710,10 @@ impl CryptoStore for IndexeddbStore {
 
     fn users_for_key_query(&self) -> HashSet<UserId> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
+    }
+
+    async fn load_backup_keys(&self) -> Result<BackupKeys> {
+        todo!()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
