@@ -583,8 +583,7 @@ mod test {
     };
     use serde_json::Value;
 
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
 
     use crate::{EncryptionSettings, OlmMachine};

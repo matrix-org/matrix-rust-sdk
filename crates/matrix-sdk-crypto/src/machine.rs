@@ -25,7 +25,6 @@ use matrix_sdk_common::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
     locks::Mutex,
     uuid::Uuid,
-    util::milli_seconds_since_unix_epoch,
 };
 use ruma::{
     api::client::r0::{
@@ -1531,8 +1530,7 @@ impl OlmMachine {
 pub(crate) mod test {
     static USER_ID: &str = "@bob:example.org";
 
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
 
     use std::{
@@ -1559,8 +1557,7 @@ pub(crate) mod test {
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
             AnyToDeviceEventContent, SyncMessageEvent, ToDeviceEvent, Unsigned,
         },
-        room_id, uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId,
-        MilliSecondsSinceUnixEpoch, UserId,
+        room_id, uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     };
     use serde_json::json;
 

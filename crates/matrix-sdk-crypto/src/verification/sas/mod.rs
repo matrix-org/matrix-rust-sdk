@@ -556,8 +556,7 @@ impl AcceptSettings {
 #[cfg(test)]
 mod test {
     use std::{convert::TryFrom, sync::Arc};
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
 
     use ruma::{DeviceId, UserId};

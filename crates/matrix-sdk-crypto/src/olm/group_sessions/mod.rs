@@ -157,10 +157,9 @@ impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[cfg(test)]
 mod test {
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
     use matrix_sdk_test::async_test;
     use std::{
         sync::Arc,
@@ -175,7 +174,6 @@ mod test {
     use crate::{MegolmError, ReadOnlyAccount};
 
     #[async_test]
-    #[cfg(target_os = "linux")]
     async fn expiration() -> Result<(), MegolmError> {
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 

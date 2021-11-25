@@ -310,8 +310,7 @@ impl CryptoStore for MemoryStore {
 mod test {
     use ruma::room_id;
 
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
 
     use crate::{

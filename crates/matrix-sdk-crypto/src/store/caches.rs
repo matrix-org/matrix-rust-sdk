@@ -194,8 +194,7 @@ mod test {
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
 
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
 
     #[async_test]

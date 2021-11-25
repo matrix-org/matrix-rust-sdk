@@ -59,8 +59,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
     use std::{collections::BTreeMap, convert::TryInto};
 

@@ -1,6 +1,5 @@
 use proc_macro::TokenStream;
 use quote::ToTokens;
-use syn::parse::{Parse, ParseBuffer};
 use syn::parse_macro_input;
 use quote::{quote, format_ident};
 use syn;

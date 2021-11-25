@@ -939,8 +939,7 @@ mod test {
     use matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
 
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
     use ruma::{
         events::{

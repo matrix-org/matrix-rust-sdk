@@ -514,8 +514,7 @@ mod test {
     };
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
 
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
+
     use matrix_sdk_test::async_test;
     use ruma::{DeviceId, UserId};
 
@@ -582,7 +581,7 @@ mod test {
         (machine, bob_sas)
     }
 
-    #[test]
+    #[async_test]
     fn create() {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
