@@ -83,7 +83,7 @@ pub enum KeyExportError {
 /// # block_on(async {
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-/// machine.import_keys(exported_keys, |_, _| {}).await.unwrap();
+/// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
 /// # });
 /// ```
 pub fn decrypt_key_export(
@@ -312,7 +312,7 @@ mod test {
 
         assert_eq!(export, decrypted);
         assert_eq!(
-            machine.import_keys(decrypted, |_, _| {}).await.unwrap(),
+            machine.import_keys(decrypted, false, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1)
         );
     }
@@ -326,21 +326,27 @@ mod test {
         let export = vec![session.export_at_index(10).await];
 
         assert_eq!(
-            machine.import_keys(export.clone(), |_, _| {}).await?,
+            machine.import_keys(export.clone(), false, |_, _| {}).await?,
             RoomKeyImportResult::new(1, 1)
         );
-        assert_eq!(machine.import_keys(export, |_, _| {}).await?, RoomKeyImportResult::new(0, 1));
+        assert_eq!(
+            machine.import_keys(export, false, |_, _| {}).await?,
+            RoomKeyImportResult::new(0, 1)
+        );
 
         let better_export = vec![session.export().await];
 
         assert_eq!(
-            machine.import_keys(better_export, |_, _| {}).await?,
+            machine.import_keys(better_export, false, |_, _| {}).await?,
             RoomKeyImportResult::new(1, 1)
         );
 
         let another_session = machine.create_inbound_session(&room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
-        assert_eq!(machine.import_keys(export, |_, _| {}).await?, RoomKeyImportResult::new(1, 1));
+        assert_eq!(
+            machine.import_keys(export, false, |_, _| {}).await?,
+            RoomKeyImportResult::new(1, 1)
+        );
 
         Ok(())
     }

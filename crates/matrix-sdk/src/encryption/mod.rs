@@ -672,7 +672,7 @@ impl Client {
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error")?;
 
-        Ok(olm.import_keys(import, |_, _| {}).await?)
+        Ok(olm.import_keys(import, false, |_, _| {}).await?)
     }
 
     /// Tries to decrypt a `AnyRoomEvent`. Returns unencrypted room event when

@@ -1290,6 +1290,10 @@ impl OlmMachine {
     /// imported into our store. If we already have a better version of a key
     /// the key will *not* be imported.
     ///
+    /// * `from_backup` - Were the room keys imported from the backup, if true
+    /// will mark the room keys as already backed up. This will prevent backing
+    /// up keys that are already backed up.
+    ///
     /// Returns a tuple of numbers that represent the number of sessions that
     /// were imported and the total number of sessions that were found in the
     /// key export.
@@ -1305,12 +1309,13 @@ impl OlmMachine {
     /// # block_on(async {
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-    /// machine.import_keys(exported_keys, |_, _| {}).await.unwrap();
+    /// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
     /// # });
     /// ```
     pub async fn import_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
+        #[allow(unused_variables)] from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<RoomKeyImportResult> {
         type SessionIdToIndexMap = BTreeMap<Arc<str>, u32>;
@@ -1362,6 +1367,11 @@ impl OlmMachine {
             // a better version of the same session, that is the first known
             // index is lower.
             if !existing_sessions.has_better_session(&session) {
+                #[cfg(feature = "backups_v1")]
+                if from_backup {
+                    session.mark_as_backed_up()
+                }
+
                 sessions.push(session)
             }
 
