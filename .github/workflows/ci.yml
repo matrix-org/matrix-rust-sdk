@@ -117,16 +117,22 @@ jobs:
     - name: Install wasm-pack
       run: cargo install wasm-pack
 
-    - name: Unit tests
+    - name: Checking base
       run: |
         cd crates/matrix-sdk-base/
-        wasm-pack test --node
-        wasm-pack test --firefox --headless --features indexeddb_state_store
+        wasm-pack test --node --features indexeddb_state_store,indexeddb_cryptostore
+        wasm-pack test --firefox --headless -- --features indexeddb_state_store,indexeddb_cryptostore
 
-    - name: Check
+    - name: Checking cryptostore
+      run: |
+        cd crates/matrix-sdk-base/
+        wasm-pack test --node -- --features indexeddb_cryptostore
+        wasm-pack test --firefox --headless -- --features indexeddb_cryptostore
+
+    - name: Checking example
       run: |
         cd crates/matrix-sdk/examples/wasm_command_bot
-        cargo check --target wasm32-unknown-unknown
+        npm install && npm test
 
   test-appservice:
     name: ${{ matrix.name }}
