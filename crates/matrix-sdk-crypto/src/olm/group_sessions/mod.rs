@@ -64,10 +64,12 @@ pub struct ExportedRoomKey {
     pub session_key: ExportedGroupSessionKey,
 
     /// The Ed25519 key of the device which initiated the session originally.
+    #[serde(default)]
     pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
+    #[serde(default)]
     pub forwarding_curve25519_key_chain: Vec<String>,
 }
 
