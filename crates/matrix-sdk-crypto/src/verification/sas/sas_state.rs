@@ -16,8 +16,9 @@ use std::{
     convert::{TryFrom, TryInto},
     matches,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::{Duration},
 };
+use matrix_sdk_common::instant::Instant;
 
 use matrix_sdk_common::uuid::Uuid;
 use olm_rs::sas::OlmSas;
@@ -1136,9 +1137,6 @@ impl SasState<Cancelled> {
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
-
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
     use matrix_sdk_test::async_test;
 
     use ruma::{

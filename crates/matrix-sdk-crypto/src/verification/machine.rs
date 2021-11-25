@@ -28,6 +28,7 @@ use ruma::{
     DeviceId, DeviceIdBox, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
+use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
 
 use super::{
     cache::VerificationCache,
@@ -190,7 +191,6 @@ impl VerificationMachine {
         self.verifications.get_sas(user_id, flow_id)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
         use ruma::{uint, UInt};
 
@@ -201,19 +201,10 @@ impl VerificationMachine {
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();
-        let now = MilliSecondsSinceUnixEpoch::now().as_secs();
+        let now = milli_seconds_since_unix_epoch().as_secs();
 
         !(now.saturating_sub(timestamp) > old_timestamp_threshold
             || timestamp.saturating_sub(now) > timestamp_threshold)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
-        // TODO the non-wasm method with the same name uses
-        // `MilliSecondsSinceUnixEpoch::now()` which internally uses
-        // `SystemTime::now()` this panics under WASM, thus we're returning here
-        // true for now.
-        true
     }
 
     fn queue_up_content(
@@ -519,10 +510,9 @@ mod test {
     use std::{
         convert::TryFrom,
         sync::Arc,
-        time::{Duration, Instant},
+        time::Duration,
     };
-
-    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_common::{instant::Instant, locks::Mutex};
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test;

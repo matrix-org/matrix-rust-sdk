@@ -32,8 +32,8 @@ use tracing::trace;
 use uuid::Uuid;
 
 use super::{
-    caches::SessionStore, Changes, CryptoStore, CryptoStoreError, InboundGroupSession, PickleKey,
-    ReadOnlyAccount, Result, Session, EncryptedPickleKey,
+    caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, InboundGroupSession,
+    PickleKey, EncryptedPickleKey, ReadOnlyAccount, Result, RoomKeyCounts, Session,
 };
 use crate::{
     gossiping::{GossipRequest, SecretInfo},

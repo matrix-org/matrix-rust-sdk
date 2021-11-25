@@ -25,6 +25,7 @@ use matrix_sdk_common::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
     locks::Mutex,
     uuid::Uuid,
+    util::milli_seconds_since_unix_epoch,
 };
 use ruma::{
     api::client::r0::{
@@ -1569,6 +1570,7 @@ pub(crate) mod test {
         verification::test::{outgoing_request_to_event, request_to_event},
         EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
+    use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
 
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
@@ -2020,7 +2022,7 @@ pub(crate) mod test {
 
         let event = SyncMessageEvent {
             event_id: event_id!("$xxxxx:example.org"),
-            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
+            origin_server_ts: milli_seconds_since_unix_epoch(),
             sender: alice.user_id().clone(),
             content: encrypted_content,
             unsigned: Unsigned::default(),

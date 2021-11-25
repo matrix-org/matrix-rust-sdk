@@ -18,7 +18,7 @@ mod sas_state;
 
 use std::sync::{Arc, Mutex};
 #[cfg(test)]
-use std::time::Instant;
+use matrix_sdk_common::instant::Instant;
 
 use inner_sas::InnerSas;
 use matrix_sdk_common::uuid::Uuid;

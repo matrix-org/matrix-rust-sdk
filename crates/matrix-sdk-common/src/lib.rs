@@ -15,6 +15,7 @@ pub use uuid;
 pub mod deserialized_responses;
 pub mod executor;
 pub mod locks;
+pub mod util;
 
 /// Super trait that is used for our store traits, this trait will differ if
 /// it's used on WASM. WASM targets will not require `Send` and `Sync` to have

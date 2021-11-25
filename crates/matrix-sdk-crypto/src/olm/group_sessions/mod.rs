@@ -164,8 +164,10 @@ mod test {
     use matrix_sdk_test::async_test;
     use std::{
         sync::Arc,
-        time::{Duration, Instant},
+        time::Duration,
     };
+
+    use matrix_sdk_common::instant::Instant;
 
     use ruma::{events::room::message::RoomMessageEventContent, room_id, user_id};
 
