@@ -235,7 +235,10 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
 
 #[cfg(test)]
 mod test {
-    use std::io::Cursor;
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        io::Cursor,
+    };
 
     use indoc::indoc;
     use matrix_sdk_test::async_test;
@@ -313,7 +316,7 @@ mod test {
         assert_eq!(export, decrypted);
         assert_eq!(
             machine.import_keys(decrypted, false, |_, _| {}).await.unwrap(),
-            RoomKeyImportResult::new(0, 1)
+            RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
     }
 
@@ -325,28 +328,44 @@ mod test {
 
         let export = vec![session.export_at_index(10).await];
 
-        assert_eq!(
-            machine.import_keys(export.clone(), false, |_, _| {}).await?,
-            RoomKeyImportResult::new(1, 1)
+        let keys = RoomKeyImportResult::new(
+            1,
+            1,
+            BTreeMap::from([(
+                session.room_id().to_owned(),
+                BTreeMap::from([(
+                    session.sender_key().to_owned(),
+                    BTreeSet::from([session.session_id().to_owned()]),
+                )]),
+            )]),
         );
+
+        assert_eq!(machine.import_keys(export.clone(), false, |_, _| {}).await?, keys,);
         assert_eq!(
             machine.import_keys(export, false, |_, _| {}).await?,
-            RoomKeyImportResult::new(0, 1)
+            RoomKeyImportResult::new(0, 1, BTreeMap::new())
         );
 
         let better_export = vec![session.export().await];
 
-        assert_eq!(
-            machine.import_keys(better_export, false, |_, _| {}).await?,
-            RoomKeyImportResult::new(1, 1)
-        );
+        assert_eq!(machine.import_keys(better_export, false, |_, _| {}).await?, keys,);
 
         let another_session = machine.create_inbound_session(&room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
-        assert_eq!(
-            machine.import_keys(export, false, |_, _| {}).await?,
-            RoomKeyImportResult::new(1, 1)
+
+        let keys = RoomKeyImportResult::new(
+            1,
+            1,
+            BTreeMap::from([(
+                another_session.room_id().to_owned(),
+                BTreeMap::from([(
+                    another_session.sender_key().to_owned(),
+                    BTreeSet::from([another_session.session_id().to_owned()]),
+                )]),
+            )]),
         );
+
+        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys,);
 
         Ok(())
     }

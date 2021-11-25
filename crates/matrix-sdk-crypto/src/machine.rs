@@ -15,7 +15,7 @@
 #[cfg(feature = "sled_cryptostore")]
 use std::path::Path;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     mem,
     sync::Arc,
 };
@@ -1359,6 +1359,7 @@ impl OlmMachine {
         };
 
         let total_count = exported_keys.len();
+        let mut keys = BTreeMap::new();
 
         for (i, key) in exported_keys.into_iter().enumerate() {
             let session = InboundGroupSession::from_export(key)?;
@@ -1372,6 +1373,12 @@ impl OlmMachine {
                     session.mark_as_backed_up()
                 }
 
+                keys.entry(session.room_id().to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .entry(session.sender_key().to_owned())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(session.session_id().to_owned());
+
                 sessions.push(session)
             }
 
@@ -1384,9 +1391,9 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        info!(total_count, imported_count, "Successfully imported room keys");
+        info!(total_count, imported_count, room_keys =? keys, "Successfully imported room keys");
 
-        Ok(RoomKeyImportResult::new(imported_count, total_count))
+        Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
     }
 
     /// Export the keys that match the given predicate.

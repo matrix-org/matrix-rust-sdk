@@ -40,6 +40,10 @@ pub mod store;
 mod utilities;
 mod verification;
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use ruma::RoomId;
+
 /// Return type for the room key importing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoomKeyImportResult {
@@ -47,11 +51,20 @@ pub struct RoomKeyImportResult {
     pub imported_count: usize,
     /// The total number of room keys that were found in the export.
     pub total_count: usize,
+    /// The map of keys that were imported.
+    ///
+    /// It's a map from room id to a map of the sender key to a set of session
+    /// ids.
+    pub keys: BTreeMap<RoomId, BTreeMap<String, BTreeSet<String>>>,
 }
 
 impl RoomKeyImportResult {
-    pub(crate) fn new(imported_count: usize, total_count: usize) -> Self {
-        Self { imported_count, total_count }
+    pub(crate) fn new(
+        imported_count: usize,
+        total_count: usize,
+        keys: BTreeMap<RoomId, BTreeMap<String, BTreeSet<String>>>,
+    ) -> Self {
+        Self { imported_count, total_count, keys }
     }
 }
 
