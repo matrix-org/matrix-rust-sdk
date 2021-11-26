@@ -46,86 +46,6 @@ use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
 /// panic once we try to pickle a Signing object.
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
 
-trait EncodeKey {
-    const SEPARATOR: u8 = 0xff;
-    fn encode(&self) -> Vec<u8>;
-}
-
-impl EncodeKey for Uuid {
-    fn encode(&self) -> Vec<u8> {
-        self.as_u128().to_be_bytes().to_vec()
-    }
-}
-
-impl EncodeKey for SecretName {
-    fn encode(&self) -> Vec<u8> {
-        [self.as_ref().as_bytes(), &[Self::SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for SecretInfo {
-    fn encode(&self) -> Vec<u8> {
-        match self {
-            SecretInfo::KeyRequest(k) => k.encode(),
-            SecretInfo::SecretRequest(s) => s.encode(),
-        }
-    }
-}
-
-impl EncodeKey for &RequestedKeyInfo {
-    fn encode(&self) -> Vec<u8> {
-        [
-            self.room_id.as_bytes(),
-            &[Self::SEPARATOR],
-            self.sender_key.as_bytes(),
-            &[Self::SEPARATOR],
-            self.algorithm.as_ref().as_bytes(),
-            &[Self::SEPARATOR],
-            self.session_id.as_bytes(),
-            &[Self::SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
-impl EncodeKey for &UserId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for &RoomId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for &str {
-    fn encode(&self) -> Vec<u8> {
-        [self.as_bytes(), &[Self::SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [self.0.as_bytes(), &[Self::SEPARATOR], self.1.as_bytes(), &[Self::SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&str, &str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[Self::SEPARATOR],
-            self.1.as_bytes(),
-            &[Self::SEPARATOR],
-            self.2.as_bytes(),
-            &[Self::SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
     user_id: Arc<UserId>,
@@ -133,13 +53,11 @@ pub struct AccountInfo {
     identity_keys: Arc<IdentityKeys>,
 }
 
-
 #[allow(non_snake_case)]
 mod KEYS {
 
     // STORES
-    pub const ACCOUNT: &'static str = "account";
-    pub const PRIVATE_IDENTITY: &'static str = "private_identity";
+    pub const CORE: &'static str = "core";
 
     pub const SESSION: &'static str = "session";
     pub const INBOUND_GROUP_SESSIONS: &'static str = "inbound_group_sessions";
@@ -158,6 +76,8 @@ mod KEYS {
 
     // KEYS
    pub const PICKLE_KEY: &'static str = "pickle_key";
+   pub const ACCOUNT: &'static str = "account";
+   pub const PRIVATE_IDENTITY: &'static str = "private_identity";
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -170,6 +90,7 @@ pub struct IndexeddbStore {
     session_cache: SessionStore,
     tracked_users_cache: Arc<DashSet<UserId>>,
     users_for_key_query_cache: Arc<DashSet<UserId>>,
+
 }
 
 impl std::fmt::Debug for IndexeddbStore {
@@ -209,11 +130,11 @@ impl IndexeddbStore {
                 // migrating to version 1
                 let db = evt.db();
 
-                db.create_object_store(KEYS::ACCOUNT)?;
+                db.create_object_store(KEYS::CORE)?;
                 db.create_object_store(KEYS::SESSION)?;
 
-                db.create_object_store(KEYS::PRIVATE_IDENTITY)?;
                 db.create_object_store(KEYS::INBOUND_GROUP_SESSIONS)?;
+                db.create_object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?;
                 db.create_object_store(KEYS::TRACKED_USERS)?;
                 db.create_object_store(KEYS::OLM_HASHES)?;
                 db.create_object_store(KEYS::DEVICES)?;
@@ -302,6 +223,179 @@ impl IndexeddbStore {
         self.pickle_key.key()
     }
 
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
+        let mut stores: Vec<&'static str> = [
+            (changes.account.is_some() || changes.private_identity.is_some(), KEYS::CORE),
+            (!changes.sessions.is_empty(), KEYS::SESSION),
+            (!changes.devices.new.is_empty() || !changes.devices.deleted.is_empty(),
+                KEYS::DEVICES),
+            (!changes.inbound_group_sessions.is_empty(),  KEYS::INBOUND_GROUP_SESSIONS),
+            (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
+        ]
+        .iter()
+        .filter_map(|(id, key)| if *id { Some(*key) } else { None })
+        .collect();
+
+        if !changes.key_requests.is_empty() {
+            stores.extend([
+                KEYS::SECRET_REQUESTS_BY_INFO,
+                KEYS::UNSENT_SECRET_REQUESTS,
+                KEYS::OUTGOING_SECRET_REQUESTS,
+            ])
+        }
+
+        if stores.len() == 0 {
+            // nothing to do, quit early
+            return Ok(());
+        }
+
+        let tx =
+            self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
+
+        let account_pickle = if let Some(a) = changes.account {
+            Some(a.pickle(self.get_pickle_mode()).await)
+        } else {
+            None
+        };
+
+        let private_identity_pickle = if let Some(i) = changes.private_identity {
+            Some(i.pickle(self.get_pickle_key()).await?)
+        } else {
+            None
+        };
+
+        if let Some(a) = &account_pickle {
+            tx.object_store(KEYS::CORE)?
+                .put_key_val(&JsValue::from_str(KEYS::ACCOUNT), &JsValue::from_serde(&a)?)?;
+        }
+
+        if let Some(i) = &private_identity_pickle {
+            tx.object_store(KEYS::CORE)?
+                .put_key_val(&JsValue::from_str(KEYS::PRIVATE_IDENTITY), &JsValue::from_serde(i)?)?;
+        }
+
+        let device_changes = changes.devices;
+
+        if !changes.sessions.is_empty() {
+            let sessions = tx.object_store(KEYS::SESSION)?;
+
+            for session in &changes.sessions {
+                let sender_key = session.sender_key();
+                let session_id = session.session_id();
+
+                let pickle = session.pickle(self.get_pickle_mode()).await;
+                let key = format!("{}:{}", sender_key, session_id);
+
+                sessions.put_key_val(&JsValue::from_str(&key), &JsValue::from_serde(&pickle)?)?;
+            }
+        }
+
+        if !changes.inbound_group_sessions.is_empty() {
+            let sessions = tx.object_store(KEYS::INBOUND_GROUP_SESSIONS)?;
+
+            for session in changes.inbound_group_sessions {
+                let room_id = session.room_id();
+                let sender_key = session.sender_key();
+                let session_id = session.session_id();
+                let key = format!("{}:{}:{}", room_id, sender_key, session_id);
+                let pickle = session.pickle(self.get_pickle_mode()).await;
+
+                sessions.put_key_val(&JsValue::from_str(&key), &JsValue::from_serde(&pickle)?)?;
+            }
+        }
+
+        if !changes.outbound_group_sessions.is_empty() {
+            let sessions = tx.object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?;
+
+            for session in changes.outbound_group_sessions {
+                let room_id = session.room_id();
+                let pickle = session.pickle(self.get_pickle_mode()).await;
+                sessions.put_key_val(&JsValue::from_str(room_id.as_str()), &JsValue::from_serde(&pickle)?)?;
+            }
+        }
+
+        let identity_changes = changes.identities;
+        let olm_hashes = changes.message_hashes;
+        let key_requests = changes.key_requests;
+
+        if !device_changes.new.is_empty() {
+            let device_store = tx.object_store(KEYS::DEVICES)?;
+            for device in device_changes.new.iter().chain(&device_changes.changed) {
+                let key = format!("{}:{}", device.user_id().as_str(), device.device_id().as_str());
+                let device = JsValue::from_serde(&device)?;
+
+                device_store.put_key_val(&JsValue::from_str(&key), &device)?;
+            }
+        }
+
+        if !device_changes.deleted.is_empty() {
+            let device_store = tx.object_store(KEYS::DEVICES)?;
+
+            for device in &device_changes.deleted {
+                let key = format!("{}:{}", device.user_id().as_str(), device.device_id().as_str());
+                device_store.delete(&JsValue::from_str(&key))?;
+            }
+        }
+
+        if !identity_changes.changed.is_empty() {
+            let identities = tx.object_store(KEYS::IDENTITIES)?;
+            for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
+                identities.put_key_val(
+                    &JsValue::from_str(identity.user_id().as_str()),
+                    &JsValue::from_serde(&identity)?,
+                )?;
+            }
+        }
+
+        if !olm_hashes.is_empty() {
+            let hashes = tx.object_store(KEYS::OLM_HASHES)?;
+            for hash in &olm_hashes {
+                hashes.put_key_val(
+                    &JsValue::from_serde(hash)?,
+                    &JsValue::from_serde(&None::<String>)?
+                )?;
+            }
+        }
+
+
+        if !key_requests.is_empty() {
+            let secret_requests_by_info = tx.object_store(KEYS::SECRET_REQUESTS_BY_INFO)?;
+            let unsent_secret_requests = tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?;
+            let outgoing_secret_requests = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?;
+            for key_request in &key_requests {
+                let key_request_id = JsValue::from_serde(&key_request.request_id)?;
+                secret_requests_by_info.put_key_val(
+                    &JsValue::from_serde(&key_request.info)?,
+                    &key_request_id,
+                )?;
+
+                if key_request.sent_out {
+                    unsent_secret_requests.delete(&key_request_id)?;
+                    outgoing_secret_requests.put_key_val(
+                        &key_request_id,
+                        &JsValue::from_serde(&key_request)?,
+                    )?;
+                } else {
+                    outgoing_secret_requests.delete(&key_request_id)?;
+                    unsent_secret_requests.put_key_val(
+                        &key_request_id,
+                        &JsValue::from_serde(&key_request)?,
+                    )?;
+                }
+            }
+        }
+
+        tx.await.into_result()?;
+
+        // all good, let's update our caches:indexeddb
+        for session in changes.sessions {
+            self.session_cache.add(session).await;
+        }
+
+        Ok(())
+    }
+
+
     async fn load_tracked_users(&self) -> Result<()> {
         todo!()
         // for value in self.tracked_users.iter() {
@@ -341,188 +435,6 @@ impl IndexeddbStore {
         //     })
         //     .transpose()
     }
-
-    async fn save_changes(&self, changes: Changes) -> Result<()> {
-        todo!()
-        // let account_pickle = if let Some(a) = changes.account {
-        //     Some(a.pickle(self.get_pickle_mode()).await)
-        // } else {
-        //     None
-        // };
-
-        // let private_identity_pickle = if let Some(i) = changes.private_identity {
-        //     Some(i.pickle(self.get_pickle_key()).await?)
-        // } else {
-        //     None
-        // };
-
-        // let device_changes = changes.devices;
-        // let mut session_changes = HashMap::new();
-
-        // for session in changes.sessions {
-        //     let sender_key = session.sender_key();
-        //     let session_id = session.session_id();
-
-        //     let pickle = session.pickle(self.get_pickle_mode()).await;
-        //     let key = (sender_key, session_id).encode();
-
-        //     self.session_cache.add(session).await;
-        //     session_changes.insert(key, pickle);
-        // }
-
-        // let mut inbound_session_changes = HashMap::new();
-
-        // for session in changes.inbound_group_sessions {
-        //     let room_id = session.room_id();
-        //     let sender_key = session.sender_key();
-        //     let session_id = session.session_id();
-        //     let key = (room_id.as_str(), sender_key, session_id).encode();
-        //     let pickle = session.pickle(self.get_pickle_mode()).await;
-
-        //     inbound_session_changes.insert(key, pickle);
-        // }
-
-        // let mut outbound_session_changes = HashMap::new();
-
-        // for session in changes.outbound_group_sessions {
-        //     let room_id = session.room_id();
-        //     let pickle = session.pickle(self.get_pickle_mode()).await;
-
-        //     outbound_session_changes.insert(room_id.clone(), pickle);
-        // }
-
-        // let identity_changes = changes.identities;
-        // let olm_hashes = changes.message_hashes;
-        // let key_requests = changes.key_requests;
-
-        // let ret: Result<(), TransactionError<serde_json::Error>> = (
-        //     &self.account,
-        //     &self.private_identity,
-        //     &self.devices,
-        //     &self.identities,
-        //     &self.sessions,
-        //     &self.inbound_group_sessions,
-        //     &self.outbound_group_sessions,
-        //     &self.olm_hashes,
-        //     &self.outgoing_secret_requests,
-        //     &self.unsent_secret_requests,
-        //     &self.secret_requests_by_info,
-        // )
-        //     .transaction(
-        //         |(
-        //             account,
-        //             private_identity,
-        //             devices,
-        //             identities,
-        //             sessions,
-        //             inbound_sessions,
-        //             outbound_sessions,
-        //             hashes,
-        //             outgoing_secret_requests,
-        //             unsent_secret_requests,
-        //             secret_requests_by_info,
-        //         )| {
-        //             if let Some(a) = &account_pickle {
-        //                 account.insert(
-        //                     "account".encode(),
-        //                     serde_json::to_vec(a).map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
-
-        //             if let Some(i) = &private_identity_pickle {
-        //                 private_identity.insert(
-        //                     "identity".encode(),
-        //                     serde_json::to_vec(&i).map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
-
-        //             for device in device_changes.new.iter().chain(&device_changes.changed) {
-        //                 let key = (device.user_id().as_str(), device.device_id().as_str()).encode();
-        //                 let device = serde_json::to_vec(&device)
-        //                     .map_err(ConflictableTransactionError::Abort)?;
-        //                 devices.insert(key, device)?;
-        //             }
-
-        //             for device in &device_changes.deleted {
-        //                 let key = (device.user_id().as_str(), device.device_id().as_str()).encode();
-        //                 devices.remove(key)?;
-        //             }
-
-        //             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-        //                 identities.insert(
-        //                     identity.user_id().encode(),
-        //                     serde_json::to_vec(&identity)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
-
-        //             for (key, session) in &session_changes {
-        //                 sessions.insert(
-        //                     key.as_slice(),
-        //                     serde_json::to_vec(&session)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
-
-        //             for (key, session) in &inbound_session_changes {
-        //                 inbound_sessions.insert(
-        //                     key.as_slice(),
-        //                     serde_json::to_vec(&session)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
-
-        //             for (key, session) in &outbound_session_changes {
-        //                 outbound_sessions.insert(
-        //                     key.encode(),
-        //                     serde_json::to_vec(&session)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                 )?;
-        //             }
-
-        //             for hash in &olm_hashes {
-        //                 hashes.insert(
-        //                     serde_json::to_vec(&hash)
-        //                         .map_err(ConflictableTransactionError::Abort)?,
-        //                     &[0],
-        //                 )?;
-        //             }
-
-        //             for key_request in &key_requests {
-        //                 secret_requests_by_info.insert(
-        //                     (&key_request.info).encode(),
-        //                     key_request.request_id.encode(),
-        //                 )?;
-
-        //                 let key_request_id = key_request.request_id.encode();
-
-        //                 if key_request.sent_out {
-        //                     unsent_secret_requests.remove(key_request_id.clone())?;
-        //                     outgoing_secret_requests.insert(
-        //                         key_request_id,
-        //                         serde_json::to_vec(&key_request)
-        //                             .map_err(ConflictableTransactionError::Abort)?,
-        //                     )?;
-        //                 } else {
-        //                     outgoing_secret_requests.remove(key_request_id.clone())?;
-        //                     unsent_secret_requests.insert(
-        //                         key_request_id,
-        //                         serde_json::to_vec(&key_request)
-        //                             .map_err(ConflictableTransactionError::Abort)?,
-        //                     )?;
-        //                 }
-        //             }
-
-        //             Ok(())
-        //         },
-        //     );
-
-        // ret?;
-        // self.inner.flush_async().await?;
-
-        // Ok(())
-    }
-
     async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
         todo!()
         // let request = self
