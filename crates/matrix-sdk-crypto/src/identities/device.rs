@@ -53,12 +53,7 @@ use crate::{OlmMachine, ReadOnlyAccount};
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ReadOnlyDevice {
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
-    algorithms: Arc<[EventEncryptionAlgorithm]>,
-    keys: Arc<BTreeMap<DeviceKeyId, String>>,
-    pub(crate) signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
-    display_name: Arc<Option<String>>,
+    pub(crate) inner: Arc<DeviceKeys>,
     #[serde(
         serialize_with = "atomic_bool_serializer",
         deserialize_with = "atomic_bool_deserializer"
@@ -76,7 +71,7 @@ impl std::fmt::Debug for ReadOnlyDevice {
         f.debug_struct("ReadOnlyDevice")
             .field("user_id", self.user_id())
             .field("device_id", &self.device_id())
-            .field("display_name", self.display_name())
+            .field("display_name", &self.display_name())
             .field("keys", self.keys())
             .field("deleted", &self.deleted.load(Ordering::SeqCst))
             .field("trust_state", &self.trust_state)
@@ -360,56 +355,46 @@ impl From<i64> for LocalTrust {
 }
 
 impl ReadOnlyDevice {
-    /// Create a new Device.
-    pub fn new(
-        user_id: UserId,
-        device_id: Box<DeviceId>,
-        display_name: Option<String>,
-        trust_state: LocalTrust,
-        algorithms: Vec<EventEncryptionAlgorithm>,
-        keys: BTreeMap<DeviceKeyId, String>,
-        signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
-    ) -> Self {
+    /// Create a new Device, this constructor skips signature verification of
+    /// the keys, `TryFrom` should be used for completely new devices we
+    /// receive.
+    #[cfg(feature = "sled_cryptostore")]
+    pub(crate) fn new(device_keys: DeviceKeys, trust_state: LocalTrust) -> Self {
         Self {
-            user_id: Arc::new(user_id),
-            device_id: device_id.into(),
-            display_name: Arc::new(display_name),
+            inner: device_keys.into(),
             trust_state: Arc::new(Atomic::new(trust_state)),
-            signatures: Arc::new(signatures),
-            algorithms: algorithms.into(),
-            keys: Arc::new(keys),
             deleted: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// The user id of the device owner.
     pub fn user_id(&self) -> &UserId {
-        &self.user_id
+        &self.inner.user_id
     }
 
     /// The unique ID of the device.
     pub fn device_id(&self) -> &DeviceId {
-        &self.device_id
+        &self.inner.device_id
     }
 
     /// Get the human readable name of the device.
-    pub fn display_name(&self) -> &Option<String> {
-        &self.display_name
+    pub fn display_name(&self) -> Option<&str> {
+        self.inner.unsigned.device_display_name.as_deref()
     }
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&String> {
-        self.keys.get(&DeviceKeyId::from_parts(algorithm, &self.device_id))
+        self.inner.keys.get(&DeviceKeyId::from_parts(algorithm, self.device_id()))
     }
 
     /// Get a map containing all the device keys.
     pub fn keys(&self) -> &BTreeMap<DeviceKeyId, String> {
-        &self.keys
+        &self.inner.keys
     }
 
     /// Get a map containing all the device signatures.
     pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
-        &self.signatures
+        &self.inner.signatures
     }
 
     /// Get the trust state of the device.
@@ -439,7 +424,7 @@ impl ReadOnlyDevice {
 
     /// Get the list of algorithms this device supports.
     pub fn algorithms(&self) -> &[EventEncryptionAlgorithm] {
-        &self.algorithms
+        &self.inner.algorithms
     }
 
     /// Is the device deleted.
@@ -528,13 +513,7 @@ impl ReadOnlyDevice {
     /// Update a device with a new device keys struct.
     pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
         self.verify_device_keys(device_keys)?;
-
-        let display_name = Arc::new(device_keys.unsigned.device_display_name.clone());
-
-        self.algorithms = device_keys.algorithms.as_slice().into();
-        self.keys = Arc::new(device_keys.keys.clone());
-        self.signatures = Arc::new(device_keys.signatures.clone());
-        self.display_name = display_name;
+        self.inner = device_keys.clone().into();
 
         Ok(())
     }
@@ -546,21 +525,15 @@ impl ReadOnlyDevice {
         let utility = Utility::new();
 
         utility.verify_json(
-            &self.user_id,
+            self.user_id(),
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
             signing_key,
             json,
         )
     }
 
-    pub(crate) fn as_device_keys(&self) -> DeviceKeys {
-        DeviceKeys::new(
-            self.user_id().clone(),
-            self.device_id().into(),
-            self.algorithms().to_vec(),
-            self.keys().clone(),
-            self.signatures().to_owned(),
-        )
+    pub(crate) fn as_device_keys(&self) -> &DeviceKeys {
+        &self.inner
     }
 
     pub(crate) fn verify_device_keys(
@@ -600,12 +573,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
 
     fn try_from(device_keys: &DeviceKeys) -> Result<Self, Self::Error> {
         let device = Self {
-            user_id: Arc::new(device_keys.user_id.clone()),
-            device_id: device_keys.device_id.clone().into(),
-            algorithms: device_keys.algorithms.as_slice().into(),
-            signatures: Arc::new(device_keys.signatures.clone()),
-            keys: Arc::new(device_keys.keys.clone()),
-            display_name: Arc::new(device_keys.unsigned.device_display_name.clone()),
+            inner: device_keys.clone().into(),
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
         };
@@ -669,9 +637,9 @@ pub(crate) mod test {
 
         assert_eq!(&user_id, device.user_id());
         assert_eq!(device_id, device.device_id());
-        assert_eq!(device.algorithms.len(), 2);
+        assert_eq!(device.algorithms().len(), 2);
         assert_eq!(LocalTrust::Unset, device.local_trust_state());
-        assert_eq!("Alice's mobile phone", device.display_name().as_ref().unwrap());
+        assert_eq!("Alice's mobile phone", device.display_name().unwrap());
         assert_eq!(
             device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
             "xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc"
@@ -686,7 +654,7 @@ pub(crate) mod test {
     fn update_a_device() {
         let mut device = get_device();
 
-        assert_eq!("Alice's mobile phone", device.display_name().as_ref().unwrap());
+        assert_eq!("Alice's mobile phone", device.display_name().unwrap());
 
         let display_name = "Alice's work computer".to_owned();
 

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::{TryFrom, TryInto},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -23,9 +23,11 @@ use dashmap::DashSet;
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
+    encryption::DeviceKeys,
     events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceIdBox, RoomId, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
 };
+use serde::{Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
@@ -42,12 +44,13 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
+    LocalTrust,
 };
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
-const DATABASE_VERSION: u8 = 1;
+const DATABASE_VERSION: u8 = 2;
 
 trait EncodeKey {
     const SEPARATOR: u8 = 0xff;
@@ -94,6 +97,12 @@ impl EncodeKey for &RequestedKeyInfo {
 impl EncodeKey for &UserId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
+    }
+}
+
+impl EncodeKey for &ReadOnlyDevice {
+    fn encode(&self) -> Vec<u8> {
+        (self.user_id().as_str(), self.device_id().as_str()).encode()
     }
 }
 
@@ -264,6 +273,57 @@ impl SledStore {
             // rotate the group sessions relatively often anyways so we just
             // clear the tree.
             self.outbound_group_sessions.clear()?;
+        }
+
+        if version <= 1 {
+            #[derive(Serialize, Deserialize)]
+            pub struct OldReadOnlyDevice {
+                user_id: UserId,
+                device_id: DeviceIdBox,
+                algorithms: Vec<EventEncryptionAlgorithm>,
+                keys: BTreeMap<DeviceKeyId, String>,
+                signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+                display_name: Option<String>,
+                deleted: bool,
+                trust_state: LocalTrust,
+            }
+
+            #[allow(clippy::from_over_into)]
+            impl Into<ReadOnlyDevice> for OldReadOnlyDevice {
+                fn into(self) -> ReadOnlyDevice {
+                    let mut device_keys = DeviceKeys::new(
+                        self.user_id,
+                        self.device_id,
+                        self.algorithms,
+                        self.keys,
+                        self.signatures,
+                    );
+                    device_keys.unsigned.device_display_name = self.display_name;
+
+                    ReadOnlyDevice::new(device_keys, self.trust_state)
+                }
+            }
+
+            let devices: Vec<ReadOnlyDevice> = self
+                .devices
+                .iter()
+                .map(|d| serde_json::from_slice(&d?.1).map_err(CryptoStoreError::Serialization))
+                .map(|d| {
+                    let d: OldReadOnlyDevice = d?;
+                    Ok(d.into())
+                })
+                .collect::<Result<Vec<ReadOnlyDevice>, CryptoStoreError>>()?;
+
+            self.devices.transaction(move |tree| {
+                for device in &devices {
+                    let key = device.encode();
+                    let device =
+                        serde_json::to_vec(device).map_err(ConflictableTransactionError::Abort)?;
+                    tree.insert(key, device)?;
+                }
+
+                Ok(())
+            })?;
         }
 
         self.inner.insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())?;
@@ -504,14 +564,14 @@ impl SledStore {
                     }
 
                     for device in device_changes.new.iter().chain(&device_changes.changed) {
-                        let key = (device.user_id().as_str(), device.device_id().as_str()).encode();
+                        let key = device.encode();
                         let device = serde_json::to_vec(&device)
                             .map_err(ConflictableTransactionError::Abort)?;
                         devices.insert(key, device)?;
                     }
 
                     for device in &device_changes.deleted {
-                        let key = (device.user_id().as_str(), device.device_id().as_str()).encode();
+                        let key = device.encode();
                         devices.remove(key)?;
                     }
 

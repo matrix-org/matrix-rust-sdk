@@ -423,7 +423,7 @@ impl PrivateCrossSigningIdentity {
         &self,
         device: &ReadOnlyDevice,
     ) -> Result<SignatureUploadRequest, SignatureError> {
-        let mut device_keys = device.as_device_keys();
+        let mut device_keys = device.as_device_keys().to_owned();
         device_keys.signatures.clear();
         self.sign_device_keys(&mut device_keys).await
     }
@@ -654,8 +654,6 @@ impl PrivateCrossSigningIdentity {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use matrix_sdk_test::async_test;
     use ruma::{user_id, UserId};
 
@@ -757,9 +755,9 @@ mod test {
         let self_signing = identity.self_signing_key.lock().await;
         let self_signing = self_signing.as_ref().unwrap();
 
-        let mut device_keys = device.as_device_keys();
+        let mut device_keys = device.as_device_keys().to_owned();
         self_signing.sign_device(&mut device_keys).await.unwrap();
-        device.signatures = Arc::new(device_keys.signatures);
+        device.update_device(&device_keys).unwrap();
 
         let public_key = &self_signing.public_key;
         public_key.verify_device(&device).unwrap()

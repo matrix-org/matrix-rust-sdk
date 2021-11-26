@@ -589,7 +589,7 @@ impl SelfSigningPubkey {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
-        self.verify_device_keys(device.as_device_keys())
+        self.verify_device_keys(device.as_device_keys().to_owned())
     }
 }
 
@@ -1078,10 +1078,10 @@ pub(crate) mod test {
 
         assert!(!device.verified());
 
-        let mut device_keys = device.as_device_keys();
+        let mut device_keys = device.as_device_keys().to_owned();
 
         identity.sign_device_keys(&mut device_keys).await.unwrap();
-        device.inner.signatures = Arc::new(device_keys.signatures);
+        device.inner.update_device(&device_keys).expect("Couldn't update newly signed device keys");
         assert!(device.verified());
     }
 }

@@ -288,7 +288,7 @@ impl Store {
             .inner
             .get_device(self.user_id(), self.device_id())
             .await?
-            .and_then(|d| d.display_name().to_owned()))
+            .and_then(|d| d.display_name().map(|d| d.to_string())))
     }
 
     /// Get the read-only version of a specific device.
