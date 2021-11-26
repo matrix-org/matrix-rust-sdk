@@ -1853,6 +1853,17 @@ impl Client {
         &self,
         sync_settings: crate::config::SyncSettings<'_>,
     ) -> Result<SyncResponse> {
+        // The sync might not return for quite a while due to the timeout.
+        // We'll see if there's anything crypto related to send out before we
+        // sync, i.e. if we closed our client after a sync but before the
+        // crypto requests were sent out.
+        //
+        // This will mostly be a no-op.
+        #[cfg(feature = "encryption")]
+        if let Err(e) = self.send_outgoing_requests().await {
+            error!(error =? e, "Error while sending outgoing E2EE requests");
+        };
+
         let request = assign!(sync_events::Request::new(), {
             filter: sync_settings.filter.as_ref(),
             since: sync_settings.token.as_deref(),
