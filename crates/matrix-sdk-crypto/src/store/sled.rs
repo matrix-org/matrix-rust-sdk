@@ -33,7 +33,7 @@ use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, IVec, Transactional, Tree,
 };
-use tracing::trace;
+use tracing::debug;
 use uuid::Uuid;
 
 use super::{
@@ -261,11 +261,7 @@ impl SledStore {
             .unwrap_or_default();
 
         if version != DATABASE_VERSION {
-            trace!(
-                version = version,
-                new_version = DATABASE_VERSION,
-                "Upgrading the Sled crypto store"
-            );
+            debug!(version, new_version = DATABASE_VERSION, "Upgrading the Sled crypto store");
         }
 
         if version == 0 {
