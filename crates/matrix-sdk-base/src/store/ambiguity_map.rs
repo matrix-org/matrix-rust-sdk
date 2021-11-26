@@ -24,18 +24,18 @@ use crate::Store;
 #[derive(Clone, Debug)]
 pub struct AmbiguityCache {
     pub store: Store,
-    pub cache: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
-    pub changes: BTreeMap<RoomId, BTreeMap<EventId, AmbiguityChange>>,
+    pub cache: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<Box<UserId>>>>,
+    pub changes: BTreeMap<Box<RoomId>, BTreeMap<Box<EventId>, AmbiguityChange>>,
 }
 
 #[derive(Clone, Debug)]
 struct AmbiguityMap {
     display_name: String,
-    users: BTreeSet<UserId>,
+    users: BTreeSet<Box<UserId>>,
 }
 
 impl AmbiguityMap {
-    fn remove(&mut self, user_id: &UserId) -> Option<UserId> {
+    fn remove(&mut self, user_id: &UserId) -> Option<Box<UserId>> {
         self.users.remove(user_id);
 
         if self.user_count() == 1 {
@@ -45,7 +45,7 @@ impl AmbiguityMap {
         }
     }
 
-    fn add(&mut self, user_id: UserId) -> Option<UserId> {
+    fn add(&mut self, user_id: Box<UserId>) -> Option<Box<UserId>> {
         let ambiguous_user =
             if self.user_count() == 1 { self.users.iter().next().cloned() } else { None };
 
@@ -129,7 +129,7 @@ impl AmbiguityCache {
         old_map: Option<AmbiguityMap>,
         new_map: Option<AmbiguityMap>,
     ) {
-        let entry = self.cache.entry(room_id.clone()).or_insert_with(BTreeMap::new);
+        let entry = self.cache.entry(room_id.to_owned()).or_insert_with(BTreeMap::new);
 
         if let Some(old) = old_map {
             entry.insert(old.display_name, old.users);
@@ -140,8 +140,11 @@ impl AmbiguityCache {
         }
     }
 
-    fn add_change(&mut self, room_id: &RoomId, event_id: EventId, change: AmbiguityChange) {
-        self.changes.entry(room_id.clone()).or_insert_with(BTreeMap::new).insert(event_id, change);
+    fn add_change(&mut self, room_id: &RoomId, event_id: Box<EventId>, change: AmbiguityChange) {
+        self.changes
+            .entry(room_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(event_id, change);
     }
 
     async fn get(
@@ -190,7 +193,7 @@ impl AmbiguityCache {
 
         let old_map = if let Some(old_name) = old_display_name.as_deref() {
             let old_display_name_map = if let Some(u) =
-                self.cache.entry(room_id.clone()).or_insert_with(BTreeMap::new).get(old_name)
+                self.cache.entry(room_id.to_owned()).or_insert_with(BTreeMap::new).get(old_name)
             {
                 u.clone()
             } else {
@@ -222,7 +225,7 @@ impl AmbiguityCache {
 
             let new_display_name_map = if let Some(u) = self
                 .cache
-                .entry(room_id.clone())
+                .entry(room_id.to_owned())
                 .or_insert_with(BTreeMap::new)
                 .get(new_display_name)
             {

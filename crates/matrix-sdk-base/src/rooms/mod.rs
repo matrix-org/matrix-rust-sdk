@@ -24,14 +24,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub avatar_url: Option<MxcUri>,
+    pub avatar_url: Option<Box<MxcUri>>,
     /// The canonical alias of this room.
-    pub canonical_alias: Option<RoomAliasId>,
+    pub canonical_alias: Option<Box<RoomAliasId>>,
     /// The `m.room.create` event content of this room.
     pub create: Option<RoomCreateEventContent>,
     /// The user id this room is sharing the direct message with, if the room is
     /// a direct message.
-    pub dm_target: Option<UserId>,
+    pub dm_target: Option<Box<UserId>>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.

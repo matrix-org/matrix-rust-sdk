@@ -251,7 +251,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     io::{Read,Write},
     path::PathBuf,
-    result::Result as StdResult,
+    result::Result as StdResult, iter,
 };
 
 use futures_util::stream::{self, StreamExt};
@@ -277,7 +277,7 @@ use ruma::{
     assign,
     events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType},
     serde::Raw,
-    DeviceId, DeviceIdBox, UserId,
+    DeviceId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -316,7 +316,7 @@ impl Client {
     /// Tracked users are users for which we keep the device list of E2EE
     /// capable devices up to date.
     #[cfg(feature = "encryption")]
-    pub async fn tracked_users(&self) -> HashSet<UserId> {
+    pub async fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
     }
 
@@ -366,14 +366,14 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::{device_id, UserId}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver)?;
-    /// if let Some(device) = client.get_device(&alice, "DEVICEID".into()).await? {
+    /// if let Some(device) = client.get_device(&alice, device_id!("DEVICEID")).await? {
     ///     println!("{:?}", device.verified());
     ///
     ///     if !device.verified() {
@@ -410,7 +410,7 @@ impl Client {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver)?;
     /// let devices = client.get_user_devices(&alice).await?;
@@ -449,7 +449,7 @@ impl Client {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver)?;
     /// let user = client.get_user_identity(&alice).await?;
@@ -505,7 +505,7 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
     /// # block_on(async {
-    /// # let user_id = UserId::try_from("@alice:example.org")?;
+    /// # let user_id = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver)?;
     /// if let Err(e) = client.bootstrap_cross_signing(None).await {
@@ -590,7 +590,7 @@ impl Client {
     /// let room_id = room_id!("!test:localhost");
     ///
     /// client
-    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == &room_id)
+    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
     ///     .await?;
     /// # anyhow::Result::<()>::Ok(()) });
     /// ```
@@ -722,7 +722,7 @@ impl Client {
     pub(crate) async fn keys_query(
         &self,
         request_id: &Uuid,
-        device_keys: BTreeMap<UserId, Vec<DeviceIdBox>>,
+        device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>,
     ) -> Result<get_keys::Response> {
         let request = assign!(get_keys::Request::new(), { device_keys });
 
@@ -791,7 +791,7 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    pub(crate) async fn create_dm_room(&self, user_id: UserId) -> Result<Option<room::Joined>> {
+    pub(crate) async fn create_dm_room(&self, user_id: Box<UserId>) -> Result<Option<room::Joined>> {
         use ruma::{
             api::client::r0::room::create_room::RoomPreset,
             events::AnyGlobalAccountDataEventContent,
@@ -953,7 +953,7 @@ impl Client {
             rooms.iter().map(|r| (r.room_id().to_owned(), r.direct_target())).collect();
         trace!(rooms =? room_pairs, "Finding direct room");
 
-        let room = rooms.into_iter().find(|r| r.direct_target().as_ref() == Some(user_id));
+        let room = rooms.into_iter().find(|r| r.direct_target().as_deref() == Some(user_id));
 
         trace!(room =? room, "Found room");
         room
@@ -1011,7 +1011,7 @@ impl Client {
 
         // This is needed because sometimes we need to automatically
         // claim some one-time keys to unwedge an existing Olm session.
-        if let Err(e) = self.claim_one_time_keys([].iter()).await {
+        if let Err(e) = self.claim_one_time_keys(iter::empty()).await {
             warn!("Error while claiming one-time keys {:?}", e);
         }
 

@@ -44,7 +44,7 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceIdBox, DeviceKeyId, EventId, RoomId, UserId,
+    DeviceId, DeviceKeyId, EventId, RoomId, UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
@@ -104,7 +104,7 @@ impl VerificationStore {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>, CryptoStoreError> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -118,7 +118,8 @@ impl VerificationStore {
     /// Get the signatures that have signed our own device.
     pub async fn device_signatures(
         &self,
-    ) -> Result<Option<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>, CryptoStoreError> {
+    ) -> Result<Option<BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>>, CryptoStoreError>
+    {
         Ok(self
             .inner
             .get_device(self.account.user_id(), self.account.device_id())
@@ -351,7 +352,7 @@ impl Cancelled {
 #[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
 pub enum FlowId {
     ToDevice(String),
-    InRoom(RoomId, EventId),
+    InRoom(Box<RoomId>, Box<EventId>),
 }
 
 impl FlowId {
@@ -377,8 +378,8 @@ impl From<String> for FlowId {
     }
 }
 
-impl From<(RoomId, EventId)> for FlowId {
-    fn from(ids: (RoomId, EventId)) -> Self {
+impl From<(Box<RoomId>, Box<EventId>)> for FlowId {
+    fn from(ids: (Box<RoomId>, Box<EventId>)) -> Self {
         FlowId::InRoom(ids.0, ids.1)
     }
 }
@@ -711,31 +712,20 @@ pub(crate) mod test {
         content: OutgoingContent,
     ) -> AnyToDeviceEvent {
         let content = if let OutgoingContent::ToDevice(c) = content { c } else { unreachable!() };
+        let sender = sender.to_owned();
 
         match content {
             AnyToDeviceEventContent::KeyVerificationKey(c) => {
-                AnyToDeviceEvent::KeyVerificationKey(ToDeviceEvent {
-                    sender: sender.clone(),
-                    content: c,
-                })
+                AnyToDeviceEvent::KeyVerificationKey(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationStart(c) => {
-                AnyToDeviceEvent::KeyVerificationStart(ToDeviceEvent {
-                    sender: sender.clone(),
-                    content: c,
-                })
+                AnyToDeviceEvent::KeyVerificationStart(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationAccept(c) => {
-                AnyToDeviceEvent::KeyVerificationAccept(ToDeviceEvent {
-                    sender: sender.clone(),
-                    content: c,
-                })
+                AnyToDeviceEvent::KeyVerificationAccept(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationMac(c) => {
-                AnyToDeviceEvent::KeyVerificationMac(ToDeviceEvent {
-                    sender: sender.clone(),
-                    content: c,
-                })
+                AnyToDeviceEvent::KeyVerificationMac(ToDeviceEvent { sender, content: c })
             }
 
             _ => unreachable!(),

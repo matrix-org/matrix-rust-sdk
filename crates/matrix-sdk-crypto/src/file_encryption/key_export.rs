@@ -79,7 +79,7 @@ pub enum KeyExportError {
 /// # use ruma::user_id;
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 /// # block_on(async {
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
@@ -130,7 +130,7 @@ pub fn decrypt_key_export(
 /// # use ruma::{user_id, room_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 /// # block_on(async {
 /// let room_id = room_id!("!test:localhost");
 /// let exported_keys = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
@@ -305,8 +305,8 @@ mod test {
         let (machine, _) = get_prepared_machine().await;
         let room_id = room_id!("!test:localhost");
 
-        machine.create_outbound_group_session_with_defaults(&room_id).await.unwrap();
-        let export = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
+        machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
+        let export = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
 
         assert!(!export.is_empty());
 
@@ -324,7 +324,7 @@ mod test {
     async fn test_importing_better_session() -> OlmResult<()> {
         let (machine, _) = get_prepared_machine().await;
         let room_id = room_id!("!test:localhost");
-        let session = machine.create_inbound_session(&room_id).await?;
+        let session = machine.create_inbound_session(room_id).await?;
 
         let export = vec![session.export_at_index(10).await];
 
@@ -350,7 +350,7 @@ mod test {
 
         assert_eq!(machine.import_keys(better_export, false, |_, _| {}).await?, keys,);
 
-        let another_session = machine.create_inbound_session(&room_id).await?;
+        let another_session = machine.create_inbound_session(room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
 
         let keys = RoomKeyImportResult::new(

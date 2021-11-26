@@ -38,7 +38,7 @@ matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
 olm-rs = { version = "2.1", features = ["serde"] }
 pbkdf2 = { version = "0.9.0", default-features = false }
 rand = "0.8.4"
-ruma = { git = "https://github.com/ruma/ruma", rev = "ac6ecc3e5", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "6c4892664", features = [
     "client-api-c",
     "unstable-pre-spec",
 ] }

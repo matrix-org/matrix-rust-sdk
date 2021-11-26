@@ -547,7 +547,7 @@ mod test {
             .add_ephemeral(EventsJson::Typing)
             .add_state_event(EventsJson::PowerLevels)
             .add_custom_invited_event(
-                &room_id!("!test_invited:example.org"),
+                room_id!("!test_invited:example.org"),
                 json!({
                 "content": {
                   "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",

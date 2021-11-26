@@ -26,7 +26,7 @@ use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, To
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
-    verification: Arc<DashMap<UserId, DashMap<String, Verification>>>,
+    verification: Arc<DashMap<Box<UserId>, DashMap<String, Verification>>>,
     outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 

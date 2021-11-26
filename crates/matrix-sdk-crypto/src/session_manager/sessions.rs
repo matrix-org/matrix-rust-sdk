@@ -26,7 +26,7 @@ use ruma::{
     },
     assign,
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, UserId,
 };
 use tracing::{debug, error, info, warn};
 
@@ -47,8 +47,8 @@ pub(crate) struct SessionManager {
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
-    users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
-    wedged_devices: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
+    users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+    wedged_devices: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
     key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
@@ -59,7 +59,7 @@ impl SessionManager {
 
     pub fn new(
         account: Account,
-        users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
+        users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
@@ -97,7 +97,7 @@ impl SessionManager {
 
                     if session.creation_time.elapsed() > Self::UNWEDGING_INTERVAL {
                         self.users_for_key_claim
-                            .entry(device.user_id().clone())
+                            .entry(device.user_id().to_owned())
                             .or_insert_with(DashSet::new)
                             .insert(device.device_id().into());
                         self.wedged_devices
@@ -333,14 +333,14 @@ impl SessionManager {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{collections::BTreeMap, iter, sync::Arc};
 
     use dashmap::DashMap;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::r0::keys::claim_keys::Response as KeyClaimResponse, user_id, DeviceIdBox,
-        UserId,
+        api::client::r0::keys::claim_keys::Response as KeyClaimResponse, device_id, user_id,
+        DeviceId, UserId,
     };
 
     use super::SessionManager;
@@ -353,31 +353,31 @@ mod test {
         verification::VerificationMachine,
     };
 
-    fn user_id() -> UserId {
+    fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
-    fn device_id() -> DeviceIdBox {
-        "DEVICEID".into()
+    fn device_id() -> &'static DeviceId {
+        device_id!("DEVICEID")
     }
 
     fn bob_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::new(&user_id!("@bob:localhost"), "BOBDEVICE".into())
+        ReadOnlyAccount::new(user_id!("@bob:localhost"), device_id!("BOBDEVICE"))
     }
 
     async fn session_manager() -> SessionManager {
-        let user_id = user_id();
+        let user_id = user_id().to_owned();
         let device_id = device_id();
 
         let users_for_key_claim = Arc::new(DashMap::new());
-        let account = ReadOnlyAccount::new(&user_id, &device_id);
+        let account = ReadOnlyAccount::new(&user_id, device_id);
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         store.save_account(account.clone()).await.unwrap();
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id.clone())));
         let verification =
             VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 
-        let user_id = Arc::new(user_id);
+        let user_id: Arc<UserId> = user_id.into();
         let device_id = device_id.into();
 
         let store = Store::new(user_id.clone(), identity, store, verification);
@@ -406,11 +406,8 @@ mod test {
 
         manager.store.save_devices(&[bob_device]).await.unwrap();
 
-        let (_, request) = manager
-            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
-            .await
-            .unwrap()
-            .unwrap();
+        let (_, request) =
+            manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().unwrap();
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
@@ -420,19 +417,15 @@ mod test {
 
         let mut one_time_keys = BTreeMap::new();
         one_time_keys
-            .entry(bob.user_id().clone())
+            .entry(bob.user_id().to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(bob.device_id().into(), one_time);
+            .insert(bob.device_id().to_owned(), one_time);
 
         let response = KeyClaimResponse::new(one_time_keys);
 
         manager.receive_keys_claim_response(&response).await.unwrap();
 
-        assert!(manager
-            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
     }
 
     // This test doesn't run on macos because we're modifying the session
@@ -453,11 +446,7 @@ mod test {
         manager.store.save_devices(&[bob_device.clone()]).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();
 
-        assert!(manager
-            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
 
         let curve_key = bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap();
 
@@ -467,11 +456,8 @@ mod test {
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
 
-        let (_, request) = manager
-            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
-            .await
-            .unwrap()
-            .unwrap();
+        let (_, request) =
+            manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().unwrap();
 
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
@@ -481,9 +467,9 @@ mod test {
 
         let mut one_time_keys = BTreeMap::new();
         one_time_keys
-            .entry(bob.user_id().clone())
+            .entry(bob.user_id().to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(bob.device_id().into(), one_time);
+            .insert(bob.device_id().to_owned(), one_time);
 
         let response = KeyClaimResponse::new(one_time_keys);
 
@@ -492,11 +478,7 @@ mod test {
         manager.receive_keys_claim_response(&response).await.unwrap();
 
         assert!(!manager.is_device_wedged(&bob_device));
-        assert!(manager
-            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
         assert!(!manager.outgoing_to_device_requests.is_empty())
     }
 }

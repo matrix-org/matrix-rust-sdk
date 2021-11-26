@@ -25,7 +25,7 @@ use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
     encryption::DeviceKeys,
     events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceIdBox, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 pub use sled::Error;
@@ -154,8 +154,8 @@ pub struct SledStore {
     pickle_key: Arc<PickleKey>,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<UserId>>,
-    users_for_key_query_cache: Arc<DashSet<UserId>>,
+    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
+    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
 
     account: Tree,
     private_identity: Tree,
@@ -274,11 +274,11 @@ impl SledStore {
         if version <= 1 {
             #[derive(Serialize, Deserialize)]
             pub struct OldReadOnlyDevice {
-                user_id: UserId,
-                device_id: DeviceIdBox,
+                user_id: Box<UserId>,
+                device_id: Box<DeviceId>,
                 algorithms: Vec<EventEncryptionAlgorithm>,
-                keys: BTreeMap<DeviceKeyId, String>,
-                signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+                keys: BTreeMap<Box<DeviceKeyId>, String>,
+                signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
                 display_name: Option<String>,
                 deleted: bool,
                 trust_state: LocalTrust,
@@ -424,10 +424,10 @@ impl SledStore {
     async fn load_tracked_users(&self) -> Result<()> {
         for value in self.tracked_users.iter() {
             let (user, dirty) = value?;
-            let user = UserId::try_from(String::from_utf8_lossy(&user).to_string())?;
+            let user = Box::<UserId>::try_from(String::from_utf8_lossy(&user).to_string())?;
             let dirty = dirty.get(0).map(|d| *d == 1).unwrap_or(true);
 
-            self.tracked_users_cache.insert(user.clone());
+            self.tracked_users_cache.insert(user.to_owned());
 
             if dirty {
                 self.users_for_key_query_cache.insert(user);
@@ -507,7 +507,7 @@ impl SledStore {
             let room_id = session.room_id();
             let pickle = session.pickle(self.get_pickle_mode()).await;
 
-            outbound_session_changes.insert(room_id.clone(), pickle);
+            outbound_session_changes.insert(room_id.to_owned(), pickle);
         }
 
         let identity_changes = changes.identities;
@@ -611,7 +611,7 @@ impl SledStore {
 
                     for (key, session) in &outbound_session_changes {
                         outbound_sessions.insert(
-                            key.encode(),
+                            (&**key).encode(),
                             serde_json::to_vec(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -853,19 +853,19 @@ impl CryptoStore for SledStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn users_for_key_query(&self) -> HashSet<UserId> {
+    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
-    fn tracked_users(&self) -> HashSet<UserId> {
+    fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        let already_added = self.tracked_users_cache.insert(user.clone());
+        let already_added = self.tracked_users_cache.insert(user.to_owned());
 
         if dirty {
-            self.users_for_key_query_cache.insert(user.clone());
+            self.users_for_key_query_cache.insert(user.to_owned());
         } else {
             self.users_for_key_query_cache.remove(user);
         }
@@ -887,7 +887,7 @@ impl CryptoStore for SledStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         self.devices
             .scan_prefix(user_id.encode())
             .map(|d| serde_json::from_slice(&d?.1).map_err(CryptoStoreError::Serialization))
@@ -1015,8 +1015,8 @@ mod test {
     use matrix_sdk_test::async_test;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma::{
-        encryption::SignedKey, events::room_key_request::RequestedKeyInfo, room_id, user_id,
-        DeviceId, EventEncryptionAlgorithm, UserId,
+        device_id, encryption::SignedKey, events::room_key_request::RequestedKeyInfo, room_id,
+        user_id, DeviceId, EventEncryptionAlgorithm, UserId,
     };
     use tempfile::tempdir;
 
@@ -1034,20 +1034,20 @@ mod test {
         store::{Changes, DeviceChanges, IdentityChanges},
     };
 
-    fn alice_id() -> UserId {
+    fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> Box<DeviceId> {
-        "ALICEDEVICE".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("ALICEDEVICE")
     }
 
-    fn bob_id() -> UserId {
+    fn bob_id() -> &'static UserId {
         user_id!("@bob:example.org")
     }
 
-    fn bob_device_id() -> Box<DeviceId> {
-        "BOBDEVICE".into()
+    fn bob_device_id() -> &'static DeviceId {
+        device_id!("BOBDEVICE")
     }
 
     async fn get_store(passphrase: Option<&str>) -> (SledStore, tempfile::TempDir) {
@@ -1069,12 +1069,12 @@ mod test {
     }
 
     fn get_account() -> ReadOnlyAccount {
-        ReadOnlyAccount::new(&alice_id(), &alice_device_id())
+        ReadOnlyAccount::new(alice_id(), alice_device_id())
     }
 
     async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key =
@@ -1206,7 +1206,7 @@ mod test {
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),
             identity_keys.ed25519(),
-            &room_id!("!test:localhost"),
+            room_id!("!test:localhost"),
             GroupSessionKey(outbound_session.session_key()),
             None,
         )
@@ -1226,7 +1226,7 @@ mod test {
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),
             identity_keys.ed25519(),
-            &room_id!("!test:localhost"),
+            room_id!("!test:localhost"),
             GroupSessionKey(outbound_session.session_key()),
             None,
         )
@@ -1360,11 +1360,11 @@ mod test {
         let tmpdir_path = dir.path().to_str().unwrap();
 
         let user_id = user_id!("@example:localhost");
-        let device_id: &DeviceId = "WSKKLTJZCL".into();
+        let device_id: &DeviceId = device_id!("WSKKLTJZCL");
 
         let store = SledStore::open_with_passphrase(tmpdir_path, None).expect("Can't create store");
 
-        let account = ReadOnlyAccount::new(&user_id, device_id);
+        let account = ReadOnlyAccount::new(user_id, device_id);
 
         store.save_account(account.clone()).await.expect("Can't save account");
 
@@ -1421,7 +1421,7 @@ mod test {
         };
 
         store.save_changes(changes).await.unwrap();
-        let loaded_user = store.get_user_identity(&user_id).await.unwrap().unwrap();
+        let loaded_user = store.get_user_identity(user_id).await.unwrap().unwrap();
         assert!(loaded_user.own().unwrap().is_verified())
     }
 
@@ -1429,7 +1429,7 @@ mod test {
     async fn private_identity_saving() {
         let (_, store, _dir) = get_loaded_store().await;
         assert!(store.load_identity().await.unwrap().is_none());
-        let identity = PrivateCrossSigningIdentity::new(alice_id()).await;
+        let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned()).await;
 
         let changes = Changes { private_identity: Some(identity.clone()), ..Default::default() };
 
@@ -1460,7 +1460,7 @@ mod test {
         let id = Uuid::new_v4();
         let info: SecretInfo = RequestedKeyInfo::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
-            room_id!("!test:localhost"),
+            room_id!("!test:localhost").to_owned(),
             "test_sender_key".to_string(),
             "test_session_id".to_string(),
         )

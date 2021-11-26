@@ -68,7 +68,7 @@ impl UniqueKey for MediaThumbnailSize {
 #[derive(Clone, Debug)]
 pub enum MediaType {
     /// A media content URI.
-    Uri(MxcUri),
+    Uri(Box<MxcUri>),
 
     /// An encrypted media content.
     Encrypted(Box<EncryptedFile>),
@@ -219,7 +219,7 @@ pub(crate) mod test {
 
     use super::*;
 
-    fn encrypted_test_data() -> (MxcUri, EncryptedFile) {
+    fn encrypted_test_data() -> (Box<MxcUri>, EncryptedFile) {
         let c = &mut std::io::Cursor::new("some content");
         let reader = crate::crypto::AttachmentEncryptor::new(c);
 

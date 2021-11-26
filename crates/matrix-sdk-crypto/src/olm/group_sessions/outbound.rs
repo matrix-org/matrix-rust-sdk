@@ -45,7 +45,7 @@ use ruma::{
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -128,7 +128,8 @@ pub struct OutboundGroupSession {
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    pub(crate) shared_with_set: Arc<DashMap<UserId, DashMap<DeviceIdBox, ShareInfo>>>,
+    #[allow(clippy::type_complexity)]
+    pub(crate) shared_with_set: Arc<DashMap<Box<UserId>, DashMap<Box<DeviceId>, ShareInfo>>>,
     to_share_with_set: Arc<DashMap<Uuid, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
 }
 
@@ -136,7 +137,7 @@ pub struct OutboundGroupSession {
 ///
 /// Holds the `ShareInfo` for all the user/device pairs that will receive the
 /// room key.
-pub type ShareInfoSet = BTreeMap<UserId, BTreeMap<DeviceIdBox, ShareInfo>>;
+pub type ShareInfoSet = BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>;
 
 /// Struct holding info about the share state of a outbound group session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -174,7 +175,7 @@ impl OutboundGroupSession {
 
         OutboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
-            room_id: Arc::new(room_id.to_owned()),
+            room_id: room_id.into(),
             device_id,
             account_identity_keys: identity_keys,
             session_id: session_id.into(),
@@ -214,7 +215,7 @@ impl OutboundGroupSession {
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
         if let Some((_, (_, r))) = self.to_share_with_set.remove(request_id) {
             let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> =
-                r.iter().map(|(u, d)| (u, d.keys().map(|d| d.as_ref()).collect())).collect();
+                r.iter().map(|(u, d)| (&**u, d.keys().map(|d| d.as_ref()).collect())).collect();
 
             info!(
                 ?request_id,
@@ -589,7 +590,7 @@ pub struct PickledOutboundGroupSession {
     /// Has the session been invalidated.
     pub invalidated: bool,
     /// The set of users the session has been already shared with.
-    pub shared_with_set: BTreeMap<UserId, BTreeMap<DeviceIdBox, ShareInfo>>,
+    pub shared_with_set: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
     pub requests: BTreeMap<Uuid, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }

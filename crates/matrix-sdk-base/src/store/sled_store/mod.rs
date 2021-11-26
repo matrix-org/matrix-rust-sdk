@@ -456,7 +456,7 @@ impl SledStore {
 
                     for (room_id, room_info) in &changes.room_infos {
                         rooms.insert(
-                            room_id.encode(),
+                            (&**room_id).encode(),
                             self.serialize_event(room_info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -464,7 +464,7 @@ impl SledStore {
 
                     for (sender, event) in &changes.presence {
                         presence.insert(
-                            sender.encode(),
+                            (&**sender).encode(),
                             self.serialize_event(&event)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -472,7 +472,7 @@ impl SledStore {
 
                     for (room_id, info) in &changes.invited_room_info {
                         striped_rooms.insert(
-                            room_id.encode(),
+                            (&**room_id).encode(),
                             self.serialize_event(&info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -522,7 +522,7 @@ impl SledStore {
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )? {
                                         // Remove the old receipt from the room event receipts
-                                        let (old_event, _): (EventId, Receipt) = self
+                                        let (old_event, _): (Box<EventId>, Receipt) = self
                                             .deserialize_event(&old)
                                             .map_err(ConflictableTransactionError::Abort)?;
                                         room_event_receipts.remove(
@@ -635,8 +635,8 @@ impl SledStore {
     pub async fn get_user_ids_stream(
         &self,
         room_id: &RoomId,
-    ) -> Result<impl Stream<Item = Result<UserId>>> {
-        let decode = |key: &[u8]| -> Result<UserId> {
+    ) -> Result<impl Stream<Item = Result<Box<UserId>>>> {
+        let decode = |key: &[u8]| -> Result<Box<UserId>> {
             let mut iter = key.split(|c| c == &ENCODE_SEPARATOR);
             // Our key is a the room id separated from the user id by a null
             // byte, discard the first value of the split.
@@ -644,7 +644,7 @@ impl SledStore {
 
             let user_id = iter.next().expect("User ids weren't properly encoded");
 
-            Ok(UserId::try_from(String::from_utf8_lossy(user_id).to_string())?)
+            Ok(Box::<UserId>::try_from(String::from_utf8_lossy(user_id).to_string())?)
         };
 
         let members = self.members.clone();
@@ -658,12 +658,12 @@ impl SledStore {
     pub async fn get_invited_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> Result<impl Stream<Item = Result<UserId>>> {
+    ) -> Result<impl Stream<Item = Result<Box<UserId>>>> {
         let db = self.clone();
         let key = room_id.encode();
         spawn_blocking(move || {
             stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                Box::<UserId>::try_from(String::from_utf8_lossy(&u?.1).to_string())
                     .map_err(StoreError::Identifier)
             }))
         })
@@ -674,12 +674,12 @@ impl SledStore {
     pub async fn get_joined_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> Result<impl Stream<Item = Result<UserId>>> {
+    ) -> Result<impl Stream<Item = Result<Box<UserId>>>> {
         let db = self.clone();
         let key = room_id.encode();
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                Box::<UserId>::try_from(String::from_utf8_lossy(&u?.1).to_string())
                     .map_err(StoreError::Identifier)
             }))
         })
@@ -715,7 +715,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<UserId>> {
+    ) -> Result<BTreeSet<Box<UserId>>> {
         let db = self.clone();
         let key = (room_id.as_str(), display_name).encode();
         spawn_blocking(move || {
@@ -759,7 +759,7 @@ impl SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(EventId, Receipt)>> {
+    ) -> Result<Option<(Box<EventId>, Receipt)>> {
         let db = self.clone();
         let key = (room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode();
         spawn_blocking(move || {
@@ -773,7 +773,7 @@ impl SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(UserId, Receipt)>> {
+    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
         let db = self.clone();
         let key = (room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode();
         spawn_blocking(move || {
@@ -903,15 +903,15 @@ impl StateStore for SledStore {
         self.get_member_event(room_id, state_key).await
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         self.get_user_ids_stream(room_id).await?.try_collect().await
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         self.get_invited_user_ids(room_id).await?.try_collect().await
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         self.get_joined_user_ids(room_id).await?.try_collect().await
     }
 
@@ -927,7 +927,7 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<UserId>> {
+    ) -> Result<BTreeSet<Box<UserId>>> {
         self.get_users_with_display_name(room_id, display_name).await
     }
 
@@ -951,7 +951,7 @@ impl StateStore for SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(EventId, Receipt)>> {
+    ) -> Result<Option<(Box<EventId>, Receipt)>> {
         self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
     }
 
@@ -960,7 +960,7 @@ impl StateStore for SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(UserId, Receipt)>> {
+    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
     }
 
@@ -991,8 +991,6 @@ impl StateStore for SledStore {
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
-
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::r0::media::get_content_thumbnail::Method,
@@ -1008,7 +1006,7 @@ mod test {
         receipt::ReceiptType,
         room_id,
         serde::Raw,
-        uint, user_id, EventId, MilliSecondsSinceUnixEpoch, UserId,
+        uint, user_id, MilliSecondsSinceUnixEpoch, UserId,
     };
     use serde_json::json;
 
@@ -1019,7 +1017,7 @@ mod test {
         StateStore,
     };
 
-    fn user_id() -> UserId {
+    fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
@@ -1027,7 +1025,7 @@ mod test {
         let content = RoomPowerLevelsEventContent::default();
 
         let event = json!({
-            "event_id": EventId::try_from("$h29iv0s8:example.com").unwrap(),
+            "event_id": "$h29iv0s8:example.com",
             "content": content,
             "sender": user_id(),
             "type": "m.room.power_levels",
@@ -1041,11 +1039,11 @@ mod test {
 
     fn membership_event() -> MemberEvent {
         MemberEvent {
-            event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
+            event_id: event_id!("$h29iv0s8:example.com").to_owned(),
             content: RoomMemberEventContent::new(MembershipState::Join),
-            sender: user_id(),
+            sender: user_id().to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
-            state_key: user_id(),
+            state_key: user_id().to_owned(),
             prev_content: None,
             unsigned: Unsigned::default(),
         }
@@ -1057,18 +1055,18 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let user_id = user_id();
 
-        assert!(store.get_member_event(&room_id, &user_id).await.unwrap().is_none());
+        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
         let mut changes = StateChanges::default();
         changes
             .members
-            .entry(room_id.clone())
+            .entry(room_id.to_owned())
             .or_default()
-            .insert(user_id.clone(), membership_event());
+            .insert(user_id.to_owned(), membership_event());
 
         store.save_changes(&changes).await.unwrap();
-        assert!(store.get_member_event(&room_id, &user_id).await.unwrap().is_some());
+        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
 
-        let members = store.get_user_ids(&room_id).await.unwrap();
+        let members = store.get_user_ids(room_id).await.unwrap();
         assert!(!members.is_empty())
     }
 
@@ -1081,16 +1079,16 @@ mod test {
         let event = raw_event.deserialize().unwrap();
 
         assert!(store
-            .get_state_event(&room_id, EventType::RoomPowerLevels, "")
+            .get_state_event(room_id, EventType::RoomPowerLevels, "")
             .await
             .unwrap()
             .is_none());
         let mut changes = StateChanges::default();
-        changes.add_state_event(&room_id, event, raw_event);
+        changes.add_state_event(room_id, event, raw_event);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_state_event(&room_id, EventType::RoomPowerLevels, "")
+            .get_state_event(room_id, EventType::RoomPowerLevels, "")
             .await
             .unwrap()
             .is_some());
@@ -1102,13 +1100,13 @@ mod test {
 
         let room_id = room_id!("!test:localhost");
 
-        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
-        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
+        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org").to_owned();
+        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org").to_owned();
 
         let first_receipt_event = serde_json::from_value(json!({
             first_event_id.clone(): {
                 "m.read": {
-                    user_id(): {
+                    user_id().to_owned(): {
                         "ts": 1436451550453u64
                     }
                 }
@@ -1119,7 +1117,7 @@ mod test {
         let second_receipt_event = serde_json::from_value(json!({
             second_event_id.clone(): {
                 "m.read": {
-                    user_id(): {
+                    user_id().to_owned(): {
                         "ts": 1436451551453u64
                     }
                 }
@@ -1128,61 +1126,61 @@ mod test {
         .unwrap();
 
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(&room_id, first_receipt_event);
+        changes.add_receipts(room_id, first_receipt_event);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
             .await
             .unwrap()
             .is_some(),);
         assert_eq!(
             store
-                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                 .await
                 .unwrap()
                 .len(),
             1
         );
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(&room_id, second_receipt_event);
+        changes.add_receipts(room_id, second_receipt_event);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert_eq!(
             store
-                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                 .await
                 .unwrap()
                 .len(),
@@ -1198,10 +1196,10 @@ mod test {
         let content: Vec<u8> = "somebinarydata".into();
 
         let request_file =
-            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
+            MediaRequest { media_type: MediaType::Uri(uri.to_owned()), format: MediaFormat::File };
 
         let request_thumbnail = MediaRequest {
-            media_type: MediaType::Uri(uri.clone()),
+            media_type: MediaType::Uri(uri.to_owned()),
             format: MediaFormat::Thumbnail(MediaThumbnailSize {
                 method: Method::Crop,
                 width: uint!(100),
@@ -1224,7 +1222,7 @@ mod test {
         store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
 
-        store.remove_media_content_for_uri(&uri).await.unwrap();
+        store.remove_media_content_for_uri(uri).await.unwrap();
         assert!(store.get_media_content(&request_file).await.unwrap().is_none());
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
     }

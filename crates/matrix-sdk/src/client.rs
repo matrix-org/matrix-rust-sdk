@@ -60,7 +60,7 @@ use ruma::{
     },
     assign,
     presence::PresenceState,
-    DeviceIdBox, MxcUri, RoomId, RoomIdOrAliasId, ServerName, UInt, UserId,
+    DeviceId, MxcUri, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
@@ -121,12 +121,12 @@ pub(crate) struct ClientInner {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
-    pub(crate) group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     pub(crate) key_claim_lock: Mutex<()>,
-    pub(crate) members_request_locks: DashMap<RoomId, Arc<Mutex<()>>>,
-    pub(crate) typing_notice_times: DashMap<RoomId, Instant>,
+    pub(crate) members_request_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
+    pub(crate) typing_notice_times: DashMap<Box<RoomId>, Instant>,
     /// Event handlers. See `register_event_handler`.
     event_handlers: RwLock<EventHandlerMap>,
     /// Custom event handler context. See `register_event_handler_context`.
@@ -229,7 +229,7 @@ impl Client {
     /// use matrix_sdk::{Client, ruma::UserId};
     ///
     /// // First let's try to construct an user id, presumably from user input.
-    /// let alice = UserId::try_from("@alice:example.org")?;
+    /// let alice = Box::<UserId>::try_from("@alice:example.org")?;
     ///
     /// // Now let's try to discover the homeserver and create a client object.
     /// let client = Client::new_from_user_id(&alice).await?;
@@ -356,13 +356,13 @@ impl Client {
     }
 
     /// Get the user id of the current owner of the client.
-    pub async fn user_id(&self) -> Option<UserId> {
+    pub async fn user_id(&self) -> Option<Box<UserId>> {
         let session = self.inner.base_client.session().read().await;
         session.as_ref().cloned().map(|s| s.user_id)
     }
 
     /// Get the device id that identifies the current session.
-    pub async fn device_id(&self) -> Option<DeviceIdBox> {
+    pub async fn device_id(&self) -> Option<Box<DeviceId>> {
         let session = self.inner.base_client.session().read().await;
         session.as_ref().map(|s| s.device_id.clone())
     }
@@ -443,7 +443,7 @@ impl Client {
     /// }
     /// # })
     /// ```
-    pub async fn avatar_url(&self) -> Result<Option<MxcUri>> {
+    pub async fn avatar_url(&self) -> Result<Option<Box<MxcUri>>> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_avatar_url::Request::new(&user_id);
 
@@ -1241,7 +1241,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::{Client, Session, ruma::{DeviceIdBox, user_id}};
+    /// use matrix_sdk::{Client, Session, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -1251,8 +1251,8 @@ impl Client {
     ///
     /// let session = Session {
     ///     access_token: "My-Token".to_owned(),
-    ///     user_id: user_id!("@example:localhost"),
-    ///     device_id: DeviceIdBox::from("MYDEVICEID"),
+    ///     user_id: user_id!("@example:localhost").to_owned(),
+    ///     device_id: device_id!("MYDEVICEID").to_owned(),
     /// };
     ///
     /// client.restore_login(session).await?;
@@ -1263,7 +1263,7 @@ impl Client {
     /// [`Client::login()`] method returns:
     ///
     /// ```no_run
-    /// use matrix_sdk::{Client, Session, ruma::{DeviceIdBox, user_id}};
+    /// use matrix_sdk::{Client, Session};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -1433,7 +1433,7 @@ impl Client {
     /// An alias looks like `#name:example.com`.
     pub async fn join_room_by_id_or_alias(
         &self,
-        alias: &RoomIdOrAliasId,
+        alias: &RoomOrAliasId,
         server_names: &[Box<ServerName>],
     ) -> HttpResult<join_room_by_id_or_alias::Response> {
         let request = assign!(join_room_by_id_or_alias::Request::new(alias), {
@@ -1720,7 +1720,7 @@ impl Client {
     /// #            client::r0::uiaa,
     /// #            error::{FromHttpResponseError, ServerError},
     /// #        },
-    /// #        assign,
+    /// #        assign, device_id,
     /// #    },
     /// #    Client, Error, config::SyncSettings,
     /// # };
@@ -1731,7 +1731,7 @@ impl Client {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver)?;
-    /// let devices = &["DEVICEID".into()];
+    /// let devices = &[device_id!("DEVICEID").to_owned()];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.uiaa_response() {
@@ -1748,7 +1748,7 @@ impl Client {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     pub async fn delete_devices(
         &self,
-        devices: &[DeviceIdBox],
+        devices: &[Box<DeviceId>],
         auth_data: Option<AuthData<'_>>,
     ) -> HttpResult<delete_devices::Response> {
         let mut request = delete_devices::Request::new(devices);
@@ -2371,7 +2371,7 @@ pub(crate) mod test {
             },
             error::{FromHttpResponseError, ServerError},
         },
-        assign,
+        assign, device_id,
         directory::Filter,
         event_id,
         events::{
@@ -2394,8 +2394,8 @@ pub(crate) mod test {
     pub(crate) async fn logged_in_client() -> Client {
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
+            user_id: user_id!("@example:localhost").to_owned(),
+            device_id: device_id!("DEVICEID").to_owned(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
@@ -2422,7 +2422,7 @@ pub(crate) mod test {
     async fn successful_discovery() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::try_from("@alice:".to_string() + domain).unwrap();
+        let alice = Box::<UserId>::try_from("@alice:".to_string() + domain).unwrap();
 
         let _m_well_known = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2444,7 +2444,7 @@ pub(crate) mod test {
     async fn discovery_broken_server() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::try_from("@alice:".to_string() + domain).unwrap();
+        let alice = Box::<UserId>::try_from("@alice:".to_string() + domain).unwrap();
 
         let _m = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2630,15 +2630,15 @@ pub(crate) mod test {
         let client = logged_in_client().await;
         let session = client.session().await.unwrap();
 
-        let room = client.get_joined_room(&room_id);
+        let room = client.get_joined_room(room_id);
         assert!(room.is_none());
 
         client.sync_once(SyncSettings::default()).await.unwrap();
 
-        let room = client.get_left_room(&room_id);
+        let room = client.get_left_room(room_id);
         assert!(room.is_none());
 
-        let room = client.get_joined_room(&room_id);
+        let room = client.get_joined_room(room_id);
         assert!(room.is_some());
 
         // test store reloads with correct room state from the sled store
@@ -2651,7 +2651,7 @@ pub(crate) mod test {
 
         // joined room reloaded from state store
         joined_client.sync_once(SyncSettings::default()).await.unwrap();
-        let room = joined_client.get_joined_room(&room_id);
+        let room = joined_client.get_joined_room(room_id);
         assert!(room.is_some());
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
@@ -2661,10 +2661,10 @@ pub(crate) mod test {
 
         joined_client.sync_once(SyncSettings::default()).await.unwrap();
 
-        let room = joined_client.get_joined_room(&room_id);
+        let room = joined_client.get_joined_room(room_id);
         assert!(room.is_none());
 
-        let room = joined_client.get_left_room(&room_id);
+        let room = joined_client.get_left_room(room_id);
         assert!(room.is_some());
     }
 
@@ -2700,7 +2700,7 @@ pub(crate) mod test {
 
         assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
 
-        let room = client.get_joined_room(&room_id);
+        let room = client.get_joined_room(room_id);
         assert!(room.is_some());
     }
 
@@ -2787,7 +2787,7 @@ pub(crate) mod test {
         assert_eq!(
             // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
             // field
-            client.join_room_by_id(&room_id).await.unwrap().room_id,
+            client.join_room_by_id(room_id).await.unwrap().room_id,
             room_id
         );
     }
@@ -2808,7 +2808,7 @@ pub(crate) mod test {
             // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
             // field
             client
-                .join_room_by_id_or_alias(&room_id, &["server.com".try_into().unwrap()])
+                .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
                 .await
                 .unwrap()
                 .room_id,
@@ -2837,9 +2837,9 @@ pub(crate) mod test {
         let _response = client.sync_once(sync_settings).await.unwrap();
 
         let user = user_id!("@example:localhost");
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        room.invite_user_by_id(&user).await.unwrap();
+        room.invite_user_by_id(user).await.unwrap();
     }
 
     #[tokio::test]
@@ -2863,7 +2863,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         room.invite_user_by_3pid(
             Invite3pidInit {
@@ -2933,7 +2933,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         room.leave().await.unwrap();
     }
@@ -2960,9 +2960,9 @@ pub(crate) mod test {
         let _response = client.sync_once(sync_settings).await.unwrap();
 
         let user = user_id!("@example:localhost");
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        room.ban_user(&user, None).await.unwrap();
+        room.ban_user(user, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2987,9 +2987,9 @@ pub(crate) mod test {
         let _response = client.sync_once(sync_settings).await.unwrap();
 
         let user = user_id!("@example:localhost");
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        room.kick_user(&user, None).await.unwrap();
+        room.kick_user(user, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -3013,7 +3013,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_left_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         room.forget().await.unwrap();
     }
@@ -3040,9 +3040,9 @@ pub(crate) mod test {
         let _response = client.sync_once(sync_settings).await.unwrap();
 
         let event_id = event_id!("$xxxxxx:example.org");
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        room.read_receipt(&event_id).await.unwrap();
+        room.read_receipt(event_id).await.unwrap();
     }
 
     #[tokio::test]
@@ -3068,9 +3068,9 @@ pub(crate) mod test {
         let _response = client.sync_once(sync_settings).await.unwrap();
 
         let event_id = event_id!("$xxxxxx:example.org");
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        room.read_marker(&event_id, None).await.unwrap();
+        room.read_marker(event_id, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -3094,7 +3094,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         room.typing_notice(true).await.unwrap();
     }
@@ -3123,11 +3123,11 @@ pub(crate) mod test {
 
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        let room = client.get_joined_room(&room_id).unwrap();
+        let room = client.get_joined_room(room_id).unwrap();
 
         let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
         let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
-            avatar_url: Some(avatar_url)
+            avatar_url: Some(avatar_url.to_owned())
         });
         let response = room.send_state_event(member_event, "").await.unwrap();
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
@@ -3155,7 +3155,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         let content = RoomMessageEventContent::text_plain("Hello world");
         let txn_id = Uuid::new_v4();
@@ -3195,7 +3195,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         let mut media = Cursor::new("Hello world");
 
@@ -3228,13 +3228,13 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         let event_id = event_id!("$xxxxxxxx:example.com");
 
         let txn_id = Uuid::new_v4();
         let reason = Some("Indecent material");
-        let response = room.redact(&event_id, reason, Some(txn_id)).await.unwrap();
+        let response = room.redact(event_id, reason, Some(txn_id)).await.unwrap();
 
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
@@ -3259,7 +3259,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
         let members: Vec<RoomMember> = room.active_members().await.unwrap();
 
         assert_eq!(1, members.len());
@@ -3278,7 +3278,7 @@ pub(crate) mod test {
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync_once(sync_settings).await.unwrap();
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         assert_eq!("example2", room.display_name().await.unwrap());
     }
@@ -3299,7 +3299,7 @@ pub(crate) mod test {
         assert!(client.left_rooms().is_empty());
         assert!(!client.invited_rooms().is_empty());
 
-        assert!(client.get_invited_room(&room_id!("!696r7674:example.com")).is_some());
+        assert!(client.get_invited_room(room_id!("!696r7674:example.com")).is_some());
     }
 
     #[tokio::test]
@@ -3318,7 +3318,7 @@ pub(crate) mod test {
         assert!(!client.left_rooms().is_empty());
         assert!(client.invited_rooms().is_empty());
 
-        assert!(client.get_left_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).is_some())
+        assert!(client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).is_some())
     }
 
     #[tokio::test]
@@ -3355,7 +3355,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
-        let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         assert_eq!("tutorial".to_string(), room.display_name().await.unwrap());
 
@@ -3368,7 +3368,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(SyncSettings::new()).await.unwrap();
 
-        let invited_room = client.get_invited_room(&room_id!("!696r7674:example.com")).unwrap();
+        let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
 
         assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());
     }
@@ -3403,7 +3403,7 @@ pub(crate) mod test {
             .with_body(test_json::LOGOUT.to_string())
             .create();
 
-        let devices = &["DEVICEID".into()];
+        let devices = &[device_id!("DEVICEID").to_owned()];
 
         if let Err(e) = client.delete_devices(devices, None).await {
             if let Some(info) = e.uiaa_response() {
@@ -3483,7 +3483,7 @@ pub(crate) mod test {
         let client = logged_in_client().await;
 
         let request = MediaRequest {
-            media_type: MediaType::Uri(mxc_uri!("mxc://localhost/textfile")),
+            media_type: MediaType::Uri(mxc_uri!("mxc://localhost/textfile").to_owned()),
             format: MediaFormat::File,
         };
 
@@ -3508,7 +3508,7 @@ pub(crate) mod test {
 
         let event_content = ImageMessageEventContent::plain(
             "filename.jpg".into(),
-            mxc_uri!("mxc://example.org/image"),
+            mxc_uri!("mxc://example.org/image").to_owned(),
             Some(Box::new(assign!(ImageInfo::new(), {
                 height: Some(uint!(398)),
                 width: Some(uint!(394)),
@@ -3570,8 +3570,8 @@ pub(crate) mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
+            user_id: user_id!("@example:localhost").to_owned(),
+            device_id: device_id!("DEVICEID").to_owned(),
         };
 
         let sync = json!({
@@ -3638,12 +3638,12 @@ pub(crate) mod test {
         let client = Client::new_with_config(homeserver.clone(), config).unwrap();
         client.restore_login(session.clone()).await.unwrap();
 
-        let room = client.get_joined_room(&room_id);
+        let room = client.get_joined_room(room_id);
         assert!(room.is_none());
 
         client.sync_once(SyncSettings::default()).await.unwrap();
 
-        let room = client.get_joined_room(&room_id).unwrap();
+        let room = client.get_joined_room(room_id).unwrap();
 
         let state_events = room.get_state_events(EventType::RoomEncryption).await.unwrap();
         assert_eq!(state_events.len(), 1);

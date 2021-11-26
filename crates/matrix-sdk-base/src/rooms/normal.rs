@@ -87,10 +87,8 @@ impl Room {
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
-        let room_id = Arc::new(room_id.clone());
-
         let room_info = RoomInfo {
-            room_id,
+            room_id: room_id.into(),
             room_type,
             notification_counts: Default::default(),
             summary: Default::default(),
@@ -108,7 +106,7 @@ impl Room {
         room_info: RoomInfo,
     ) -> Self {
         Self {
-            own_user_id: Arc::new(own_user_id.clone()),
+            own_user_id: own_user_id.into(),
             room_id: room_info.room_id.clone(),
             store,
             inner: Arc::new(SyncRwLock::new(room_info)),
@@ -160,12 +158,12 @@ impl Room {
     }
 
     /// Get the avatar url of this room.
-    pub fn avatar_url(&self) -> Option<MxcUri> {
+    pub fn avatar_url(&self) -> Option<Box<MxcUri>> {
         self.inner.read().unwrap().base_info.avatar_url.clone()
     }
 
     /// Get the canonical alias of this room.
-    pub fn canonical_alias(&self) -> Option<RoomAliasId> {
+    pub fn canonical_alias(&self) -> Option<Box<RoomAliasId>> {
         self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
@@ -189,7 +187,7 @@ impl Room {
     /// *Note*: The member list might have been modified in the meantime and
     /// the target might not even be in the room anymore. This setting should
     /// only be considered as guidance.
-    pub fn direct_target(&self) -> Option<UserId> {
+    pub fn direct_target(&self) -> Option<Box<UserId>> {
         self.inner.read().unwrap().base_info.dm_target.clone()
     }
 
@@ -264,7 +262,7 @@ impl Room {
 
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
-    pub async fn joined_user_ids(&self) -> StoreResult<Vec<UserId>> {
+    pub async fn joined_user_ids(&self) -> StoreResult<Vec<Box<UserId>>> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
@@ -348,7 +346,7 @@ impl Room {
             let members: Vec<_> =
                 stream::iter(summary.heroes.iter().filter(|u| !is_own_user_id(u)))
                     .filter_map(|u| async move {
-                        let user_id = UserId::try_from(u.as_str()).ok()?;
+                        let user_id = Box::<UserId>::try_from(u.as_str()).ok()?;
                         self.get_member(&user_id).await.transpose()
                     })
                     .collect()
@@ -404,7 +402,7 @@ impl Room {
             .base_info
             .create
             .as_ref()
-            .map(|c| &c.creator == user_id)
+            .map(|c| c.creator == user_id)
             .unwrap_or(false);
 
         let power =
@@ -460,7 +458,7 @@ impl Room {
     pub async fn user_read_receipt(
         &self,
         user_id: &UserId,
-    ) -> StoreResult<Option<(EventId, Receipt)>> {
+    ) -> StoreResult<Option<(Box<EventId>, Receipt)>> {
         self.store.get_user_room_receipt_event(self.room_id(), ReceiptType::Read, user_id).await
     }
 
@@ -469,7 +467,7 @@ impl Room {
     pub async fn event_read_receipts(
         &self,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(UserId, Receipt)>> {
+    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
         self.store.get_event_room_receipt_events(self.room_id(), ReceiptType::Read, event_id).await
     }
 }

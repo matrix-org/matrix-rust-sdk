@@ -214,7 +214,7 @@ pub fn receive_mac_event(
             ids.other_device.device_id()
         );
 
-        let key_id: DeviceKeyId = match key_id.as_str().try_into() {
+        let key_id: Box<DeviceKeyId> = match key_id.as_str().try_into() {
             Ok(id) => id,
             Err(_) => continue,
         };

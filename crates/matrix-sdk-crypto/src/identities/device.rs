@@ -32,7 +32,7 @@ use ruma::{
         key::verification::VerificationMethod, room::encrypted::ToDeviceRoomEncryptedEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
@@ -69,7 +69,7 @@ pub struct ReadOnlyDevice {
 impl std::fmt::Debug for ReadOnlyDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadOnlyDevice")
-            .field("user_id", self.user_id())
+            .field("user_id", &self.user_id())
             .field("device_id", &self.device_id())
             .field("display_name", &self.display_name())
             .field("keys", self.keys())
@@ -290,7 +290,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: HashMap<DeviceIdBox, ReadOnlyDevice>,
+    pub(crate) inner: HashMap<Box<DeviceId>, ReadOnlyDevice>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
@@ -330,7 +330,7 @@ impl UserDevices {
     }
 
     /// Iterator over all the device ids of the user devices.
-    pub fn keys(&self) -> impl Iterator<Item = &DeviceIdBox> {
+    pub fn keys(&self) -> impl Iterator<Item = &Box<DeviceId>> {
         self.inner.keys()
     }
 
@@ -404,12 +404,12 @@ impl ReadOnlyDevice {
     }
 
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &BTreeMap<DeviceKeyId, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, String> {
         &self.inner.keys
     }
 
     /// Get a map containing all the device signatures.
-    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
+    pub fn signatures(&self) -> &BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
         &self.inner.signatures
     }
 
@@ -651,7 +651,7 @@ pub(crate) mod test {
 
         let device = get_device();
 
-        assert_eq!(&user_id, device.user_id());
+        assert_eq!(user_id, device.user_id());
         assert_eq!(device_id, device.device_id());
         assert_eq!(device.algorithms().len(), 2);
         assert_eq!(LocalTrust::Unset, device.local_trust_state());

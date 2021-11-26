@@ -178,7 +178,7 @@ impl Common {
             self.client
                 .inner
                 .members_request_locks
-                .insert(self.inner.room_id().clone(), mutex.clone());
+                .insert(self.inner.room_id().to_owned(), mutex.clone());
 
             let _guard = mutex.lock().await;
 

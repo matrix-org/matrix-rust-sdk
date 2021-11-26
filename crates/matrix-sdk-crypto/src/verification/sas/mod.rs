@@ -228,8 +228,8 @@ impl Sas {
     /// sent out through the server to the other device.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_in_room(
-        flow_id: EventId,
-        room_id: RoomId,
+        flow_id: Box<EventId>,
+        room_id: Box<RoomId>,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: VerificationStore,
@@ -557,7 +557,7 @@ impl AcceptSettings {
 mod test {
     use std::{convert::TryFrom, sync::Arc};
 
-    use ruma::{DeviceId, UserId};
+    use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::Sas;
     use crate::{
@@ -570,28 +570,28 @@ mod test {
         ReadOnlyAccount, ReadOnlyDevice,
     };
 
-    fn alice_id() -> UserId {
-        UserId::try_from("@alice:example.org").unwrap()
+    fn alice_id() -> &'static UserId {
+        user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> Box<DeviceId> {
-        "JLAFKJWSCS".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
     }
 
-    fn bob_id() -> UserId {
-        UserId::try_from("@bob:example.org").unwrap()
+    fn bob_id() -> &'static UserId {
+        user_id!("@bob:example.org")
     }
 
-    fn bob_device_id() -> Box<DeviceId> {
-        "BOBDEVCIE".into()
+    fn bob_device_id() -> &'static DeviceId {
+        device_id!("BOBDEVCIE")
     }
 
     #[tokio::test]
     async fn sas_wrapper_full() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_store =
@@ -603,7 +603,7 @@ mod test {
         let bob_store = VerificationStore { account: bob.clone(), inner: Arc::new(bob_store) };
 
         let (alice, content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(alice_id()),
+            PrivateCrossSigningIdentity::empty(alice_id().to_owned()),
             bob_device,
             alice_store,
             None,
@@ -620,7 +620,7 @@ mod test {
             flow_id,
             &content,
             bob_store,
-            PrivateCrossSigningIdentity::empty(bob_id()),
+            PrivateCrossSigningIdentity::empty(bob_id().to_owned()),
             alice_device,
             None,
             None,

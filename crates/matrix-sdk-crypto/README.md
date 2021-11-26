@@ -24,8 +24,8 @@ use ruma::{UserId, api::client::r0::sync::sync_events::{ToDevice, DeviceLists}};
 
 #[tokio::main]
 async fn main() -> Result<(), OlmError> {
-    let alice = UserId::try_from("@alice:example.org").unwrap();
-    let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 
     let to_device_events = ToDevice::default();
     let changed_devices = DeviceLists::default();

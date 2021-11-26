@@ -177,15 +177,15 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<Option<MemberEvent>>;
 
     /// Get all the user ids of members for a given room.
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>>;
 
     /// Get all the user ids of members that are in the invited state for a
     /// given room.
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>>;
 
     /// Get all the user ids of members that are in the joined state for a
     /// given room.
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>>;
 
     /// Get all the pure `RoomInfo`s the store knows about.
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
@@ -205,7 +205,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<UserId>>;
+    ) -> Result<BTreeSet<Box<UserId>>>;
 
     /// Get an event out of the account data store.
     ///
@@ -247,7 +247,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(EventId, Receipt)>>;
+    ) -> Result<Option<(Box<EventId>, Receipt)>>;
 
     /// Get events out of the event room receipt store.
     ///
@@ -265,7 +265,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(UserId, Receipt)>>;
+    ) -> Result<Vec<(Box<UserId>, Receipt)>>;
 
     /// Get arbitrary data from the custom store
     ///
@@ -324,8 +324,8 @@ pub struct Store {
     inner: Arc<dyn StateStore>,
     pub(crate) session: Arc<RwLock<Option<Session>>>,
     pub(crate) sync_token: Arc<RwLock<Option<String>>>,
-    rooms: Arc<DashMap<RoomId, Room>>,
-    stripped_rooms: Arc<DashMap<RoomId, Room>>,
+    rooms: Arc<DashMap<Box<RoomId>, Room>>,
+    stripped_rooms: Arc<DashMap<Box<RoomId>, Room>>,
 }
 
 impl Store {
@@ -417,7 +417,7 @@ impl Store {
         let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
 
         self.stripped_rooms
-            .entry(room_id.clone())
+            .entry(room_id.to_owned())
             .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, RoomType::Invited))
             .clone()
     }
@@ -427,7 +427,7 @@ impl Store {
         let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
 
         self.rooms
-            .entry(room_id.clone())
+            .entry(room_id.to_owned())
             .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
             .clone()
     }
@@ -452,38 +452,40 @@ pub struct StateChanges {
     /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<String, Raw<AnyGlobalAccountDataEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.
-    pub presence: BTreeMap<UserId, Raw<PresenceEvent>>,
+    pub presence: BTreeMap<Box<UserId>, Raw<PresenceEvent>>,
 
     /// A mapping of `RoomId` to a map of users and their `MemberEvent`.
-    pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
+    pub members: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, MemberEvent>>,
     /// A mapping of `RoomId` to a map of users and their
     /// `RoomMemberEventContent`.
-    pub profiles: BTreeMap<RoomId, BTreeMap<UserId, RoomMemberEventContent>>,
+    pub profiles: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, RoomMemberEventContent>>,
 
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.
-    pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
+    #[allow(clippy::type_complexity)]
+    pub state: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
-    pub room_account_data: BTreeMap<RoomId, BTreeMap<String, Raw<AnyRoomAccountDataEvent>>>,
+    pub room_account_data: BTreeMap<Box<RoomId>, BTreeMap<String, Raw<AnyRoomAccountDataEvent>>>,
     /// A map of `RoomId` to `RoomInfo`.
-    pub room_infos: BTreeMap<RoomId, RoomInfo>,
+    pub room_infos: BTreeMap<Box<RoomId>, RoomInfo>,
     /// A map of `RoomId` to `ReceiptEventContent`.
-    pub receipts: BTreeMap<RoomId, ReceiptEventContent>,
+    pub receipts: BTreeMap<Box<RoomId>, ReceiptEventContent>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
+    #[allow(clippy::type_complexity)]
     pub stripped_state:
-        BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>>,
+        BTreeMap<Box<RoomId>, BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>>,
     /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.
-    pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
+    pub stripped_members: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, StrippedMemberEvent>>,
     /// A map of `RoomId` to `RoomInfo`.
-    pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
+    pub invited_room_info: BTreeMap<Box<RoomId>, RoomInfo>,
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
-    pub ambiguity_maps: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
+    pub ambiguity_maps: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<Box<UserId>>>>,
     /// A map of `RoomId` to a vector of `Notification`s
-    pub notifications: BTreeMap<RoomId, Vec<Notification>>,
+    pub notifications: BTreeMap<Box<RoomId>, Vec<Notification>>,
 }
 
 impl StateChanges {

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     io::{Cursor, Read},
 };
 
@@ -316,7 +316,7 @@ impl QrVerificationData {
 
         match mode {
             VerificationData::QR_MODE => {
-                let event_id = EventId::try_from(flow_id)?;
+                let event_id = flow_id.try_into()?;
                 Ok(VerificationData::new(event_id, first_key, second_key, shared_secret).into())
             }
             SelfVerificationData::QR_MODE => {
@@ -375,7 +375,7 @@ impl QrVerificationData {
 /// cross signing keys.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VerificationData {
-    event_id: EventId,
+    event_id: Box<EventId>,
     first_master_key: String,
     second_master_key: String,
     shared_secret: String,
@@ -398,7 +398,7 @@ impl VerificationData {
     /// * ` shared_secret` - A random bytestring encoded as unpadded base64,
     /// needs to be at least 8 bytes long.
     pub fn new(
-        event_id: EventId,
+        event_id: Box<EventId>,
         first_key: String,
         second_key: String,
         shared_secret: String,

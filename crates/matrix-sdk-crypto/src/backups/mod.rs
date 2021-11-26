@@ -65,7 +65,7 @@ pub struct BackupMachine {
 struct PendingBackup {
     request_id: Uuid,
     request: KeysBackupRequest,
-    sessions: BTreeMap<RoomId, BTreeMap<String, BTreeSet<String>>>,
+    sessions: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
 }
 
 impl PendingBackup {
@@ -124,7 +124,7 @@ impl BackupMachine {
         struct AuthData {
             public_key: String,
             #[serde(default)]
-            signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+            signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
             #[serde(flatten)]
             extra: BTreeMap<String, Value>,
         }
@@ -348,10 +348,12 @@ impl BackupMachine {
     async fn backup_keys(
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
-    ) -> (BTreeMap<RoomId, RoomKeyBackup>, BTreeMap<RoomId, BTreeMap<String, BTreeSet<String>>>)
-    {
-        let mut backup: BTreeMap<RoomId, RoomKeyBackup> = BTreeMap::new();
-        let mut session_record: BTreeMap<RoomId, BTreeMap<String, BTreeSet<String>>> =
+    ) -> (
+        BTreeMap<Box<RoomId>, RoomKeyBackup>,
+        BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
+    ) {
+        let mut backup: BTreeMap<Box<RoomId>, RoomKeyBackup> = BTreeMap::new();
+        let mut session_record: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>> =
             BTreeMap::new();
 
         for session in sessions.into_iter() {
@@ -361,7 +363,7 @@ impl BackupMachine {
             let session = backup_key.encrypt(session).await;
 
             session_record
-                .entry(room_id.clone())
+                .entry(room_id.to_owned())
                 .or_default()
                 .entry(sender_key)
                 .or_default()
@@ -381,24 +383,24 @@ impl BackupMachine {
 #[cfg(test)]
 mod test {
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, user_id, DeviceIdBox, RoomId, UserId};
+    use ruma::{device_id, room_id, user_id, DeviceId, RoomId, UserId};
 
     use super::RecoveryKey;
     use crate::{OlmError, OlmMachine};
 
-    fn alice_id() -> UserId {
+    fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> DeviceIdBox {
-        "JLAFKJWSCS".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
     }
 
-    fn room_id() -> RoomId {
+    fn room_id() -> &'static RoomId {
         room_id!("!test:localhost")
     }
 
-    fn room_id2() -> RoomId {
+    fn room_id2() -> &'static RoomId {
         room_id!("!test2:localhost")
     }
 
@@ -409,8 +411,8 @@ mod test {
         assert_eq!(counts.total, 0, "Initially no keys exist");
         assert_eq!(counts.backed_up, 0, "Initially no backed up keys exist");
 
-        machine.create_outbound_group_session_with_defaults(&room_id()).await?;
-        machine.create_outbound_group_session_with_defaults(&room_id2()).await?;
+        machine.create_outbound_group_session_with_defaults(room_id()).await?;
+        machine.create_outbound_group_session_with_defaults(room_id2()).await?;
 
         let counts = backup_machine.store.inbound_group_session_counts().await?;
         assert_eq!(counts.total, 2, "Two room keys need to exist in the store");
@@ -455,7 +457,7 @@ mod test {
 
     #[async_test]
     async fn memory_store_backups() -> Result<(), OlmError> {
-        let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+        let machine = OlmMachine::new(alice_id(), alice_device_id());
 
         backup_flow(machine).await
     }
@@ -467,8 +469,8 @@ mod test {
 
         let tmpdir = tempdir().expect("Can't create a temporary dir");
         let machine = OlmMachine::new_with_default_store(
-            &alice_id(),
-            &alice_device_id(),
+            alice_id(),
+            alice_device_id(),
             tmpdir.as_ref(),
             None,
         )
@@ -484,8 +486,8 @@ mod test {
 
         let tmpdir = tempdir().expect("Can't create a temporary dir");
         let machine = OlmMachine::new_with_default_store(
-            &alice_id(),
-            &alice_device_id(),
+            alice_id(),
+            alice_device_id(),
             tmpdir.as_ref(),
             Some("test"),
         )

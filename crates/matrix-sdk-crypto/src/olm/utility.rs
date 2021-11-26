@@ -95,7 +95,7 @@ impl Utility {
 
 #[cfg(test)]
 mod test {
-    use ruma::{user_id, DeviceKeyAlgorithm, DeviceKeyId};
+    use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
 
     use super::Utility;
@@ -129,8 +129,8 @@ mod test {
 
         utility
             .verify_json(
-                &user_id!("@example:localhost"),
-                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "GBEWHQOYGS".into()),
+                user_id!("@example:localhost"),
+                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("GBEWHQOYGS")),
                 signing_key,
                 &mut device_keys,
             )
