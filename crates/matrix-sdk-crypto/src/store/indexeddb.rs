@@ -168,7 +168,7 @@ impl IndexeddbStore {
     pub async fn open_with_passphrase(prefix: String, passphrase: &str) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto-meta", prefix);
 
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             if evt.old_version() < 1.0 {
                 // migrating to version 1
@@ -182,7 +182,7 @@ impl IndexeddbStore {
         let db: IdbDatabase = db_req.into_future().await?;
 
         let tx: IdbTransaction =
-            db.transaction_on_one_with_mode(&name, IdbTransactionMode::Readwrite)?;
+            db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readwrite)?;
         let ob = tx.object_store("matrix-sdk-crypto")?;
 
         let store_key: Option<EncryptedPickleKey> = ob
@@ -456,41 +456,44 @@ impl IndexeddbStore {
 #[async_trait(?Send)]
 impl CryptoStore for IndexeddbStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
-        todo!()
-        // if let Some(pickle) = self.account.get("account".encode())? {
-        //     let pickle = serde_json::from_slice(&pickle)?;
+        if let Some(pickle) = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::CORE, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::CORE)?
+            .get(&JsValue::from_str(KEYS::ACCOUNT))?
+            .await?
+        {
 
-        //     self.load_tracked_users().await?;
+            //self.load_tracked_users().await?;
 
-        //     let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
+            let account = ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())?;
 
-        //     let account_info = AccountInfo {
-        //         user_id: account.user_id.clone(),
-        //         device_id: account.device_id.clone(),
-        //         identity_keys: account.identity_keys.clone(),
-        //     };
+            let account_info = AccountInfo {
+                user_id: account.user_id.clone(),
+                device_id: account.device_id.clone(),
+                identity_keys: account.identity_keys.clone(),
+            };
 
-        //     *self.account_info.write().unwrap() = Some(account_info);
+            *self.account_info.write().unwrap() = Some(account_info);
 
-        //     Ok(Some(account))
-        // } else {
-        //     Ok(None)
-        // }
+            Ok(Some(account))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        todo!()
-        // let account_info = AccountInfo {
-        //     user_id: account.user_id.clone(),
-        //     device_id: account.device_id.clone(),
-        //     identity_keys: account.identity_keys.clone(),
-        // };
+        let account_info = AccountInfo {
+            user_id: account.user_id.clone(),
+            device_id: account.device_id.clone(),
+            identity_keys: account.identity_keys.clone(),
+        };
 
-        // *self.account_info.write().unwrap() = Some(account_info);
+        *self.account_info.write().unwrap() = Some(account_info);
 
-        // let changes = Changes { account: Some(account), ..Default::default() };
+        let changes = Changes { account: Some(account), ..Default::default() };
 
-        // self.save_changes(changes).await
+        self.save_changes(changes).await
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
