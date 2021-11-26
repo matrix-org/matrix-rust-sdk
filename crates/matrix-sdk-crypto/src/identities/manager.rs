@@ -35,6 +35,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
+    LocalTrust,
 };
 
 enum DeviceChange {
@@ -153,14 +154,37 @@ impl IdentityManager {
         } else {
             match ReadOnlyDevice::try_from(&device_keys) {
                 Ok(d) => {
-                    trace!(
-                        user_id = d.user_id().as_str(),
-                        device_id = d.device_id().as_str(),
-                        keys =? d.keys(),
-                        "Adding a new device to the device store",
-                    );
+                    // If this is our own device, check that the server isn't
+                    // lying about our keys, also mark the device as locally
+                    // trusted.
+                    if d.user_id() == store.user_id() && d.device_id() == store.device_id() {
+                        let local_device_keys = store.account().unsigned_device_keys();
 
-                    Ok(DeviceChange::New(d))
+                        if d.keys() == &local_device_keys.keys {
+                            d.set_trust_state(LocalTrust::Verified);
+
+                            trace!(
+                                user_id = d.user_id().as_str(),
+                                device_id = d.device_id().as_str(),
+                                keys =? d.keys(),
+                                "Adding our own device to the device store, \
+                                marking it as locally verified",
+                            );
+
+                            Ok(DeviceChange::New(d))
+                        } else {
+                            Ok(DeviceChange::None)
+                        }
+                    } else {
+                        trace!(
+                            user_id = d.user_id().as_str(),
+                            device_id = d.device_id().as_str(),
+                            keys =? d.keys(),
+                            "Adding a new device to the device store",
+                        );
+
+                        Ok(DeviceChange::New(d))
+                    }
                 }
                 Err(e) => {
                     warn!(

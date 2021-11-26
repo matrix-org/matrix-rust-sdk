@@ -50,7 +50,7 @@ use crate::{
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
-const DATABASE_VERSION: u8 = 2;
+const DATABASE_VERSION: u8 = 3;
 
 trait EncodeKey {
     const SEPARATOR: u8 = 0xff;
@@ -320,6 +320,20 @@ impl SledStore {
 
                 Ok(())
             })?;
+        }
+
+        if version <= 2 {
+            // We're treating our own device now differently, we're checking if
+            // the keys match to what we have locally, remove the unchecked
+            // device and mark our own user as dirty.
+            if let Some(pickle) = self.account.get("account".encode())? {
+                let pickle = serde_json::from_slice(&pickle)?;
+                let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
+
+                self.devices
+                    .remove((account.user_id().as_str(), account.device_id.as_str()).encode())?;
+                self.tracked_users.insert(account.user_id().as_str(), &[true as u8])?;
+            }
         }
 
         self.inner.insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())?;

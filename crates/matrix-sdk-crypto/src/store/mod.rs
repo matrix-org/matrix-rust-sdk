@@ -247,6 +247,10 @@ impl Store {
         self.verification_machine.own_device_id()
     }
 
+    pub fn account(&self) -> &ReadOnlyAccount {
+        &self.verification_machine.store.account
+    }
+
     #[cfg(test)]
     pub async fn reset_cross_signing_identity(&self) {
         self.identity.lock().await.reset().await;
