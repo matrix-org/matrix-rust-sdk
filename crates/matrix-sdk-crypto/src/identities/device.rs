@@ -307,10 +307,26 @@ impl UserDevices {
         })
     }
 
+    fn own_user_id(&self) -> &UserId {
+        self.verification_machine.own_user_id()
+    }
+
+    fn own_device_id(&self) -> &DeviceId {
+        self.verification_machine.own_device_id()
+    }
+
     /// Returns true if there is at least one devices of this user that is
     /// considered to be verified, false otherwise.
+    ///
+    /// This won't consider your own device as verified, as your own device is
+    /// always implicitly verified.
     pub fn is_any_verified(&self) -> bool {
-        self.inner.values().any(|d| d.verified(&self.own_identity, &self.device_owner_identity))
+        self.inner
+            .values()
+            .filter(|d| {
+                !(d.user_id() == self.own_user_id() && d.device_id() == self.own_device_id())
+            })
+            .any(|d| d.verified(&self.own_identity, &self.device_owner_identity))
     }
 
     /// Iterator over all the device ids of the user devices.

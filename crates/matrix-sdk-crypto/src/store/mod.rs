@@ -295,25 +295,7 @@ impl Store {
             .and_then(|d| d.display_name().map(|d| d.to_string())))
     }
 
-    /// Get the read-only version of a specific device.
-    ///
-    /// *Note*: This doesn't return our own device.
     pub async fn get_readonly_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
-        if user_id == self.user_id() && device_id == self.device_id() {
-            Ok(None)
-        } else {
-            self.inner.get_device(user_id, device_id).await
-        }
-    }
-
-    /// Get the read-only version of a specific device.
-    ///
-    /// *Note*: This doesn't return our own device.
-    pub async fn get_readonly_device_unfiltered(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
@@ -324,7 +306,7 @@ impl Store {
     /// Get the read-only version of all the devices that the given user has.
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_readonly_devices(
+    pub async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
@@ -362,11 +344,7 @@ impl Store {
     }
 
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
-        let mut devices = self.inner.get_user_devices(user_id).await?;
-
-        if user_id == self.user_id() {
-            devices.remove(self.device_id());
-        }
+        let devices = self.inner.get_user_devices(user_id).await?;
 
         let own_identity =
             self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
@@ -385,24 +363,16 @@ impl Store {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
-        if user_id == self.user_id() && device_id == self.device_id() {
-            Ok(None)
-        } else {
-            let own_identity = self
-                .inner
-                .get_user_identity(&self.user_id)
-                .await?
-                .map(|i| i.own().cloned())
-                .flatten();
-            let device_owner_identity = self.inner.get_user_identity(user_id).await?;
+        let own_identity =
+            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
+        let device_owner_identity = self.inner.get_user_identity(user_id).await?;
 
-            Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
-                inner: d,
-                verification_machine: self.verification_machine.clone(),
-                own_identity,
-                device_owner_identity,
-            }))
-        }
+        Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
+            inner: d,
+            verification_machine: self.verification_machine.clone(),
+            own_identity,
+            device_owner_identity,
+        }))
     }
 
     pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {

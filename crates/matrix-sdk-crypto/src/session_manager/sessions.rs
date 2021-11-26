@@ -183,7 +183,7 @@ impl SessionManager {
         // Add the list of devices that the user wishes to establish sessions
         // right now.
         for user_id in users {
-            let user_devices = self.store.get_readonly_devices(user_id).await?;
+            let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
 
             for (device_id, device) in user_devices.into_iter() {
                 if !device.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)

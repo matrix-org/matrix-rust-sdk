@@ -134,9 +134,8 @@ impl IdentityManager {
         store: Store,
         device_keys: DeviceKeys,
     ) -> StoreResult<DeviceChange> {
-        let old_device = store
-            .get_readonly_device_unfiltered(&device_keys.user_id, &device_keys.device_id)
-            .await?;
+        let old_device =
+            store.get_readonly_device(&device_keys.user_id, &device_keys.device_id).await?;
 
         if let Some(mut device) = old_device {
             if let Err(e) = device.update_device(&device_keys) {
