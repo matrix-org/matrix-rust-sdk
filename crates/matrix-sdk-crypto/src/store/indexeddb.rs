@@ -573,15 +573,20 @@ impl CryptoStore for IndexeddbStore {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        todo!()
-        // let key = (room_id.as_str(), sender_key, session_id).encode();
-        // let pickle = self.inbound_group_sessions.get(&key)?.map(|p| serde_json::from_slice(&p));
-
-        // if let Some(pickle) = pickle {
-        //     Ok(Some(InboundGroupSession::from_pickle(pickle?, self.get_pickle_mode())?))
-        // } else {
-        //     Ok(None)
-        // }
+        let key = format!("{}:{}:{}", room_id.as_str(), sender_key, session_id);
+        if let Some(pickle) = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::INBOUND_GROUP_SESSIONS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::INBOUND_GROUP_SESSIONS)?
+            .get(&JsValue::from_str(&key))?
+            .await?
+        {
+            Ok(Some(
+                InboundGroupSession::from_pickle(pickle.into_serde()?, self.get_pickle_mode())?
+            ))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
@@ -658,18 +663,26 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        todo!()
-        // let already_added = self.tracked_users_cache.insert(user.clone());
+        let already_added = self.tracked_users_cache.insert(user.clone());
 
-        // if dirty {
-        //     self.users_for_key_query_cache.insert(user.clone());
-        // } else {
-        //     self.users_for_key_query_cache.remove(user);
-        // }
+        if dirty {
+            self.users_for_key_query_cache.insert(user.clone());
+        } else {
+            self.users_for_key_query_cache.remove(user);
+        }
 
-        // self.tracked_users.insert(user.as_str(), &[dirty as u8])?;
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::TRACKED_USERS, IdbTransactionMode::Readwrite)?;
+        let os = tx.object_store(KEYS::TRACKED_USERS)?;
 
-        // Ok(already_added)
+        os.put_key_val(
+            &JsValue::from_str(user.as_str()),
+            &match dirty { true => JsValue::TRUE, false => JsValue::FALSE }
+        )?;
+
+        tx.await.into_result()?;
+        Ok(already_added)
     }
 
     async fn get_device(
