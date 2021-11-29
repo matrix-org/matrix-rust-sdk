@@ -225,7 +225,7 @@ impl UserIdentity {
     /// Returns a request that needs to be sent out for the user to be marked
     /// as verified.
     pub async fn verify(&self) -> Result<SignatureUploadRequest, SignatureError> {
-        if self.user_id() == self.verification_machine.own_user_id() {
+        if self.user_id() != self.verification_machine.own_user_id() {
             Ok(self
                 .verification_machine
                 .private_identity
