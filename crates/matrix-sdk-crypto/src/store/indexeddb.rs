@@ -538,30 +538,33 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        todo!()
-        // let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
-        // if self.session_cache.get(sender_key).is_none() {
-        //     let sessions: Result<Vec<Session>> = self
-        //         .sessions
-        //         .scan_prefix(sender_key.encode())
-        //         .map(|s| serde_json::from_slice(&s?.1).map_err(CryptoStoreError::Serialization))
-        //         .map(|p| {
-        //             Session::from_pickle(
-        //                 account_info.user_id.clone(),
-        //                 account_info.device_id.clone(),
-        //                 account_info.identity_keys.clone(),
-        //                 p?,
-        //                 self.get_pickle_mode(),
-        //             )
-        //             .map_err(CryptoStoreError::SessionUnpickling)
-        //         })
-        //         .collect();
+        if self.session_cache.get(sender_key).is_none() {
+            let range = make_range(sender_key.to_owned())?;
+            let sessions: Vec<Session> = self
+                .inner
+                .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
+                .object_store(KEYS::SESSION)?
+                .get_all_with_key(&range)?
+                .await?
+                .iter()
+                .filter_map(|f| match f.into_serde() {
+                    Ok(p) => Session::from_pickle(
+                            account_info.user_id.clone(),
+                            account_info.device_id.clone(),
+                            account_info.identity_keys.clone(),
+                            p,
+                            self.get_pickle_mode(),
+                        ).ok(),
+                    _ => None
+                })
+                .collect::<Vec<Session>>();
 
-        //     self.session_cache.set_for_sender(sender_key, sessions?);
-        // }
+            self.session_cache.set_for_sender(sender_key, sessions);
+        }
 
-        // Ok(self.session_cache.get(sender_key))
+        Ok(self.session_cache.get(sender_key))
     }
 
     async fn get_inbound_group_session(
