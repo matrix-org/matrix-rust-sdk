@@ -755,7 +755,7 @@ impl BaseClient {
                         o.update_tracked_users(user_ids).await
                     }
 
-                    o.update_tracked_users(user_ids.iter().map(|x| &**x)).await
+                    o.update_tracked_users(user_ids.iter().map(|x| &**x)).await;
                 }
             }
 

@@ -1205,7 +1205,7 @@ impl OlmMachine {
     /// If the user is already known to the Olm machine it will not be
     /// considered for a key query.
     pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
-        self.identity_manager.update_tracked_users(users).await
+        self.identity_manager.update_tracked_users(users).await;
     }
 
     /// Get a specific device of a user.
