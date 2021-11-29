@@ -176,9 +176,9 @@ impl IndexeddbStore {
     }
 
     pub async fn open_with_passphrase(name: String, passphrase: &str) -> Result<Self> {
-        let path = format!("{:0}::matrix-sdk-state", name);
+        let name = format!("{:0}::matrix-sdk-state", name);
 
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&path, 1)?;
+        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
             if evt.old_version() < 1.0 {
                 // migrating to version 1
@@ -192,7 +192,7 @@ impl IndexeddbStore {
         let db: IdbDatabase = db_req.into_future().await?;
 
         let tx: IdbTransaction =
-            db.transaction_on_one_with_mode(&path, IdbTransactionMode::Readwrite)?;
+            db.transaction_on_one_with_mode("matrix-sdk-state", IdbTransactionMode::Readwrite)?;
         let ob = tx.object_store("matrix-sdk-state")?;
 
         let store_key: Option<DatabaseType> = ob
