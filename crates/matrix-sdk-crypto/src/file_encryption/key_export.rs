@@ -76,7 +76,7 @@ pub enum KeyExportError {
 /// ```no_run
 /// # use std::io::Cursor;
 /// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
-/// # use ruma::user_id;
+/// # use ruma::{device_id, user_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
@@ -127,13 +127,13 @@ pub fn decrypt_key_export(
 /// # Examples
 /// ```no_run
 /// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
-/// # use ruma::{user_id, room_id};
+/// # use ruma::{device_id, user_id, room_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
 /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 /// # block_on(async {
 /// let room_id = room_id!("!test:localhost");
-/// let exported_keys = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
+/// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
 /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
 /// # });
 /// ```

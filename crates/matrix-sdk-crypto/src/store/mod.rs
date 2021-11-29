@@ -26,9 +26,9 @@
 //! #     OlmMachine,
 //! #     store::MemoryStore,
 //! # };
-//! # use ruma::{user_id, DeviceId};
-//! # let user_id = user_id!("@example:localhost");
-//! # let device_id: Box<DeviceId> = device_id!("TEST");
+//! # use ruma::{device_id, user_id};
+//! # let user_id = user_id!("@example:localhost").to_owned();
+//! # let device_id = device_id!("TEST").to_owned();
 //! let store = Box::new(MemoryStore::new());
 //!
 //! let machine = OlmMachine::new_with_store(user_id, device_id, store);

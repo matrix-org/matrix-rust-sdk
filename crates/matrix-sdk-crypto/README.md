@@ -20,7 +20,10 @@ The state machine works in a push/pull manner:
 use std::{collections::BTreeMap, convert::TryFrom};
 
 use matrix_sdk_crypto::{OlmMachine, OlmError};
-use ruma::{UserId, api::client::r0::sync::sync_events::{ToDevice, DeviceLists}};
+use ruma::{
+    api::client::r0::sync::sync_events::{ToDevice, DeviceLists},
+    device_id, UserId,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), OlmError> {

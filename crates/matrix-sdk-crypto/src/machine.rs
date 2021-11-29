@@ -1224,9 +1224,9 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::UserId;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// let device = machine.get_device(&alice, device_id!("DEVICEID")).await;
@@ -1265,9 +1265,9 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::UserId;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// let devices = machine.get_user_devices(&alice).await.unwrap();
@@ -1301,7 +1301,7 @@ impl OlmMachine {
     /// ```no_run
     /// # use std::io::Cursor;
     /// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
-    /// # use ruma::user_id;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
@@ -1413,13 +1413,13 @@ impl OlmMachine {
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
-    /// # use ruma::{user_id, room_id};
+    /// # use ruma::{device_id, user_id, room_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// let room_id = room_id!("!test:localhost");
-    /// let exported_keys = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
+    /// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
     /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
     /// # });
     /// ```

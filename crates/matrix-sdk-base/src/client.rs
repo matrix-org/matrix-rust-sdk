@@ -1146,9 +1146,9 @@ impl BaseClient {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_base::BaseClient;
-    /// # use ruma::UserId;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # let client = BaseClient::new().unwrap();
     /// # block_on(async {
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await;
