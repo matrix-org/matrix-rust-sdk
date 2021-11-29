@@ -227,7 +227,7 @@ impl IndexeddbStore {
         let mut stores: Vec<&'static str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), KEYS::CORE),
             (!changes.sessions.is_empty(), KEYS::SESSION),
-            (!changes.devices.new.is_empty() || !changes.devices.deleted.is_empty(),
+            (!changes.devices.new.is_empty() || !changes.devices.changed.is_empty() || !changes.devices.deleted.is_empty(),
                 KEYS::DEVICES),
             (!changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
                 KEYS::IDENTITIES),
@@ -276,7 +276,6 @@ impl IndexeddbStore {
                 .put_key_val(&JsValue::from_str(KEYS::PRIVATE_IDENTITY), &JsValue::from_serde(i)?)?;
         }
 
-        let device_changes = changes.devices;
 
         if !changes.sessions.is_empty() {
             let sessions = tx.object_store(KEYS::SESSION)?;
@@ -316,6 +315,7 @@ impl IndexeddbStore {
             }
         }
 
+        let device_changes = changes.devices;
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
@@ -668,24 +668,35 @@ impl CryptoStore for IndexeddbStore {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        todo!()
-        // let key = (user_id.as_str(), device_id.as_str()).encode();
-        // Ok(self.devices.get(key)?.map(|d| serde_json::from_slice(&d)).transpose()?)
+        let key = format!("{}:{}", user_id.as_str(), device_id.as_str());
+        Ok(self
+             .inner
+             .transaction_on_one_with_mode(KEYS::DEVICES, IdbTransactionMode::Readonly)?
+             .object_store(KEYS::DEVICES)?
+             .get(&JsValue::from_str(&key))?
+             .await?
+             .map(|i| i.into_serde())
+             .transpose()?
+         )
     }
 
     async fn get_user_devices(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
-        todo!()
-        // self.devices
-        //     .scan_prefix(user_id.encode())
-        //     .map(|d| serde_json::from_slice(&d?.1).map_err(CryptoStoreError::Serialization))
-        //     .map(|d| {
-        //         let d: ReadOnlyDevice = d?;
-        //         Ok((d.device_id().to_owned(), d))
-        //     })
-        //     .collect()
+        let range = make_range(user_id.as_str().to_string())?;
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(KEYS::DEVICES, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::DEVICES)?
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|d| {
+                let d: ReadOnlyDevice = d.into_serde().ok()?;
+                Some((d.device_id().to_owned(), d))
+            })
+            .collect::<HashMap<_, _>>())
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
