@@ -229,6 +229,8 @@ impl IndexeddbStore {
             (!changes.sessions.is_empty(), KEYS::SESSION),
             (!changes.devices.new.is_empty() || !changes.devices.deleted.is_empty(),
                 KEYS::DEVICES),
+            (!changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
+                KEYS::IDENTITIES),
             (!changes.inbound_group_sessions.is_empty(),  KEYS::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
         ]
@@ -318,7 +320,7 @@ impl IndexeddbStore {
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
 
-        if !device_changes.new.is_empty() {
+        if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
             let device_store = tx.object_store(KEYS::DEVICES)?;
             for device in device_changes.new.iter().chain(&device_changes.changed) {
                 let key = format!("{}:{}", device.user_id().as_str(), device.device_id().as_str());
@@ -337,7 +339,7 @@ impl IndexeddbStore {
             }
         }
 
-        if !identity_changes.changed.is_empty() {
+        if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
             let identities = tx.object_store(KEYS::IDENTITIES)?;
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
                 identities.put_key_val(
@@ -397,20 +399,30 @@ impl IndexeddbStore {
 
 
     async fn load_tracked_users(&self) -> Result<()> {
-        todo!()
-        // for value in self.tracked_users.iter() {
-        //     let (user, dirty) = value?;
-        //     let user = UserId::try_from(String::from_utf8_lossy(&user).to_string())?;
-        //     let dirty = dirty.get(0).map(|d| *d == 1).unwrap_or(true);
+        let tx = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::TRACKED_USERS, IdbTransactionMode::Readonly)?;
+        let os = tx.object_store(KEYS::TRACKED_USERS)?;
+        let user_ids = os
+            .get_all_keys()?
+            .await?;
+        for user_id in user_ids.iter() {
+            let dirty : bool = match os.get(&user_id)?.await?.map(|v| v.into_serde()) {
+                Some(Ok(false)) => false,
+                _ => true
+            };
+            let user = match user_id.as_string().map(|u| UserId::try_from(u)) {
+                Some(Ok(user)) => user,
+                _ => continue
+            };
+            self.tracked_users_cache.insert(user.clone());
 
-        //     self.tracked_users_cache.insert(user.clone());
+            if dirty {
+                self.users_for_key_query_cache.insert(user);
+            }
+        }
 
-        //     if dirty {
-        //         self.users_for_key_query_cache.insert(user);
-        //     }
-        // }
-
-        // Ok(())
+        Ok(())
     }
 
     async fn load_outbound_group_session(
@@ -464,7 +476,7 @@ impl CryptoStore for IndexeddbStore {
             .await?
         {
 
-            //self.load_tracked_users().await?;
+            self.load_tracked_users().await?;
 
             let account = ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())?;
 
@@ -497,17 +509,22 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        todo!()
-        // if let Some(i) = self.private_identity.get("identity".encode())? {
-        //     let pickle = serde_json::from_slice(&i)?;
-        //     Ok(Some(
-        //         PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
-        //             .await
-        //             .map_err(|_| CryptoStoreError::UnpicklingError)?,
-        //     ))
-        // } else {
-        //     Ok(None)
-        // }
+
+        if let Some(pickle) = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::CORE, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::CORE)?
+            .get(&JsValue::from_str(KEYS::PRIVATE_IDENTITY))?
+            .await?
+        {
+            Ok(Some(
+                PrivateCrossSigningIdentity::from_pickle(pickle.into_serde()?, self.get_pickle_key())
+                    .await
+                    .map_err(|_| CryptoStoreError::UnpicklingError)?,
+            ))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
@@ -672,12 +689,15 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
-        todo!()
-        // Ok(self
-        //     .identities
-        //     .get(user_id.encode())?
-        //     .map(|i| serde_json::from_slice(&i))
-        //     .transpose()?)
+       Ok(self
+            .inner
+            .transaction_on_one_with_mode(KEYS::IDENTITIES, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::IDENTITIES)?
+            .get(&JsValue::from_str(user_id.as_str()))?
+            .await?
+            .map(|i| i.into_serde())
+            .transpose()?
+        )
     }
 
     async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
