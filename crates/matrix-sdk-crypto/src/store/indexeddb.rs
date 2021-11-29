@@ -233,6 +233,7 @@ impl IndexeddbStore {
                 KEYS::IDENTITIES),
             (!changes.inbound_group_sessions.is_empty(),  KEYS::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
+            (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -353,12 +354,11 @@ impl IndexeddbStore {
             let hashes = tx.object_store(KEYS::OLM_HASHES)?;
             for hash in &olm_hashes {
                 hashes.put_key_val(
-                    &JsValue::from_serde(hash)?,
-                    &JsValue::from_serde(&None::<String>)?
+                    &JsValue::from_str(&format!("{}:{}", hash.sender_key, hash.hash)),
+                    &JsValue::TRUE
                 )?;
             }
         }
-
 
         if !key_requests.is_empty() {
             let secret_requests_by_info = tx.object_store(KEYS::SECRET_REQUESTS_BY_INFO)?;
@@ -717,9 +717,15 @@ impl CryptoStore for IndexeddbStore {
         )
     }
 
-    async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
-        todo!()
-        // Ok(self.olm_hashes.contains_key(serde_json::to_vec(message_hash)?)?)
+    async fn is_message_known(&self, hash: &crate::olm::OlmMessageHash) -> Result<bool> {
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(KEYS::OLM_HASHES, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::OLM_HASHES)?
+            .get(&JsValue::from_str(&format!("{}:{}", hash.sender_key, hash.hash)))?
+            .await?
+            .is_some()
+        )
     }
 
     async fn get_outgoing_secret_requests(
