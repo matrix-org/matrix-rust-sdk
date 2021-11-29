@@ -365,9 +365,9 @@ impl IndexeddbStore {
             let unsent_secret_requests = tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?;
             let outgoing_secret_requests = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?;
             for key_request in &key_requests {
-                let key_request_id = JsValue::from_serde(&key_request.request_id)?;
+                let key_request_id = JsValue::from_str(&key_request.request_id.to_string());
                 secret_requests_by_info.put_key_val(
-                    &JsValue::from_serde(&key_request.info)?,
+                    &JsValue::from_str(&key_request.info.as_key()),
                     &key_request_id,
                 )?;
 
@@ -447,21 +447,27 @@ impl IndexeddbStore {
         //     })
         //     .transpose()
     }
-    async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
-        todo!()
-        // let request = self
-        //     .outgoing_secret_requests
-        //     .get(id)?
-        //     .map(|r| serde_json::from_slice(&r))
-        //     .transpose()?;
+    async fn get_outgoing_key_request_helper(&self, key: &str) -> Result<Option<GossipRequest>> {
+        let jskey = JsValue::from_str(key);
+        let dbs = [KEYS::OUTGOING_SECRET_REQUESTS, KEYS::UNSENT_SECRET_REQUESTS];
+        let tx = self
+             .inner
+             .transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
 
-        // let request = if request.is_none() {
-        //     self.unsent_secret_requests.get(id)?.map(|r| serde_json::from_slice(&r)).transpose()?
-        // } else {
-        //     request
-        // };
+        let request = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?
+             .get(&jskey)?
+             .await?
+             .map(|i| i.into_serde())
+             .transpose()?;
 
-        // Ok(request)
+        Ok(match request {
+            None =>  tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?
+                .get(&jskey)?
+                .await?
+                .map(|i| i.into_serde())
+                .transpose()?,
+            Some(request) => Some(request),
+        })
     }
 }
 
@@ -720,74 +726,72 @@ impl CryptoStore for IndexeddbStore {
         &self,
         request_id: Uuid,
     ) -> Result<Option<GossipRequest>> {
-        todo!()
-        // let request_id = request_id.encode();
-
-        // self.get_outgoing_key_request_helper(&request_id).await
+        self.get_outgoing_key_request_helper(&request_id.to_string()).await
     }
 
     async fn get_secret_request_by_info(
         &self,
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
-        todo!()
-        // let id = self.secret_requests_by_info.get(key_info.encode())?;
-
-        // if let Some(id) = id {
-        //     self.get_outgoing_key_request_helper(&id).await
-        // } else {
-        //     Ok(None)
-        // }
+        let id = self
+             .inner
+             .transaction_on_one_with_mode(KEYS::SECRET_REQUESTS_BY_INFO, IdbTransactionMode::Readonly)?
+             .object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
+             .get(&JsValue::from_str(&key_info.as_key()))?
+             .await?
+             .map(|i| i.as_string())
+             .flatten();
+        if let Some(id) = id {
+            self.get_outgoing_key_request_helper(&id).await
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
-        todo!()
-        // let requests: Result<Vec<GossipRequest>> = self
-        //     .unsent_secret_requests
-        //     .iter()
-        //     .map(|i| serde_json::from_slice(&i?.1).map_err(CryptoStoreError::from))
-        //     .collect();
-
-        // requests
+        Ok(self
+             .inner
+             .transaction_on_one_with_mode(KEYS::UNSENT_SECRET_REQUESTS, IdbTransactionMode::Readonly)?
+             .object_store(KEYS::UNSENT_SECRET_REQUESTS)?
+             .get_all()?
+             .await?
+             .iter()
+             .filter_map(|i| i.into_serde().ok())
+             .collect()
+        )
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
-        todo!()
-        // let ret: Result<(), TransactionError<serde_json::Error>> = (
-        //     &self.outgoing_secret_requests,
-        //     &self.unsent_secret_requests,
-        //     &self.secret_requests_by_info,
-        // )
-        //     .transaction(
-        //         |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
-        //             let sent_request: Option<GossipRequest> = outgoing_key_requests
-        //                 .remove(request_id.encode())?
-        //                 .map(|r| serde_json::from_slice(&r))
-        //                 .transpose()
-        //                 .map_err(ConflictableTransactionError::Abort)?;
+        let jskey = JsValue::from_str(&request_id.to_string());
+        let dbs = [KEYS::OUTGOING_SECRET_REQUESTS, KEYS::UNSENT_SECRET_REQUESTS, KEYS::SECRET_REQUESTS_BY_INFO];
+        let tx = self
+             .inner
+             .transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readwrite)?;
 
-        //             let unsent_request: Option<GossipRequest> = unsent_key_requests
-        //                 .remove(request_id.encode())?
-        //                 .map(|r| serde_json::from_slice(&r))
-        //                 .transpose()
-        //                 .map_err(ConflictableTransactionError::Abort)?;
+        let request : Option<GossipRequest> = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?
+             .get(&jskey)?
+             .await?
+             .map(|i| i.into_serde())
+             .transpose()?;
 
-        //             if let Some(request) = sent_request {
-        //                 key_requests_by_info.remove((&request.info).encode())?;
-        //             }
+        let request  = match request {
+            None =>  tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?
+                .get(&jskey)?
+                .await?
+                .map(|i| i.into_serde())
+                .transpose()?,
+            Some(request) => Some(request),
+        };
 
-        //             if let Some(request) = unsent_request {
-        //                 key_requests_by_info.remove((&request.info).encode())?;
-        //             }
+        if let Some(inner) = request {
+            tx.object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
+                .delete(&JsValue::from_str(&inner.info.as_key()))?;
+        }
 
-        //             Ok(())
-        //         },
-        //     );
+        tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?.delete(&jskey)?;
+        tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?.delete(&jskey)?;
 
-        // ret?;
-        // self.inner.flush_async().await?;
-
-        // Ok(())
+        tx.await.into_result().map_err(|e| e.into())
     }
 }
 
