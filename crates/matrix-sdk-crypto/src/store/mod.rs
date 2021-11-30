@@ -40,6 +40,9 @@
 pub mod caches;
 mod memorystore;
 mod pickle_key;
+#[cfg(test)]
+#[macro_use]
+pub mod integration_tests;
 #[cfg(feature = "sled_cryptostore")]
 pub(crate) mod sled;
 #[cfg(feature = "indexeddb_cryptostore")]
