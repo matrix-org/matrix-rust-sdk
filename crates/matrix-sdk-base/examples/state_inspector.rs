@@ -223,27 +223,27 @@ impl Inspector {
         match matches.subcommand() {
             ("get-profiles", args) => {
                 let args = args.expect("No args provided for get-state");
-                let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
 
                 self.get_profiles(room_id).await;
             }
 
             ("get-members", args) => {
                 let args = args.expect("No args provided for get-state");
-                let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
 
                 self.get_members(room_id).await;
             }
             ("list-rooms", _) => self.list_rooms().await,
             ("get-display-names", args) => {
                 let args = args.expect("No args provided for get-state");
-                let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
                 let display_name = args.value_of("display-name").unwrap().to_string();
                 self.get_display_name_owners(room_id, display_name).await;
             }
             ("get-state", args) => {
                 let args = args.expect("No args provided for get-state");
-                let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
                 let event_type = EventType::try_from(args.value_of("event-type").unwrap()).unwrap();
                 self.get_state(room_id, event_type).await;
             }
@@ -256,13 +256,13 @@ impl Inspector {
         self.printer.pretty_print_struct(&rooms);
     }
 
-    async fn get_display_name_owners(&self, room_id: RoomId, display_name: String) {
+    async fn get_display_name_owners(&self, room_id: Box<RoomId>, display_name: String) {
         let users = self.store.get_users_with_display_name(&room_id, &display_name).await.unwrap();
         self.printer.pretty_print_struct(&users);
     }
 
-    async fn get_profiles(&self, room_id: RoomId) {
-        let joined: Vec<UserId> = self.store.get_joined_user_ids(&room_id).await.unwrap();
+    async fn get_profiles(&self, room_id: Box<RoomId>) {
+        let joined: Vec<Box<UserId>> = self.store.get_joined_user_ids(&room_id).await.unwrap();
 
         for member in joined {
             let event = self.store.get_profile(&room_id, &member).await.unwrap();
@@ -270,8 +270,8 @@ impl Inspector {
         }
     }
 
-    async fn get_members(&self, room_id: RoomId) {
-        let joined: Vec<UserId> = self.store.get_joined_user_ids(&room_id).await.unwrap();
+    async fn get_members(&self, room_id: Box<RoomId>) {
+        let joined: Vec<Box<UserId>> = self.store.get_joined_user_ids(&room_id).await.unwrap();
 
         for member in joined {
             let event = self.store.get_member_event(&room_id, &member).await.unwrap();
@@ -279,7 +279,7 @@ impl Inspector {
         }
     }
 
-    async fn get_state(&self, room_id: RoomId, event_type: EventType) {
+    async fn get_state(&self, room_id: Box<RoomId>, event_type: EventType) {
         self.printer.pretty_print_struct(
             &self.store.get_state_event(&room_id, event_type, "").await.unwrap(),
         );
@@ -290,22 +290,30 @@ impl Inspector {
             SubCommand::with_name("list-rooms"),
             SubCommand::with_name("get-members").arg(
                 Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
+                    Box::<RoomId>::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
                 }),
             ),
             SubCommand::with_name("get-profiles").arg(
                 Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
+                    Box::<RoomId>::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
                 }),
             ),
             SubCommand::with_name("get-display-names")
                 .arg(Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
+                    Box::<RoomId>::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::with_name("display-name").required(true)),
             SubCommand::with_name("get-state")
                 .arg(Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
+                    Box::<RoomId>::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::with_name("event-type").required(true).validator(|e| {
                     EventType::try_from(e).map(|_| ()).map_err(|_| "Invalid event type".to_string())

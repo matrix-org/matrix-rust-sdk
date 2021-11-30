@@ -50,12 +50,12 @@ pub enum OlmError {
     #[error(
         "decryption failed likely because an Olm session from {0} with sender key {1} was wedged"
     )]
-    SessionWedged(UserId, String),
+    SessionWedged(Box<UserId>, String),
 
     /// An Olm message got replayed while the Olm ratchet has already moved
     /// forward.
     #[error("decryption failed because an Olm message from {0} with sender key {1} was replayed")]
-    ReplayedMessage(UserId, String),
+    ReplayedMessage(Box<UserId>, String),
 
     /// Encryption failed because the device does not have a valid Olm session
     /// with us.
@@ -122,7 +122,7 @@ pub enum EventError {
         "the sender of the plaintext doesn't match the sender of the encrypted \
         message, got {0}, expected {0}"
     )]
-    MismatchedSender(UserId, UserId),
+    MismatchedSender(Box<UserId>, Box<UserId>),
 
     #[error(
         "the public that was part of the message doesn't match to the key we \
@@ -134,7 +134,7 @@ pub enum EventError {
         "the room id of the room key doesn't match the room id of the \
         decrypted event: expected {0}, got {:1}"
     )]
-    MismatchedRoom(RoomId, Option<RoomId>),
+    MismatchedRoom(Box<RoomId>, Option<Box<RoomId>>),
 }
 
 #[derive(Error, Debug)]
@@ -193,24 +193,24 @@ pub(crate) enum SessionCreationError {
         "Failed to create a new Olm session for {0} {1}, the requested \
         one-time key isn't a signed curve key"
     )]
-    OneTimeKeyNotSigned(UserId, Box<DeviceId>),
+    OneTimeKeyNotSigned(Box<UserId>, Box<DeviceId>),
     #[error(
         "Tried to create a new Olm session for {0} {1}, but the signed \
         one-time key is missing"
     )]
-    OneTimeKeyMissing(UserId, Box<DeviceId>),
+    OneTimeKeyMissing(Box<UserId>, Box<DeviceId>),
     #[error(
         "Tried to create a new Olm session for {0} {1}, but the one-time \
         key algorithm is unsupported"
     )]
-    OneTimeKeyUnknown(UserId, Box<DeviceId>),
+    OneTimeKeyUnknown(Box<UserId>, Box<DeviceId>),
     #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
-    InvalidSignature(UserId, Box<DeviceId>, SignatureError),
+    InvalidSignature(Box<UserId>, Box<DeviceId>, SignatureError),
     #[error(
         "Tried to create an Olm session for {0} {1}, but the device is missing \
         a curve25519 key"
     )]
-    DeviceMissingCurveKey(UserId, Box<DeviceId>),
+    DeviceMissingCurveKey(Box<UserId>, Box<DeviceId>),
     #[error("Error creating new Olm session for {0} {1}: {2:?}")]
-    OlmError(UserId, Box<DeviceId>, OlmSessionError),
+    OlmError(Box<UserId>, Box<DeviceId>, OlmSessionError),
 }

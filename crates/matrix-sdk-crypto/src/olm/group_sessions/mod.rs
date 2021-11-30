@@ -52,7 +52,7 @@ pub struct ExportedRoomKey {
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The room where the session is used.
-    pub room_id: RoomId,
+    pub room_id: Box<RoomId>,
 
     /// The Curve25519 key of the device which initiated the session originally.
     pub sender_key: String,
@@ -166,7 +166,7 @@ mod test {
         time::{Duration, Instant},
     };
 
-    use ruma::{events::room::message::RoomMessageEventContent, room_id, user_id};
+    use ruma::{device_id, events::room::message::RoomMessageEventContent, room_id, user_id};
 
     use super::EncryptionSettings;
     use crate::{MegolmError, ReadOnlyAccount};
@@ -176,9 +176,9 @@ mod test {
     async fn expiration() -> Result<(), MegolmError> {
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
-        let account = ReadOnlyAccount::new(&user_id!("@alice:example.org"), "DEVICEID".into());
+        let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
         let (session, _) = account
-            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
             .await
             .unwrap();
 
@@ -197,7 +197,7 @@ mod test {
         };
 
         let (mut session, _) = account
-            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
             .await
             .unwrap();
 

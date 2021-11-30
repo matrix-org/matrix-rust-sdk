@@ -87,7 +87,7 @@ impl ClearResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledCrossSigningIdentity {
     /// The user id of the identity owner.
-    pub user_id: UserId,
+    pub user_id: Box<UserId>,
     /// Have the public keys of the identity been shared.
     pub shared: bool,
     /// The encrypted pickle of the identity.
@@ -220,7 +220,7 @@ impl PrivateCrossSigningIdentity {
         let master = if let Some(master_key) = master_key {
             let seed = decode(master_key)?;
 
-            let master = MasterSigning::from_seed(self.user_id().clone(), seed);
+            let master = MasterSigning::from_seed(self.user_id().to_owned(), seed);
 
             if public_identity.master_key() == &master.public_key {
                 Ok(Some(master))
@@ -233,7 +233,7 @@ impl PrivateCrossSigningIdentity {
 
         let user_signing = if let Some(user_signing_key) = user_signing_key {
             let seed = decode(user_signing_key)?;
-            let subkey = UserSigning::from_seed(self.user_id().clone(), seed);
+            let subkey = UserSigning::from_seed(self.user_id().to_owned(), seed);
 
             if public_identity.user_signing_key() == &subkey.public_key {
                 Ok(Some(subkey))
@@ -246,7 +246,7 @@ impl PrivateCrossSigningIdentity {
 
         let self_signing = if let Some(self_signing_key) = self_signing_key {
             let seed = decode(self_signing_key)?;
-            let subkey = SelfSigning::from_seed(self.user_id().clone(), seed);
+            let subkey = SelfSigning::from_seed(self.user_id().to_owned(), seed);
 
             if public_identity.self_signing_key() == &subkey.public_key {
                 Ok(Some(subkey))
@@ -344,9 +344,9 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Create a new empty identity.
-    pub(crate) fn empty(user_id: UserId) -> Self {
+    pub(crate) fn empty(user_id: Box<UserId>) -> Self {
         Self {
-            user_id: Arc::new(user_id),
+            user_id: user_id.into(),
             shared: Arc::new(AtomicBool::new(false)),
             master_key: Arc::new(Mutex::new(None)),
             self_signing_key: Arc::new(Mutex::new(None)),
@@ -521,7 +521,7 @@ impl PrivateCrossSigningIdentity {
         let self_signing = SelfSigning { inner: self_signing, public_key: public_key.into() };
 
         Self {
-            user_id: Arc::new(user_id.to_owned()),
+            user_id: user_id.into(),
             shared: Arc::new(AtomicBool::new(false)),
             master_key: Arc::new(Mutex::new(Some(master))),
             self_signing_key: Arc::new(Mutex::new(Some(self_signing))),
@@ -532,7 +532,7 @@ impl PrivateCrossSigningIdentity {
     /// Create a new cross signing identity without signing the device that
     /// created it.
     #[cfg(test)]
-    pub(crate) async fn new(user_id: UserId) -> Self {
+    pub(crate) async fn new(user_id: Box<UserId>) -> Self {
         let master = Signing::new();
 
         let public_key = master.cross_signing_key(user_id.clone(), KeyUsage::Master);
@@ -628,7 +628,7 @@ impl PrivateCrossSigningIdentity {
             .transpose()?;
 
         Ok(Self {
-            user_id: Arc::new(pickle.user_id),
+            user_id: pickle.user_id.into(),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             master_key: Arc::new(Mutex::new(master)),
             self_signing_key: Arc::new(Mutex::new(self_signing)),
@@ -655,7 +655,7 @@ impl PrivateCrossSigningIdentity {
 #[cfg(test)]
 mod test {
     use matrix_sdk_test::async_test;
-    use ruma::{user_id, UserId};
+    use ruma::{device_id, user_id, UserId};
 
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
@@ -663,7 +663,7 @@ mod test {
         olm::ReadOnlyAccount,
     };
 
-    fn user_id() -> UserId {
+    fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
@@ -699,7 +699,7 @@ mod test {
 
     #[async_test]
     async fn private_identity_creation() {
-        let identity = PrivateCrossSigningIdentity::new(user_id()).await;
+        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
 
         let master_key = identity.master_key.lock().await;
         let master_key = master_key.as_ref().unwrap();
@@ -717,7 +717,7 @@ mod test {
 
     #[async_test]
     async fn identity_pickling() {
-        let identity = PrivateCrossSigningIdentity::new(user_id()).await;
+        let identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
 
         let pickled = identity.pickle(pickle_key()).await.unwrap();
 
@@ -738,7 +738,7 @@ mod test {
 
     #[async_test]
     async fn private_identity_signed_by_account() {
-        let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
+        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
@@ -748,7 +748,7 @@ mod test {
 
     #[async_test]
     async fn sign_device() {
-        let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
+        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
 
         let mut device = ReadOnlyDevice::from_account(&account).await;
@@ -765,10 +765,10 @@ mod test {
 
     #[async_test]
     async fn sign_user_identity() {
-        let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
+        let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
         let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
 
-        let bob_account = ReadOnlyAccount::new(&user_id!("@bob:localhost"), "DEVICEID".into());
+        let bob_account = ReadOnlyAccount::new(user_id!("@bob:localhost"), device_id!("DEVICEID"));
         let (bob_private, _, _) = PrivateCrossSigningIdentity::new_with_account(&bob_account).await;
         let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
 

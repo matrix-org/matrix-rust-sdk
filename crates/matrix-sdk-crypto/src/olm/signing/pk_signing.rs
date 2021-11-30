@@ -139,7 +139,7 @@ impl MasterSigning {
         encode(self.inner.seed.as_slice())
     }
 
-    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
         let inner = Signing::from_seed(seed);
         let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
 
@@ -196,7 +196,7 @@ impl UserSigning {
         encode(self.inner.seed.as_slice())
     }
 
-    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
         let inner = Signing::from_seed(seed);
         let public_key = inner.cross_signing_key(user_id, KeyUsage::UserSigning).into();
 
@@ -260,7 +260,7 @@ impl SelfSigning {
         encode(self.inner.seed.as_slice())
     }
 
-    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
         let inner = Signing::from_seed(seed);
         let public_key = inner.cross_signing_key(user_id, KeyUsage::SelfSigning).into();
 
@@ -387,7 +387,7 @@ impl Signing {
         &self.public_key
     }
 
-    pub fn cross_signing_key(&self, user_id: UserId, usage: KeyUsage) -> CrossSigningKey {
+    pub fn cross_signing_key(&self, user_id: Box<UserId>, usage: KeyUsage) -> CrossSigningKey {
         let keys = BTreeMap::from([(
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.public_key().as_str().into())
                 .to_string(),

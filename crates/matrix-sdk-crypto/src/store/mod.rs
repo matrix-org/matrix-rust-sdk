@@ -26,9 +26,9 @@
 //! #     OlmMachine,
 //! #     store::MemoryStore,
 //! # };
-//! # use ruma::{user_id, DeviceIdBox};
-//! # let user_id = user_id!("@example:localhost");
-//! # let device_id: DeviceIdBox = "TEST".into();
+//! # use ruma::{device_id, user_id};
+//! # let user_id = user_id!("@example:localhost").to_owned();
+//! # let device_id = device_id!("TEST").to_owned();
 //! let store = Box::new(MemoryStore::new());
 //!
 //! let machine = OlmMachine::new_with_store(user_id, device_id, store);
@@ -58,7 +58,7 @@ use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
     events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
+    DeviceKeyAlgorithm, RoomId, UserId,
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -309,7 +309,7 @@ impl Store {
     pub async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.remove(self.device_id());
@@ -324,7 +324,7 @@ impl Store {
     pub async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -648,10 +648,10 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users.
-    fn users_for_key_query(&self) -> HashSet<UserId>;
+    fn users_for_key_query(&self) -> HashSet<Box<UserId>>;
 
     /// Get all tracked users we know about.
-    fn tracked_users(&self) -> HashSet<UserId>;
+    fn tracked_users(&self) -> HashSet<Box<UserId>>;
 
     /// Add an user for tracking.
     ///
@@ -685,7 +685,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>>;
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>>;
 
     /// Get the user identity that is attached to the given user id.
     ///

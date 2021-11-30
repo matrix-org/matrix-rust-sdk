@@ -9,7 +9,7 @@ use url::Url;
 #[derive(Debug)]
 #[allow(dead_code)]
 struct UserProfile {
-    avatar_url: Option<MxcUri>,
+    avatar_url: Option<Box<MxcUri>>,
     displayname: Option<String>,
 }
 
@@ -62,7 +62,7 @@ async fn main() -> Result<(), matrix_sdk::Error> {
 
     let client = login(homeserver_url, &username, &password).await?;
 
-    let user_id = UserId::try_from(username).expect("Couldn't parse the MXID");
+    let user_id = Box::<UserId>::try_from(username).expect("Couldn't parse the MXID");
     let profile = get_profile(client, &user_id).await?;
     println!("{:#?}", profile);
     Ok(())

@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "encryption")]
+use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
@@ -352,7 +354,7 @@ impl BaseClient {
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
-        user_ids: &mut BTreeSet<UserId>,
+        user_ids: &mut BTreeSet<Box<UserId>>,
     ) -> Result<Timeline> {
         let room_id = room.room_id();
         let user_id = room.own_user_id();
@@ -388,14 +390,14 @@ impl BaseClient {
                                     if member.state_key == member.sender {
                                         changes
                                             .profiles
-                                            .entry(room_id.clone())
+                                            .entry(room_id.to_owned())
                                             .or_insert_with(BTreeMap::new)
                                             .insert(member.sender.clone(), member.content.clone());
                                     }
 
                                     changes
                                         .members
-                                        .entry(room_id.clone())
+                                        .entry(room_id.to_owned())
                                         .or_insert_with(BTreeMap::new)
                                         .insert(member.state_key.clone(), member);
                                 }
@@ -443,7 +445,7 @@ impl BaseClient {
                                     actions,
                                     event.event.clone(),
                                     false,
-                                    room_id.clone(),
+                                    room_id.to_owned(),
                                     MilliSecondsSinceUnixEpoch::now(),
                                 ),
                             );
@@ -475,7 +477,7 @@ impl BaseClient {
         events: &[Raw<AnyStrippedStateEvent>],
         room_info: &mut RoomInfo,
     ) -> (
-        BTreeMap<UserId, StrippedMemberEvent>,
+        BTreeMap<Box<UserId>, StrippedMemberEvent>,
         BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     ) {
         events.iter().fold(
@@ -520,7 +522,7 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         events: &[Raw<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
-    ) -> StoreResult<BTreeSet<UserId>> {
+    ) -> StoreResult<BTreeSet<Box<UserId>>> {
         let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
@@ -577,9 +579,9 @@ impl BaseClient {
             }
         }
 
-        changes.members.insert(room_id.as_ref().clone(), members);
-        changes.profiles.insert(room_id.as_ref().clone(), profiles);
-        changes.state.insert(room_id.as_ref().clone(), state_events);
+        changes.members.insert((&*room_id).to_owned(), members);
+        changes.profiles.insert((&*room_id).to_owned(), profiles);
+        changes.state.insert((&*room_id).to_owned(), state_events);
 
         Ok(user_ids)
     }
@@ -748,11 +750,12 @@ impl BaseClient {
                         let joined = self.store.get_joined_user_ids(&room_id).await?;
                         let invited = self.store.get_invited_user_ids(&room_id).await?;
 
-                        let user_ids: Vec<&UserId> = joined.iter().chain(&invited).collect();
+                        let user_ids: Vec<&UserId> =
+                            joined.iter().chain(&invited).map(Deref::deref).collect();
                         o.update_tracked_users(user_ids).await
                     }
 
-                    o.update_tracked_users(&user_ids).await
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
                 }
             }
 
@@ -923,14 +926,14 @@ impl BaseClient {
                     if member.state_key == member.sender {
                         changes
                             .profiles
-                            .entry(room_id.clone())
+                            .entry(room_id.to_owned())
                             .or_insert_with(BTreeMap::new)
                             .insert(member.sender.clone(), member.content.clone());
                     }
 
                     changes
                         .members
-                        .entry(room_id.clone())
+                        .entry(room_id.to_owned())
                         .or_insert_with(BTreeMap::new)
                         .insert(member.state_key.clone(), member.clone());
                 }
@@ -939,7 +942,7 @@ impl BaseClient {
             #[cfg(feature = "encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine().await {
-                    o.update_tracked_users(&user_ids).await
+                    o.update_tracked_users(user_ids.iter().map(Deref::deref)).await
                 }
             }
 
@@ -1077,7 +1080,7 @@ impl BaseClient {
                 let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility);
 
-                Ok(o.share_group_session(room_id, members, settings).await?)
+                Ok(o.share_group_session(room_id, members.map(Deref::deref), settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }
@@ -1143,12 +1146,12 @@ impl BaseClient {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_base::BaseClient;
-    /// # use ruma::UserId;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # let client = BaseClient::new().unwrap();
     /// # block_on(async {
-    /// let device = client.get_device(&alice, "DEVICEID".into()).await;
+    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await;
     ///
     /// println!("{:?}", device);
     /// # });
@@ -1201,7 +1204,7 @@ impl BaseClient {
     /// # use matrix_sdk_base::BaseClient;
     /// # use ruma::UserId;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
     /// # let client = BaseClient::new().unwrap();
     /// # block_on(async {
     /// let devices = client.get_user_devices(&alice).await.unwrap();
@@ -1307,7 +1310,7 @@ impl BaseClient {
         };
 
         Ok(Some(PushConditionRoomCtx {
-            room_id: room_id.clone(),
+            room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,
             users_power_levels: room_power_levels.users,
@@ -1330,7 +1333,8 @@ impl BaseClient {
 
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
-        if let Some(member) = changes.members.get(room_id).and_then(|members| members.get(user_id))
+        if let Some(member) =
+            changes.members.get(&**room_id).and_then(|members| members.get(user_id))
         {
             push_rules.user_display_name =
                 member.content.displayname.clone().unwrap_or_else(|| user_id.localpart().to_owned())
@@ -1338,7 +1342,7 @@ impl BaseClient {
 
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
-            .get(room_id)
+            .get(&**room_id)
             .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
