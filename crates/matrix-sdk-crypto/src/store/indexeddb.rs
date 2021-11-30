@@ -429,23 +429,24 @@ impl IndexeddbStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        todo!()
-        // let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
-
-        // self.outbound_group_sessions
-        //     .get(room_id.encode())?
-        //     .map(|p| serde_json::from_slice(&p).map_err(CryptoStoreError::Serialization))
-        //     .transpose()?
-        //     .map(|p| {
-        //         OutboundGroupSession::from_pickle(
-        //             account_info.device_id,
-        //             account_info.identity_keys,
-        //             p,
-        //             self.get_pickle_mode(),
-        //         )
-        //         .map_err(CryptoStoreError::OlmGroupSession)
-        //     })
-        //     .transpose()
+        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
+        if let Some(value) = self
+            .inner
+            .transaction_on_one_with_mode(KEYS::OUTBOUND_GROUP_SESSIONS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?
+            .get(&JsValue::from_str(room_id.as_str()))?
+            .await?
+        {
+            Ok(Some(OutboundGroupSession::from_pickle(
+                account_info.device_id,
+                account_info.identity_keys,
+                value.into_serde()?,
+                self.get_pickle_mode(),
+            )
+            .map_err(CryptoStoreError::OlmGroupSession)?))
+        } else {
+            Ok(None)
+        }
     }
     async fn get_outgoing_key_request_helper(&self, key: &str) -> Result<Option<GossipRequest>> {
         let jskey = JsValue::from_str(key);
@@ -515,7 +516,6 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(KEYS::CORE, IdbTransactionMode::Readonly)?
@@ -590,7 +590,6 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
-
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::INBOUND_GROUP_SESSIONS, IdbTransactionMode::Readonly)?
@@ -1018,6 +1017,35 @@ mod test {
     }
 
     #[async_test]
+    async fn load_outbound_group_session() {
+        let dir = "load_outbound_group_session".to_owned();
+        let (account, store) = get_loaded_store(dir.clone()).await;
+        let room_id = room_id!("!test:localhost");
+        assert!(store.get_outbound_group_sessions(&room_id).await.unwrap().is_none());
+
+        let (session, _) = account.create_group_session_pair_with_defaults(&room_id)
+            .await
+            .expect("Can't create session");
+
+        let changes =
+            Changes { outbound_group_sessions: vec![session.clone()], ..Default::default() };
+
+        store.save_changes(changes).await.expect("Can't save group session");
+
+        drop(store);
+
+        let store = IndexeddbStore::open_with_name(dir).await.expect("Can't create store");
+
+        store.load_account().await.unwrap();
+
+        assert!(store
+            .get_outbound_group_sessions(&room_id)
+            .await
+            .unwrap()
+            .is_some());
+    }
+
+    #[async_test]
     async fn save_inbound_group_session() {
         let (account, store) = get_loaded_store("save_inbound_group_session".to_owned()).await;
 
@@ -1073,7 +1101,7 @@ mod test {
 
     #[async_test]
     async fn reset_inbound_group_session_for_backup() {
-        let (account, store) = get_loaded_store("save_inbound_group_session_for_backup".to_owned()).await;
+        let (account, store) = get_loaded_store("reset_inbound_group_session_for_backup".to_owned()).await;
         assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 0);
 
         let identity_keys = account.identity_keys();
