@@ -582,7 +582,7 @@ mod test {
     }
 
     #[async_test]
-    fn create() {
+    async fn create() {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let store = MemoryStore::new();

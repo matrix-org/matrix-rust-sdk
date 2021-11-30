@@ -5,11 +5,11 @@ use quote::{quote, format_ident};
 use syn;
 
 /// Attribute to use `wasm_bindgen_test` for wasm32 targets and `tokio::test`
-/// for everything else
+/// for everything else with async-support and custom result-tyupes
 #[proc_macro_attribute]
 pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
-
     let fun = parse_macro_input!(item as syn::ItemFn);
+    // on the regular return-case, we can just use cfg_attr and quit early
     if fun.sig.output == syn::ReturnType::Default {
         let attrs = r#"
             #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
@@ -21,6 +21,13 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
         out.extend(inner);
         return out
     }
+
+    // on the more complicated case, where we have some `->`-Result-Arrow
+    // `wasm_bindgen_test` doesn't yet support
+    // - see https://github.com/rustwasm/wasm-bindgen/issues/2565 -
+    // we split the attribution into to functions: one with the original
+    // to be attributed for non-wasm, and then a second outer-wrapper function
+    // that calls the first in wasm32 cases.
 
     let attrs = r#"
         #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
@@ -52,7 +59,8 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
     out.extend(inner);
 
     let attrs = r#"
-        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+        #[cfg(target_arch = "wasm32")]
+        #[wasm_bindgen_test::wasm_bindgen_test]
     "#;
     let outer_attrs: TokenStream = attrs.parse().expect("Static works.");
     let of : TokenStream = outer.into_token_stream().into();
@@ -61,10 +69,3 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
 
     out
 }
-
-// Attribute to use `wasm_bindgen_test` for wasm32 targets and `tokio::test`
-// for everything else
-// #[cfg(not(target_arch = "wasm32"))]
-// #[proc_macro_attribute]
-// pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
-// }
