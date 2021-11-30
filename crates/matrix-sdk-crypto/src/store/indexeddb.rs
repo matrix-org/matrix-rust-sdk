@@ -590,47 +590,45 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
-        todo!()
-        // let pickles: Result<Vec<PickledInboundGroupSession>> = self
-        //     .inbound_group_sessions
-        //     .iter()
-        //     .map(|p| serde_json::from_slice(&p?.1).map_err(CryptoStoreError::Serialization))
-        //     .collect();
 
-        // Ok(pickles?
-        //     .into_iter()
-        //     .filter_map(|p| InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok())
-        //     .collect())
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(KEYS::INBOUND_GROUP_SESSIONS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::INBOUND_GROUP_SESSIONS)?
+            .get_all()?
+            .await?
+            .iter()
+            .filter_map(|i| i.into_serde().ok())
+            .filter_map(|p| InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok())
+            .collect()
+       )
     }
 
     async fn get_outbound_group_sessions(
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        todo!()
-        // self.load_outbound_group_session(room_id).await
+        self.load_outbound_group_session(room_id).await
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
-        todo!()
-        // let backed_up =
-        //     self.get_inbound_group_sessions().await?.into_iter().filter(|s| s.backed_up()).count();
+        let all = self.get_inbound_group_sessions().await?;
+        let backed_up = all.iter().filter(|s| s.backed_up()).count();
 
-        // Ok(RoomKeyCounts { total: self.inbound_group_sessions.count(), backed_up })
+        Ok(RoomKeyCounts { total: all.len(), backed_up })
     }
 
     async fn inbound_group_sessions_for_backup(
         &self,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        todo!()
-        // Ok(self
-        //     .get_inbound_group_sessions()
-        //     .await?
-        //     .into_iter()
-        //     .filter(|s| !s.backed_up())
-        //     .take(limit)
-        //     .collect())
+        Ok(self
+            .get_inbound_group_sessions()
+            .await?
+            .into_iter()
+            .filter(|s| !s.backed_up())
+            .take(limit)
+            .collect())
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
@@ -1028,9 +1026,46 @@ mod test {
     }
 
     #[async_test]
+    async fn save_inbound_group_session_for_backup() {
+        let (account, store) = get_loaded_store("save_inbound_group_session_for_backup".to_owned()).await;
+
+        let identity_keys = account.identity_keys();
+        let outbound_session = OlmOutboundGroupSession::new();
+        let session = InboundGroupSession::new(
+            identity_keys.curve25519(),
+            identity_keys.ed25519(),
+            &room_id!("!test:localhost"),
+            GroupSessionKey(outbound_session.session_key()),
+            None,
+        )
+        .expect("Can't create session");
+
+        let changes = Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
+
+        store.save_changes(changes).await.expect("Can't save group session");
+
+        let loaded_session = store
+            .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(session, loaded_session);
+        assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
+        assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
+        assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 0);
+
+
+        let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+        assert_eq!(to_back_up, vec![session])
+
+    }
+
+
+    #[async_test]
     async fn load_inbound_group_session() {
         let dir = "load_inbound_group_session".to_owned();
         let (account, store) = get_loaded_store(dir.clone()).await;
+        assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
 
         let identity_keys = account.identity_keys();
         let outbound_session = OlmOutboundGroupSession::new();
@@ -1067,7 +1102,10 @@ mod test {
             .unwrap();
         assert_eq!(session, loaded_session);
         let export = loaded_session.export().await;
-        assert!(!export.forwarding_curve25519_key_chain.is_empty())
+        assert!(!export.forwarding_curve25519_key_chain.is_empty());
+
+        assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 1);
+        assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
     }
 
     #[async_test]
