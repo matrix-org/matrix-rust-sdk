@@ -1021,7 +1021,7 @@ mod test {
     }
 
     async fn get_store(name: String, passphrase: Option<&str>) -> SledStore {
-        let tmpdir_path = TMP_DIR.path().clone().join(name);
+        let tmpdir_path = TMP_DIR.path().join(name);
 
         let store = SledStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), passphrase)
             .expect("Can't create a passphrase protected store");
