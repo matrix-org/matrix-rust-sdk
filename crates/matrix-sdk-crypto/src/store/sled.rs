@@ -145,7 +145,9 @@ pub struct AccountInfo {
     identity_keys: Arc<IdentityKeys>,
 }
 
-/// An in-memory only store that will forget all the E2EE key once it's dropped.
+/// A [sled] based cryptostore.
+///
+/// [sled]: https://github.com/spacejam/sled#readme
 #[derive(Clone)]
 pub struct SledStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
