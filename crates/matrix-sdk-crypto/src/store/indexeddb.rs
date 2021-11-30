@@ -632,12 +632,24 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
-        todo!()
-        // for session in self.get_inbound_group_sessions().await? {
-        //     session.reset_backup_state()
-        // }
-
-        // Ok(())
+        let inbound_group_sessions = self
+            .get_inbound_group_sessions()
+            .await?
+            .into_iter()
+            .filter(|s| {
+                if s.backed_up() {
+                    s.reset_backup_state();
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
+        if !inbound_group_sessions.is_empty() {
+            let changes = Changes { inbound_group_sessions, ..Default::default() };
+            self.save_changes(changes).await?;
+        }
+        Ok(())
     }
 
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
@@ -1057,7 +1069,40 @@ mod test {
 
         let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
         assert_eq!(to_back_up, vec![session])
+    }
 
+    #[async_test]
+    async fn reset_inbound_group_session_for_backup() {
+        let (account, store) = get_loaded_store("save_inbound_group_session_for_backup".to_owned()).await;
+        assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 0);
+
+        let identity_keys = account.identity_keys();
+        let outbound_session = OlmOutboundGroupSession::new();
+        let session = InboundGroupSession::new(
+            identity_keys.curve25519(),
+            identity_keys.ed25519(),
+            &room_id!("!test:localhost"),
+            GroupSessionKey(outbound_session.session_key()),
+            None,
+        )
+        .expect("Can't create session");
+
+        session.mark_as_backed_up();
+
+        let changes = Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
+
+        store.save_changes(changes).await.expect("Can't save group session");
+
+        assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 1);
+        assert_eq!(store.inbound_group_session_counts().await.unwrap().backed_up, 1);
+
+        let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+        assert_eq!(to_back_up, vec![]);
+
+        store.reset_backup_state().await.unwrap();
+
+        let to_back_up = store.inbound_group_sessions_for_backup(1).await.unwrap();
+        assert_eq!(to_back_up, vec![session]);
     }
 
 
