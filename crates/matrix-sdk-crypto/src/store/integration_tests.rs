@@ -1,3 +1,5 @@
+#[allow(unused_macros)]
+
 macro_rules! cryptostore_integration_tests {
     ($($name:ident)*) => {
     $(
