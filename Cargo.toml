@@ -9,6 +9,3 @@ members = [
     "crates/matrix-sdk-test",
     "crates/matrix-sdk-test-macros",
 ]
-
-[patch.crates-io.olm-sys]
-path = "../olm-sys"
