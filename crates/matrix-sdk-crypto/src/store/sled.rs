@@ -940,8 +940,6 @@ impl CryptoStore for SledStore {
 
 #[cfg(test)]
 mod test {
-    #[macro_use]
-    use super::super::integration_tests;
     use super::SledStore;
     use tempfile::{tempdir, TempDir};
     use lazy_static::lazy_static;
