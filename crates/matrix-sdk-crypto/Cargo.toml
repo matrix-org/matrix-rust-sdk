@@ -74,6 +74,7 @@ tokio = { version = "1.7.1", default-features = false, features = [
     "rt-multi-thread",
     "macros",
 ] }
+lazy_static = "1.4"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 criterion = { version = "0.3.4", features = ["async", "html_reports"] }
