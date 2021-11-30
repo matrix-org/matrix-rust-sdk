@@ -107,7 +107,7 @@ use ruma::{
         },
         client::r0::account::register,
     },
-    assign, identifiers, DeviceId, ServerNameBox, UserId,
+    assign, identifiers, DeviceId, ServerName, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::info;
@@ -203,7 +203,7 @@ pub type VirtualUser = ();
 #[derive(Debug, Clone)]
 pub struct AppService {
     homeserver_url: Url,
-    server_name: ServerNameBox,
+    server_name: Box<ServerName>,
     registration: Arc<AppServiceRegistration>,
     clients: Arc<DashMap<Localpart, Client>>,
     event_handler: event_handler::EventHandler,
@@ -227,7 +227,7 @@ impl AppService {
     /// [AppService Registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     pub async fn new(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
-        server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
+        server_name: impl TryInto<Box<ServerName>, Error = identifiers::Error>,
         registration: AppServiceRegistration,
     ) -> Result<Self> {
         let appservice = Self::new_with_config(
@@ -245,7 +245,7 @@ impl AppService {
     /// [`Client`]
     pub async fn new_with_config(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
-        server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
+        server_name: impl TryInto<Box<ServerName>, Error = identifiers::Error>,
         registration: AppServiceRegistration,
         client_config: ClientConfig,
     ) -> Result<Self> {

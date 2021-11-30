@@ -93,7 +93,7 @@ impl UserIdentity {
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # futures::executor::block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
@@ -145,7 +145,7 @@ impl UserIdentity {
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # futures::executor::block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
@@ -204,7 +204,7 @@ impl UserIdentity {
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
@@ -283,7 +283,7 @@ impl UserIdentity {
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
@@ -326,7 +326,7 @@ impl UserIdentity {
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
@@ -366,7 +366,7 @@ impl UserIdentity {
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();

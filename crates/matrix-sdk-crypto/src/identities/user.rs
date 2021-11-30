@@ -28,7 +28,7 @@ use ruma::{
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    DeviceIdBox, DeviceKeyId, EventId, RoomId, UserId,
+    DeviceId, DeviceKeyId, EventId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
@@ -165,7 +165,7 @@ impl OwnUserIdentity {
         &self,
         methods: Option<Vec<VerificationMethod>>,
     ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
-        let devices: Vec<DeviceIdBox> = self
+        let devices: Vec<Box<DeviceId>> = self
             .verification_machine
             .store
             .get_user_devices(self.user_id())
@@ -225,7 +225,7 @@ impl UserIdentity {
     /// Returns a request that needs to be sent out for the user to be marked
     /// as verified.
     pub async fn verify(&self) -> Result<SignatureUploadRequest, SignatureError> {
-        if self.user_id() == self.verification_machine.own_user_id() {
+        if self.user_id() != self.verification_machine.own_user_id() {
             Ok(self
                 .verification_machine
                 .private_identity
@@ -440,7 +440,7 @@ impl MasterPubkey {
     }
 
     /// Get the signatures map of this cross signing key.
-    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<String, String>> {
+    pub fn signatures(&self) -> &BTreeMap<Box<UserId>, BTreeMap<String, String>> {
         &self.0.signatures
     }
 
@@ -475,7 +475,7 @@ impl MasterPubkey {
     ) -> Result<(), SignatureError> {
         let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
 
-        let key_id = DeviceKeyId::try_from(key_id.as_str())?;
+        let key_id = <&DeviceKeyId>::try_from(key_id.as_str())?;
 
         // FIXME `KeyUsage is missing PartialEq.
         // if self.0.usage.contains(&KeyUsage::Master) {
@@ -483,14 +483,14 @@ impl MasterPubkey {
         // }
         let subkey: CrossSigningSubKeys = subkey.into();
 
-        if &self.0.user_id != subkey.user_id() {
+        if self.0.user_id != subkey.user_id() {
             return Err(SignatureError::UserIdMismatch);
         }
 
         let utility = Utility::new();
         utility.verify_json(
             &self.0.user_id,
-            &key_id,
+            key_id,
             key,
             &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
         )
@@ -537,7 +537,7 @@ impl UserSigningPubkey {
         let utility = Utility::new();
         utility.verify_json(
             &self.0.user_id,
-            &DeviceKeyId::try_from(key_id.as_str())?,
+            key_id.as_str().try_into()?,
             key,
             &mut to_value(&*master_key.0).map_err(|_| SignatureError::NotAnObject)?,
         )
@@ -572,12 +572,7 @@ impl SelfSigningPubkey {
 
         let utility = Utility::new();
 
-        utility.verify_json(
-            &self.0.user_id,
-            &DeviceKeyId::try_from(key_id.as_str())?,
-            key,
-            &mut device,
-        )
+        utility.verify_json(&self.0.user_id, key_id.as_str().try_into()?, key, &mut device)
     }
 
     /// Check if the given device is signed by this self signing key.
@@ -589,7 +584,7 @@ impl SelfSigningPubkey {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
-        self.verify_device_keys(device.as_device_keys())
+        self.verify_device_keys(device.as_device_keys().to_owned())
     }
 }
 
@@ -718,7 +713,7 @@ impl ReadOnlyUserIdentity {
     ) -> Result<Self, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        Ok(Self { user_id: Arc::new(master_key.0.user_id.clone()), master_key, self_signing_key })
+        Ok(Self { user_id: master_key.0.user_id.clone().into(), master_key, self_signing_key })
     }
 
     #[cfg(test)]
@@ -727,7 +722,7 @@ impl ReadOnlyUserIdentity {
         let self_signing_key =
             identity.self_signing_key.lock().await.as_ref().unwrap().public_key.clone();
 
-        Self { user_id: Arc::new(identity.user_id().clone()), master_key, self_signing_key }
+        Self { user_id: identity.user_id().into(), master_key, self_signing_key }
     }
 
     /// Get the user id of this identity.
@@ -831,7 +826,7 @@ impl ReadOnlyOwnUserIdentity {
         master_key.verify_subkey(&user_signing_key)?;
 
         Ok(Self {
-            user_id: Arc::new(master_key.0.user_id.clone()),
+            user_id: master_key.0.user_id.clone().into(),
             master_key,
             self_signing_key,
             user_signing_key,
@@ -971,9 +966,9 @@ pub(crate) mod test {
     fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
         let user_id = user_id!("@example:localhost");
 
-        let master_key = response.master_keys.get(&user_id).unwrap();
-        let user_signing = response.user_signing_keys.get(&user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
+        let master_key = response.master_keys.get(user_id).unwrap();
+        let user_signing = response.user_signing_keys.get(user_id).unwrap();
+        let self_signing = response.self_signing_keys.get(user_id).unwrap();
 
         ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
             .unwrap()
@@ -987,8 +982,8 @@ pub(crate) mod test {
         let user_id = user_id!("@example2:localhost");
         let response = other_key_query();
 
-        let master_key = response.master_keys.get(&user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
+        let master_key = response.master_keys.get(user_id).unwrap();
+        let self_signing = response.self_signing_keys.get(user_id).unwrap();
 
         ReadOnlyUserIdentity::new(master_key.into(), self_signing.into()).unwrap()
     }
@@ -998,9 +993,9 @@ pub(crate) mod test {
         let user_id = user_id!("@example:localhost");
         let response = own_key_query();
 
-        let master_key = response.master_keys.get(&user_id).unwrap();
-        let user_signing = response.user_signing_keys.get(&user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
+        let master_key = response.master_keys.get(user_id).unwrap();
+        let user_signing = response.user_signing_keys.get(user_id).unwrap();
+        let self_signing = response.self_signing_keys.get(user_id).unwrap();
 
         ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
             .unwrap();
@@ -1021,7 +1016,7 @@ pub(crate) mod test {
         assert!(identity.is_device_signed(&second).is_ok());
 
         let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id().clone())));
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id().to_owned())));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
             private_identity,
@@ -1080,10 +1075,10 @@ pub(crate) mod test {
 
         assert!(!device.verified());
 
-        let mut device_keys = device.as_device_keys();
+        let mut device_keys = device.as_device_keys().to_owned();
 
         identity.sign_device_keys(&mut device_keys).await.unwrap();
-        device.inner.signatures = Arc::new(device_keys.signatures);
+        device.inner.update_device(&device_keys).expect("Couldn't update newly signed device keys");
         assert!(device.verified());
     }
 }

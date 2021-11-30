@@ -26,7 +26,7 @@ use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
     events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceIdBox, RoomId, UserId,
+    DeviceId, RoomId, UserId,
 };
 use tracing::trace;
 use uuid::Uuid;
@@ -88,8 +88,8 @@ pub struct IndexeddbStore {
     pickle_key: Arc<PickleKey>,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<UserId>>,
-    users_for_key_query_cache: Arc<DashSet<UserId>>,
+    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
+    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
 
 }
 
@@ -411,7 +411,7 @@ impl IndexeddbStore {
                 Some(Ok(false)) => false,
                 _ => true
             };
-            let user = match user_id.as_string().map(|u| UserId::try_from(u)) {
+            let user = match user_id.as_string().map(|u| Box::<UserId>::try_from(u)) {
                 Some(Ok(user)) => user,
                 _ => continue
             };
@@ -659,11 +659,11 @@ impl CryptoStore for IndexeddbStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn tracked_users(&self) -> HashSet<UserId> {
+    fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
-    fn users_for_key_query(&self) -> HashSet<UserId> {
+    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
@@ -672,10 +672,10 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        let already_added = self.tracked_users_cache.insert(user.clone());
+        let already_added = self.tracked_users_cache.insert(user.to_owned());
 
         if dirty {
-            self.users_for_key_query_cache.insert(user.clone());
+            self.users_for_key_query_cache.insert(user.to_owned());
         } else {
             self.users_for_key_query_cache.remove(user);
         }
@@ -714,7 +714,7 @@ impl CryptoStore for IndexeddbStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         let range = make_range(user_id.as_str().to_string())?;
         Ok(self
             .inner

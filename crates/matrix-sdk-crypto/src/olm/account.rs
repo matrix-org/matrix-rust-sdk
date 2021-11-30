@@ -40,8 +40,7 @@ use ruma::{
         AnyToDeviceEvent, OlmV1Keys,
     },
     serde::{CanonicalJsonValue, Raw},
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt,
-    UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue as RawJsonValue, Value};
@@ -85,7 +84,7 @@ impl SessionType {
 
 #[derive(Debug, Clone)]
 pub struct OlmDecryptionInfo {
-    pub sender: UserId,
+    pub sender: Box<UserId>,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
     pub deserialized_event: Option<AnyToDeviceEvent>,
@@ -440,8 +439,8 @@ impl Account {
     ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
         #[derive(Deserialize)]
         struct DecryptedEvent {
-            sender: UserId,
-            recipient: UserId,
+            sender: Box<UserId>,
+            recipient: Box<UserId>,
             recipient_keys: OlmV1Keys,
             keys: OlmV1Keys,
         }
@@ -449,9 +448,9 @@ impl Account {
         let event: DecryptedEvent = serde_json::from_str(&plaintext)?;
         let identity_keys = self.inner.identity_keys();
 
-        if &event.recipient != self.user_id() {
+        if event.recipient != self.user_id() {
             Err(EventError::MismatchedSender(event.recipient, self.user_id().to_owned()).into())
-        } else if &event.sender != sender {
+        } else if event.sender != sender {
             Err(EventError::MismatchedSender(event.sender, sender.to_owned()).into())
         } else if identity_keys.ed25519() != event.recipient_keys.ed25519 {
             Err(EventError::MismatchedKeys(
@@ -508,9 +507,9 @@ impl From<String> for AccountPickle {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledAccount {
     /// The user id of the account owner.
-    pub user_id: UserId,
+    pub user_id: Box<UserId>,
     /// The device id of the account owner.
-    pub device_id: DeviceIdBox,
+    pub device_id: Box<DeviceId>,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
     /// Was the account shared.
@@ -542,8 +541,8 @@ impl ReadOnlyAccount {
         let identity_keys = account.parsed_identity_keys();
 
         Self {
-            user_id: Arc::new(user_id.to_owned()),
-            device_id: device_id.to_owned().into(),
+            user_id: user_id.into(),
+            device_id: device_id.into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
@@ -662,7 +661,7 @@ impl ReadOnlyAccount {
     /// Returns None if no keys need to be uploaded.
     pub(crate) async fn keys_for_upload(
         &self,
-    ) -> Option<(Option<DeviceKeys>, Option<BTreeMap<DeviceKeyId, OneTimeKey>>)> {
+    ) -> Option<(Option<DeviceKeys>, Option<BTreeMap<Box<DeviceKeyId>, OneTimeKey>>)> {
         if !self.should_upload_keys().await {
             return None;
         }
@@ -735,7 +734,7 @@ impl ReadOnlyAccount {
         let identity_keys = account.parsed_identity_keys();
 
         Ok(Self {
-            user_id: Arc::new(pickle.user_id),
+            user_id: pickle.user_id.into(),
             device_id: pickle.device_id.into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
@@ -746,20 +745,19 @@ impl ReadOnlyAccount {
 
     pub(crate) fn unsigned_device_keys(&self) -> DeviceKeys {
         let identity_keys = self.identity_keys();
-
-        let mut keys = BTreeMap::new();
-
-        keys.insert(
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
-            identity_keys.curve25519().to_owned(),
-        );
-        keys.insert(
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-            identity_keys.ed25519().to_owned(),
-        );
+        let keys = BTreeMap::from([
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
+                identity_keys.curve25519().to_owned(),
+            ),
+            (
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+                identity_keys.ed25519().to_owned(),
+            ),
+        ]);
 
         DeviceKeys::new(
-            (*self.user_id).clone(),
+            (*self.user_id).to_owned(),
             (*self.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (&**a).clone()).collect(),
             keys,
@@ -781,10 +779,14 @@ impl ReadOnlyAccount {
             "keys": device_keys.keys,
         });
 
-        device_keys.signatures.entry(self.user_id().clone()).or_insert_with(BTreeMap::new).insert(
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-            self.sign_json(json_device_keys).await,
-        );
+        device_keys
+            .signatures
+            .entry(self.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+                self.sign_json(json_device_keys).await,
+            );
 
         device_keys
     }
@@ -851,7 +853,7 @@ impl ReadOnlyAccount {
 
     pub(crate) async fn signed_one_time_keys_helper(
         &self,
-    ) -> Result<BTreeMap<DeviceKeyId, OneTimeKey>, ()> {
+    ) -> Result<BTreeMap<Box<DeviceKeyId>, OneTimeKey>, ()> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
@@ -870,7 +872,7 @@ impl ReadOnlyAccount {
             );
 
             let mut signatures = BTreeMap::new();
-            signatures.insert((*self.user_id).clone(), signature_map);
+            signatures.insert((*self.user_id).to_owned(), signature_map);
 
             let signed_key = SignedKey::new(key.to_owned(), signatures);
 
@@ -891,7 +893,7 @@ impl ReadOnlyAccount {
     /// If no one-time keys need to be uploaded returns an empty error.
     pub(crate) async fn signed_one_time_keys(
         &self,
-    ) -> Result<BTreeMap<DeviceKeyId, OneTimeKey>, ()> {
+    ) -> Result<BTreeMap<Box<DeviceKeyId>, OneTimeKey>, ()> {
         let _ = self.generate_one_time_keys().await?;
         self.signed_one_time_keys_helper().await
     }
@@ -946,7 +948,7 @@ impl ReadOnlyAccount {
     pub(crate) async fn create_outbound_session(
         &self,
         device: ReadOnlyDevice,
-        key_map: &BTreeMap<DeviceKeyId, OneTimeKey>,
+        key_map: &BTreeMap<Box<DeviceKeyId>, OneTimeKey>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {
             SessionCreationError::OneTimeKeyMissing(
@@ -1153,26 +1155,26 @@ impl PartialEq for ReadOnlyAccount {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, ops::Deref};
 
 
     use matrix_sdk_test::async_test;
-    use ruma::{identifiers::DeviceIdBox, user_id, DeviceKeyId, UserId};
+    use ruma::{device_id, identifiers::DeviceId, user_id, DeviceKeyId, UserId};
 
     use super::ReadOnlyAccount;
     use crate::error::OlmResult as Result;
 
-    fn user_id() -> UserId {
+    fn user_id() -> &'static UserId {
         user_id!("@alice:localhost")
     }
 
-    fn device_id() -> DeviceIdBox {
-        "DEVICEID".into()
+    fn device_id() -> &'static DeviceId {
+        device_id!("DEVICEID")
     }
 
     #[async_test]
-    async fn one_time_key_creation() {
-        let account = ReadOnlyAccount::new(&user_id(), &device_id());
+    async fn one_time_key_creation() -> Result<()> {
+        let account = ReadOnlyAccount::new(user_id(), device_id());
 
         let one_time_keys = account
             .keys_for_upload()
@@ -1186,8 +1188,10 @@ mod test {
             .and_then(|(_, k)| k)
             .expect("Second round of one-time keys isn't generated");
 
-        let device_key_ids: BTreeSet<&DeviceKeyId> = one_time_keys.keys().collect();
-        let second_device_key_ids: BTreeSet<&DeviceKeyId> = second_one_time_keys.keys().collect();
+        let device_key_ids: BTreeSet<&DeviceKeyId> =
+            one_time_keys.keys().map(Deref::deref).collect();
+        let second_device_key_ids: BTreeSet<&DeviceKeyId> =
+            second_one_time_keys.keys().map(Deref::deref).collect();
 
         assert_eq!(device_key_ids, second_device_key_ids);
 
@@ -1206,8 +1210,10 @@ mod test {
             .and_then(|(_, k)| k)
             .expect("Fourth round of one-time keys isn't generated");
 
-        let fourth_device_key_ids: BTreeSet<&DeviceKeyId> = fourth_one_time_keys.keys().collect();
+        let fourth_device_key_ids: BTreeSet<&DeviceKeyId> =
+            fourth_one_time_keys.keys().map(Deref::deref).collect();
 
         assert_ne!(device_key_ids, fourth_device_key_ids);
+        Ok(())
     }
 }

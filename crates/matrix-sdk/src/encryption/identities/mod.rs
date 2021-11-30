@@ -36,14 +36,14 @@
 //!
 //! ```no_run
 //! # use std::convert::TryFrom;
-//! # use matrix_sdk::{Client, ruma::UserId};
+//! # use matrix_sdk::{Client, ruma::{device_id, UserId}};
 //! # use url::Url;
 //! # use futures::executor::block_on;
-//! # let alice = UserId::try_from("@alice:example.org").unwrap();
+//! # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
 //! # let homeserver = Url::parse("http://example.com").unwrap();
 //! # block_on(async {
 //! # let client = Client::new(homeserver).await.unwrap();
-//! let device = client.get_device(&alice, "DEVICEID".into()).await?;
+//! let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
 //!
 //! if let Some(device) = device {
 //!     // Let's request the device to be verified.
@@ -65,7 +65,7 @@
 //! # use matrix_sdk::{Client, ruma::UserId};
 //! # use url::Url;
 //! # use futures::executor::block_on;
-//! # let alice = UserId::try_from("@alice:example.org").unwrap();
+//! # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
 //! # let homeserver = Url::parse("http://example.com").unwrap();
 //! # block_on(async {
 //! # let client = Client::new(homeserver).await.unwrap();
@@ -116,5 +116,5 @@ pub enum RequestVerificationError {
     /// Verifying other users requires having a DM open with them, this error
     /// signals that we didn't have a DM and that we failed to create one.
     #[error("Couldn't create a DM with user {0} where the verification should take place")]
-    RoomCreation(ruma::UserId),
+    RoomCreation(Box<ruma::UserId>),
 }

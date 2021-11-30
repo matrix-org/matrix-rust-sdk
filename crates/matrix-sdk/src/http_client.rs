@@ -193,7 +193,7 @@ impl HttpClient {
             .try_into_http_request_with_user_id::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
                 access_token,
-                user_id,
+                &user_id,
             )?
             .map(|body| body.freeze());
 

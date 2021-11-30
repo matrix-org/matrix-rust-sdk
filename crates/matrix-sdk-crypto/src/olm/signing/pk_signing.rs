@@ -139,7 +139,7 @@ impl MasterSigning {
         encode(self.inner.seed.as_slice())
     }
 
-    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
         let inner = Signing::from_seed(seed);
         let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
 
@@ -196,7 +196,7 @@ impl UserSigning {
         encode(self.inner.seed.as_slice())
     }
 
-    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
         let inner = Signing::from_seed(seed);
         let public_key = inner.cross_signing_key(user_id, KeyUsage::UserSigning).into();
 
@@ -260,7 +260,7 @@ impl SelfSigning {
         encode(self.inner.seed.as_slice())
     }
 
-    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
         let inner = Signing::from_seed(seed);
         let public_key = inner.cross_signing_key(user_id, KeyUsage::SelfSigning).into();
 
@@ -272,16 +272,7 @@ impl SelfSigning {
     }
 
     pub async fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
-        // Create a copy of the device keys containing only fields that will
-        // get signed.
-        let json_device = json!({
-            "user_id": device_keys.user_id,
-            "device_id": device_keys.device_id,
-            "algorithms": device_keys.algorithms,
-            "keys": device_keys.keys,
-        });
-
-        let signature = self.sign_device_helper(json_device).await?;
+        let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?).await?;
 
         device_keys
             .signatures
@@ -396,14 +387,12 @@ impl Signing {
         &self.public_key
     }
 
-    pub fn cross_signing_key(&self, user_id: UserId, usage: KeyUsage) -> CrossSigningKey {
-        let mut keys = BTreeMap::new();
-
-        keys.insert(
+    pub fn cross_signing_key(&self, user_id: Box<UserId>, usage: KeyUsage) -> CrossSigningKey {
+        let keys = BTreeMap::from([(
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.public_key().as_str().into())
                 .to_string(),
             self.public_key().to_string(),
-        );
+        )]);
 
         CrossSigningKey::new(user_id, vec![usage], keys, BTreeMap::new())
     }
@@ -421,8 +410,11 @@ impl Signing {
     pub async fn sign_json(&self, mut json: Value) -> Result<Signature, SignatureError> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let _ = json_object.remove("signatures");
+        let _ = json_object.remove("unsigned");
+
         let canonical_json: CanonicalJsonValue =
             json.try_into().expect("Can't canonicalize the json value");
+
         Ok(self.sign(&canonical_json.to_string()).await)
     }
 

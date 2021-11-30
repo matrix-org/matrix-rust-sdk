@@ -10,6 +10,10 @@ module.exports = {
         filename: 'index.js',
     },
     devtool: 'source-map',
+    experiments: {
+      asyncWebAssembly: true,
+      syncWebAssembly: true
+    },
     plugins: [
         new HtmlWebpackPlugin(),
         new WasmPackPlugin({

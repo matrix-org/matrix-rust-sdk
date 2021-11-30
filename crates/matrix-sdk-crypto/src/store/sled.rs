@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::{TryFrom, TryInto},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -23,15 +23,17 @@ use dashmap::DashSet;
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
+    encryption::DeviceKeys,
     events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceIdBox, RoomId, UserId,
+    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
 };
+use serde::{Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, IVec, Transactional, Tree,
 };
-use tracing::trace;
+use tracing::debug;
 use uuid::Uuid;
 
 use super::{
@@ -42,12 +44,13 @@ use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
+    LocalTrust,
 };
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
-const DATABASE_VERSION: u8 = 1;
+const DATABASE_VERSION: u8 = 3;
 
 trait EncodeKey {
     const SEPARATOR: u8 = 0xff;
@@ -94,6 +97,12 @@ impl EncodeKey for &RequestedKeyInfo {
 impl EncodeKey for &UserId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
+    }
+}
+
+impl EncodeKey for &ReadOnlyDevice {
+    fn encode(&self) -> Vec<u8> {
+        (self.user_id().as_str(), self.device_id().as_str()).encode()
     }
 }
 
@@ -145,8 +154,8 @@ pub struct SledStore {
     pickle_key: Arc<PickleKey>,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<UserId>>,
-    users_for_key_query_cache: Arc<DashSet<UserId>>,
+    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
+    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
 
     account: Tree,
     private_identity: Tree,
@@ -252,11 +261,7 @@ impl SledStore {
             .unwrap_or_default();
 
         if version != DATABASE_VERSION {
-            trace!(
-                version = version,
-                new_version = DATABASE_VERSION,
-                "Upgrading the Sled crypto store"
-            );
+            debug!(version, new_version = DATABASE_VERSION, "Upgrading the Sled crypto store");
         }
 
         if version == 0 {
@@ -264,6 +269,71 @@ impl SledStore {
             // rotate the group sessions relatively often anyways so we just
             // clear the tree.
             self.outbound_group_sessions.clear()?;
+        }
+
+        if version <= 1 {
+            #[derive(Serialize, Deserialize)]
+            pub struct OldReadOnlyDevice {
+                user_id: Box<UserId>,
+                device_id: Box<DeviceId>,
+                algorithms: Vec<EventEncryptionAlgorithm>,
+                keys: BTreeMap<Box<DeviceKeyId>, String>,
+                signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+                display_name: Option<String>,
+                deleted: bool,
+                trust_state: LocalTrust,
+            }
+
+            #[allow(clippy::from_over_into)]
+            impl Into<ReadOnlyDevice> for OldReadOnlyDevice {
+                fn into(self) -> ReadOnlyDevice {
+                    let mut device_keys = DeviceKeys::new(
+                        self.user_id,
+                        self.device_id,
+                        self.algorithms,
+                        self.keys,
+                        self.signatures,
+                    );
+                    device_keys.unsigned.device_display_name = self.display_name;
+
+                    ReadOnlyDevice::new(device_keys, self.trust_state)
+                }
+            }
+
+            let devices: Vec<ReadOnlyDevice> = self
+                .devices
+                .iter()
+                .map(|d| serde_json::from_slice(&d?.1).map_err(CryptoStoreError::Serialization))
+                .map(|d| {
+                    let d: OldReadOnlyDevice = d?;
+                    Ok(d.into())
+                })
+                .collect::<Result<Vec<ReadOnlyDevice>, CryptoStoreError>>()?;
+
+            self.devices.transaction(move |tree| {
+                for device in &devices {
+                    let key = device.encode();
+                    let device =
+                        serde_json::to_vec(device).map_err(ConflictableTransactionError::Abort)?;
+                    tree.insert(key, device)?;
+                }
+
+                Ok(())
+            })?;
+        }
+
+        if version <= 2 {
+            // We're treating our own device now differently, we're checking if
+            // the keys match to what we have locally, remove the unchecked
+            // device and mark our own user as dirty.
+            if let Some(pickle) = self.account.get("account".encode())? {
+                let pickle = serde_json::from_slice(&pickle)?;
+                let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
+
+                self.devices
+                    .remove((account.user_id().as_str(), account.device_id.as_str()).encode())?;
+                self.tracked_users.insert(account.user_id().as_str(), &[true as u8])?;
+            }
         }
 
         self.inner.insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())?;
@@ -354,10 +424,10 @@ impl SledStore {
     async fn load_tracked_users(&self) -> Result<()> {
         for value in self.tracked_users.iter() {
             let (user, dirty) = value?;
-            let user = UserId::try_from(String::from_utf8_lossy(&user).to_string())?;
+            let user = Box::<UserId>::try_from(String::from_utf8_lossy(&user).to_string())?;
             let dirty = dirty.get(0).map(|d| *d == 1).unwrap_or(true);
 
-            self.tracked_users_cache.insert(user.clone());
+            self.tracked_users_cache.insert(user.to_owned());
 
             if dirty {
                 self.users_for_key_query_cache.insert(user);
@@ -437,7 +507,7 @@ impl SledStore {
             let room_id = session.room_id();
             let pickle = session.pickle(self.get_pickle_mode()).await;
 
-            outbound_session_changes.insert(room_id.clone(), pickle);
+            outbound_session_changes.insert(room_id.to_owned(), pickle);
         }
 
         let identity_changes = changes.identities;
@@ -504,14 +574,14 @@ impl SledStore {
                     }
 
                     for device in device_changes.new.iter().chain(&device_changes.changed) {
-                        let key = (device.user_id().as_str(), device.device_id().as_str()).encode();
+                        let key = device.encode();
                         let device = serde_json::to_vec(&device)
                             .map_err(ConflictableTransactionError::Abort)?;
                         devices.insert(key, device)?;
                     }
 
                     for device in &device_changes.deleted {
-                        let key = (device.user_id().as_str(), device.device_id().as_str()).encode();
+                        let key = device.encode();
                         devices.remove(key)?;
                     }
 
@@ -541,7 +611,7 @@ impl SledStore {
 
                     for (key, session) in &outbound_session_changes {
                         outbound_sessions.insert(
-                            key.encode(),
+                            (&**key).encode(),
                             serde_json::to_vec(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -783,19 +853,19 @@ impl CryptoStore for SledStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn users_for_key_query(&self) -> HashSet<UserId> {
+    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
-    fn tracked_users(&self) -> HashSet<UserId> {
+    fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
-        let already_added = self.tracked_users_cache.insert(user.clone());
+        let already_added = self.tracked_users_cache.insert(user.to_owned());
 
         if dirty {
-            self.users_for_key_query_cache.insert(user.clone());
+            self.users_for_key_query_cache.insert(user.to_owned());
         } else {
             self.users_for_key_query_cache.remove(user);
         }
@@ -817,7 +887,7 @@ impl CryptoStore for SledStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         self.devices
             .scan_prefix(user_id.encode())
             .map(|d| serde_json::from_slice(&d?.1).map_err(CryptoStoreError::Serialization))

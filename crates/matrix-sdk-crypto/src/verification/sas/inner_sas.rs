@@ -134,8 +134,8 @@ impl InnerSas {
     }
 
     pub fn start_in_room(
-        event_id: EventId,
-        room_id: RoomId,
+        event_id: Box<EventId>,
+        room_id: Box<RoomId>,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,

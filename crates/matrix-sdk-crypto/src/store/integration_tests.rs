@@ -9,7 +9,8 @@ macro_rules! cryptostore_integration_tests {
             use matrix_sdk_test::async_test;
             use olm_rs::outbound_group_session::OlmOutboundGroupSession;
             use ruma::{
-                encryption::SignedKey, events::room_key_request::RequestedKeyInfo, room_id, user_id,
+                encryption::SignedKey, events::room_key_request::RequestedKeyInfo,
+                room_id, user_id, device_id,
                 DeviceId, EventEncryptionAlgorithm, UserId,
             };
 
@@ -26,20 +27,20 @@ macro_rules! cryptostore_integration_tests {
                 store::{CryptoStore, GossipRequest, Changes, DeviceChanges, IdentityChanges},
             };
 
-            fn alice_id() -> UserId {
+            fn alice_id() -> &'static UserId {
                 user_id!("@alice:example.org")
             }
 
-            fn alice_device_id() -> Box<DeviceId> {
-                "ALICEDEVICE".into()
+            fn alice_device_id() -> &'static DeviceId {
+                device_id!("ALICEDEVICE")
             }
 
-            fn bob_id() -> UserId {
+            fn bob_id() -> &'static UserId {
                 user_id!("@bob:example.org")
             }
 
-            fn bob_device_id() -> Box<DeviceId> {
-                "BOBDEVICE".into()
+            fn bob_device_id() -> &'static DeviceId {
+                device_id!("BOBDEVICE")
             }
 
             async fn get_loaded_store(name: String) -> (ReadOnlyAccount, impl CryptoStore) {
@@ -511,7 +512,7 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "private_identity_saving".to_owned();
                 let (_, store) = get_loaded_store(dir).await;
                 assert!(store.load_identity().await.unwrap().is_none());
-                let identity = PrivateCrossSigningIdentity::new(alice_id()).await;
+                let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned()).await;
 
                 let changes = Changes { private_identity: Some(identity.clone()), ..Default::default() };
 
@@ -544,7 +545,7 @@ macro_rules! cryptostore_integration_tests {
                 let id = Uuid::new_v4();
                 let info: SecretInfo = RequestedKeyInfo::new(
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
-                    room_id!("!test:localhost"),
+                    room_id!("!test:localhost").to_owned(),
                     "test_sender_key".to_string(),
                     "test_session_id".to_string(),
                 )

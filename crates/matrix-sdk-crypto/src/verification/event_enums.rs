@@ -188,26 +188,26 @@ impl TryFrom<&AnyMessageEvent> for FlowId {
             | AnyMessageEvent::RoomRedaction(_)
             | AnyMessageEvent::Sticker(_) => Err(()),
             AnyMessageEvent::KeyVerificationReady(e) => {
-                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
+                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::RoomMessage(e) => Ok(FlowId::from((&e.room_id, &e.event_id))),
+            AnyMessageEvent::RoomMessage(e) => Ok(FlowId::from((&*e.room_id, &*e.event_id))),
             AnyMessageEvent::KeyVerificationStart(e) => {
-                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
+                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             AnyMessageEvent::KeyVerificationCancel(e) => {
-                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
+                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             AnyMessageEvent::KeyVerificationAccept(e) => {
-                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
+                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             AnyMessageEvent::KeyVerificationKey(e) => {
-                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
+                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             AnyMessageEvent::KeyVerificationMac(e) => {
-                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
+                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             AnyMessageEvent::KeyVerificationDone(e) => {
-                Ok(FlowId::from((&e.room_id, &e.content.relates_to.event_id)))
+                Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             _ => Err(()),
         }
@@ -589,7 +589,7 @@ impl CancelContent<'_> {
 #[derive(Clone, Debug)]
 pub enum OwnedStartContent {
     ToDevice(ToDeviceKeyVerificationStartEventContent),
-    Room(RoomId, KeyVerificationStartEventContent),
+    Room(Box<RoomId>, KeyVerificationStartEventContent),
 }
 
 impl OwnedStartContent {
@@ -631,8 +631,8 @@ impl OwnedStartContent {
     }
 }
 
-impl From<(RoomId, KeyVerificationStartEventContent)> for OwnedStartContent {
-    fn from(tuple: (RoomId, KeyVerificationStartEventContent)) -> Self {
+impl From<(Box<RoomId>, KeyVerificationStartEventContent)> for OwnedStartContent {
+    fn from(tuple: (Box<RoomId>, KeyVerificationStartEventContent)) -> Self {
         Self::Room(tuple.0, tuple.1)
     }
 }
@@ -646,7 +646,7 @@ impl From<ToDeviceKeyVerificationStartEventContent> for OwnedStartContent {
 #[derive(Clone, Debug)]
 pub enum OwnedAcceptContent {
     ToDevice(ToDeviceKeyVerificationAcceptEventContent),
-    Room(RoomId, KeyVerificationAcceptEventContent),
+    Room(Box<RoomId>, KeyVerificationAcceptEventContent),
 }
 
 impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
@@ -655,8 +655,8 @@ impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
     }
 }
 
-impl From<(RoomId, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
-    fn from(content: (RoomId, KeyVerificationAcceptEventContent)) -> Self {
+impl From<(Box<RoomId>, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
+    fn from(content: (Box<RoomId>, KeyVerificationAcceptEventContent)) -> Self {
         Self::Room(content.0, content.1)
     }
 }
@@ -672,7 +672,7 @@ impl OwnedAcceptContent {
 
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
-    Room(RoomId, AnyMessageEventContent),
+    Room(Box<RoomId>, AnyMessageEventContent),
     ToDevice(AnyToDeviceEventContent),
 }
 
@@ -695,8 +695,8 @@ impl From<AnyToDeviceEventContent> for OutgoingContent {
     }
 }
 
-impl From<(RoomId, AnyMessageEventContent)> for OutgoingContent {
-    fn from(content: (RoomId, AnyMessageEventContent)) -> Self {
+impl From<(Box<RoomId>, AnyMessageEventContent)> for OutgoingContent {
+    fn from(content: (Box<RoomId>, AnyMessageEventContent)) -> Self {
         OutgoingContent::Room(content.0, content.1)
     }
 }

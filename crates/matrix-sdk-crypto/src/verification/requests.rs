@@ -35,7 +35,7 @@ use ruma::{
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, DeviceIdBox, RoomId, UserId,
+    DeviceId, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -82,7 +82,7 @@ pub struct VerificationRequest {
     inner: Arc<Mutex<InnerRequest>>,
     creation_time: Arc<Instant>,
     we_started: bool,
-    recipient_devices: Arc<Vec<DeviceIdBox>>,
+    recipient_devices: Arc<Vec<Box<DeviceId>>>,
 }
 
 /// A handle to a request so child verification flows can cancel the request.
@@ -118,7 +118,7 @@ impl VerificationRequest {
         store: VerificationStore,
         flow_id: FlowId,
         other_user: &UserId,
-        recipient_devices: Vec<DeviceIdBox>,
+        recipient_devices: Vec<Box<DeviceId>>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> Self {
         let account = store.account.clone();
@@ -207,7 +207,7 @@ impl VerificationRequest {
     }
 
     /// The id of the other device that is participating in this verification.
-    pub fn other_device_id(&self) -> Option<DeviceIdBox> {
+    pub fn other_device_id(&self) -> Option<Box<DeviceId>> {
         match &*self.inner.lock().unwrap() {
             InnerRequest::Requested(r) => Some(r.state.other_device_id.clone()),
             InnerRequest::Ready(r) => Some(r.state.other_device_id.clone()),
@@ -523,7 +523,7 @@ impl VerificationRequest {
         let cancel_content = cancelled.as_content(self.flow_id());
 
         if let OutgoingContent::ToDevice(c) = cancel_content {
-            let recipients: Vec<DeviceIdBox> = self
+            let recipients: Vec<Box<DeviceId>> = self
                 .recipient_devices
                 .to_vec()
                 .into_iter()
@@ -767,7 +767,7 @@ struct RequestState<S: Clone> {
     flow_id: Arc<FlowId>,
 
     /// The id of the user which is participating in this verification request.
-    pub other_user_id: UserId,
+    pub other_user_id: Box<UserId>,
 
     /// The verification request state we are in.
     state: S,
@@ -851,7 +851,7 @@ struct Requested {
     pub their_methods: Vec<VerificationMethod>,
 
     /// The device id of the device that responded to the verification request.
-    pub other_device_id: DeviceIdBox,
+    pub other_device_id: Box<DeviceId>,
 }
 
 impl RequestState<Requested> {
@@ -869,7 +869,7 @@ impl RequestState<Requested> {
             store,
             verification_cache: cache,
             flow_id: flow_id.to_owned().into(),
-            other_user_id: sender.clone(),
+            other_user_id: sender.to_owned(),
             state: Requested {
                 their_methods: content.methods().to_owned(),
                 other_device_id: content.from_device().into(),
@@ -937,7 +937,7 @@ struct Ready {
     pub our_methods: Vec<VerificationMethod>,
 
     /// The device id of the device that responded to the verification request.
-    pub other_device_id: DeviceIdBox,
+    pub other_device_id: Box<DeviceId>,
 }
 
 impl RequestState<Ready> {
@@ -1258,7 +1258,7 @@ impl RequestState<Ready> {
 struct Passive {
     /// The device id of the device that responded to the verification request.
     #[allow(dead_code)]
-    pub other_device_id: DeviceIdBox,
+    pub other_device_id: Box<DeviceId>,
 }
 
 #[derive(Clone, Debug)]
@@ -1271,7 +1271,7 @@ mod test {
     use std::convert::{TryFrom, TryInto};
 
     use matrix_sdk_test::async_test;
-    use ruma::{event_id, room_id, DeviceIdBox, UserId};
+    use ruma::{device_id, event_id, room_id, user_id, DeviceId, UserId};
 
     use super::VerificationRequest;
     use crate::{
@@ -1285,41 +1285,41 @@ mod test {
         ReadOnlyDevice,
     };
 
-    fn alice_id() -> UserId {
-        UserId::try_from("@alice:example.org").unwrap()
+    fn alice_id() -> &'static UserId {
+        user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> DeviceIdBox {
-        "JLAFKJWSCS".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
     }
 
-    fn bob_id() -> UserId {
-        UserId::try_from("@bob:example.org").unwrap()
+    fn bob_id() -> &'static UserId {
+        user_id!("@bob:example.org")
     }
 
-    fn bob_device_id() -> DeviceIdBox {
-        "BOBDEVCIE".into()
+    fn bob_device_id() -> &'static DeviceId {
+        device_id!("BOBDEVCIE")
     }
 
     #[async_test]
     async fn test_request_accepting() {
-        let event_id = event_id!("$1234localhost");
-        let room_id = room_id!("!test:localhost");
+        let event_id = event_id!("$1234localhost").to_owned();
+        let room_id = room_id!("!test:localhost").to_owned();
 
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
 
         let alice_store = VerificationStore { account: alice, inner: alice_store.into() };
 
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
 
         let bob_store = VerificationStore { account: bob.clone(), inner: bob_store.into() };
 
         let content =
-            VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id(), None);
+            VerificationRequest::request(bob.user_id(), bob.device_id(), alice_id(), None);
 
         let flow_id = FlowId::InRoom(room_id, event_id);
 
@@ -1328,7 +1328,7 @@ mod test {
             bob_identity,
             bob_store,
             flow_id.clone(),
-            &alice_id(),
+            alice_id(),
             vec![],
             None,
         );
@@ -1337,7 +1337,7 @@ mod test {
             VerificationCache::new(),
             alice_identity,
             alice_store,
-            &bob_id(),
+            bob_id(),
             flow_id,
             &(&content).into(),
         );
@@ -1345,7 +1345,7 @@ mod test {
         let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), &content);
+        bob_request.receive_ready(alice_id(), &content);
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
@@ -1356,18 +1356,18 @@ mod test {
         let event_id = event_id!("$1234localhost");
         let room_id = room_id!("!test:localhost");
 
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
 
         let alice_store = VerificationStore { account: alice.clone(), inner: alice_store.into() };
 
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
 
         let bob_store = VerificationStore { account: bob.clone(), inner: bob_store.into() };
 
@@ -1380,7 +1380,7 @@ mod test {
         bob_store.save_changes(changes).await.unwrap();
 
         let content =
-            VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id(), None);
+            VerificationRequest::request(bob.user_id(), bob.device_id(), alice_id(), None);
         let flow_id = FlowId::from((room_id, event_id));
 
         let bob_request = VerificationRequest::new(
@@ -1388,7 +1388,7 @@ mod test {
             bob_identity,
             bob_store,
             flow_id.clone(),
-            &alice_id(),
+            alice_id(),
             vec![],
             None,
         );
@@ -1397,7 +1397,7 @@ mod test {
             VerificationCache::new(),
             alice_identity,
             alice_store,
-            &bob_id(),
+            bob_id(),
             flow_id,
             &(&content).into(),
         );
@@ -1405,7 +1405,7 @@ mod test {
         let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), &content);
+        bob_request.receive_ready(alice_id(), &content);
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
@@ -1425,18 +1425,18 @@ mod test {
 
     #[async_test]
     async fn test_requesting_until_sas_to_device() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
 
         let alice_store = VerificationStore { account: alice.clone(), inner: alice_store.into() };
 
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
 
         let mut changes = Changes::default();
         changes.devices.new.push(bob_device.clone());
@@ -1455,7 +1455,7 @@ mod test {
             bob_identity,
             bob_store,
             flow_id,
-            &alice_id(),
+            alice_id(),
             vec![],
             None,
         );
@@ -1469,7 +1469,7 @@ mod test {
             VerificationCache::new(),
             alice_identity,
             alice_store,
-            &bob_id(),
+            bob_id(),
             flow_id,
             &content,
         );
@@ -1477,7 +1477,7 @@ mod test {
         let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), &content);
+        bob_request.receive_ready(alice_id(), &content);
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());

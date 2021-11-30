@@ -15,7 +15,7 @@
 #[cfg(feature = "sled_cryptostore")]
 use std::path::Path;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     mem,
     sync::Arc,
 };
@@ -46,8 +46,7 @@ use ruma::{
         secret::request::SecretName,
         AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent,
     },
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt,
-    UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
@@ -135,7 +134,7 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let device_id: DeviceIdBox = device_id.into();
+        let device_id: Box<DeviceId> = device_id.into();
         let account = ReadOnlyAccount::new(user_id, &device_id);
 
         OlmMachine::new_helper(
@@ -149,12 +148,12 @@ impl OlmMachine {
 
     fn new_helper(
         user_id: &UserId,
-        device_id: DeviceIdBox,
+        device_id: Box<DeviceId>,
         store: Box<dyn CryptoStore>,
         account: ReadOnlyAccount,
         user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
-        let user_id = Arc::new(user_id.clone());
+        let user_id: Arc<UserId> = user_id.into();
         let user_identity = Arc::new(Mutex::new(user_identity));
 
         let store: Arc<dyn CryptoStore> = store.into();
@@ -225,8 +224,8 @@ impl OlmMachine {
     ///
     /// [`Cryptostore`]: trait.CryptoStore.html
     pub async fn new_with_store(
-        user_id: UserId,
-        device_id: DeviceIdBox,
+        user_id: Box<UserId>,
+        device_id: Box<DeviceId>,
         store: Box<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
@@ -308,7 +307,7 @@ impl OlmMachine {
     }
 
     /// Get all the tracked users we know about
-    pub fn tracked_users(&self) -> HashSet<UserId> {
+    pub fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.store.tracked_users()
     }
 
@@ -455,8 +454,8 @@ impl OlmMachine {
     /// # use matrix_sdk_crypto::OlmMachine;
     /// # use ruma::UserId;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// if machine.should_upload_keys().await {
     ///     let request = machine
@@ -1069,7 +1068,7 @@ impl OlmMachine {
             VerificationState::UnknownDevice
         };
 
-        let sender = sender.clone();
+        let sender = sender.to_owned();
         let device_id = device_id.to_owned();
 
         Ok(EncryptionInfo {
@@ -1206,7 +1205,7 @@ impl OlmMachine {
     /// If the user is already known to the Olm machine it will not be
     /// considered for a key query.
     pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
-        self.identity_manager.update_tracked_users(users).await
+        self.identity_manager.update_tracked_users(users).await;
     }
 
     /// Get a specific device of a user.
@@ -1225,12 +1224,12 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::UserId;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
-    /// let device = machine.get_device(&alice, "DEVICEID".into()).await;
+    /// let device = machine.get_device(&alice, device_id!("DEVICEID")).await;
     ///
     /// println!("{:?}", device);
     /// # });
@@ -1266,10 +1265,10 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::UserId;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// let devices = machine.get_user_devices(&alice).await.unwrap();
     ///
@@ -1290,6 +1289,10 @@ impl OlmMachine {
     /// imported into our store. If we already have a better version of a key
     /// the key will *not* be imported.
     ///
+    /// * `from_backup` - Were the room keys imported from the backup, if true
+    /// will mark the room keys as already backed up. This will prevent backing
+    /// up keys that are already backed up.
+    ///
     /// Returns a tuple of numbers that represent the number of sessions that
     /// were imported and the total number of sessions that were found in the
     /// key export.
@@ -1298,19 +1301,20 @@ impl OlmMachine {
     /// ```no_run
     /// # use std::io::Cursor;
     /// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
-    /// # use ruma::user_id;
+    /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
-    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-    /// machine.import_keys(exported_keys, |_, _| {}).await.unwrap();
+    /// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
     /// # });
     /// ```
     pub async fn import_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
+        #[allow(unused_variables)] from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<RoomKeyImportResult> {
         type SessionIdToIndexMap = BTreeMap<Arc<str>, u32>;
@@ -1354,6 +1358,7 @@ impl OlmMachine {
         };
 
         let total_count = exported_keys.len();
+        let mut keys = BTreeMap::new();
 
         for (i, key) in exported_keys.into_iter().enumerate() {
             let session = InboundGroupSession::from_export(key)?;
@@ -1362,6 +1367,17 @@ impl OlmMachine {
             // a better version of the same session, that is the first known
             // index is lower.
             if !existing_sessions.has_better_session(&session) {
+                #[cfg(feature = "backups_v1")]
+                if from_backup {
+                    session.mark_as_backed_up()
+                }
+
+                keys.entry(session.room_id().to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .entry(session.sender_key().to_owned())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(session.session_id().to_owned());
+
                 sessions.push(session)
             }
 
@@ -1374,9 +1390,9 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        info!(total_count, imported_count, "Successfully imported room keys");
+        info!(total_count, imported_count, room_keys =? keys, "Successfully imported room keys");
 
-        Ok(RoomKeyImportResult::new(imported_count, total_count))
+        Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
     }
 
     /// Export the keys that match the given predicate.
@@ -1397,13 +1413,13 @@ impl OlmMachine {
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
-    /// # use ruma::{user_id, room_id};
+    /// # use ruma::{device_id, user_id, room_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
-    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// let room_id = room_id!("!test:localhost");
-    /// let exported_keys = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
+    /// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
     /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
     /// # });
     /// ```
@@ -1472,7 +1488,7 @@ impl OlmMachine {
     async fn sign_account(
         &self,
         message: &str,
-        signatures: &mut BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+        signatures: &mut BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
     ) {
         let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
         let signature = self.account.sign(message).await;
@@ -1483,11 +1499,11 @@ impl OlmMachine {
     async fn sign_master(
         &self,
         message: &str,
-        signatures: &mut BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+        signatures: &mut BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
     ) -> Result<(), crate::SignatureError> {
         let identity = &*self.user_identity.lock().await;
 
-        let master_key: DeviceIdBox = identity
+        let master_key: Box<DeviceId> = identity
             .master_public_key()
             .await
             .and_then(|m| m.get_first_key().map(|k| k.to_owned()))
@@ -1504,7 +1520,10 @@ impl OlmMachine {
 
     /// Sign the given message using our device key and if available cross
     /// signing master key.
-    pub async fn sign(&self, message: &str) -> BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
+    pub async fn sign(
+        &self,
+        message: &str,
+    ) -> BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
         let mut signatures: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
         self.sign_account(message, &mut signatures).await;
@@ -1528,16 +1547,9 @@ impl OlmMachine {
 
 #[cfg(test)]
 pub(crate) mod test {
-    static USER_ID: &str = "@bob:example.org";
-
 
     use matrix_sdk_test::async_test;
-
-    use std::{
-        collections::BTreeMap,
-        convert::{TryFrom, TryInto},
-        sync::Arc,
-    };
+    use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
     use http::Response;
     use matrix_sdk_test::test_json;
@@ -1546,6 +1558,7 @@ pub(crate) mod test {
             client::r0::keys::{claim_keys, get_keys, upload_keys},
             IncomingResponse,
         },
+        device_id,
         encryption::OneTimeKey,
         event_id,
         events::{
@@ -1570,18 +1583,18 @@ pub(crate) mod test {
     use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
 
     /// These keys need to be periodically uploaded to the server.
-    type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
+    type OneTimeKeys = BTreeMap<Box<DeviceKeyId>, OneTimeKey>;
 
-    fn alice_id() -> UserId {
+    fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> Box<DeviceId> {
-        "JLAFKJWSCS".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
     }
 
-    fn user_id() -> UserId {
-        UserId::try_from(USER_ID).unwrap()
+    fn user_id() -> &'static UserId {
+        user_id!("@bob:example.com")
     }
 
     pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
@@ -1618,7 +1631,7 @@ pub(crate) mod test {
     }
 
     pub(crate) async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(0);
         let request = machine.keys_for_upload().await.expect("Can't prepare initial key upload");
         let response = keys_upload_response();
@@ -1641,7 +1654,7 @@ pub(crate) mod test {
 
         let alice_id = alice_id();
         let alice_device = alice_device_id();
-        let alice = OlmMachine::new(&alice_id, &alice_device);
+        let alice = OlmMachine::new(alice_id, alice_device);
 
         let alice_device = ReadOnlyDevice::from_machine(&alice).await;
         let bob_device = ReadOnlyDevice::from_machine(&bob).await;
@@ -1662,7 +1675,7 @@ pub(crate) mod test {
         bob_keys.insert(bob.device_id().into(), keys);
 
         let mut one_time_keys = BTreeMap::new();
-        one_time_keys.insert(bob.user_id().clone(), bob_keys);
+        one_time_keys.insert(bob.user_id().to_owned(), bob_keys);
 
         let response = claim_keys::Response::new(one_time_keys);
 
@@ -1682,7 +1695,7 @@ pub(crate) mod test {
             .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
 
-        let event = ToDeviceEvent { sender: alice.user_id().clone(), content };
+        let event = ToDeviceEvent { sender: alice.user_id().to_owned(), content };
 
         let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
         bob.store.save_sessions(&[decrypted.session.session()]).await.unwrap();
@@ -1692,13 +1705,13 @@ pub(crate) mod test {
 
     #[async_test]
     async fn create_olm_machine() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
         assert!(machine.should_upload_keys().await);
     }
 
     #[async_test]
     async fn receive_keys_upload_response() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
         let mut response = keys_upload_response();
 
         response.one_time_key_counts.remove(&DeviceKeyAlgorithm::SignedCurve25519).unwrap();
@@ -1722,7 +1735,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn generate_one_time_keys() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
 
         let mut response = keys_upload_response();
 
@@ -1739,7 +1752,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn test_device_key_signing() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
 
         let mut device_keys = machine.account.device_keys().await;
         let identity_keys = machine.account.identity_keys();
@@ -1757,24 +1770,24 @@ pub(crate) mod test {
 
     #[async_test]
     async fn tests_session_invalidation() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
         let room_id = room_id!("!test:example.org");
 
-        machine.create_outbound_group_session_with_defaults(&room_id).await.unwrap();
-        assert!(machine.group_session_manager.get_outbound_group_session(&room_id).is_some());
+        machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
+        assert!(machine.group_session_manager.get_outbound_group_session(room_id).is_some());
 
-        machine.invalidate_group_session(&room_id).await.unwrap();
+        machine.invalidate_group_session(room_id).await.unwrap();
 
         assert!(machine
             .group_session_manager
-            .get_outbound_group_session(&room_id)
+            .get_outbound_group_session(room_id)
             .unwrap()
             .invalidated());
     }
 
     #[async_test]
     async fn test_invalid_signature() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
 
         let mut device_keys = machine.account.device_keys().await;
 
@@ -1790,7 +1803,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn test_one_time_key_signing() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(49);
 
         let mut one_time_keys = machine.account.signed_one_time_keys().await.unwrap();
@@ -1811,7 +1824,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn test_keys_for_upload() {
-        let machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(0);
 
         let identity_keys = machine.account.identity_keys();
@@ -1855,15 +1868,15 @@ pub(crate) mod test {
         let (machine, _) = get_prepared_machine().await;
         let response = keys_query_response();
         let alice_id = user_id!("@alice:example.org");
-        let alice_device_id: &DeviceId = "JLAFKJWSCS".into();
+        let alice_device_id: &DeviceId = device_id!("JLAFKJWSCS");
 
-        let alice_devices = machine.store.get_user_devices(&alice_id).await.unwrap();
+        let alice_devices = machine.store.get_user_devices(alice_id).await.unwrap();
         assert!(alice_devices.devices().peekable().peek().is_none());
 
         machine.receive_keys_query_response(&response).await.unwrap();
 
-        let device = machine.store.get_device(&alice_id, alice_device_id).await.unwrap().unwrap();
-        assert_eq!(device.user_id(), &alice_id);
+        let device = machine.store.get_device(alice_id, alice_device_id).await.unwrap().unwrap();
+        assert_eq!(device.user_id(), alice_id);
         assert_eq!(device.device_id(), alice_device_id);
     }
 
@@ -1875,11 +1888,11 @@ pub(crate) mod test {
         let alice_device = alice_device_id();
 
         let (_, missing_sessions) =
-            machine.get_missing_sessions(&mut [alice.clone()].iter()).await.unwrap().unwrap();
+            machine.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
 
-        assert!(missing_sessions.one_time_keys.contains_key(&alice));
-        let user_sessions = missing_sessions.one_time_keys.get(&alice).unwrap();
-        assert!(user_sessions.contains_key(&alice_device));
+        assert!(missing_sessions.one_time_keys.contains_key(alice));
+        let user_sessions = missing_sessions.one_time_keys.get(alice).unwrap();
+        assert!(user_sessions.contains_key(alice_device));
     }
 
     #[async_test]
@@ -1894,7 +1907,7 @@ pub(crate) mod test {
         bob_keys.insert(bob_machine.device_id().into(), keys);
 
         let mut one_time_keys = BTreeMap::new();
-        one_time_keys.insert(bob_machine.user_id().clone(), bob_keys);
+        one_time_keys.insert(bob_machine.user_id().to_owned(), bob_keys);
 
         let response = claim_keys::Response::new(one_time_keys);
 
@@ -1917,7 +1930,7 @@ pub(crate) mod test {
         let bob_device = alice.get_device(&bob.user_id, &bob.device_id).await.unwrap().unwrap();
 
         let event = ToDeviceEvent {
-            sender: alice.user_id().clone(),
+            sender: alice.user_id().to_owned(),
             content: bob_device
                 .encrypt(AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
                 .await
@@ -1941,21 +1954,17 @@ pub(crate) mod test {
         let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
-            .share_group_session(
-                &room_id,
-                [bob.user_id().clone()].iter(),
-                EncryptionSettings::default(),
-            )
+            .share_group_session(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
             .await
             .unwrap();
 
         let event = ToDeviceEvent {
-            sender: alice.user_id().clone(),
+            sender: alice.user_id().to_owned(),
             content: to_device_requests_to_content(to_device_requests),
         };
 
         let alice_session =
-            alice.group_session_manager.get_outbound_group_session(&room_id).unwrap();
+            alice.group_session_manager.get_outbound_group_session(room_id).unwrap();
 
         let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
 
@@ -1976,7 +1985,7 @@ pub(crate) mod test {
         let session = bob
             .store
             .get_inbound_group_session(
-                &room_id,
+                room_id,
                 alice.account.identity_keys().curve25519(),
                 alice_session.session_id(),
             )
@@ -1991,16 +2000,12 @@ pub(crate) mod test {
         let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
-            .share_group_session(
-                &room_id,
-                [bob.user_id().clone()].iter(),
-                EncryptionSettings::default(),
-            )
+            .share_group_session(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
             .await
             .unwrap();
 
         let event = ToDeviceEvent {
-            sender: alice.user_id().clone(),
+            sender: alice.user_id().to_owned(),
             content: to_device_requests_to_content(to_device_requests),
         };
 
@@ -2013,20 +2018,20 @@ pub(crate) mod test {
         let content = RoomMessageEventContent::text_plain(plaintext);
 
         let encrypted_content = alice
-            .encrypt(&room_id, AnyMessageEventContent::RoomMessage(content.clone()))
+            .encrypt(room_id, AnyMessageEventContent::RoomMessage(content.clone()))
             .await
             .unwrap();
 
         let event = SyncMessageEvent {
-            event_id: event_id!("$xxxxx:example.org"),
+            event_id: event_id!("$xxxxx:example.org").to_owned(),
             origin_server_ts: milli_seconds_since_unix_epoch(),
-            sender: alice.user_id().clone(),
+            sender: alice.user_id().to_owned(),
             content: encrypted_content,
             unsigned: Unsigned::default(),
         };
 
         let decrypted_event =
-            bob.decrypt_room_event(&event, &room_id).await.unwrap().event.deserialize().unwrap();
+            bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
         if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
             sender,
@@ -2053,8 +2058,8 @@ pub(crate) mod test {
         let tmpdir = tempdir().unwrap();
 
         let machine = OlmMachine::new_with_default_store(
-            &user_id(),
-            &alice_device_id(),
+            user_id(),
+            alice_device_id(),
             tmpdir.as_ref(),
             Some("test"),
         )
@@ -2071,7 +2076,7 @@ pub(crate) mod test {
 
         let machine = OlmMachine::new_with_default_store(
             &user_id,
-            &alice_device_id(),
+            alice_device_id(),
             tmpdir.as_ref(),
             Some("test"),
         )

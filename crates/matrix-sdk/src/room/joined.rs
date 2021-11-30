@@ -199,7 +199,7 @@ impl Joined {
                 self.client
                     .inner
                     .typing_notice_times
-                    .insert(self.inner.room_id().clone(), Instant::now());
+                    .insert(self.inner.room_id().to_owned(), Instant::now());
                 Typing::Yes(TYPING_NOTICE_TIMEOUT)
             } else {
                 self.client.inner.typing_notice_times.remove(self.inner.room_id());
@@ -325,7 +325,7 @@ impl Joined {
             self.client
                 .inner
                 .group_session_locks
-                .insert(self.inner.room_id().clone(), mutex.clone());
+                .insert(self.inner.room_id().to_owned(), mutex.clone());
 
             let _guard = mutex.lock().await;
 
@@ -333,7 +333,7 @@ impl Joined {
                 let joined = self.client.store().get_joined_user_ids(self.inner.room_id()).await?;
                 let invited =
                     self.client.store().get_invited_user_ids(self.inner.room_id()).await?;
-                let members = joined.iter().chain(&invited);
+                let members = joined.iter().chain(&invited).map(Deref::deref);
                 self.client.claim_one_time_keys(members).await?;
             };
 
@@ -684,7 +684,7 @@ impl Joined {
     /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
-    /// let avatar_url = mxc_uri!("mxc://example.org/avatar");
+    /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
     /// let content = assign!(RoomMemberEventContent::new(MembershipState::Join), {
     ///    avatar_url: Some(avatar_url),
     /// });

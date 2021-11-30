@@ -30,7 +30,7 @@ use crate::olm::InboundGroupSession;
 #[derive(Debug)]
 struct InnerBackupKey {
     key: [u8; MegolmV1BackupKey::KEY_SIZE],
-    signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
+    signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
     version: Mutex<Option<String>>,
 }
 
@@ -69,7 +69,7 @@ impl MegolmV1BackupKey {
     }
 
     /// Get all the signatures of this `MegolmV1BackupKey`.
-    pub fn signatures(&self) -> BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
+    pub fn signatures(&self) -> BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
         self.inner.signatures.to_owned()
     }
 

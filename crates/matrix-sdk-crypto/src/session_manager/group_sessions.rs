@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    ops::Deref,
     sync::Arc,
 };
 
@@ -27,7 +28,7 @@ use ruma::{
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, DeviceIdBox, RoomId, UserId,
+    DeviceId, RoomId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, info, trace};
@@ -42,7 +43,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub(crate) struct GroupSessionCache {
     store: Store,
-    sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
+    sessions: Arc<DashMap<Box<RoomId>, OutboundGroupSession>>,
     /// A map from the request id to the group session that the request belongs
     /// to. Used to mark requests belonging to the session as shared.
     sessions_being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
@@ -73,7 +74,7 @@ impl GroupSessionCache {
                 self.sessions_being_shared.insert(request_id, s.clone());
             }
 
-            self.sessions.insert(room_id.clone(), s.clone());
+            self.sessions.insert(room_id.to_owned(), s.clone());
 
             Ok(Some(s))
         } else {
@@ -222,7 +223,7 @@ impl GroupSessionManager {
     ) -> OlmResult<(
         Uuid,
         ToDeviceRequest,
-        BTreeMap<UserId, BTreeMap<DeviceIdBox, ShareInfo>>,
+        BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
         Vec<Session>,
     )> {
         let mut messages = BTreeMap::new();
@@ -312,9 +313,9 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         history_visibility: HistoryVisibility,
         outbound: &OutboundGroupSession,
-    ) -> OlmResult<(bool, HashMap<UserId, Vec<Device>>)> {
+    ) -> OlmResult<(bool, HashMap<Box<UserId>, Vec<Device>>)> {
         let users: HashSet<&UserId> = users.collect();
-        let mut devices: HashMap<UserId, Vec<Device>> = HashMap::new();
+        let mut devices: HashMap<Box<UserId>, Vec<Device>> = HashMap::new();
 
         trace!(
             users = ?users,
@@ -324,10 +325,11 @@ impl GroupSessionManager {
             "Calculating group session recipients"
         );
 
-        let users_shared_with: HashSet<UserId> =
+        let users_shared_with: HashSet<Box<UserId>> =
             outbound.shared_with_set.iter().map(|k| k.key().clone()).collect();
 
-        let users_shared_with: HashSet<&UserId> = users_shared_with.iter().collect();
+        let users_shared_with: HashSet<&UserId> =
+            users_shared_with.iter().map(Deref::deref).collect();
 
         // A user left if a user is missing from the set of users that should
         // get the session but is in the set of users that received the session.
@@ -360,7 +362,7 @@ impl GroupSessionManager {
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     // Devices that received this session
-                    let shared: HashSet<DeviceIdBox> =
+                    let shared: HashSet<Box<DeviceId>> =
                         shared.iter().map(|d| d.key().clone()).collect();
                     let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
@@ -380,7 +382,10 @@ impl GroupSessionManager {
                 };
             }
 
-            devices.entry(user_id.clone()).or_insert_with(Vec::new).extend(non_blacklisted_devices);
+            devices
+                .entry(user_id.to_owned())
+                .or_insert_with(Vec::new)
+                .extend(non_blacklisted_devices);
         }
 
         trace!(
@@ -572,6 +577,8 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Deref;
+
     use matrix_sdk_common::uuid::Uuid;
     use matrix_sdk_test::response_from_file;
     use ruma::{
@@ -579,7 +586,7 @@ mod test {
             client::r0::keys::{claim_keys, get_keys},
             IncomingResponse,
         },
-        room_id, user_id, DeviceIdBox, UserId,
+        device_id, room_id, user_id, DeviceId, UserId,
     };
     use serde_json::Value;
 
@@ -588,12 +595,12 @@ mod test {
 
     use crate::{EncryptionSettings, OlmMachine};
 
-    fn alice_id() -> UserId {
+    fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> DeviceIdBox {
-        "JLAFKJWSCS".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
     }
 
     fn keys_query_response() -> get_keys::Response {
@@ -617,7 +624,7 @@ mod test {
         let keys_claim = keys_claim_response();
         let uuid = Uuid::new_v4();
 
-        let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+        let machine = OlmMachine::new(alice_id(), alice_device_id());
 
         machine.mark_request_as_sent(&uuid, &keys_query).await.unwrap();
         machine.mark_request_as_sent(&uuid, &keys_claim).await.unwrap();
@@ -631,10 +638,10 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let keys_claim = keys_claim_response();
 
-        let users: Vec<_> = keys_claim.one_time_keys.keys().collect();
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
 
         let requests = machine
-            .share_group_session(&room_id, users.clone().into_iter(), EncryptionSettings::default())
+            .share_group_session(room_id, users, EncryptionSettings::default())
             .await
             .unwrap();
 

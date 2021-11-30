@@ -42,31 +42,30 @@ use crate::{
     media::{MediaRequest, UniqueKey},
 };
 
+#[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<String, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<RoomId, DashMap<UserId, MemberEvent>>>,
-    profiles: Arc<DashMap<RoomId, DashMap<UserId, RoomMemberEventContent>>>,
-    display_names: Arc<DashMap<RoomId, DashMap<String, BTreeSet<UserId>>>>,
-    joined_user_ids: Arc<DashMap<RoomId, DashSet<UserId>>>,
-    invited_user_ids: Arc<DashMap<RoomId, DashSet<UserId>>>,
-    room_info: Arc<DashMap<RoomId, RoomInfo>>,
-    #[allow(clippy::type_complexity)]
-    room_state: Arc<DashMap<RoomId, DashMap<String, DashMap<String, Raw<AnySyncStateEvent>>>>>,
-    room_account_data: Arc<DashMap<RoomId, DashMap<String, Raw<AnyRoomAccountDataEvent>>>>,
-    stripped_room_info: Arc<DashMap<RoomId, RoomInfo>>,
-    #[allow(clippy::type_complexity)]
+    members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, MemberEvent>>>,
+    profiles: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, RoomMemberEventContent>>>,
+    display_names: Arc<DashMap<Box<RoomId>, DashMap<String, BTreeSet<Box<UserId>>>>>,
+    joined_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
+    invited_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
+    room_info: Arc<DashMap<Box<RoomId>, RoomInfo>>,
+    room_state: Arc<DashMap<Box<RoomId>, DashMap<String, DashMap<String, Raw<AnySyncStateEvent>>>>>,
+    room_account_data: Arc<DashMap<Box<RoomId>, DashMap<String, Raw<AnyRoomAccountDataEvent>>>>,
+    stripped_room_info: Arc<DashMap<Box<RoomId>, RoomInfo>>,
     stripped_room_state:
-        Arc<DashMap<RoomId, DashMap<String, DashMap<String, Raw<AnyStrippedStateEvent>>>>>,
-    stripped_members: Arc<DashMap<RoomId, DashMap<UserId, StrippedMemberEvent>>>,
-    presence: Arc<DashMap<UserId, Raw<PresenceEvent>>>,
-    #[allow(clippy::type_complexity)]
-    room_user_receipts: Arc<DashMap<RoomId, DashMap<String, DashMap<UserId, (EventId, Receipt)>>>>,
-    #[allow(clippy::type_complexity)]
-    room_event_receipts:
-        Arc<DashMap<RoomId, DashMap<String, DashMap<EventId, DashMap<UserId, Receipt>>>>>,
+        Arc<DashMap<Box<RoomId>, DashMap<String, DashMap<String, Raw<AnyStrippedStateEvent>>>>>,
+    stripped_members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, StrippedMemberEvent>>>,
+    presence: Arc<DashMap<Box<UserId>, Raw<PresenceEvent>>>,
+    room_user_receipts:
+        Arc<DashMap<Box<RoomId>, DashMap<String, DashMap<Box<UserId>, (Box<EventId>, Receipt)>>>>,
+    room_event_receipts: Arc<
+        DashMap<Box<RoomId>, DashMap<String, DashMap<Box<EventId>, DashMap<Box<UserId>, Receipt>>>>,
+    >,
     media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
     custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
 }
@@ -327,21 +326,21 @@ impl MemoryStore {
         Ok(self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())))
     }
 
-    fn get_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
+    fn get_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
         self.members
             .get(room_id)
             .map(|u| u.iter().map(|u| u.key().clone()).collect())
             .unwrap_or_default()
     }
 
-    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
+    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
         self.invited_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
             .unwrap_or_default()
     }
 
-    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
+    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
         self.joined_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
@@ -379,7 +378,7 @@ impl MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(EventId, Receipt)>> {
+    ) -> Result<Option<(Box<EventId>, Receipt)>> {
         Ok(self.room_user_receipts.get(room_id).and_then(|m| {
             m.get(receipt_type.as_ref()).and_then(|m| m.get(user_id).map(|r| r.clone()))
         }))
@@ -390,7 +389,7 @@ impl MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(UserId, Receipt)>> {
+    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
         Ok(self
             .room_event_receipts
             .get(room_id)
@@ -501,15 +500,15 @@ impl StateStore for MemoryStore {
         self.get_member_event(room_id, state_key).await
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         Ok(self.get_user_ids(room_id))
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         Ok(self.get_invited_user_ids(room_id))
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         Ok(self.get_joined_user_ids(room_id))
     }
 
@@ -525,7 +524,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<UserId>> {
+    ) -> Result<BTreeSet<Box<UserId>>> {
         Ok(self
             .display_names
             .get(room_id)
@@ -553,7 +552,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(EventId, Receipt)>> {
+    ) -> Result<Option<(Box<EventId>, Receipt)>> {
         self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
     }
 
@@ -562,7 +561,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(UserId, Receipt)>> {
+    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
     }
 
@@ -603,7 +602,7 @@ mod test {
     use super::{MemoryStore, StateChanges};
     use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
 
-    fn user_id() -> UserId {
+    fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
@@ -613,13 +612,13 @@ mod test {
 
         let room_id = room_id!("!test:localhost");
 
-        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
-        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
+        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org").to_owned();
+        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org").to_owned();
 
         let first_receipt_event = serde_json::from_value(json!({
             first_event_id.clone(): {
                 "m.read": {
-                    user_id(): {
+                    user_id().to_owned(): {
                         "ts": 1436451550453u64
                     }
                 }
@@ -630,7 +629,7 @@ mod test {
         let second_receipt_event = serde_json::from_value(json!({
             second_event_id.clone(): {
                 "m.read": {
-                    user_id(): {
+                    user_id().to_owned(): {
                         "ts": 1436451551453u64
                     }
                 }
@@ -639,61 +638,61 @@ mod test {
         .unwrap();
 
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(&room_id, first_receipt_event);
+        changes.add_receipts(room_id, first_receipt_event);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
             .await
             .unwrap()
             .is_some(),);
         assert_eq!(
             store
-                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                 .await
                 .unwrap()
                 .len(),
             1
         );
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(&room_id, second_receipt_event);
+        changes.add_receipts(room_id, second_receipt_event);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert_eq!(
             store
-                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                 .await
                 .unwrap()
                 .len(),
@@ -709,10 +708,10 @@ mod test {
         let content: Vec<u8> = "somebinarydata".into();
 
         let request_file =
-            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
+            MediaRequest { media_type: MediaType::Uri(uri.to_owned()), format: MediaFormat::File };
 
         let request_thumbnail = MediaRequest {
-            media_type: MediaType::Uri(uri.clone()),
+            media_type: MediaType::Uri(uri.to_owned()),
             format: MediaFormat::Thumbnail(MediaThumbnailSize {
                 method: Method::Crop,
                 width: uint!(100),
@@ -735,7 +734,7 @@ mod test {
         store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
 
-        store.remove_media_content_for_uri(&uri).await.unwrap();
+        store.remove_media_content_for_uri(uri).await.unwrap();
         assert!(store.get_media_content(&request_file).await.unwrap().is_none());
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
     }

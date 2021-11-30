@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use criterion::*;
 use matrix_sdk_common::uuid::Uuid;
@@ -12,17 +12,17 @@ use ruma::{
         },
         IncomingResponse,
     },
-    room_id, user_id, DeviceIdBox, UserId,
+    device_id, room_id, user_id, DeviceId, UserId,
 };
 use serde_json::Value;
 use tokio::runtime::Builder;
 
-fn alice_id() -> UserId {
+fn alice_id() -> &'static UserId {
     user_id!("@alice:example.org")
 }
 
-fn alice_device_id() -> DeviceIdBox {
-    "JLAFKJWSCS".into()
+fn alice_device_id() -> &'static DeviceId {
+    device_id!("JLAFKJWSCS")
 }
 
 fn keys_query_response() -> get_keys::Response {
@@ -49,7 +49,7 @@ fn huge_keys_query_response() -> get_keys::Response {
 
 pub fn keys_query(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
-    let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+    let machine = OlmMachine::new(alice_id(), alice_device_id());
     let response = keys_query_response();
     let uuid = Uuid::new_v4();
 
@@ -71,8 +71,8 @@ pub fn keys_query(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let machine = runtime
         .block_on(OlmMachine::new_with_default_store(
-            &alice_id(),
-            &alice_device_id(),
+            alice_id(),
+            alice_device_id(),
             dir.path(),
             None,
         ))
@@ -104,7 +104,7 @@ pub fn keys_claiming(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
         b.iter_batched(
             || {
-                let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+                let machine = OlmMachine::new(alice_id(), alice_device_id());
                 runtime
                     .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
                     .unwrap();
@@ -123,8 +123,8 @@ pub fn keys_claiming(c: &mut Criterion) {
                 let dir = tempfile::tempdir().unwrap();
                 let machine = runtime
                     .block_on(OlmMachine::new_with_default_store(
-                        &alice_id(),
-                        &alice_device_id(),
+                        alice_id(),
+                        alice_device_id(),
                         dir.path(),
                         None,
                     ))
@@ -153,11 +153,11 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let room_id = room_id!("!test:localhost");
 
     let to_device_response = ToDeviceResponse::new();
-    let users: Vec<UserId> = keys_query_response.device_keys.keys().cloned().collect();
+    let users: Vec<Box<UserId>> = keys_query_response.device_keys.keys().cloned().collect();
 
     let count = response.one_time_keys.values().fold(0, |acc, d| acc + d.len());
 
-    let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+    let machine = OlmMachine::new(alice_id(), alice_device_id());
     runtime.block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
 
@@ -168,7 +168,11 @@ pub fn room_key_sharing(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
-                .share_group_session(&room_id, users.iter(), EncryptionSettings::default())
+                .share_group_session(
+                    room_id,
+                    users.iter().map(Deref::deref),
+                    EncryptionSettings::default(),
+                )
                 .await
                 .unwrap();
 
@@ -178,15 +182,15 @@ pub fn room_key_sharing(c: &mut Criterion) {
                 machine.mark_request_as_sent(&request.txn_id, &to_device_response).await.unwrap();
             }
 
-            machine.invalidate_group_session(&room_id).await.unwrap();
+            machine.invalidate_group_session(room_id).await.unwrap();
         })
     });
 
     let dir = tempfile::tempdir().unwrap();
     let machine = runtime
         .block_on(OlmMachine::new_with_default_store(
-            &alice_id(),
-            &alice_device_id(),
+            alice_id(),
+            alice_device_id(),
             dir.path(),
             None,
         ))
@@ -197,7 +201,11 @@ pub fn room_key_sharing(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("sled store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
-                .share_group_session(&room_id, users.iter(), EncryptionSettings::default())
+                .share_group_session(
+                    room_id,
+                    users.iter().map(Deref::deref),
+                    EncryptionSettings::default(),
+                )
                 .await
                 .unwrap();
 
@@ -207,7 +215,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
                 machine.mark_request_as_sent(&request.txn_id, &to_device_response).await.unwrap();
             }
 
-            machine.invalidate_group_session(&room_id).await.unwrap();
+            machine.invalidate_group_session(room_id).await.unwrap();
         })
     });
 
@@ -217,10 +225,10 @@ pub fn room_key_sharing(c: &mut Criterion) {
 pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
 
-    let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+    let machine = OlmMachine::new(alice_id(), alice_device_id());
     let response = huge_keys_query_response();
     let uuid = Uuid::new_v4();
-    let users: Vec<UserId> = response.device_keys.keys().cloned().collect();
+    let users: Vec<Box<UserId>> = response.device_keys.keys().cloned().collect();
 
     let count = response.device_keys.values().fold(0, |acc, d| acc + d.len());
 
@@ -233,15 +241,15 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
         b.to_async(&runtime).iter_with_large_drop(|| async {
-            machine.get_missing_sessions(users.iter()).await.unwrap()
+            machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
         })
     });
 
     let dir = tempfile::tempdir().unwrap();
     let machine = runtime
         .block_on(OlmMachine::new_with_default_store(
-            &alice_id(),
-            &alice_device_id(),
+            alice_id(),
+            alice_device_id(),
             dir.path(),
             None,
         ))
@@ -250,8 +258,9 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     runtime.block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
 
     group.bench_function(BenchmarkId::new("sled store", &name), |b| {
-        b.to_async(&runtime)
-            .iter(|| async { machine.get_missing_sessions(users.iter()).await.unwrap() })
+        b.to_async(&runtime).iter(|| async {
+            machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
+        })
     });
 
     group.finish()

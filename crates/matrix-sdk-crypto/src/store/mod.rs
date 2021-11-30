@@ -26,9 +26,9 @@
 //! #     OlmMachine,
 //! #     store::MemoryStore,
 //! # };
-//! # use ruma::{user_id, DeviceIdBox};
-//! # let user_id = user_id!("@example:localhost");
-//! # let device_id: DeviceIdBox = "TEST".into();
+//! # use ruma::{device_id, user_id};
+//! # let user_id = user_id!("@example:localhost").to_owned();
+//! # let device_id = device_id!("TEST").to_owned();
 //! let store = Box::new(MemoryStore::new());
 //!
 //! let machine = OlmMachine::new_with_store(user_id, device_id, store);
@@ -63,7 +63,7 @@ use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
     events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
+    DeviceKeyAlgorithm, RoomId, UserId,
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -257,6 +257,10 @@ impl Store {
         self.verification_machine.own_device_id()
     }
 
+    pub fn account(&self) -> &ReadOnlyAccount {
+        &self.verification_machine.store.account
+    }
+
     #[cfg(test)]
     pub async fn reset_cross_signing_identity(&self) {
         self.identity.lock().await.reset().await;
@@ -298,28 +302,10 @@ impl Store {
             .inner
             .get_device(self.user_id(), self.device_id())
             .await?
-            .and_then(|d| d.display_name().to_owned()))
+            .and_then(|d| d.display_name().map(|d| d.to_string())))
     }
 
-    /// Get the read-only version of a specific device.
-    ///
-    /// *Note*: This doesn't return our own device.
     pub async fn get_readonly_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
-        if user_id == self.user_id() && device_id == self.device_id() {
-            Ok(None)
-        } else {
-            self.inner.get_device(user_id, device_id).await
-        }
-    }
-
-    /// Get the read-only version of a specific device.
-    ///
-    /// *Note*: This doesn't return our own device.
-    pub async fn get_readonly_device_unfiltered(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
@@ -330,10 +316,10 @@ impl Store {
     /// Get the read-only version of all the devices that the given user has.
     ///
     /// *Note*: This doesn't return our own device.
-    pub async fn get_readonly_devices(
+    pub async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.remove(self.device_id());
@@ -348,7 +334,7 @@ impl Store {
     pub async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -368,11 +354,7 @@ impl Store {
     }
 
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
-        let mut devices = self.inner.get_user_devices(user_id).await?;
-
-        if user_id == self.user_id() {
-            devices.remove(self.device_id());
-        }
+        let devices = self.inner.get_user_devices(user_id).await?;
 
         let own_identity =
             self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
@@ -391,24 +373,16 @@ impl Store {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
-        if user_id == self.user_id() && device_id == self.device_id() {
-            Ok(None)
-        } else {
-            let own_identity = self
-                .inner
-                .get_user_identity(&self.user_id)
-                .await?
-                .map(|i| i.own().cloned())
-                .flatten();
-            let device_owner_identity = self.inner.get_user_identity(user_id).await?;
+        let own_identity =
+            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
+        let device_owner_identity = self.inner.get_user_identity(user_id).await?;
 
-            Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
-                inner: d,
-                verification_machine: self.verification_machine.clone(),
-                own_identity,
-                device_owner_identity,
-            }))
-        }
+        Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
+            inner: d,
+            verification_machine: self.verification_machine.clone(),
+            own_identity,
+            device_owner_identity,
+        }))
     }
 
     pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
@@ -704,10 +678,10 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users.
-    fn users_for_key_query(&self) -> HashSet<UserId>;
+    fn users_for_key_query(&self) -> HashSet<Box<UserId>>;
 
     /// Get all tracked users we know about.
-    fn tracked_users(&self) -> HashSet<UserId>;
+    fn tracked_users(&self) -> HashSet<Box<UserId>>;
 
     /// Add an user for tracking.
     ///
@@ -741,7 +715,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>>;
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>>;
 
     /// Get the user identity that is attached to the given user id.
     ///

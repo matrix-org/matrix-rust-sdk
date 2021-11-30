@@ -15,7 +15,7 @@ use ruma::{
         AnyRoomEvent, AnySyncRoomEvent, Unsigned,
     },
     serde::Raw,
-    DeviceIdBox, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -27,9 +27,9 @@ pub struct AmbiguityChange {
     /// event itself ambiguous because of the event.
     pub member_ambiguous: bool,
     /// Has another user been disambiguated because of this event.
-    pub disambiguated_member: Option<UserId>,
+    pub disambiguated_member: Option<Box<UserId>>,
     /// Has another user become ambiguous because of this event.
-    pub ambiguated_member: Option<UserId>,
+    pub ambiguated_member: Option<Box<UserId>>,
 }
 
 /// Collection of ambiguioty changes that room member events trigger.
@@ -37,7 +37,7 @@ pub struct AmbiguityChange {
 pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
-    pub changes: BTreeMap<RoomId, BTreeMap<EventId, AmbiguityChange>>,
+    pub changes: BTreeMap<Box<RoomId>, BTreeMap<Box<EventId>, AmbiguityChange>>,
 }
 
 /// The verification state of the device that sent an event to us.
@@ -74,10 +74,10 @@ pub enum AlgorithmInfo {
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
     /// `verification_state` is as well trusted.
-    pub sender: UserId,
+    pub sender: Box<UserId>,
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is as well trusted.
-    pub sender_device: DeviceIdBox,
+    pub sender_device: Box<DeviceId>,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,
     /// The verification state of the device that sent us the event, note this
@@ -126,7 +126,7 @@ pub struct SyncResponse {
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
-    pub notifications: BTreeMap<RoomId, Vec<Notification>>,
+    pub notifications: BTreeMap<Box<RoomId>, Vec<Notification>>,
 }
 
 impl SyncResponse {
@@ -147,11 +147,11 @@ pub struct RoomEvent {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Rooms {
     /// The rooms that the user has left or been banned from.
-    pub leave: BTreeMap<RoomId, LeftRoom>,
+    pub leave: BTreeMap<Box<RoomId>, LeftRoom>,
     /// The rooms that the user has joined.
-    pub join: BTreeMap<RoomId, JoinedRoom>,
+    pub join: BTreeMap<Box<RoomId>, JoinedRoom>,
     /// The rooms that the user has been invited to.
-    pub invite: BTreeMap<RoomId, InvitedRoom>,
+    pub invite: BTreeMap<Box<RoomId>, InvitedRoom>,
 }
 
 /// Updates to joined rooms.
@@ -249,11 +249,11 @@ impl Timeline {
 #[serde(try_from = "SyncRoomMemberEvent", into = "SyncRoomMemberEvent")]
 pub struct MemberEvent {
     pub content: RoomMemberEventContent,
-    pub event_id: EventId,
+    pub event_id: Box<EventId>,
     pub origin_server_ts: MilliSecondsSinceUnixEpoch,
     pub prev_content: Option<RoomMemberEventContent>,
-    pub sender: UserId,
-    pub state_key: UserId,
+    pub sender: Box<UserId>,
+    pub state_key: Box<UserId>,
     pub unsigned: Unsigned,
 }
 
@@ -267,7 +267,7 @@ impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
             origin_server_ts: event.origin_server_ts,
             prev_content: event.prev_content,
             sender: event.sender,
-            state_key: UserId::try_from(event.state_key)?,
+            state_key: event.state_key.try_into()?,
             unsigned: event.unsigned,
         })
     }
@@ -283,7 +283,7 @@ impl TryFrom<RoomMemberEvent> for MemberEvent {
             origin_server_ts: event.origin_server_ts,
             prev_content: event.prev_content,
             sender: event.sender,
-            state_key: UserId::try_from(event.state_key)?,
+            state_key: event.state_key.try_into()?,
             unsigned: event.unsigned,
         })
     }
@@ -307,8 +307,8 @@ impl From<MemberEvent> for SyncRoomMemberEvent {
 #[serde(try_from = "StrippedRoomMemberEvent", into = "StrippedRoomMemberEvent")]
 pub struct StrippedMemberEvent {
     pub content: RoomMemberEventContent,
-    pub sender: UserId,
-    pub state_key: UserId,
+    pub sender: Box<UserId>,
+    pub state_key: Box<UserId>,
 }
 
 impl TryFrom<StrippedRoomMemberEvent> for StrippedMemberEvent {
@@ -318,7 +318,7 @@ impl TryFrom<StrippedRoomMemberEvent> for StrippedMemberEvent {
         Ok(StrippedMemberEvent {
             content: event.content,
             sender: event.sender,
-            state_key: UserId::try_from(event.state_key)?,
+            state_key: event.state_key.try_into()?,
         })
     }
 }

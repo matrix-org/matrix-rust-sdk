@@ -19,7 +19,7 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid};
-use ruma::{DeviceId, DeviceIdBox, RoomId, UserId};
+use ruma::{DeviceId, RoomId, UserId};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -46,11 +46,11 @@ fn encode_key_info(info: &SecretInfo) -> String {
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    tracked_users: Arc<DashSet<UserId>>,
-    users_for_key_query: Arc<DashSet<UserId>>,
+    tracked_users: Arc<DashSet<Box<UserId>>>,
+    users_for_key_query: Arc<DashSet<Box<UserId>>>,
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
-    identities: Arc<DashMap<UserId, ReadOnlyUserIdentities>>,
+    identities: Arc<DashMap<Box<UserId>, ReadOnlyUserIdentities>>,
     outgoing_key_requests: Arc<DashMap<Uuid, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, Uuid>>,
 }
@@ -207,11 +207,11 @@ impl CryptoStore for MemoryStore {
         !self.users_for_key_query.is_empty()
     }
 
-    fn users_for_key_query(&self) -> HashSet<UserId> {
+    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
         self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
-    fn tracked_users(&self) -> HashSet<UserId> {
+    fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.tracked_users.iter().map(|u| u.to_owned()).collect()
     }
 
@@ -229,12 +229,12 @@ impl CryptoStore for MemoryStore {
         // The counter would top out at 2 since there won't be a race between 3
         // different key queries syncs.
         if dirty {
-            self.users_for_key_query.insert(user.clone());
+            self.users_for_key_query.insert(user.to_owned());
         } else {
             self.users_for_key_query.remove(user);
         }
 
-        Ok(self.tracked_users.insert(user.clone()))
+        Ok(self.tracked_users.insert(user.to_owned()))
     }
 
     async fn get_device(
@@ -248,7 +248,7 @@ impl CryptoStore for MemoryStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         Ok(self.devices.user_devices(user_id))
     }
 
@@ -342,12 +342,11 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) =
-            account.create_group_session_pair_with_defaults(&room_id).await.unwrap();
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await.unwrap();
         let inbound = InboundGroupSession::new(
             "test_key",
             "test_key",
-            &room_id,
+            room_id,
             outbound.session_key().await,
             None,
         )
@@ -357,7 +356,7 @@ mod test {
         let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;
 
         let loaded_session = store
-            .get_inbound_group_session(&room_id, "test_key", outbound.session_id())
+            .get_inbound_group_session(room_id, "test_key", outbound.session_id())
             .await
             .unwrap()
             .unwrap();

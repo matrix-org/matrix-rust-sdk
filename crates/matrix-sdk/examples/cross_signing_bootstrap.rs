@@ -7,7 +7,7 @@ use std::{
 use matrix_sdk::{config::SyncSettings, ruma::UserId, Client, LoopCtrl};
 use url::Url;
 
-async fn bootstrap(client: Client, user_id: UserId, password: String) {
+async fn bootstrap(client: Client, user_id: Box<UserId>, password: String) {
     println!("Bootstrapping a new cross signing identity, press enter to continue.");
 
     let mut input = String::new();

@@ -32,7 +32,7 @@ use ruma::{
         AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, DeviceIdBox, UserId,
+    DeviceId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -67,7 +67,7 @@ pub enum KeyForwardDecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GossipRequest {
     /// The user we requested the secret from
-    pub request_recipient: UserId,
+    pub request_recipient: Box<UserId>,
     /// The unique id of the secret request.
     pub request_id: Uuid,
     /// The info of the requested secret.
@@ -109,7 +109,7 @@ impl From<SecretName> for SecretInfo {
 
 impl GossipRequest {
     /// Create an ougoing secret request for the given secret.
-    pub(crate) fn from_secret_name(own_user_id: UserId, secret_name: SecretName) -> Self {
+    pub(crate) fn from_secret_name(own_user_id: Box<UserId>, secret_name: SecretName) -> Self {
         Self {
             request_recipient: own_user_id,
             request_id: Uuid::new_v4(),
@@ -253,13 +253,13 @@ impl RequestEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct RequestInfo {
-    sender: UserId,
-    requesting_device_id: DeviceIdBox,
+    sender: Box<UserId>,
+    requesting_device_id: Box<DeviceId>,
     request_id: String,
 }
 
 impl RequestInfo {
-    fn new(sender: UserId, requesting_device_id: DeviceIdBox, request_id: String) -> Self {
+    fn new(sender: Box<UserId>, requesting_device_id: Box<DeviceId>, request_id: String) -> Self {
         Self { sender, requesting_device_id, request_id }
     }
 }
@@ -269,7 +269,8 @@ impl RequestInfo {
 #[derive(Debug, Clone)]
 struct WaitQueue {
     requests_waiting_for_session: Arc<DashMap<RequestInfo, RequestEvent>>,
-    requests_ids_waiting: Arc<DashMap<(UserId, DeviceIdBox), DashSet<String>>>,
+    #[allow(clippy::type_complexity)]
+    requests_ids_waiting: Arc<DashMap<(Box<UserId>, Box<DeviceId>), DashSet<String>>>,
 }
 
 impl WaitQueue {

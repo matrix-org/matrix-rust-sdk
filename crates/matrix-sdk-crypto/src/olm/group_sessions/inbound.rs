@@ -110,7 +110,7 @@ impl InboundGroupSession {
             sender_key: sender_key.to_owned().into(),
             first_known_index,
             signing_keys: keys.into(),
-            room_id: room_id.clone().into(),
+            room_id: room_id.into(),
             forwarding_chains: Vec::new().into(),
             imported: false,
             backed_up: AtomicBool::new(false).into(),
@@ -201,7 +201,7 @@ impl InboundGroupSession {
             pickle: InboundGroupSessionPickle::from(pickle),
             sender_key: self.sender_key.to_string(),
             signing_key: (&*self.signing_keys).clone(),
-            room_id: (&*self.room_id).clone(),
+            room_id: (&*self.room_id).to_owned(),
             forwarding_chains: self.forwarding_key_chain().to_vec(),
             imported: self.imported,
             backed_up: self.backed_up(),
@@ -261,7 +261,7 @@ impl InboundGroupSession {
 
         ExportedRoomKey {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-            room_id: (&*self.room_id).clone(),
+            room_id: (&*self.room_id).to_owned(),
             sender_key: (&*self.sender_key).to_owned(),
             session_id: self.session_id().to_owned(),
             forwarding_curve25519_key_chain: self.forwarding_key_chain().to_vec(),
@@ -365,11 +365,11 @@ impl InboundGroupSession {
 
         let room_id = decrypted_object
             .get("room_id")
-            .and_then(|r| r.as_str().and_then(|r| RoomId::try_from(r).ok()));
+            .and_then(|r| r.as_str().and_then(|r| Box::<RoomId>::try_from(r).ok()));
 
         // Check that we have a room id and that the event wasn't forwarded from
         // another room.
-        if room_id.as_ref() != Some(self.room_id()) {
+        if room_id.as_deref() != Some(self.room_id()) {
             return Err(EventError::MismatchedRoom(self.room_id().to_owned(), room_id).into());
         }
 
@@ -419,7 +419,7 @@ pub struct PickledInboundGroupSession {
     /// The public ed25519 key of the account that sent us the session.
     pub signing_key: BTreeMap<DeviceKeyAlgorithm, String>,
     /// The id of the room that the session is used in.
-    pub room_id: RoomId,
+    pub room_id: Box<RoomId>,
     /// The list of claimed ed25519 that forwarded us this key. Will be None if
     /// we directly received this session.
     #[serde(default)]

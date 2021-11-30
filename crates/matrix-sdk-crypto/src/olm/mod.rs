@@ -66,6 +66,7 @@ pub(crate) mod test {
     use matches::assert_matches;
     use olm_rs::session::OlmMessage;
     use ruma::{
+        device_id,
         encryption::SignedKey,
         event_id,
         events::{
@@ -77,30 +78,27 @@ pub(crate) mod test {
     };
     use serde_json::json;
 
-    use crate::{
-        olm::{InboundGroupSession, ReadOnlyAccount, Session},
-        MegolmError,
-    };
+    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
 
-    fn alice_id() -> UserId {
+    fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> Box<DeviceId> {
-        "ALICEDEVICE".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("ALICEDEVICE")
     }
 
-    fn bob_id() -> UserId {
+    fn bob_id() -> &'static UserId {
         user_id!("@bob:example.org")
     }
 
-    fn bob_device_id() -> Box<DeviceId> {
-        "BOBDEVICE".into()
+    fn bob_device_id() -> &'static DeviceId {
+        device_id!("BOBDEVICE")
     }
 
     pub(crate) async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key =
@@ -115,7 +113,7 @@ pub(crate) mod test {
 
     #[test]
     fn account_creation() {
-        let account = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let account = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let identity_keys = account.identity_keys();
 
         assert!(!account.shared());
@@ -133,7 +131,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn one_time_keys_creation() {
-        let account = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let account = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let one_time_keys = account.one_time_keys().await;
 
         assert!(one_time_keys.curve25519().is_empty());
@@ -157,8 +155,8 @@ pub(crate) mod test {
 
     #[async_test]
     async fn session_creation() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let alice_keys = alice.identity_keys();
         alice.generate_one_time_keys_helper(1).await;
         let one_time_keys = alice.one_time_keys().await;
@@ -198,10 +196,10 @@ pub(crate) mod test {
 
     #[async_test]
     async fn group_session_creation() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = alice.create_group_session_pair_with_defaults(&room_id).await.unwrap();
+        let (outbound, _) = alice.create_group_session_pair_with_defaults(room_id).await.unwrap();
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
@@ -211,7 +209,7 @@ pub(crate) mod test {
         let inbound = InboundGroupSession::new(
             "test_key",
             "test_key",
-            &room_id,
+            room_id,
             outbound.session_key().await,
             None,
         )
@@ -229,11 +227,11 @@ pub(crate) mod test {
 
     #[async_test]
     async fn edit_decryption() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
 
-        let (outbound, _) = alice.create_group_session_pair_with_defaults(&room_id).await.unwrap();
+        let (outbound, _) = alice.create_group_session_pair_with_defaults(room_id).await.unwrap();
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
@@ -242,14 +240,14 @@ pub(crate) mod test {
 
         let mut content = RoomMessageEventContent::text_plain("Hello");
         content.relates_to = Some(Relation::Replacement(Replacement::new(
-            event_id.clone(),
+            event_id.to_owned(),
             RoomMessageEventContent::text_plain("Hello edit").into(),
         )));
 
         let inbound = InboundGroupSession::new(
             "test_key",
             "test_key",
-            &room_id,
+            room_id,
             outbound.session_key().await,
             None,
         ).unwrap();
@@ -293,10 +291,10 @@ pub(crate) mod test {
 
     #[async_test]
     async fn group_session_export() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
-        let (_, inbound) = alice.create_group_session_pair_with_defaults(&room_id).await.unwrap();
+        let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await.unwrap();
 
         let export = inbound.export().await;
         let export: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();

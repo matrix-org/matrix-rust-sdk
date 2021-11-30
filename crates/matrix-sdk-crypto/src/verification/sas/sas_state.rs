@@ -393,8 +393,8 @@ impl SasState<Created> {
     ///
     /// * `other_identity` - The identity of the other user if one exists.
     pub fn new_in_room(
-        room_id: RoomId,
-        event_id: EventId,
+        room_id: Box<RoomId>,
+        event_id: Box<EventId>,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
@@ -1140,12 +1140,13 @@ mod test {
     use matrix_sdk_test::async_test;
 
     use ruma::{
+        device_id,
         events::key::verification::{
             accept::{AcceptMethod, ToDeviceKeyVerificationAcceptEventContent},
             start::{StartMethod, ToDeviceKeyVerificationStartEventContent},
             ShortAuthenticationString,
         },
-        DeviceId, UserId,
+        user_id, DeviceId, UserId,
     };
     use serde_json::json;
 
@@ -1155,27 +1156,27 @@ mod test {
         ReadOnlyAccount, ReadOnlyDevice,
     };
 
-    fn alice_id() -> UserId {
-        UserId::try_from("@alice:example.org").unwrap()
+    fn alice_id() -> &'static UserId {
+        user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> Box<DeviceId> {
-        "JLAFKJWSCS".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
     }
 
-    fn bob_id() -> UserId {
-        UserId::try_from("@bob:example.org").unwrap()
+    fn bob_id() -> &'static UserId {
+        user_id!("@bob:example.org")
     }
 
-    fn bob_device_id() -> Box<DeviceId> {
-        "BOBDEVCIE".into()
+    fn bob_device_id() -> &'static DeviceId {
+        device_id!("BOBDEVCIE")
     }
 
     async fn get_sas_pair() -> (SasState<Created>, SasState<WeAccepted>) {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None, None);
@@ -1309,7 +1310,7 @@ mod test {
 
         let content = bob.as_content();
         let content = AcceptContent::from(&content);
-        let sender = UserId::try_from("@malory:example.org").unwrap();
+        let sender = Box::<UserId>::try_from("@malory:example.org").unwrap();
         alice.into_accepted(&sender, &content).expect_err("Didn't cancel on a invalid sender");
     }
 
@@ -1355,10 +1356,10 @@ mod test {
 
     #[async_test]
     async fn sas_from_start_unknown_method() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None, None);

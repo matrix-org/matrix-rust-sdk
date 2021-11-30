@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     convert::TryFrom,
+    ops::Deref,
     sync::Arc,
 };
 
@@ -22,7 +23,7 @@ use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
-    DeviceId, DeviceIdBox, UserId,
+    DeviceId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -35,6 +36,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
+    LocalTrust,
 };
 
 enum DeviceChange {
@@ -74,8 +76,8 @@ impl IdentityManager {
         &self,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        info!(
-            users =? response.device_keys.keys().collect::<BTreeSet<&UserId>>(),
+        debug!(
+            users =? response.device_keys.keys().collect::<BTreeSet<_>>(),
             failures =? response.failures,
             "Handling a keys query response"
         );
@@ -92,7 +94,7 @@ impl IdentityManager {
 
         // TODO turn this into a single transaction.
         self.store.save_changes(changes).await?;
-        let updated_users: Vec<&UserId> = response.device_keys.keys().collect();
+        let updated_users: Vec<&UserId> = response.device_keys.keys().map(Deref::deref).collect();
 
         for user_id in updated_users {
             self.store.update_tracked_user(user_id, false).await?;
@@ -133,9 +135,8 @@ impl IdentityManager {
         store: Store,
         device_keys: DeviceKeys,
     ) -> StoreResult<DeviceChange> {
-        let old_device = store
-            .get_readonly_device_unfiltered(&device_keys.user_id, &device_keys.device_id)
-            .await?;
+        let old_device =
+            store.get_readonly_device(&device_keys.user_id, &device_keys.device_id).await?;
 
         if let Some(mut device) = old_device {
             if let Err(e) = device.update_device(&device_keys) {
@@ -153,14 +154,37 @@ impl IdentityManager {
         } else {
             match ReadOnlyDevice::try_from(&device_keys) {
                 Ok(d) => {
-                    trace!(
-                        user_id = d.user_id().as_str(),
-                        device_id = d.device_id().as_str(),
-                        keys =? d.keys(),
-                        "Adding a new device to the device store",
-                    );
+                    // If this is our own device, check that the server isn't
+                    // lying about our keys, also mark the device as locally
+                    // trusted.
+                    if d.user_id() == store.user_id() && d.device_id() == store.device_id() {
+                        let local_device_keys = store.account().unsigned_device_keys();
 
-                    Ok(DeviceChange::New(d))
+                        if d.keys() == &local_device_keys.keys {
+                            d.set_trust_state(LocalTrust::Verified);
+
+                            trace!(
+                                user_id = d.user_id().as_str(),
+                                device_id = d.device_id().as_str(),
+                                keys =? d.keys(),
+                                "Adding our own device to the device store, \
+                                marking it as locally verified",
+                            );
+
+                            Ok(DeviceChange::New(d))
+                        } else {
+                            Ok(DeviceChange::None)
+                        }
+                    } else {
+                        trace!(
+                            user_id = d.user_id().as_str(),
+                            device_id = d.device_id().as_str(),
+                            keys =? d.keys(),
+                            "Adding a new device to the device store",
+                        );
+
+                        Ok(DeviceChange::New(d))
+                    }
                 }
                 Err(e) => {
                     warn!(
@@ -180,14 +204,14 @@ impl IdentityManager {
         store: Store,
         own_user_id: Arc<UserId>,
         own_device_id: Arc<DeviceId>,
-        user_id: UserId,
-        device_map: BTreeMap<DeviceIdBox, DeviceKeys>,
+        user_id: Box<UserId>,
+        device_map: BTreeMap<Box<DeviceId>, DeviceKeys>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = (&*own_device_id).to_owned();
 
         let mut changes = DeviceChanges::default();
 
-        let current_devices: HashSet<DeviceIdBox> = device_map.keys().cloned().collect();
+        let current_devices: HashSet<Box<DeviceId>> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| {
             if user_id != device_keys.user_id || device_id != device_keys.device_id {
@@ -216,9 +240,9 @@ impl IdentityManager {
             }
         }
 
-        let current_devices: HashSet<&DeviceIdBox> = current_devices.iter().collect();
+        let current_devices: HashSet<&Box<DeviceId>> = current_devices.iter().collect();
         let stored_devices = store.get_readonly_devices_unfiltered(&user_id).await?;
-        let stored_devices_set: HashSet<&DeviceIdBox> = stored_devices.keys().collect();
+        let stored_devices_set: HashSet<&Box<DeviceId>> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
         for device_id in deleted_devices_set {
@@ -248,7 +272,7 @@ impl IdentityManager {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
-        device_keys_map: BTreeMap<UserId, BTreeMap<DeviceIdBox, DeviceKeys>>,
+        device_keys_map: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 
@@ -404,10 +428,22 @@ impl IdentityManager {
     pub async fn users_for_key_query(&self) -> Vec<KeysQueryRequest> {
         let users = self.store.users_for_key_query();
 
+        // We always want to track our own user, but in case we aren't in an encrypted
+        // room yet, we won't be tracking ourselves yet. This ensures we are always
+        // tracking ourselves.
+        //
+        // The check for emptiness is done first for performance.
+        let users = if users.is_empty() && !self.store.tracked_users().contains(self.user_id()) {
+            self.update_tracked_users([self.user_id()]).await;
+            self.store.users_for_key_query()
+        } else {
+            users
+        };
+
         if users.is_empty() {
             Vec::new()
         } else {
-            let users: Vec<UserId> = users.into_iter().collect();
+            let users: Vec<Box<UserId>> = users.into_iter().collect();
 
             users
                 .chunks(Self::MAX_KEY_QUERY_USERS)
@@ -468,7 +504,7 @@ pub(crate) mod test {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
-        user_id, DeviceIdBox, UserId,
+        device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
 
@@ -480,22 +516,23 @@ pub(crate) mod test {
         verification::VerificationMachine,
     };
 
-    fn user_id() -> UserId {
+    fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
-    fn other_user_id() -> UserId {
+    fn other_user_id() -> &'static UserId {
         user_id!("@example2:localhost")
     }
 
-    fn device_id() -> DeviceIdBox {
-        "WSKKLTJZCL".into()
+    fn device_id() -> &'static DeviceId {
+        device_id!("WSKKLTJZCL")
     }
 
     fn manager() -> IdentityManager {
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id())));
-        let user_id = Arc::new(user_id());
-        let account = ReadOnlyAccount::new(&user_id, &device_id());
+        let identity =
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id().to_owned())));
+        let user_id = Arc::from(user_id());
+        let account = ReadOnlyAccount::new(&user_id, device_id());
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         let verification = VerificationMachine::new(account, identity.clone(), store);
         let store =
@@ -666,28 +703,28 @@ pub(crate) mod test {
     #[async_test]
     async fn test_manager_creation() {
         let manager = manager();
-        assert!(manager.users_for_key_query().await.is_empty())
+        assert!(manager.store.tracked_users().is_empty())
     }
 
     #[async_test]
     async fn test_manager_key_query_response() {
         let manager = manager();
         let other_user = other_user_id();
-        let devices = manager.store.get_user_devices(&other_user).await.unwrap();
+        let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
 
         manager.receive_keys_query_response(&other_key_query()).await.unwrap();
 
-        let devices = manager.store.get_user_devices(&other_user).await.unwrap();
+        let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
         let device = manager
             .store
-            .get_readonly_device(&other_user, "SKISMLNIMH".into())
+            .get_readonly_device(other_user, device_id!("SKISMLNIMH"))
             .await
             .unwrap()
             .unwrap();
-        let identity = manager.store.get_user_identity(&other_user).await.unwrap().unwrap();
+        let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
         assert!(identity.is_device_signed(&device).is_ok())
@@ -697,23 +734,38 @@ pub(crate) mod test {
     async fn test_manager_own_key_query_response() {
         let manager = manager();
         let other_user = other_user_id();
-        let devices = manager.store.get_user_devices(&other_user).await.unwrap();
+        let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
 
         manager.receive_keys_query_response(&other_key_query()).await.unwrap();
 
-        let devices = manager.store.get_user_devices(&other_user).await.unwrap();
+        let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
         let device = manager
             .store
-            .get_readonly_device(&other_user, "SKISMLNIMH".into())
+            .get_readonly_device(other_user, device_id!("SKISMLNIMH"))
             .await
             .unwrap()
             .unwrap();
-        let identity = manager.store.get_user_identity(&other_user).await.unwrap().unwrap();
+        let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
         assert!(identity.is_device_signed(&device).is_ok())
+    }
+
+    #[async_test]
+    async fn no_tracked_users_key_query_request() {
+        let manager = manager();
+
+        assert!(manager.store.tracked_users().is_empty(), "No users are initially tracked");
+
+        let requests = manager.users_for_key_query().await;
+
+        assert!(!requests.is_empty(), "We query the keys for our own user");
+        assert!(
+            manager.store.tracked_users().contains(manager.user_id()),
+            "Our own user is now tracked"
+        );
     }
 }

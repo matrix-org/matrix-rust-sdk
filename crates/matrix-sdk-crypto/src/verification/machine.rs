@@ -25,7 +25,7 @@ use ruma::{
         ToDeviceEvent,
     },
     serde::Raw,
-    DeviceId, DeviceIdBox, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
 use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
@@ -50,7 +50,7 @@ pub struct VerificationMachine {
     pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
-    requests: Arc<DashMap<UserId, DashMap<String, VerificationRequest>>>,
+    requests: Arc<DashMap<Box<UserId>, DashMap<String, VerificationRequest>>>,
 }
 
 impl VerificationMachine {
@@ -78,7 +78,7 @@ impl VerificationMachine {
     pub(crate) async fn request_to_device_verification(
         &self,
         user_id: &UserId,
-        recipient_devices: Vec<DeviceIdBox>,
+        recipient_devices: Vec<Box<DeviceId>>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(Uuid::new_v4().to_string());
@@ -506,17 +506,14 @@ impl VerificationMachine {
 
 #[cfg(test)]
 mod test {
-
     use std::{
         convert::TryFrom,
         sync::Arc,
         time::Duration,
     };
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
-
-
     use matrix_sdk_test::async_test;
-    use ruma::{DeviceId, UserId};
+    use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::{Sas, VerificationMachine};
     use crate::{
@@ -530,25 +527,25 @@ mod test {
         ReadOnlyAccount, ReadOnlyDevice,
     };
 
-    fn alice_id() -> UserId {
-        UserId::try_from("@alice:example.org").unwrap()
+    fn alice_id() -> &'static UserId {
+        user_id!("@alice:example.org")
     }
 
-    fn alice_device_id() -> Box<DeviceId> {
-        "JLAFKJWSCS".into()
+    fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
     }
 
-    fn bob_id() -> UserId {
-        UserId::try_from("@bob:example.org").unwrap()
+    fn bob_id() -> &'static UserId {
+        user_id!("@bob:example.org")
     }
 
-    fn bob_device_id() -> Box<DeviceId> {
-        "BOBDEVCIE".into()
+    fn bob_device_id() -> &'static DeviceId {
+        device_id!("BOBDEVCIE")
     }
 
     async fn setup_verification_machine() -> (VerificationMachine, Sas) {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let store = MemoryStore::new();
         let bob_store = MemoryStore::new();
 
@@ -560,10 +557,11 @@ mod test {
 
         let bob_store = VerificationStore { account: bob, inner: Arc::new(bob_store) };
 
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
+        let identity =
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
         let machine = VerificationMachine::new(alice, identity, Arc::new(store));
         let (bob_sas, start_content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(bob_id()),
+            PrivateCrossSigningIdentity::empty(bob_id().to_owned()),
             alice_device,
             bob_store,
             None,
@@ -583,8 +581,9 @@ mod test {
 
     #[async_test]
     async fn create() {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let identity =
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
         let store = MemoryStore::new();
         let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }
