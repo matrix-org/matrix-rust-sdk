@@ -19,7 +19,7 @@ use std::{
 
 #[cfg(feature = "qrcode")]
 use matrix_qrcode::QrVerificationData;
-use matrix_sdk_common::{instant::Instant, uuid::Uuid, util::milli_seconds_since_unix_epoch};
+use matrix_sdk_common::{instant::Instant, util::milli_seconds_since_unix_epoch, uuid::Uuid};
 #[cfg(feature = "qrcode")]
 use ruma::DeviceKeyAlgorithm;
 use ruma::{
@@ -1266,7 +1266,6 @@ struct Done {}
 
 #[cfg(test)]
 mod test {
-
 
     use std::convert::{TryFrom, TryInto};
 

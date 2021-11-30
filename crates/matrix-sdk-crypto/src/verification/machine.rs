@@ -18,7 +18,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
+use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch, uuid::Uuid};
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -28,7 +28,6 @@ use ruma::{
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
-use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
 
 use super::{
     cache::VerificationCache,
@@ -506,11 +505,8 @@ impl VerificationMachine {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        convert::TryFrom,
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{convert::TryFrom, sync::Arc, time::Duration};
+
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, UserId};

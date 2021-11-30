@@ -16,11 +16,10 @@ use std::{
     convert::{TryFrom, TryInto},
     matches,
     sync::{Arc, Mutex},
-    time::{Duration},
+    time::Duration,
 };
-use matrix_sdk_common::instant::Instant;
 
-use matrix_sdk_common::uuid::Uuid;
+use matrix_sdk_common::{instant::Instant, uuid::Uuid};
 use olm_rs::sas::OlmSas;
 use ruma::{
     events::{
@@ -1137,8 +1136,8 @@ impl SasState<Cancelled> {
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
-    use matrix_sdk_test::async_test;
 
+    use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
         events::key::verification::{

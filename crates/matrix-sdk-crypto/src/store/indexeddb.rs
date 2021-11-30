@@ -16,12 +16,12 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
     convert::{TryFrom, TryInto},
+    sync::{Arc, RwLock},
 };
-use wasm_bindgen::JsValue;
 
 use dashmap::DashSet;
+use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
@@ -30,17 +30,17 @@ use ruma::{
 };
 use tracing::trace;
 use uuid::Uuid;
+use wasm_bindgen::JsValue;
 
 use super::{
-    caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, InboundGroupSession,
-    PickleKey, EncryptedPickleKey, ReadOnlyAccount, Result, RoomKeyCounts, Session,
+    caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, EncryptedPickleKey,
+    InboundGroupSession, PickleKey, ReadOnlyAccount, Result, RoomKeyCounts, Session,
 };
 use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
 };
-use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
@@ -75,9 +75,9 @@ mod KEYS {
     pub const SECRET_REQUESTS_BY_INFO: &'static str = "secret_requests_by_info";
 
     // KEYS
-   pub const PICKLE_KEY: &'static str = "pickle_key";
-   pub const ACCOUNT: &'static str = "account";
-   pub const PRIVATE_IDENTITY: &'static str = "private_identity";
+    pub const PICKLE_KEY: &'static str = "pickle_key";
+    pub const ACCOUNT: &'static str = "account";
+    pub const PRIVATE_IDENTITY: &'static str = "private_identity";
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -90,7 +90,6 @@ pub struct IndexeddbStore {
     session_cache: SessionStore,
     tracked_users_cache: Arc<DashSet<Box<UserId>>>,
     users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
-
 }
 
 impl std::fmt::Debug for IndexeddbStore {
@@ -104,24 +103,21 @@ fn make_range(key: String) -> Result<IdbKeyRange, CryptoStoreError> {
         &JsValue::from_str(&format!("{}:", key)),
         &JsValue::from_str(&format!("{};", key)),
     )
-    .map_err(|e| {
-       CryptoStoreError::IndexedDatabase {
-            code: 0,
-            name: "IdbKeyRangeMakeError".to_owned(),
-            message: e.as_string().unwrap_or(format!("Creating key range for {:} failed", key)),
-       }
+    .map_err(|e| CryptoStoreError::IndexedDatabase {
+        code: 0,
+        name: "IdbKeyRangeMakeError".to_owned(),
+        message: e.as_string().unwrap_or(format!("Creating key range for {:} failed", key)),
     })
 }
 
 impl IndexeddbStore {
-
     async fn open_helper(prefix: String, pickle_key: Option<PickleKey>) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto", prefix);
 
-        let pickle_key = pickle_key.unwrap_or_else(||
+        let pickle_key = pickle_key.unwrap_or_else(|| {
             PickleKey::try_from(DEFAULT_PICKLE.as_bytes().to_vec())
                 .expect("Default Pickle always works. qed")
-        );
+        });
 
         // Open my_db v1
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
@@ -193,11 +189,14 @@ impl IndexeddbStore {
 
         let pickle_key = match store_key {
             Some(key) => PickleKey::from_encrypted(passphrase, key)
-                            .map_err(|_| CryptoStoreError::UnpicklingError)?,
+                .map_err(|_| CryptoStoreError::UnpicklingError)?,
             None => {
                 let key = PickleKey::new();
                 let encrypted = key.encrypt(passphrase);
-                ob.put_key_val(&JsValue::from_str(KEYS::PICKLE_KEY), &JsValue::from_serde(&encrypted)?)?;
+                ob.put_key_val(
+                    &JsValue::from_str(KEYS::PICKLE_KEY),
+                    &JsValue::from_serde(&encrypted)?,
+                )?;
                 tx.await.into_result()?;
                 key
             }
@@ -214,7 +213,6 @@ impl IndexeddbStore {
         self.account_info.read().unwrap().clone()
     }
 
-
     fn get_pickle_mode(&self) -> PicklingMode {
         self.pickle_key.pickle_mode()
     }
@@ -227,11 +225,17 @@ impl IndexeddbStore {
         let mut stores: Vec<&'static str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), KEYS::CORE),
             (!changes.sessions.is_empty(), KEYS::SESSION),
-            (!changes.devices.new.is_empty() || !changes.devices.changed.is_empty() || !changes.devices.deleted.is_empty(),
-                KEYS::DEVICES),
-            (!changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
-                KEYS::IDENTITIES),
-            (!changes.inbound_group_sessions.is_empty(),  KEYS::INBOUND_GROUP_SESSIONS),
+            (
+                !changes.devices.new.is_empty()
+                    || !changes.devices.changed.is_empty()
+                    || !changes.devices.deleted.is_empty(),
+                KEYS::DEVICES,
+            ),
+            (
+                !changes.identities.new.is_empty() || !changes.identities.changed.is_empty(),
+                KEYS::IDENTITIES,
+            ),
+            (!changes.inbound_group_sessions.is_empty(), KEYS::INBOUND_GROUP_SESSIONS),
             (!changes.outbound_group_sessions.is_empty(), KEYS::OUTBOUND_GROUP_SESSIONS),
             (!changes.message_hashes.is_empty(), KEYS::OLM_HASHES),
         ]
@@ -273,10 +277,11 @@ impl IndexeddbStore {
         }
 
         if let Some(i) = &private_identity_pickle {
-            tx.object_store(KEYS::CORE)?
-                .put_key_val(&JsValue::from_str(KEYS::PRIVATE_IDENTITY), &JsValue::from_serde(i)?)?;
+            tx.object_store(KEYS::CORE)?.put_key_val(
+                &JsValue::from_str(KEYS::PRIVATE_IDENTITY),
+                &JsValue::from_serde(i)?,
+            )?;
         }
-
 
         if !changes.sessions.is_empty() {
             let sessions = tx.object_store(KEYS::SESSION)?;
@@ -312,7 +317,10 @@ impl IndexeddbStore {
             for session in changes.outbound_group_sessions {
                 let room_id = session.room_id();
                 let pickle = session.pickle(self.get_pickle_mode()).await;
-                sessions.put_key_val(&JsValue::from_str(room_id.as_str()), &JsValue::from_serde(&pickle)?)?;
+                sessions.put_key_val(
+                    &JsValue::from_str(room_id.as_str()),
+                    &JsValue::from_serde(&pickle)?,
+                )?;
             }
         }
 
@@ -355,7 +363,7 @@ impl IndexeddbStore {
             for hash in &olm_hashes {
                 hashes.put_key_val(
                     &JsValue::from_str(&format!("{}:{}", hash.sender_key, hash.hash)),
-                    &JsValue::TRUE
+                    &JsValue::TRUE,
                 )?;
             }
         }
@@ -366,23 +374,17 @@ impl IndexeddbStore {
             let outgoing_secret_requests = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?;
             for key_request in &key_requests {
                 let key_request_id = JsValue::from_str(&key_request.request_id.to_string());
-                secret_requests_by_info.put_key_val(
-                    &JsValue::from_str(&key_request.info.as_key()),
-                    &key_request_id,
-                )?;
+                secret_requests_by_info
+                    .put_key_val(&JsValue::from_str(&key_request.info.as_key()), &key_request_id)?;
 
                 if key_request.sent_out {
                     unsent_secret_requests.delete(&key_request_id)?;
-                    outgoing_secret_requests.put_key_val(
-                        &key_request_id,
-                        &JsValue::from_serde(&key_request)?,
-                    )?;
+                    outgoing_secret_requests
+                        .put_key_val(&key_request_id, &JsValue::from_serde(&key_request)?)?;
                 } else {
                     outgoing_secret_requests.delete(&key_request_id)?;
-                    unsent_secret_requests.put_key_val(
-                        &key_request_id,
-                        &JsValue::from_serde(&key_request)?,
-                    )?;
+                    unsent_secret_requests
+                        .put_key_val(&key_request_id, &JsValue::from_serde(&key_request)?)?;
                 }
             }
         }
@@ -397,23 +399,20 @@ impl IndexeddbStore {
         Ok(())
     }
 
-
     async fn load_tracked_users(&self) -> Result<()> {
         let tx = self
             .inner
             .transaction_on_one_with_mode(KEYS::TRACKED_USERS, IdbTransactionMode::Readonly)?;
         let os = tx.object_store(KEYS::TRACKED_USERS)?;
-        let user_ids = os
-            .get_all_keys()?
-            .await?;
+        let user_ids = os.get_all_keys()?.await?;
         for user_id in user_ids.iter() {
-            let dirty : bool = match os.get(&user_id)?.await?.map(|v| v.into_serde()) {
+            let dirty: bool = match os.get(&user_id)?.await?.map(|v| v.into_serde()) {
                 Some(Ok(false)) => false,
-                _ => true
+                _ => true,
             };
             let user = match user_id.as_string().map(|u| Box::<UserId>::try_from(u)) {
                 Some(Ok(user)) => user,
-                _ => continue
+                _ => continue,
             };
             self.tracked_users_cache.insert(user.clone());
 
@@ -432,18 +431,23 @@ impl IndexeddbStore {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
         if let Some(value) = self
             .inner
-            .transaction_on_one_with_mode(KEYS::OUTBOUND_GROUP_SESSIONS, IdbTransactionMode::Readonly)?
+            .transaction_on_one_with_mode(
+                KEYS::OUTBOUND_GROUP_SESSIONS,
+                IdbTransactionMode::Readonly,
+            )?
             .object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?
             .get(&JsValue::from_str(room_id.as_str()))?
             .await?
         {
-            Ok(Some(OutboundGroupSession::from_pickle(
-                account_info.device_id,
-                account_info.identity_keys,
-                value.into_serde()?,
-                self.get_pickle_mode(),
-            )
-            .map_err(CryptoStoreError::OlmGroupSession)?))
+            Ok(Some(
+                OutboundGroupSession::from_pickle(
+                    account_info.device_id,
+                    account_info.identity_keys,
+                    value.into_serde()?,
+                    self.get_pickle_mode(),
+                )
+                .map_err(CryptoStoreError::OlmGroupSession)?,
+            ))
         } else {
             Ok(None)
         }
@@ -451,18 +455,18 @@ impl IndexeddbStore {
     async fn get_outgoing_key_request_helper(&self, key: &str) -> Result<Option<GossipRequest>> {
         let jskey = JsValue::from_str(key);
         let dbs = [KEYS::OUTGOING_SECRET_REQUESTS, KEYS::UNSENT_SECRET_REQUESTS];
-        let tx = self
-             .inner
-             .transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
+        let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
 
-        let request = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?
-             .get(&jskey)?
-             .await?
-             .map(|i| i.into_serde())
-             .transpose()?;
+        let request = tx
+            .object_store(KEYS::OUTGOING_SECRET_REQUESTS)?
+            .get(&jskey)?
+            .await?
+            .map(|i| i.into_serde())
+            .transpose()?;
 
         Ok(match request {
-            None =>  tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?
+            None => tx
+                .object_store(KEYS::UNSENT_SECRET_REQUESTS)?
                 .get(&jskey)?
                 .await?
                 .map(|i| i.into_serde())
@@ -482,10 +486,10 @@ impl CryptoStore for IndexeddbStore {
             .get(&JsValue::from_str(KEYS::ACCOUNT))?
             .await?
         {
-
             self.load_tracked_users().await?;
 
-            let account = ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())?;
+            let account =
+                ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())?;
 
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -524,9 +528,12 @@ impl CryptoStore for IndexeddbStore {
             .await?
         {
             Ok(Some(
-                PrivateCrossSigningIdentity::from_pickle(pickle.into_serde()?, self.get_pickle_key())
-                    .await
-                    .map_err(|_| CryptoStoreError::UnpicklingError)?,
+                PrivateCrossSigningIdentity::from_pickle(
+                    pickle.into_serde()?,
+                    self.get_pickle_key(),
+                )
+                .await
+                .map_err(|_| CryptoStoreError::UnpicklingError)?,
             ))
         } else {
             Ok(None)
@@ -551,13 +558,14 @@ impl CryptoStore for IndexeddbStore {
                 .iter()
                 .filter_map(|f| match f.into_serde() {
                     Ok(p) => Session::from_pickle(
-                            account_info.user_id.clone(),
-                            account_info.device_id.clone(),
-                            account_info.identity_keys.clone(),
-                            p,
-                            self.get_pickle_mode(),
-                        ).ok(),
-                    _ => None
+                        account_info.user_id.clone(),
+                        account_info.device_id.clone(),
+                        account_info.identity_keys.clone(),
+                        p,
+                        self.get_pickle_mode(),
+                    )
+                    .ok(),
+                    _ => None,
                 })
                 .collect::<Vec<Session>>();
 
@@ -576,14 +584,18 @@ impl CryptoStore for IndexeddbStore {
         let key = format!("{}:{}:{}", room_id.as_str(), sender_key, session_id);
         if let Some(pickle) = self
             .inner
-            .transaction_on_one_with_mode(KEYS::INBOUND_GROUP_SESSIONS, IdbTransactionMode::Readonly)?
+            .transaction_on_one_with_mode(
+                KEYS::INBOUND_GROUP_SESSIONS,
+                IdbTransactionMode::Readonly,
+            )?
             .object_store(KEYS::INBOUND_GROUP_SESSIONS)?
             .get(&JsValue::from_str(&key))?
             .await?
         {
-            Ok(Some(
-                InboundGroupSession::from_pickle(pickle.into_serde()?, self.get_pickle_mode())?
-            ))
+            Ok(Some(InboundGroupSession::from_pickle(
+                pickle.into_serde()?,
+                self.get_pickle_mode(),
+            )?))
         } else {
             Ok(None)
         }
@@ -592,15 +604,17 @@ impl CryptoStore for IndexeddbStore {
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         Ok(self
             .inner
-            .transaction_on_one_with_mode(KEYS::INBOUND_GROUP_SESSIONS, IdbTransactionMode::Readonly)?
+            .transaction_on_one_with_mode(
+                KEYS::INBOUND_GROUP_SESSIONS,
+                IdbTransactionMode::Readonly,
+            )?
             .object_store(KEYS::INBOUND_GROUP_SESSIONS)?
             .get_all()?
             .await?
             .iter()
             .filter_map(|i| i.into_serde().ok())
             .filter_map(|p| InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok())
-            .collect()
-       )
+            .collect())
     }
 
     async fn get_outbound_group_sessions(
@@ -687,7 +701,10 @@ impl CryptoStore for IndexeddbStore {
 
         os.put_key_val(
             &JsValue::from_str(user.as_str()),
-            &match dirty { true => JsValue::TRUE, false => JsValue::FALSE }
+            &match dirty {
+                true => JsValue::TRUE,
+                false => JsValue::FALSE,
+            },
         )?;
 
         tx.await.into_result()?;
@@ -701,14 +718,13 @@ impl CryptoStore for IndexeddbStore {
     ) -> Result<Option<ReadOnlyDevice>> {
         let key = format!("{}:{}", user_id.as_str(), device_id.as_str());
         Ok(self
-             .inner
-             .transaction_on_one_with_mode(KEYS::DEVICES, IdbTransactionMode::Readonly)?
-             .object_store(KEYS::DEVICES)?
-             .get(&JsValue::from_str(&key))?
-             .await?
-             .map(|i| i.into_serde())
-             .transpose()?
-         )
+            .inner
+            .transaction_on_one_with_mode(KEYS::DEVICES, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::DEVICES)?
+            .get(&JsValue::from_str(&key))?
+            .await?
+            .map(|i| i.into_serde())
+            .transpose()?)
     }
 
     async fn get_user_devices(
@@ -731,15 +747,14 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
-       Ok(self
+        Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::IDENTITIES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::IDENTITIES)?
             .get(&JsValue::from_str(user_id.as_str()))?
             .await?
             .map(|i| i.into_serde())
-            .transpose()?
-        )
+            .transpose()?)
     }
 
     async fn is_message_known(&self, hash: &crate::olm::OlmMessageHash) -> Result<bool> {
@@ -749,8 +764,7 @@ impl CryptoStore for IndexeddbStore {
             .object_store(KEYS::OLM_HASHES)?
             .get(&JsValue::from_str(&format!("{}:{}", hash.sender_key, hash.hash)))?
             .await?
-            .is_some()
-        )
+            .is_some())
     }
 
     async fn get_outgoing_secret_requests(
@@ -765,13 +779,16 @@ impl CryptoStore for IndexeddbStore {
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
         let id = self
-             .inner
-             .transaction_on_one_with_mode(KEYS::SECRET_REQUESTS_BY_INFO, IdbTransactionMode::Readonly)?
-             .object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
-             .get(&JsValue::from_str(&key_info.as_key()))?
-             .await?
-             .map(|i| i.as_string())
-             .flatten();
+            .inner
+            .transaction_on_one_with_mode(
+                KEYS::SECRET_REQUESTS_BY_INFO,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
+            .get(&JsValue::from_str(&key_info.as_key()))?
+            .await?
+            .map(|i| i.as_string())
+            .flatten();
         if let Some(id) = id {
             self.get_outgoing_key_request_helper(&id).await
         } else {
@@ -781,32 +798,38 @@ impl CryptoStore for IndexeddbStore {
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
         Ok(self
-             .inner
-             .transaction_on_one_with_mode(KEYS::UNSENT_SECRET_REQUESTS, IdbTransactionMode::Readonly)?
-             .object_store(KEYS::UNSENT_SECRET_REQUESTS)?
-             .get_all()?
-             .await?
-             .iter()
-             .filter_map(|i| i.into_serde().ok())
-             .collect()
-        )
+            .inner
+            .transaction_on_one_with_mode(
+                KEYS::UNSENT_SECRET_REQUESTS,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(KEYS::UNSENT_SECRET_REQUESTS)?
+            .get_all()?
+            .await?
+            .iter()
+            .filter_map(|i| i.into_serde().ok())
+            .collect())
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
         let jskey = JsValue::from_str(&request_id.to_string());
-        let dbs = [KEYS::OUTGOING_SECRET_REQUESTS, KEYS::UNSENT_SECRET_REQUESTS, KEYS::SECRET_REQUESTS_BY_INFO];
-        let tx = self
-             .inner
-             .transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readwrite)?;
+        let dbs = [
+            KEYS::OUTGOING_SECRET_REQUESTS,
+            KEYS::UNSENT_SECRET_REQUESTS,
+            KEYS::SECRET_REQUESTS_BY_INFO,
+        ];
+        let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readwrite)?;
 
-        let request : Option<GossipRequest> = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?
-             .get(&jskey)?
-             .await?
-             .map(|i| i.into_serde())
-             .transpose()?;
+        let request: Option<GossipRequest> = tx
+            .object_store(KEYS::OUTGOING_SECRET_REQUESTS)?
+            .get(&jskey)?
+            .await?
+            .map(|i| i.into_serde())
+            .transpose()?;
 
-        let request  = match request {
-            None =>  tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?
+        let request = match request {
+            None => tx
+                .object_store(KEYS::UNSENT_SECRET_REQUESTS)?
                 .get(&jskey)?
                 .await?
                 .map(|i| i.into_serde())
@@ -842,7 +865,6 @@ mod test {
                 .await
                 .expect("Can't create store without passphrase"),
         }
-
     }
     cryptostore_integration_tests! { integration }
 }

@@ -17,10 +17,10 @@ mod inner_sas;
 mod sas_state;
 
 use std::sync::{Arc, Mutex};
-#[cfg(test)]
-use matrix_sdk_common::instant::Instant;
 
 use inner_sas::InnerSas;
+#[cfg(test)]
+use matrix_sdk_common::instant::Instant;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
@@ -556,8 +556,9 @@ impl AcceptSettings {
 #[cfg(test)]
 mod test {
     use std::{convert::TryFrom, sync::Arc};
-    use ruma::{device_id, user_id, DeviceId, UserId};
+
     use matrix_sdk_test::async_test;
+    use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::Sas;
     use crate::{

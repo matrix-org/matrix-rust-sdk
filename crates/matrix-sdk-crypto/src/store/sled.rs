@@ -1009,12 +1009,12 @@ impl CryptoStore for SledStore {
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use super::SledStore;
-    use tempfile::{tempdir, TempDir};
     use lazy_static::lazy_static;
+    use tempfile::{tempdir, TempDir};
+
+    use super::SledStore;
     lazy_static! {
         /// This is an example for using doc comment attributes
         static ref TMP_DIR: TempDir = tempdir().unwrap();

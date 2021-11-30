@@ -580,7 +580,7 @@ mod test {
     use std::ops::Deref;
 
     use matrix_sdk_common::uuid::Uuid;
-    use matrix_sdk_test::response_from_file;
+    use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
             client::r0::keys::{claim_keys, get_keys},
@@ -589,9 +589,6 @@ mod test {
         device_id, room_id, user_id, DeviceId, UserId,
     };
     use serde_json::Value;
-
-
-    use matrix_sdk_test::async_test;
 
     use crate::{EncryptionSettings, OlmMachine};
 

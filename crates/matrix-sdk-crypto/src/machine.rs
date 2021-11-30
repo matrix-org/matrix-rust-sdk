@@ -1548,11 +1548,11 @@ impl OlmMachine {
 #[cfg(test)]
 pub(crate) mod test {
 
-    use matrix_sdk_test::async_test;
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
     use http::Response;
-    use matrix_sdk_test::test_json;
+    use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
+    use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
             client::r0::keys::{claim_keys, get_keys, upload_keys},
@@ -1580,7 +1580,6 @@ pub(crate) mod test {
         verification::test::{outgoing_request_to_event, request_to_event},
         EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
-    use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
 
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<Box<DeviceKeyId>, OneTimeKey>;

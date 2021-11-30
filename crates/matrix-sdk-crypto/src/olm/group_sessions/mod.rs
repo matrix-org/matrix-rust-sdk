@@ -162,13 +162,10 @@ impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
 #[cfg(target_os = "linux")]
 #[cfg(test)]
 mod test {
-    use matrix_sdk_test::async_test;
-    use std::{
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{sync::Arc, time::Duration};
 
     use matrix_sdk_common::instant::Instant;
+    use matrix_sdk_test::async_test;
     use ruma::{device_id, events::room::message::RoomMessageEventContent, room_id, user_id};
 
     use super::EncryptionSettings;

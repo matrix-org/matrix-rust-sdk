@@ -25,10 +25,8 @@
     unused_qualifications
 )]
 
-
 #[cfg(all(feature = "indexeddb_cryptostore", not(target_arch = "wasm32")))]
 compile_error!("indexeddb_cryptostore only works for wasm32 target");
-
 
 #[cfg(feature = "backups_v1")]
 #[cfg_attr(feature = "docs", doc(cfg(backups_v1)))]

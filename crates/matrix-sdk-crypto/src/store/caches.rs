@@ -187,6 +187,7 @@ impl DeviceStore {
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
@@ -194,9 +195,6 @@ mod test {
         olm::{test::get_account_and_session, InboundGroupSession},
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
-
-
-    use matrix_sdk_test::async_test;
 
     #[async_test]
     async fn test_session_store() {

@@ -308,10 +308,8 @@ impl CryptoStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
-    use ruma::room_id;
-
-
     use matrix_sdk_test::async_test;
+    use ruma::room_id;
 
     use crate::{
         identities::device::test::get_device,

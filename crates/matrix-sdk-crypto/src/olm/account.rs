@@ -1157,7 +1157,6 @@ impl PartialEq for ReadOnlyAccount {
 mod test {
     use std::{collections::BTreeSet, ops::Deref};
 
-
     use matrix_sdk_test::async_test;
     use ruma::{device_id, identifiers::DeviceId, user_id, DeviceKeyId, UserId};
 

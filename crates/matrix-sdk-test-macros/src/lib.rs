@@ -1,13 +1,11 @@
 use proc_macro::TokenStream;
-use quote::ToTokens;
-use syn::parse_macro_input;
-use quote::{quote, format_ident};
-use syn;
+use quote::{format_ident, quote, ToTokens};
+use syn::{self, parse_macro_input};
 
 /// Attribute to use `wasm_bindgen_test` for wasm32 targets and `tokio::test`
 /// for everything else with async-support and custom result-tyupes
 #[proc_macro_attribute]
-pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
+pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fun = parse_macro_input!(item as syn::ItemFn);
     // on the regular return-case, we can just use cfg_attr and quit early
     if fun.sig.output == syn::ReturnType::Default {
@@ -17,9 +15,9 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
         "#;
 
         let mut out: TokenStream = attrs.parse().expect("Static works");
-        let inner : TokenStream = fun.into_token_stream().into();
+        let inner: TokenStream = fun.into_token_stream().into();
         out.extend(inner);
-        return out
+        return out;
     }
 
     // on the more complicated case, where we have some `->`-Result-Arrow
@@ -37,25 +35,25 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
 
     let mut outer = fun.clone();
     let fn_name = fun.sig.ident.clone();
-    let fn_call : TokenStream = if fun.sig.asyncness.is_some() {
-        quote!{
+    let fn_call: TokenStream = if fun.sig.asyncness.is_some() {
+        quote! {
             {
                 assert!(#fn_name().await.is_ok());
             }
         }
     } else {
-        quote!{
+        quote! {
             {
                 assert!(#fn_name().is_ok());
             }
         }
-    }.into();
+    }
+    .into();
     outer.sig.output = syn::ReturnType::Default;
     outer.sig.ident = format_ident!("{}_outer", fun.sig.ident);
     outer.block = Box::new(parse_macro_input!(fn_call as syn::Block));
 
-
-    let inner : TokenStream = fun.into_token_stream().into();
+    let inner: TokenStream = fun.into_token_stream().into();
     out.extend(inner);
 
     let attrs = r#"
@@ -63,7 +61,7 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream  {
         #[wasm_bindgen_test::wasm_bindgen_test]
     "#;
     let outer_attrs: TokenStream = attrs.parse().expect("Static works.");
-    let of : TokenStream = outer.into_token_stream().into();
+    let of: TokenStream = outer.into_token_stream().into();
     out.extend(outer_attrs);
     out.extend(of);
 

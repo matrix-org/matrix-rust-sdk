@@ -337,7 +337,6 @@ mod test {
 
     use dashmap::DashMap;
     use matrix_sdk_common::locks::Mutex;
-
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::r0::keys::claim_keys::Response as KeyClaimResponse, device_id, user_id,

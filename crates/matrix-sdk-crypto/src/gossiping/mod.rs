@@ -88,8 +88,13 @@ pub enum SecretInfo {
 impl SecretInfo {
     pub(crate) fn as_key(&self) -> String {
         match &self {
-            SecretInfo::KeyRequest(ref info) => format!("keyRequest:{:}:{:}:{:}:{:}",
-                info.room_id.as_str(), info.sender_key, info.session_id, &info.algorithm),
+            SecretInfo::KeyRequest(ref info) => format!(
+                "keyRequest:{:}:{:}:{:}:{:}",
+                info.room_id.as_str(),
+                info.sender_key,
+                info.session_id,
+                &info.algorithm
+            ),
             SecretInfo::SecretRequest(ref sname) => format!("secretName:{:}", sname),
         }
     }

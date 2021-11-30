@@ -60,10 +60,10 @@ where
 #[cfg(test)]
 pub(crate) mod test {
 
-    use matrix_sdk_test::async_test;
     use std::{collections::BTreeMap, convert::TryInto};
 
     use matches::assert_matches;
+    use matrix_sdk_test::async_test;
     use olm_rs::session::OlmMessage;
     use ruma::{
         device_id,
@@ -250,7 +250,8 @@ pub(crate) mod test {
             room_id,
             outbound.session_key().await,
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(0, inbound.first_known_index());
 
