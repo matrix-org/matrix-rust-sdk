@@ -159,7 +159,7 @@ impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_arch = "wasm32")))]
 mod test {
     use std::{sync::Arc, time::Duration};
 
@@ -200,6 +200,7 @@ mod test {
             .unwrap();
 
         assert!(!session.expired());
+        // FIXME: this might break on macosx and windows
         session.creation_time = Arc::new(Instant::now() - Duration::from_secs(60 * 60));
         assert!(session.expired());
 
