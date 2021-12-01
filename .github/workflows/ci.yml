@@ -95,7 +95,7 @@ jobs:
         name:
           - matrix-qrcode
           - matrix-sdk
-          - matrix-sdk-base
+          - matrix-sdk-base (no-default, wasm-flags)
           - matrix-sdk-common
           - matrix-sdk-crypto
           - matrix-sdk-base / indexeddb_state_store
@@ -104,8 +104,8 @@ jobs:
         include:
           - name: matrix-qrcode
             cargo_args: --package matrix-qrcode
-          - name: matrix-sdk
-            cargo_args: --package matrix-sdk
+          - name: matrix-sdk-base (no-default, wasm-flags)
+            cargo_args: --no-default-features --features qrcode,encryption,indexeddb_stores,rustls-tls --package matrix-sdk
           - name: matrix-sdk-base
             cargo_args: --package matrix-sdk-base
           - name: matrix-sdk-common

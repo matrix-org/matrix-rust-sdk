@@ -16,7 +16,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::{TryFrom, TryInto},
+    convert::TryFrom,
     sync::{Arc, RwLock},
 };
 
@@ -25,10 +25,8 @@ use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
-    events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
     DeviceId, RoomId, UserId,
 };
-use tracing::trace;
 use uuid::Uuid;
 use wasm_bindgen::JsValue;
 
@@ -39,7 +37,7 @@ use super::{
 use crate::{
     gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
+    olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
 };
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
@@ -157,10 +155,12 @@ impl IndexeddbStore {
         })
     }
 
+    /// Open a new IndexeddbStore with default name and no passphrase
     pub async fn open() -> Result<Self> {
         IndexeddbStore::open_helper("crypto".to_owned(), None).await
     }
 
+    /// Open a new IndexeddbStore with given name and passphrase
     pub async fn open_with_passphrase(prefix: String, passphrase: &str) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto-meta", prefix);
 
@@ -205,6 +205,7 @@ impl IndexeddbStore {
         IndexeddbStore::open_helper(prefix, Some(pickle_key)).await
     }
 
+    /// Open a new IndexeddbStore with given name and no passphrase
     pub async fn open_with_name(name: String) -> Result<Self> {
         IndexeddbStore::open_helper(name, None).await
     }

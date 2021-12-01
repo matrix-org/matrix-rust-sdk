@@ -245,6 +245,7 @@
 //! [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
 //! [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
 
+#![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub mod identities;
 pub mod verification;
 use std::{
