@@ -1226,7 +1226,7 @@ impl BaseClient {
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # block_on(async {
-    /// # let client = BaseClient::new().unwrap();
+    /// # let client = BaseClient::new().await.unwrap();
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await;
     ///
     /// println!("{:?}", device);
