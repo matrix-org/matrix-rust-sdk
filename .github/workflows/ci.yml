@@ -95,7 +95,6 @@ jobs:
         name:
           - matrix-qrcode
           - matrix-sdk
-          - matrix-sdk-appservice
           - matrix-sdk-base
           - matrix-sdk-common
           - matrix-sdk-crypto
@@ -105,8 +104,6 @@ jobs:
         include:
           - name: matrix-qrcode
             cargo_args: --package matrix-qrcode
-          - name: matrix-sdk-appservice
-            cargo_args: --package matrix-sdk-appservice
           - name: matrix-sdk
             cargo_args: --package matrix-sdk
           - name: matrix-sdk-base
