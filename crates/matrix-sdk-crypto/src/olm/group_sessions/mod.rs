@@ -159,7 +159,6 @@ impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
     }
 }
 
-#[cfg(target_os = "linux")]
 #[cfg(test)]
 mod test {
     use std::{sync::Arc, time::Duration};
