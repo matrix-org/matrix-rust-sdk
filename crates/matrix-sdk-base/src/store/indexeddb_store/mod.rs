@@ -508,7 +508,7 @@ impl IndexeddbStore {
                             if let Some((old_event, _)) = room_user_receipts
                                 .get(&key)?
                                 .await?
-                                .map(|f| self.deserialize_event::<(EventId, Receipt)>(f).ok())
+                                .map(|f| self.deserialize_event::<(Box<EventId>, Receipt)>(f).ok())
                                 .flatten()
                             {
                                 room_event_receipts.delete(&JsValue::from_str(&format!(
@@ -625,33 +625,27 @@ impl IndexeddbStore {
     pub async fn get_user_ids_stream(
         &self,
         room_id: &RoomId,
-    ) -> Result<impl Stream<Item = Result<UserId>>> {
+    ) -> Result<Vec<Box<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
         let skip = room_id.as_str().len() + 1;
-        let entries = self
+        Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
             .get_all_keys_with_key(&range)?
             .await?
             .iter()
-            .map(|key| {
-                if let Some(k) = key.as_string() {
-                    UserId::try_from(k[skip..].to_owned())
-                        .map_err(|e| StoreError::Codec(e.to_string()))
-                } else {
-                    Err(StoreError::Codec(format!("{:?}", key)))
-                }
+            .filter_map(|key| match key.as_string() {
+                Some(k) => Box::<UserId>::try_from(&k[skip..]).ok(),
+                _ => None
             })
-            .collect::<Vec<_>>();
-
-        Ok(stream::iter(entries))
+            .collect::<Vec<_>>())
     }
 
     pub async fn get_invited_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> Result<impl Stream<Item = Result<UserId>>> {
+    ) -> Result<Vec<Box<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
         let entries = self
             .inner
@@ -660,31 +654,29 @@ impl IndexeddbStore {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .filter_map(|f| self.deserialize_event::<Box<UserId>>(f).ok())
             .collect::<Vec<_>>();
 
-        Ok(stream::iter(entries))
+        Ok(entries)
     }
 
     pub async fn get_joined_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> Result<impl Stream<Item = Result<UserId>>> {
+    ) -> Result<Vec<Box<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
-        let entries = self
+        Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::JOINED_USER_IDS)?
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
-            .collect::<Vec<_>>();
-
-        Ok(stream::iter(entries))
+            .filter_map(|f| self.deserialize_event::<Box<UserId>>(f).ok())
+            .collect::<Vec<_>>())
     }
 
-    pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
+    pub async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let entries: Vec<_> = self
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_INFOS, IdbTransactionMode::Readonly)?
@@ -692,13 +684,13 @@ impl IndexeddbStore {
             .get_all()?
             .await?
             .iter()
-            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .filter_map(|f| self.deserialize_event::<RoomInfo>(f).ok())
             .collect();
 
-        Ok(stream::iter(entries))
+        Ok(entries)
     }
 
-    pub async fn get_stripped_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
+    pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let entries = self
             .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_ROOM_INFO, IdbTransactionMode::Readonly)?
@@ -706,17 +698,17 @@ impl IndexeddbStore {
             .get_all()?
             .await?
             .iter()
-            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .filter_map(|f| self.deserialize_event(f).ok())
             .collect::<Vec<_>>();
 
-        Ok(stream::iter(entries))
+        Ok(entries)
     }
 
     pub async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<UserId>> {
+    ) -> Result<BTreeSet<Box<UserId>>> {
         let range = make_range(format!("{}:{}", room_id.as_str(), display_name))?;
         Ok(self
             .inner
@@ -725,7 +717,7 @@ impl IndexeddbStore {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event::<UserId>(f).ok())
+            .filter_map(|f| self.deserialize_event::<Box<UserId>>(f).ok())
             .collect::<BTreeSet<_>>())
     }
 
@@ -763,7 +755,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(EventId, Receipt)>> {
+    ) -> Result<Option<(Box<EventId>, Receipt)>> {
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_USER_RECEIPTS, IdbTransactionMode::Readonly)?
@@ -784,7 +776,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(UserId, Receipt)>> {
+    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
         let key = format!("{}:{}:{}", room_id.as_str(), receipt_type.as_ref(), event_id.as_str());
         let prefix_len = key.len() + 1;
         let range = make_range(key)?;
@@ -800,8 +792,8 @@ impl IndexeddbStore {
             let res =
                 store.get(&k)?.await?.ok_or(StoreError::Codec(format!("no data at {:?}", k)))?;
             let u = if let Some(k_str) = k.as_string() {
-                UserId::try_from(k_str[prefix_len..].to_owned())
-                    .map_err(|e| StoreError::Codec(e.to_string()))?
+                Box::<UserId>::try_from(&k_str[prefix_len..])
+                    .map_err(|e| StoreError::Codec(format!("{:?}", e)))?
             } else {
                 return Err(StoreError::Codec(format!("{:?}", k)));
             };
@@ -961,31 +953,31 @@ impl StateStore for IndexeddbStore {
         self.get_member_event(room_id, state_key).await
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
-        self.get_user_ids_stream(room_id).await?.try_collect().await
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+        self.get_user_ids_stream(room_id).await
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
-        self.get_invited_user_ids(room_id).await?.try_collect().await
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+        self.get_invited_user_ids(room_id).await
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
-        self.get_joined_user_ids(room_id).await?.try_collect().await
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+        self.get_joined_user_ids(room_id).await
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        self.get_room_infos().await?.try_collect().await
+        self.get_room_infos().await
     }
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        self.get_stripped_room_infos().await?.try_collect().await
+        self.get_stripped_room_infos().await
     }
 
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<UserId>> {
+    ) -> Result<BTreeSet<Box<UserId>>> {
         self.get_users_with_display_name(room_id, display_name).await
     }
 
@@ -1009,7 +1001,7 @@ impl StateStore for IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(EventId, Receipt)>> {
+    ) -> Result<Option<(Box<EventId>, Receipt)>> {
         self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
     }
 
@@ -1018,7 +1010,7 @@ impl StateStore for IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(UserId, Receipt)>> {
+    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
     }
 
@@ -1054,254 +1046,11 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use std::convert::TryFrom;
+    use super::{IndexeddbStore, Result};
 
-    use matrix_sdk_test::async_test;
-    use ruma::{
-        api::client::r0::media::get_content_thumbnail::Method,
-        event_id,
-        events::{
-            room::{
-                member::{MembershipState, RoomMemberEventContent},
-                power_levels::RoomPowerLevelsEventContent,
-            },
-            AnySyncStateEvent, EventType, Unsigned,
-        },
-        mxc_uri,
-        receipt::ReceiptType,
-        room_id,
-        serde::Raw,
-        uint, user_id, EventId, MilliSecondsSinceUnixEpoch, UserId,
-    };
-    use serde_json::json;
-
-    use super::{IndexeddbStore, StateChanges};
-    use crate::{
-        deserialized_responses::MemberEvent,
-        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
-        store::StateStore,
-    };
-
-    fn user_id() -> UserId {
-        user_id!("@example:localhost")
+    async fn get_store() -> Result<IndexeddbStore> {
+        IndexeddbStore::open().await
     }
 
-    fn power_level_event() -> Raw<AnySyncStateEvent> {
-        let content = RoomPowerLevelsEventContent::default();
-
-        let event = json!({
-            "event_id": EventId::try_from("$h29iv0s8:example.com").unwrap(),
-            "content": content,
-            "sender": user_id(),
-            "type": "m.room.power_levels",
-            "origin_server_ts": 0u64,
-            "state_key": "",
-            "unsigned": Unsigned::default(),
-        });
-
-        serde_json::from_value(event).unwrap()
-    }
-
-    fn membership_event() -> MemberEvent {
-        MemberEvent {
-            event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
-            content: RoomMemberEventContent::new(MembershipState::Join),
-            sender: user_id(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
-            state_key: user_id(),
-            prev_content: None,
-            unsigned: Unsigned::default(),
-        }
-    }
-
-    #[async_test]
-    async fn test_member_saving() {
-        let store = IndexeddbStore::open().await.unwrap();
-        let room_id = room_id!("!test:localhost");
-        let user_id = user_id();
-
-        assert!(store.get_member_event(&room_id, &user_id).await.unwrap().is_none());
-        let mut changes = StateChanges::default();
-        changes
-            .members
-            .entry(room_id.clone())
-            .or_default()
-            .insert(user_id.clone(), membership_event());
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store.get_member_event(&room_id, &user_id).await.unwrap().is_some());
-
-        let members = store.get_user_ids(&room_id).await.unwrap();
-        assert!(!members.is_empty())
-    }
-
-    #[async_test]
-    async fn test_power_level_saving() {
-        let store = IndexeddbStore::open().await.unwrap();
-        let room_id = room_id!("!test:localhost");
-
-        let raw_event = power_level_event();
-        let event = raw_event.deserialize().unwrap();
-
-        assert!(store
-            .get_state_event(&room_id, EventType::RoomPowerLevels, "")
-            .await
-            .unwrap()
-            .is_none());
-        let mut changes = StateChanges::default();
-        changes.add_state_event(&room_id, event, raw_event);
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store
-            .get_state_event(&room_id, EventType::RoomPowerLevels, "")
-            .await
-            .unwrap()
-            .is_some());
-    }
-
-    #[async_test]
-    async fn test_receipts_saving() {
-        let store = IndexeddbStore::open().await.unwrap();
-
-        let room_id = room_id!("!test:localhost");
-
-        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
-        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
-
-        let first_receipt_event = serde_json::from_value(json!({
-            first_event_id.clone(): {
-                "m.read": {
-                    user_id(): {
-                        "ts": 1436451550453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
-
-        let second_receipt_event = serde_json::from_value(json!({
-            second_event_id.clone(): {
-                "m.read": {
-                    user_id(): {
-                        "ts": 1436451551453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
-
-        assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
-            .await
-            .unwrap()
-            .is_none());
-        assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-        assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-
-        let mut changes = StateChanges::default();
-        changes.add_receipts(&room_id, first_receipt_event);
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
-            .await
-            .unwrap()
-            .is_some(),);
-        assert_eq!(
-            store
-                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-
-        let mut changes = StateChanges::default();
-        changes.add_receipts(&room_id, second_receipt_event);
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
-            .await
-            .unwrap()
-            .is_some());
-        assert!(store
-            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-        assert_eq!(
-            store
-                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-    }
-
-    #[async_test]
-    async fn test_media_content() {
-        let store = IndexeddbStore::open().await.unwrap();
-
-        let uri = mxc_uri!("mxc://localhost/media");
-        let content: Vec<u8> = "somebinarydata".into();
-
-        let request_file =
-            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
-
-        let request_thumbnail = MediaRequest {
-            media_type: MediaType::Uri(uri.clone()),
-            format: MediaFormat::Thumbnail(MediaThumbnailSize {
-                method: Method::Crop,
-                width: uint!(100),
-                height: uint!(100),
-            }),
-        };
-
-        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
-
-        store.add_media_content(&request_file, content.clone()).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
-
-        store.remove_media_content(&request_file).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-
-        store.add_media_content(&request_file, content.clone()).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
-
-        store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
-        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
-
-        store.remove_media_content_for_uri(&uri).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
-    }
-
-    #[async_test]
-    async fn test_custom_storage() {
-        let key = "my_key";
-        let value = &[0, 1, 2, 3];
-        let store = IndexeddbStore::open().await.unwrap();
-
-        store.set_custom_value(key.as_bytes(), value.to_vec()).await.unwrap();
-
-        let read = store.get_custom_value(key.as_bytes()).await.unwrap();
-
-        assert_eq!(Some(value.as_ref()), read.as_deref());
-    }
+    statestore_integration_tests! { integration }
 }

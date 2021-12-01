@@ -20,6 +20,10 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(test)]
+#[macro_use]
+pub mod integration_tests;
+
 use dashmap::DashMap;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use ruma::{
