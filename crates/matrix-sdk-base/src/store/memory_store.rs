@@ -111,7 +111,6 @@ impl MemoryStore {
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        #[cfg(not(target_arch = "wasm32"))]
         let now = Instant::now();
 
         if let Some(s) = &changes.sync_token {
@@ -275,7 +274,6 @@ impl MemoryStore {
             }
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
         info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
