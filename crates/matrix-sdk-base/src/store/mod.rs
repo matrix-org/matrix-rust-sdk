@@ -88,7 +88,7 @@ pub enum StoreError {
     },
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
-    Json(serde_json::Error),
+    Json(#[from] serde_json::Error),
     /// An error happened while deserializing a Matrix identifier, e.g. an user
     /// id.
     #[error(transparent)]
@@ -116,12 +116,6 @@ pub enum StoreError {
 impl From<indexed_db_futures::web_sys::DomException> for StoreError {
     fn from(frm: indexed_db_futures::web_sys::DomException) -> StoreError {
         StoreError::Indexeddb { name: frm.name(), message: frm.message(), code: frm.code() }
-    }
-}
-
-impl From<serde_json::Error> for StoreError {
-    fn from(frm: serde_json::Error) -> StoreError {
-        StoreError::Json(frm)
     }
 }
 

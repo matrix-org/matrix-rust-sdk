@@ -16,8 +16,6 @@
 use core::convert::{TryFrom, TryInto};
 use std::collections::BTreeSet;
 
-use futures_core::stream::Stream;
-use futures_util::stream::{self, TryStreamExt};
 use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
 use matrix_sdk_common::async_trait;
 use ruma::{
@@ -170,7 +168,7 @@ impl IndexeddbStore {
 
         Ok(Self { name, inner: db, store_key })
     }
-
+    #[allow(dead_code)]
     pub async fn open() -> Result<Self> {
         IndexeddbStore::open_helper("state".to_owned(), None).await
     }
@@ -1032,8 +1030,6 @@ impl StateStore for IndexeddbStore {
 
 #[cfg(test)]
 mod test {
-    #[cfg(target_arch = "wasm32")]
-    use wasm_bindgen_test::wasm_bindgen_test;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
