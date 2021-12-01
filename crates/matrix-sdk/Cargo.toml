@@ -24,13 +24,12 @@ default = [
     "native-tls"
 ]
 
-indexeddb_store = ["matrix-sdk-base/indexeddb_state_store"]
+indexeddb_stores = ["matrix-sdk-base/indexeddb_state_store", "matrix-sdk-base/indexeddb_cryptostore"]
 encryption = ["matrix-sdk-base/encryption"]
 qrcode = ["encryption", "matrix-sdk-base/qrcode"]
 # TODO merge those two sled features
 sled_state_store = ["matrix-sdk-base/sled_state_store"]
 sled_cryptostore = ["matrix-sdk-base/sled_cryptostore"]
-#indexeddb_cryptostore = ["matrix-sdk-base/indexeddb_cryptostore"]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
