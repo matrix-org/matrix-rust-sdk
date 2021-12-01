@@ -85,7 +85,6 @@ jobs:
 
   check-wasm:
     name: checking WASM builds
-    needs: [clippy]
     runs-on: ubuntu-latest
 
     strategy:
@@ -153,13 +152,36 @@ jobs:
         args: --target wasm32-unknown-unknown ${{ matrix.cargo_args }}
 
   test-wasm:
-    name: testing WASM
+    # building wasm is not enough, we've seen runtime errors before,
+    # hence the tests
+    name: ${{ matrix.name }} WASM test
     needs: [check-wasm]
     runs-on: ubuntu-latest
 
     # FIXME: enforce when libolm-wasm32-support is fixed:
     # https://github.com/matrix-org/olm/issues/70
     continue-on-error: true
+
+    strategy:
+      fail-fast: true
+
+      matrix:
+        name:
+          - matrix-sdk-example-wasm_command_bot
+          - matrix-sdk-base
+          - matrix-sdk-crypto
+          - matrix-sdk
+
+        include:
+          - name: matrix-sdk-crypto
+            cargo_args: --features indexeddb_cryptostore
+          - name: matrix-sdk-base
+            cargo_args: --features indexeddb_state_store,indexeddb_cryptostore
+          - name: matrix-sdk
+            cargo_args: --no-default-features --features indexeddb_stores
+          - name: matrix-sdk-example-wasm_command_bot
+            dir: matrix-sdk/examples/wasm_command_bot
+            cmd: npm install && npm test
 
     steps:
     - name: Checkout the repo
@@ -190,26 +212,13 @@ jobs:
     - name: Install wasm-pack
       run: cargo install wasm-pack
 
-    - name: Checking base
+    - name: Testing
       run: |
-        cd crates/matrix-sdk-base/
-        wasm-pack test --node --features indexeddb_state_store,indexeddb_cryptostore
-        wasm-pack test --firefox --headless -- --features indexeddb_state_store,indexeddb_cryptostore
-
-    - name: Checking cryptostore
-      run: |
-        cd crates/matrix-sdk-base/
-        wasm-pack test --node -- --features indexeddb_cryptostore
-        wasm-pack test --firefox --headless -- --features indexeddb_cryptostore
-
-    - name: Checking example
-      run: |
-        cd crates/matrix-sdk/examples/wasm_command_bot
-        npm install && npm test
+        cd crates/${{matrix.base_dir}}
+        ${{matrix.cmd || wasm-pack test --node -- ${{ matrix.cargo_args }}; wasm-pack test --firefox --headless -- --features ${{ matrix.cargo_args }} }}
 
   test-appservice:
     name: ${{ matrix.name }}
-    needs: [clippy]
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
@@ -270,7 +279,6 @@ jobs:
 
   test-features:
     name: ${{ matrix.name }}
-    needs: [clippy]
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
@@ -348,7 +356,6 @@ jobs:
 
   test:
     name: ${{ matrix.name }}
-    needs: [clippy]
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
