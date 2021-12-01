@@ -84,9 +84,81 @@ jobs:
         args: --all-targets --no-default-features --features native-tls,warp -- -D warnings
 
   check-wasm:
-    name: linux / WASM
+    name: checking WASM builds
     needs: [clippy]
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+
+      matrix:
+        name:
+          - matrix-qrcode
+          - matrix-sdk
+          - matrix-sdk-appservice
+          - matrix-sdk-base
+          - matrix-sdk-common
+          - matrix-sdk-crypto
+          - matrix-sdk-base / indexeddb_state_store
+          - matrix-sdk-crypto / indexeddb_cryptostore
+
+        include:
+          - name: matrix-qrcode
+            cargo_args: --package matrix-qrcode
+          - name: matrix-sdk-appservice
+            cargo_args: --package matrix-sdk-appservice
+          - name: matrix-sdk
+            cargo_args: --package matrix-sdk
+          - name: matrix-sdk-base
+            cargo_args: --package matrix-sdk-base
+          - name: matrix-sdk-common
+            cargo_args: --package matrix-sdk-common
+          - name: matrix-sdk-crypto
+            cargo_args: --package matrix-sdk-crypto
+
+          # special check for specific features
+          - name: matrix-sdk-base / indexeddb_state_store
+            cargo_args: --package matrix-sdk-base --features indexeddb_state_store
+          - name: matrix-sdk-crypto / indexeddb_cryptostore
+            cargo_args: --package matrix-sdk-crypto --features indexeddb_cryptostore
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Load cache
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-unknown-unknown
+        profile: minimal
+        override: true
+
+    - name: check
+      uses: actions-rs/cargo@v1
+      with:
+        command: check
+        args: --target wasm32-unknown-unknown ${{ matrix.cargo_args }}
+
+  test-wasm:
+    name: testing WASM
+    needs: [check-wasm]
+    runs-on: ubuntu-latest
+
+    # FIXME: enforce when libolm-wasm32-support is fixed:
+    # https://github.com/matrix-org/olm/issues/70
+    continue-on-error: true
 
     steps:
     - name: Checkout the repo
