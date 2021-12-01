@@ -233,7 +233,26 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     Ok(String::from_utf8(ciphertext.to_owned())?)
 }
 
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
+mod proptests {
+    use proptest::prelude::*;
+    use super::{decrypt_helper, encrypt_helper};
+
+    proptest! {
+        #[test]
+        fn proptest_encrypt_cycle(plaintext in prop::string::string_regex(".*").unwrap()) {
+            let mut plaintext_bytes = plaintext.clone().into_bytes();
+
+            let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
+            let decrypted = decrypt_helper(&ciphertext, "test").unwrap();
+
+            prop_assert!(plaintext == decrypted);
+        }
+    }
+}
+
+#[cfg(test)]
 mod test {
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -242,7 +261,6 @@ mod test {
 
     use indoc::indoc;
     use matrix_sdk_test::async_test;
-    use proptest::prelude::*;
     use ruma::room_id;
 
     use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
@@ -275,18 +293,6 @@ mod test {
     fn test_decode() {
         let export = export_without_headers();
         assert!(decode(export).is_ok());
-    }
-
-    proptest! {
-        #[test]
-        fn proptest_encrypt_cycle(plaintext in prop::string::string_regex(".*").unwrap()) {
-            let mut plaintext_bytes = plaintext.clone().into_bytes();
-
-            let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
-            let decrypted = decrypt_helper(&ciphertext, "test").unwrap();
-
-            prop_assert!(plaintext == decrypted);
-        }
     }
 
     #[test]
