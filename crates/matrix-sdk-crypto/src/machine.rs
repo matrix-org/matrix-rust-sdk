@@ -666,6 +666,7 @@ impl OlmMachine {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) async fn create_inbound_session(
         &self,
         room_id: &RoomId,

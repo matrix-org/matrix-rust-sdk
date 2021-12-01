@@ -14,7 +14,7 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
-#![allow(
+#![deny(
     missing_debug_implementations,
     dead_code,
     missing_docs,

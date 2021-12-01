@@ -86,6 +86,7 @@ pub enum SecretInfo {
 }
 
 impl SecretInfo {
+    #[allow(dead_code)]
     pub(crate) fn as_key(&self) -> String {
         match &self {
             SecretInfo::KeyRequest(ref info) => format!(
