@@ -213,9 +213,17 @@ jobs:
       run: cargo install wasm-pack
 
     - name: Testing
+      if: ${{matrix.cmd}}
       run: |
         cd crates/${{matrix.base_dir}}
-        ${{matrix.cmd || wasm-pack test --node -- ${{ matrix.cargo_args }}; wasm-pack test --firefox --headless -- --features ${{ matrix.cargo_args }} }}
+        ${{matrix.cmd}}
+
+    - name: Testing
+      if: ${{!matrix.cmd}}
+      run: |
+        cd crates/${{matrix.base_dir}}
+        wasm-pack test --node -- ${{ matrix.cargo_args }}
+        wasm-pack test --firefox --headless -- --features ${{ matrix.cargo_args }}
 
   test-appservice:
     name: ${{ matrix.name }}
