@@ -622,10 +622,7 @@ impl IndexeddbStore {
             .transpose()?)
     }
 
-    pub async fn get_user_ids_stream(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<Box<UserId>>> {
+    pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
         let skip = room_id.as_str().len() + 1;
         Ok(self
@@ -637,15 +634,12 @@ impl IndexeddbStore {
             .iter()
             .filter_map(|key| match key.as_string() {
                 Some(k) => Box::<UserId>::try_from(&k[skip..]).ok(),
-                _ => None
+                _ => None,
             })
             .collect::<Vec<_>>())
     }
 
-    pub async fn get_invited_user_ids(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<Box<UserId>>> {
+    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
         let entries = self
             .inner
@@ -660,10 +654,7 @@ impl IndexeddbStore {
         Ok(entries)
     }
 
-    pub async fn get_joined_user_ids(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<Box<UserId>>> {
+    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
         let range = make_range(room_id.as_str().to_owned())?;
         Ok(self
             .inner

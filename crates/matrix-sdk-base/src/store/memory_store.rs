@@ -593,7 +593,7 @@ impl StateStore for MemoryStore {
 #[cfg(test)]
 mod test {
 
-    use super::{MemoryStore, StateStore, Result};
+    use super::{MemoryStore, Result, StateStore};
 
     async fn get_store() -> Result<impl StateStore> {
         Ok(MemoryStore::new())

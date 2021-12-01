@@ -990,7 +990,7 @@ impl StateStore for SledStore {
 #[cfg(test)]
 mod test {
 
-    use super::{SledStore, Result};
+    use super::{Result, SledStore};
 
     async fn get_store() -> Result<SledStore> {
         SledStore::open()
