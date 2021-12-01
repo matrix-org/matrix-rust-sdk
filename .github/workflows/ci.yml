@@ -155,7 +155,6 @@ jobs:
     # building wasm is not enough, we've seen runtime errors before,
     # hence the tests
     name: ${{ matrix.name }} WASM test
-    needs: [check-wasm]
     runs-on: ubuntu-latest
 
     # FIXME: enforce when libolm-wasm32-support is fixed:
