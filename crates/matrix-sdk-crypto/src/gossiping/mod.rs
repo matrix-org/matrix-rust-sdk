@@ -87,7 +87,8 @@ pub enum SecretInfo {
 
 impl SecretInfo {
     #[allow(dead_code)]
-    /// Serialize `SecretInfo` into `String` for usage as database keys and comparision
+    /// Serialize `SecretInfo` into `String` for usage as database keys and
+    /// comparision
     pub(crate) fn as_key(&self) -> String {
         match &self {
             SecretInfo::KeyRequest(ref info) => format!(

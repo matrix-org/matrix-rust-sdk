@@ -233,10 +233,10 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     Ok(String::from_utf8(ciphertext.to_owned())?)
 }
 
-
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod proptests {
     use proptest::prelude::*;
+
     use super::{decrypt_helper, encrypt_helper};
 
     proptest! {

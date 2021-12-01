@@ -24,9 +24,7 @@ use dashmap::DashSet;
 use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
-use ruma::{
-    DeviceId, RoomId, UserId,
-};
+use ruma::{DeviceId, RoomId, UserId};
 use uuid::Uuid;
 use wasm_bindgen::JsValue;
 
