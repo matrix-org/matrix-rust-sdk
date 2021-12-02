@@ -173,13 +173,16 @@ jobs:
 
         include:
           - name: matrix-sdk-crypto
+            base_dir: matrix-sdk-crypto
             cargo_args: --features indexeddb_cryptostore
           - name: matrix-sdk-base
+            base_dir: matrix-sdk-base
             cargo_args: --features indexeddb_state_store,indexeddb_cryptostore
           - name: matrix-sdk
+            base_dir: matrix-sdk
             cargo_args: --no-default-features --features indexeddb_stores
           - name: matrix-sdk-example-wasm_command_bot
-            dir: matrix-sdk/examples/wasm_command_bot
+            base_dir: matrix-sdk/examples/wasm_command_bot
             cmd: npm install && npm test
 
     steps:
@@ -211,18 +214,18 @@ jobs:
     - name: Install wasm-pack
       run: cargo install wasm-pack
 
-    - name: Testing
-      if: ${{matrix.cmd}}
-      run: |
-        cd crates/${{matrix.base_dir}}
-        ${{matrix.cmd}}
-
-    - name: Testing
+    - name: Default wasm-pack tests
       if: ${{!matrix.cmd}}
       run: |
         cd crates/${{matrix.base_dir}}
         wasm-pack test --node -- ${{ matrix.cargo_args }}
         wasm-pack test --firefox --headless -- --features ${{ matrix.cargo_args }}
+
+    - name: Testing with custom command
+      if: ${{matrix.cmd}}
+      run: |
+        cd crates/${{matrix.base_dir}}
+        ${{matrix.cmd}}
 
   test-appservice:
     name: ${{ matrix.name }}
