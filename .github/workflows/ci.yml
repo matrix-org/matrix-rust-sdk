@@ -180,7 +180,8 @@ jobs:
             cargo_args: --features indexeddb_state_store,indexeddb_cryptostore
           - name: matrix-sdk
             base_dir: matrix-sdk
-            cargo_args: --no-default-features --features indexeddb_stores
+            # FIXME: we have to skip all examples b/c of https://github.com/rustwasm/wasm-pack/issues/666
+            cargo_args:  --no-default-features --features indexeddb_stores,rustls-tls --lib
           - name: matrix-sdk-example-wasm_command_bot
             base_dir: matrix-sdk/examples/wasm_command_bot
             cmd: npm install && npm test

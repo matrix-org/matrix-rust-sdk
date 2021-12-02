@@ -2339,9 +2339,13 @@ impl Client {
         })
     }
 }
-
-#[cfg(test)]
+// mockito (the http mocking library) is not supported for wasm32
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod test {
+    use matrix_sdk_test::async_test;
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
     use std::{
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
@@ -2405,7 +2409,7 @@ pub(crate) mod test {
         client
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn set_homeserver() {
         let homeserver = Url::from_str("http://example.com/").unwrap();
 
@@ -2418,7 +2422,7 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await, homeserver);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn successful_discovery() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2440,7 +2444,7 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn discovery_broken_server() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2460,7 +2464,7 @@ pub(crate) mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
@@ -2493,7 +2497,7 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await, homeserver);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_with_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
@@ -2513,7 +2517,7 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await.as_str(), "https://example.org/");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_no_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
@@ -2534,7 +2538,7 @@ pub(crate) mod test {
     }
 
     #[cfg(feature = "sso_login")]
-    #[tokio::test]
+    #[async_test]
     async fn login_with_sso() {
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2571,7 +2575,7 @@ pub(crate) mod test {
         assert!(logged_in, "Client should be logged in");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_with_sso_token() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
@@ -2605,7 +2609,7 @@ pub(crate) mod test {
         assert!(logged_in, "Client should be logged in");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn devices() {
         let client = logged_in_client().await;
 
@@ -2617,7 +2621,7 @@ pub(crate) mod test {
         assert!(client.devices().await.is_ok());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_join_leave_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
@@ -2668,7 +2672,7 @@ pub(crate) mod test {
         assert!(room.is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn account_data() {
         let client = logged_in_client().await;
 
@@ -2686,7 +2690,7 @@ pub(crate) mod test {
         // assert_eq!(1, ignored_users.len())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_creation() {
         let client = logged_in_client().await;
 
@@ -2704,7 +2708,7 @@ pub(crate) mod test {
         assert!(room.is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
@@ -2734,7 +2738,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn register_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
@@ -2772,7 +2776,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn join_room_by_id() {
         let client = logged_in_client().await;
 
@@ -2792,7 +2796,7 @@ pub(crate) mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn join_room_by_id_or_alias() {
         let client = logged_in_client().await;
 
@@ -2816,7 +2820,7 @@ pub(crate) mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invite_user_by_id() {
         let client = logged_in_client().await;
 
@@ -2842,7 +2846,7 @@ pub(crate) mod test {
         room.invite_user_by_id(user).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invite_user_by_3pid() {
         let client = logged_in_client().await;
 
@@ -2878,7 +2882,7 @@ pub(crate) mod test {
         .unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_search_all() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
@@ -2893,7 +2897,7 @@ pub(crate) mod test {
         assert_eq!(chunk.len(), 1);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_search_filtered() {
         let client = logged_in_client().await;
 
@@ -2912,7 +2916,7 @@ pub(crate) mod test {
         assert_eq!(chunk.len(), 1);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn leave_room() {
         let client = logged_in_client().await;
 
@@ -2938,7 +2942,7 @@ pub(crate) mod test {
         room.leave().await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn ban_user() {
         let client = logged_in_client().await;
 
@@ -2965,7 +2969,7 @@ pub(crate) mod test {
         room.ban_user(user, None).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn kick_user() {
         let client = logged_in_client().await;
 
@@ -2992,7 +2996,7 @@ pub(crate) mod test {
         room.kick_user(user, None).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn forget_room() {
         let client = logged_in_client().await;
 
@@ -3018,7 +3022,7 @@ pub(crate) mod test {
         room.forget().await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn read_receipt() {
         let client = logged_in_client().await;
 
@@ -3045,7 +3049,7 @@ pub(crate) mod test {
         room.read_receipt(event_id).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn read_marker() {
         let client = logged_in_client().await;
 
@@ -3073,7 +3077,7 @@ pub(crate) mod test {
         room.read_marker(event_id, None).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn typing_notice() {
         let client = logged_in_client().await;
 
@@ -3099,7 +3103,7 @@ pub(crate) mod test {
         room.typing_notice(true).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_state_event_send() {
         use ruma::events::room::member::{MembershipState, RoomMemberEventContent};
 
@@ -3133,7 +3137,7 @@ pub(crate) mod test {
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_message_send() {
         use matrix_sdk_common::uuid::Uuid;
 
@@ -3164,7 +3168,7 @@ pub(crate) mod test {
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_attachment_send() {
         let client = logged_in_client().await;
 
@@ -3205,7 +3209,7 @@ pub(crate) mod test {
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_redact() {
         use matrix_sdk_common::uuid::Uuid;
 
@@ -3239,7 +3243,7 @@ pub(crate) mod test {
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn user_presence() {
         let client = logged_in_client().await;
 
@@ -3266,7 +3270,7 @@ pub(crate) mod test {
         // assert!(room.power_levels.is_some())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn calculate_room_names_from_summary() {
         let client = logged_in_client().await;
 
@@ -3283,7 +3287,7 @@ pub(crate) mod test {
         assert_eq!("example2", room.display_name().await.unwrap());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invited_rooms() {
         let client = logged_in_client().await;
 
@@ -3302,7 +3306,7 @@ pub(crate) mod test {
         assert!(client.get_invited_room(room_id!("!696r7674:example.com")).is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn left_rooms() {
         let client = logged_in_client().await;
 
@@ -3321,7 +3325,7 @@ pub(crate) mod test {
         assert!(client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).is_some())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sync() {
         let client = logged_in_client().await;
 
@@ -3340,7 +3344,7 @@ pub(crate) mod test {
         assert!(client.sync_token().await.is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_names() {
         let client = logged_in_client().await;
 
@@ -3373,7 +3377,7 @@ pub(crate) mod test {
         assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn delete_devices() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
@@ -3426,7 +3430,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn retry_limit_http_requests() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
@@ -3442,7 +3446,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn retry_timeout_http_requests() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         // Keep this timeout small so that the test doesn't take long
@@ -3462,7 +3466,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn no_retry_http_requests() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
@@ -3478,7 +3482,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn get_media_content() {
         let client = logged_in_client().await;
 
@@ -3502,7 +3506,7 @@ pub(crate) mod test {
         m.assert();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn get_media_file() {
         let client = logged_in_client().await;
 
@@ -3548,7 +3552,7 @@ pub(crate) mod test {
         m.assert();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn whoami() {
         let client = logged_in_client().await;
 
@@ -3563,7 +3567,7 @@ pub(crate) mod test {
         assert_eq!(client.whoami().await.unwrap().user_id, user_id);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_state_event_getting() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
