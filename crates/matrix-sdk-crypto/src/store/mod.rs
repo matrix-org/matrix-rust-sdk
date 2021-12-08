@@ -347,8 +347,8 @@ impl Store {
         let devices = self.inner.get_user_devices(user_id).await?;
 
         let own_identity =
-            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
-        let device_owner_identity = self.inner.get_user_identity(user_id).await.ok().flatten();
+            self.inner.get_user_identity(&self.user_id).await?.and_then(|i| i.own().cloned());
+        let device_owner_identity = self.inner.get_user_identity(user_id).await?;
 
         Ok(UserDevices {
             inner: devices,
@@ -364,7 +364,7 @@ impl Store {
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
         let own_identity =
-            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
+            self.inner.get_user_identity(&self.user_id).await?.and_then(|i| i.own().cloned());
         let device_owner_identity = self.inner.get_user_identity(user_id).await?;
 
         Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {

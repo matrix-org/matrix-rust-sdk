@@ -13,11 +13,18 @@ version = "0.4.1"
 
 [dependencies]
 async-trait = "0.1.50"
-ruma = { git = "https://github.com/ruma/ruma", rev = "6c4892664", features = ["client-api-c"] }
 serde = "1.0.126"
 
+[dependencies.ruma]
+git = "https://github.com/ruma/ruma/"
+rev = "fdbc4d6d1dd273c8a6ac95b329943ed8c68df70d"
+features = ["client-api-c"]
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-uuid = { version = "0.8.2", default-features = false, features = ["v4", "serde"] }
+uuid = { version = "0.8.2", default-features = false, features = [
+    "v4",
+    "serde",
+] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "1.7.1"
@@ -36,4 +43,8 @@ features = ["now"]
 async-lock = "2.4.0"
 futures-util = { version = "0.3.15", default-features = false, features = ["channel"] }
 wasm-bindgen-futures = "0.4.24"
-uuid = { version = "0.8.2", default-features = false, features = ["v4", "wasm-bindgen", "serde"] }
+uuid = { version = "0.8.2", default-features = false, features = [
+    "v4",
+    "wasm-bindgen",
+    "serde",
+] }
