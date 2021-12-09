@@ -17,7 +17,10 @@ use std::sync::Arc;
 use ruma::{
     events::{
         presence::PresenceEvent,
-        room::{member::RoomMemberEventContent, power_levels::SyncRoomPowerLevelsEvent},
+        room::{
+            member::{MembershipState, RoomMemberEventContent},
+            power_levels::SyncRoomPowerLevelsEvent,
+        },
     },
     MxcUri, UserId,
 };
@@ -105,5 +108,14 @@ impl RoomMember {
     /// the same name.
     pub fn name_ambiguous(&self) -> bool {
         self.display_name_ambiguous
+    }
+
+    /// Get the membership state of this member.
+    pub fn membership(&self) -> &MembershipState {
+        if let Some(p) = self.profile.as_ref() {
+            &p.membership
+        } else {
+            &self.event.content.membership
+        }
     }
 }
