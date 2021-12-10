@@ -1,16 +1,9 @@
-
-use web_sys::IdbKeyRange;
-use wasm_bindgen::JsValue;
+use ruma::{events::EventType, receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, UserId};
 use uuid::Uuid;
-
-use ruma::{
-    events::EventType,
-    receipt::ReceiptType,
-    EventId, MxcUri, RoomId, UserId, DeviceId,
-};
+use wasm_bindgen::JsValue;
+use web_sys::IdbKeyRange;
 
 /// Helpers for wasm32/browser environments
-///
 ///
 
 /// ASCII Group Separator, for elements in the keys
@@ -51,9 +44,7 @@ pub trait SafeEncode {
             &JsValue::from([&key, KEY_SEPARATOR].concat()),
             &JsValue::from([&key, RANGE_END].concat()),
         )
-        .map_err(|e| {
-            e.as_string().unwrap_or(format!("Creating key range failed"))
-        })
+        .map_err(|e| e.as_string().unwrap_or(format!("Creating key range failed")))
     }
 }
 
@@ -65,12 +56,7 @@ where
     B: SafeEncode + ?Sized,
 {
     fn as_encoded_string(&self) -> String {
-        [
-            &self.0.as_encoded_string(),
-            KEY_SEPARATOR,
-            &self.1.as_encoded_string(),
-        ]
-        .concat()
+        [&self.0.as_encoded_string(), KEY_SEPARATOR, &self.1.as_encoded_string()].concat()
     }
 }
 

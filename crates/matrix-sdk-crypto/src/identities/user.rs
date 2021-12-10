@@ -937,7 +937,6 @@ impl ReadOnlyOwnUserIdentity {
 
 #[cfg(test)]
 pub(crate) mod test {
-
     use std::{convert::TryFrom, sync::Arc};
 
     use matrix_sdk_common::locks::Mutex;

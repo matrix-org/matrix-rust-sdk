@@ -47,7 +47,6 @@ pub struct AccountInfo {
     identity_keys: Arc<IdentityKeys>,
 }
 
-
 #[allow(non_snake_case)]
 mod KEYS {
 
@@ -334,17 +333,15 @@ impl IndexeddbStore {
         if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
             let identities = tx.object_store(KEYS::IDENTITIES)?;
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-                identities.put_key_val(&identity.user_id().encode(), &JsValue::from_serde(&identity)?)?;
+                identities
+                    .put_key_val(&identity.user_id().encode(), &JsValue::from_serde(&identity)?)?;
             }
         }
 
         if !olm_hashes.is_empty() {
             let hashes = tx.object_store(KEYS::OLM_HASHES)?;
             for hash in &olm_hashes {
-                hashes.put_key_val(
-                    &(&hash.sender_key, &hash.hash).encode(),
-                    &JsValue::TRUE,
-                )?;
+                hashes.put_key_val(&(&hash.sender_key, &hash.hash).encode(), &JsValue::TRUE)?;
             }
         }
 
@@ -529,9 +526,8 @@ impl CryptoStore for IndexeddbStore {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
-            let range = sender_key
-                .encode_to_range()
-                .map_err(|e| CryptoStoreError::IndexedDatabase {
+            let range =
+                sender_key.encode_to_range().map_err(|e| CryptoStoreError::IndexedDatabase {
                     code: 0,
                     name: "IdbKeyRangeMakeError".to_owned(),
                     message: e,
@@ -718,13 +714,11 @@ impl CryptoStore for IndexeddbStore {
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
-        let range = user_id
-            .encode_to_range()
-            .map_err(|e| CryptoStoreError::IndexedDatabase {
-                code: 0,
-                name: "IdbKeyRangeMakeError".to_owned(),
-                message: e,
-            })?;
+        let range = user_id.encode_to_range().map_err(|e| CryptoStoreError::IndexedDatabase {
+            code: 0,
+            name: "IdbKeyRangeMakeError".to_owned(),
+            message: e,
+        })?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::DEVICES, IdbTransactionMode::Readonly)?

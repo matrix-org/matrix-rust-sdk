@@ -75,7 +75,7 @@ pub enum StoreError {
     #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Sled(#[from] sled::Error),
-    /// An error happened in the underlying sled database.
+    /// An error happened in the underlying Indexed Database.
     #[cfg(feature = "indexeddb_state_store")]
     #[error("IndexDB error: {name} ({code}): {message}")]
     Indexeddb {

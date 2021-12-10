@@ -497,7 +497,6 @@ impl IdentityManager {
 
 #[cfg(test)]
 pub(crate) mod test {
-
     use std::sync::Arc;
 
     use matrix_sdk_common::locks::Mutex;
