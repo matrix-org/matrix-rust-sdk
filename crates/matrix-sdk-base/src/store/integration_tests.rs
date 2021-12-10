@@ -19,7 +19,7 @@ macro_rules! statestore_integration_tests {
                     receipt::ReceiptType,
                     room_id,
                     serde::Raw,
-                    uint, user_id, MilliSecondsSinceUnixEpoch, UserId,
+                    uint, user_id, MilliSecondsSinceUnixEpoch, UserId, EventId,
                 };
                 use serde_json::json;
 
@@ -57,21 +57,26 @@ macro_rules! statestore_integration_tests {
                 }
 
                 fn membership_event() -> MemberEvent {
+                    custom_membership_event(user_id(), event_id!("$h29iv0s8:example.com").to_owned())
+                }
+
+                fn custom_membership_event(user_id: &UserId, event_id: Box<EventId>) -> MemberEvent {
                     MemberEvent {
-                        event_id: event_id!("$h29iv0s8:example.com").to_owned(),
+                        event_id,
                         content: RoomMemberEventContent::new(MembershipState::Join),
-                        sender: user_id().to_owned(),
+                        sender: user_id.to_owned(),
                         origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
-                        state_key: user_id().to_owned(),
+                        state_key: user_id.to_owned(),
                         prev_content: None,
                         unsigned: Unsigned::default(),
                     }
+
                 }
 
                 #[async_test]
                 async fn test_member_saving() {
                     let store = get_store().await.unwrap();
-                    let room_id = room_id!("!test:localhost");
+                    let room_id = room_id!("!test_member_saving:localhost");
                     let user_id = user_id();
 
                     assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
@@ -92,7 +97,7 @@ macro_rules! statestore_integration_tests {
                 #[async_test]
                 async fn test_power_level_saving() {
                     let store = get_store().await.unwrap();
-                    let room_id = room_id!("!test:localhost");
+                    let room_id = room_id!("!test_power_level_saving:localhost");
 
                     let raw_event = power_level_event();
                     let event = raw_event.deserialize().unwrap();
@@ -117,7 +122,7 @@ macro_rules! statestore_integration_tests {
                 async fn test_receipts_saving() {
                     let store = get_store().await.unwrap();
 
-                    let room_id = room_id!("!test:localhost");
+                    let room_id = room_id!("!test_receipts_saving:localhost");
 
                     let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org").to_owned();
                     let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org").to_owned();

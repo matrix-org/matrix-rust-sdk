@@ -47,6 +47,7 @@ pub struct AccountInfo {
     identity_keys: Arc<IdentityKeys>,
 }
 
+
 #[allow(non_snake_case)]
 mod KEYS {
 
