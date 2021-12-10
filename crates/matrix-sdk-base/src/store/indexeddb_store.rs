@@ -14,8 +14,8 @@
 
 use std::collections::BTreeSet;
 
-use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
-use matrix_sdk_common::async_trait;
+use indexed_db_futures::prelude::*;
+use matrix_sdk_common::{async_trait, SafeEncode};
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -98,137 +98,6 @@ impl From<SerializationError> for StoreError {
                 store_key::Error::Encryption(e) => StoreError::Encryption(e),
             },
         }
-    }
-}
-
-// ASCII Group Separator, for elements in the keys
-const KEY_SEPARATOR: &'static str = "\u{001D}";
-// ASCII Record Separator is sure smaller than the Key Separator but smaller
-// than regular characters
-const RANGE_END: &'static str = "\u{001E}";
-// Using the literal escape character to escape KEY_SEPARATOR in regular keys
-// (though super unlikely)
-const ESCAPED: &'static str = "\u{001E}\u{001D}";
-
-trait EncodeAsKey {
-    fn as_encoded_string(&self) -> String;
-
-    fn encode(&self) -> JsValue {
-        JsValue::from(self.as_encoded_string())
-    }
-
-    fn encode_to_range(&self) -> Result<IdbKeyRange, StoreError> {
-        let key = self.as_encoded_string();
-        IdbKeyRange::bound(
-            &JsValue::from([&key, KEY_SEPARATOR].concat()),
-            &JsValue::from([&key, RANGE_END].concat()),
-        )
-        .map_err(|e| {
-            StoreError::Codec(e.as_string().unwrap_or(format!("Creating key range failed")))
-        })
-    }
-}
-
-impl<A, B> EncodeAsKey for (&A, &B)
-where
-    A: EncodeAsKey + ?Sized,
-    B: EncodeAsKey + ?Sized,
-{
-    fn as_encoded_string(&self) -> String {
-        [&self.0.as_encoded_string(), KEY_SEPARATOR, &self.1.as_encoded_string()].concat()
-    }
-}
-
-impl<A, B, C> EncodeAsKey for (&A, &B, &C)
-where
-    A: EncodeAsKey + ?Sized,
-    B: EncodeAsKey + ?Sized,
-    C: EncodeAsKey + ?Sized,
-{
-    fn as_encoded_string(&self) -> String {
-        [
-            &self.0.as_encoded_string(),
-            KEY_SEPARATOR,
-            &self.1.as_encoded_string(),
-            KEY_SEPARATOR,
-            &self.2.as_encoded_string(),
-        ]
-        .concat()
-    }
-}
-
-impl<A, B, C, D> EncodeAsKey for (&A, &B, &C, &D)
-where
-    A: EncodeAsKey + ?Sized,
-    B: EncodeAsKey + ?Sized,
-    C: EncodeAsKey + ?Sized,
-    D: EncodeAsKey + ?Sized,
-{
-    fn as_encoded_string(&self) -> String {
-        [
-            &self.0.as_encoded_string(),
-            KEY_SEPARATOR,
-            &self.1.as_encoded_string(),
-            KEY_SEPARATOR,
-            &self.2.as_encoded_string(),
-            KEY_SEPARATOR,
-            &self.3.as_encoded_string(),
-        ]
-        .concat()
-    }
-}
-
-impl EncodeAsKey for String {
-    fn as_encoded_string(&self) -> String {
-        self.replace(KEY_SEPARATOR, ESCAPED)
-    }
-}
-
-impl EncodeAsKey for str {
-    fn as_encoded_string(&self) -> String {
-        self.replace(KEY_SEPARATOR, ESCAPED)
-    }
-}
-
-impl<T: EncodeAsKey + ?Sized> EncodeAsKey for &T {
-    fn as_encoded_string(&self) -> String {
-        (*self).as_encoded_string()
-    }
-}
-
-impl<T: EncodeAsKey + ?Sized> EncodeAsKey for Box<T> {
-    fn as_encoded_string(&self) -> String {
-        (&**self).as_encoded_string()
-    }
-}
-
-impl EncodeAsKey for RoomId {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
-    }
-}
-
-impl EncodeAsKey for EventType {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
-    }
-}
-
-impl EncodeAsKey for ReceiptType {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
-    }
-}
-
-impl EncodeAsKey for UserId {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
-    }
-}
-
-impl EncodeAsKey for EventId {
-    fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
     }
 }
 
@@ -633,7 +502,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        let range = (room_id, &event_type).encode_to_range()?;
+        let range = (room_id, &event_type).encode_to_range().map_err(|e| StoreError::Codec(e))?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
@@ -676,7 +545,7 @@ impl IndexeddbStore {
     }
 
     pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        let range = room_id.encode_to_range()?;
+        let range = room_id.encode_to_range().map_err(|e| StoreError::Codec(e))?;
         let skip = room_id.as_encoded_string().len() + 1;
         Ok(self
             .inner
@@ -693,7 +562,7 @@ impl IndexeddbStore {
     }
 
     pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        let range = room_id.encode_to_range()?;
+        let range = room_id.encode_to_range().map_err(|e| StoreError::Codec(e))?;
         let entries = self
             .inner
             .transaction_on_one_with_mode(KEYS::INVITED_USER_IDS, IdbTransactionMode::Readonly)?
@@ -708,7 +577,7 @@ impl IndexeddbStore {
     }
 
     pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        let range = room_id.encode_to_range()?;
+        let range = room_id.encode_to_range().map_err(|e| StoreError::Codec(e))?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
@@ -753,7 +622,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<Box<UserId>>> {
-        let range = (room_id, display_name).encode_to_range()?;
+        let range = (room_id, display_name).encode_to_range().map_err(|e| StoreError::Codec(e))?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
@@ -818,7 +687,7 @@ impl IndexeddbStore {
     ) -> Result<Vec<(Box<UserId>, Receipt)>> {
         let key = (room_id, &receipt_type, event_id);
         let prefix_len = key.as_encoded_string().len() + 1;
-        let range = key.encode_to_range()?;
+        let range = key.encode_to_range().map_err(|e| StoreError::Codec(e))?;
         let tx = self.inner.transaction_on_one_with_mode(
             KEYS::ROOM_EVENT_RECEIPTS,
             IdbTransactionMode::Readonly,
@@ -911,7 +780,7 @@ impl IndexeddbStore {
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let range = uri.as_str().encode_to_range()?;
+        let range = uri.encode_to_range().map_err(|e| StoreError::Codec(e))?;
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
         let store = tx.object_store(KEYS::MEDIA)?;

@@ -11,6 +11,10 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.56"
 version = "0.4.1"
 
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
 [dependencies]
 async-trait = "0.1.50"
 ruma = { git = "https://github.com/ruma/ruma", rev = "6c4892664", features = ["client-api-c"] }
@@ -28,3 +32,5 @@ instant = { version = "0.1.12", features = ["wasm-bindgen", "inaccurate"] }
 futures-util = { version = "0.3.15", default-features = false, features = ["channel"] }
 wasm-bindgen-futures = "0.4.24"
 uuid = { version = "0.8.2", default-features = false, features = ["v4", "wasm-bindgen"] }
+web-sys = "0.3.35"
+wasm-bindgen = "0.2"
