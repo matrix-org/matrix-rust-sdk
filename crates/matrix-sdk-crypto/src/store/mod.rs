@@ -545,7 +545,7 @@ pub enum CryptoStoreError {
 
     /// Error in the internal database
     #[cfg(feature = "indexeddb_cryptostore")]
-    #[error("IndexDB error: {name} ({code}): {message}")]
+    #[error("IndexedDB error: {name} ({code}): {message}")]
     IndexedDatabase {
         /// DomException code
         code: u16,
