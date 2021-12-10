@@ -4,7 +4,6 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
 /// Helpers for wasm32/browser environments
-///
 
 /// ASCII Group Separator, for elements in the keys
 pub const KEY_SEPARATOR: &'static str = "\u{001D}";
