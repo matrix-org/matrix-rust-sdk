@@ -19,8 +19,8 @@ use std::{
 };
 
 use dashmap::DashSet;
-use indexed_db_futures::{prelude::*, web_sys::IdbKeyRange};
-use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
+use indexed_db_futures::prelude::*;
+use matrix_sdk_common::{async_trait, locks::Mutex, uuid, SafeEncode};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{DeviceId, RoomId, UserId};
 use uuid::Uuid;
@@ -91,18 +91,6 @@ impl std::fmt::Debug for IndexeddbStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IndexeddbStore").field("name", &self.name).finish()
     }
-}
-
-fn make_range(key: String) -> Result<IdbKeyRange, CryptoStoreError> {
-    IdbKeyRange::bound(
-        &JsValue::from_str(&format!("{}:", key)),
-        &JsValue::from_str(&format!("{};", key)),
-    )
-    .map_err(|e| CryptoStoreError::IndexedDatabase {
-        code: 0,
-        name: "IdbKeyRangeMakeError".to_owned(),
-        message: e.as_string().unwrap_or(format!("Creating key range for {:} failed", key)),
-    })
 }
 
 impl IndexeddbStore {
@@ -289,9 +277,9 @@ impl IndexeddbStore {
                 let session_id = session.session_id();
 
                 let pickle = session.pickle(self.get_pickle_mode()).await;
-                let key = format!("{}:{}", sender_key, session_id);
+                let key = (sender_key, session_id).encode();
 
-                sessions.put_key_val(&JsValue::from_str(&key), &JsValue::from_serde(&pickle)?)?;
+                sessions.put_key_val(&key, &JsValue::from_serde(&pickle)?)?;
             }
         }
 
@@ -302,10 +290,10 @@ impl IndexeddbStore {
                 let room_id = session.room_id();
                 let sender_key = session.sender_key();
                 let session_id = session.session_id();
-                let key = format!("{}:{}:{}", room_id, sender_key, session_id);
+                let key = (room_id, sender_key, session_id).encode();
                 let pickle = session.pickle(self.get_pickle_mode()).await;
 
-                sessions.put_key_val(&JsValue::from_str(&key), &JsValue::from_serde(&pickle)?)?;
+                sessions.put_key_val(&key, &JsValue::from_serde(&pickle)?)?;
             }
         }
 
@@ -315,10 +303,7 @@ impl IndexeddbStore {
             for session in changes.outbound_group_sessions {
                 let room_id = session.room_id();
                 let pickle = session.pickle(self.get_pickle_mode()).await;
-                sessions.put_key_val(
-                    &JsValue::from_str(room_id.as_str()),
-                    &JsValue::from_serde(&pickle)?,
-                )?;
+                sessions.put_key_val(&room_id.encode(), &JsValue::from_serde(&pickle)?)?;
             }
         }
 
@@ -330,10 +315,10 @@ impl IndexeddbStore {
         if !device_changes.new.is_empty() || !device_changes.changed.is_empty() {
             let device_store = tx.object_store(KEYS::DEVICES)?;
             for device in device_changes.new.iter().chain(&device_changes.changed) {
-                let key = format!("{}:{}", device.user_id().as_str(), device.device_id().as_str());
+                let key = (device.user_id(), device.device_id()).encode();
                 let device = JsValue::from_serde(&device)?;
 
-                device_store.put_key_val(&JsValue::from_str(&key), &device)?;
+                device_store.put_key_val(&key, &device)?;
             }
         }
 
@@ -341,18 +326,15 @@ impl IndexeddbStore {
             let device_store = tx.object_store(KEYS::DEVICES)?;
 
             for device in &device_changes.deleted {
-                let key = format!("{}:{}", device.user_id().as_str(), device.device_id().as_str());
-                device_store.delete(&JsValue::from_str(&key))?;
+                let key = (device.user_id(), device.device_id()).encode();
+                device_store.delete(&key)?;
             }
         }
 
         if !identity_changes.changed.is_empty() || !identity_changes.new.is_empty() {
             let identities = tx.object_store(KEYS::IDENTITIES)?;
             for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
-                identities.put_key_val(
-                    &JsValue::from_str(identity.user_id().as_str()),
-                    &JsValue::from_serde(&identity)?,
-                )?;
+                identities.put_key_val(&identity.user_id().encode(), &JsValue::from_serde(&identity)?)?;
             }
         }
 
@@ -360,7 +342,7 @@ impl IndexeddbStore {
             let hashes = tx.object_store(KEYS::OLM_HASHES)?;
             for hash in &olm_hashes {
                 hashes.put_key_val(
-                    &JsValue::from_str(&format!("{}:{}", hash.sender_key, hash.hash)),
+                    &(&hash.sender_key, &hash.hash).encode(),
                     &JsValue::TRUE,
                 )?;
             }
@@ -371,9 +353,9 @@ impl IndexeddbStore {
             let unsent_secret_requests = tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?;
             let outgoing_secret_requests = tx.object_store(KEYS::OUTGOING_SECRET_REQUESTS)?;
             for key_request in &key_requests {
-                let key_request_id = JsValue::from_str(&key_request.request_id.to_string());
+                let key_request_id = key_request.request_id.encode();
                 secret_requests_by_info
-                    .put_key_val(&JsValue::from_str(&key_request.info.as_key()), &key_request_id)?;
+                    .put_key_val(&key_request.info.as_key().encode(), &key_request_id)?;
 
                 if key_request.sent_out {
                     unsent_secret_requests.delete(&key_request_id)?;
@@ -434,7 +416,7 @@ impl IndexeddbStore {
                 IdbTransactionMode::Readonly,
             )?
             .object_store(KEYS::OUTBOUND_GROUP_SESSIONS)?
-            .get(&JsValue::from_str(room_id.as_str()))?
+            .get(&room_id.encode())?
             .await?
         {
             Ok(Some(
@@ -451,6 +433,7 @@ impl IndexeddbStore {
         }
     }
     async fn get_outgoing_key_request_helper(&self, key: &str) -> Result<Option<GossipRequest>> {
+        // in this internal we expect key to already be escaped.
         let jskey = JsValue::from_str(key);
         let dbs = [KEYS::OUTGOING_SECRET_REQUESTS, KEYS::UNSENT_SECRET_REQUESTS];
         let tx = self.inner.transaction_on_multi_with_mode(&dbs, IdbTransactionMode::Readonly)?;
@@ -546,7 +529,13 @@ impl CryptoStore for IndexeddbStore {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
-            let range = make_range(sender_key.to_owned())?;
+            let range = sender_key
+                .encode_to_range()
+                .map_err(|e| CryptoStoreError::IndexedDatabase {
+                    code: 0,
+                    name: "IdbKeyRangeMakeError".to_owned(),
+                    message: e,
+                })?;
             let sessions: Vec<Session> = self
                 .inner
                 .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
@@ -579,7 +568,7 @@ impl CryptoStore for IndexeddbStore {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = format!("{}:{}:{}", room_id.as_str(), sender_key, session_id);
+        let key = (room_id, sender_key, session_id).encode();
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(
@@ -587,7 +576,7 @@ impl CryptoStore for IndexeddbStore {
                 IdbTransactionMode::Readonly,
             )?
             .object_store(KEYS::INBOUND_GROUP_SESSIONS)?
-            .get(&JsValue::from_str(&key))?
+            .get(&key)?
             .await?
         {
             Ok(Some(InboundGroupSession::from_pickle(
@@ -714,12 +703,12 @@ impl CryptoStore for IndexeddbStore {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        let key = format!("{}:{}", user_id.as_str(), device_id.as_str());
+        let key = (user_id, device_id).encode();
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::DEVICES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::DEVICES)?
-            .get(&JsValue::from_str(&key))?
+            .get(&key)?
             .await?
             .map(|i| i.into_serde())
             .transpose()?)
@@ -729,7 +718,13 @@ impl CryptoStore for IndexeddbStore {
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
-        let range = make_range(user_id.as_str().to_string())?;
+        let range = user_id
+            .encode_to_range()
+            .map_err(|e| CryptoStoreError::IndexedDatabase {
+                code: 0,
+                name: "IdbKeyRangeMakeError".to_owned(),
+                message: e,
+            })?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::DEVICES, IdbTransactionMode::Readonly)?
@@ -749,7 +744,7 @@ impl CryptoStore for IndexeddbStore {
             .inner
             .transaction_on_one_with_mode(KEYS::IDENTITIES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::IDENTITIES)?
-            .get(&JsValue::from_str(user_id.as_str()))?
+            .get(&user_id.encode())?
             .await?
             .map(|i| i.into_serde())
             .transpose()?)
@@ -760,7 +755,7 @@ impl CryptoStore for IndexeddbStore {
             .inner
             .transaction_on_one_with_mode(KEYS::OLM_HASHES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::OLM_HASHES)?
-            .get(&JsValue::from_str(&format!("{}:{}", hash.sender_key, hash.hash)))?
+            .get(&(&hash.sender_key, &hash.hash).encode())?
             .await?
             .is_some())
     }
@@ -769,7 +764,7 @@ impl CryptoStore for IndexeddbStore {
         &self,
         request_id: Uuid,
     ) -> Result<Option<GossipRequest>> {
-        self.get_outgoing_key_request_helper(&request_id.to_string()).await
+        self.get_outgoing_key_request_helper(&request_id.as_encoded_string()).await
     }
 
     async fn get_secret_request_by_info(
@@ -783,7 +778,7 @@ impl CryptoStore for IndexeddbStore {
                 IdbTransactionMode::Readonly,
             )?
             .object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
-            .get(&JsValue::from_str(&key_info.as_key()))?
+            .get(&key_info.as_key().encode())?
             .await?
             .map(|i| i.as_string())
             .flatten();
@@ -810,7 +805,7 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
-        let jskey = JsValue::from_str(&request_id.to_string());
+        let jskey = request_id.encode();
         let dbs = [
             KEYS::OUTGOING_SECRET_REQUESTS,
             KEYS::UNSENT_SECRET_REQUESTS,
@@ -837,7 +832,7 @@ impl CryptoStore for IndexeddbStore {
 
         if let Some(inner) = request {
             tx.object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
-                .delete(&JsValue::from_str(&inner.info.as_key()))?;
+                .delete(&inner.info.as_key().encode())?;
         }
 
         tx.object_store(KEYS::UNSENT_SECRET_REQUESTS)?.delete(&jskey)?;
@@ -849,8 +844,6 @@ impl CryptoStore for IndexeddbStore {
 
 #[cfg(test)]
 mod test {
-    #[macro_use]
-    use super::super::integration_tests;
     use super::IndexeddbStore;
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

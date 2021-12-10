@@ -1,11 +1,12 @@
 
 use web_sys::IdbKeyRange;
 use wasm_bindgen::JsValue;
+use uuid::Uuid;
 
 use ruma::{
     events::EventType,
     receipt::ReceiptType,
-    EventId, MxcUri, RoomId, UserId,
+    EventId, MxcUri, RoomId, UserId, DeviceId,
 };
 
 /// Helpers for wasm32/browser environments
@@ -140,9 +141,11 @@ impl<T: SafeEncode + ?Sized> SafeEncode for Box<T> {
     }
 }
 
-impl SafeEncode for RoomId {
+impl SafeEncode for Uuid {
     fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
+        // UUID view is only hexadecimal characters
+        // no need to escape further.
+        self.to_string()
     }
 }
 
@@ -158,7 +161,19 @@ impl SafeEncode for ReceiptType {
     }
 }
 
+impl SafeEncode for RoomId {
+    fn as_encoded_string(&self) -> String {
+        self.as_str().as_encoded_string()
+    }
+}
+
 impl SafeEncode for UserId {
+    fn as_encoded_string(&self) -> String {
+        self.as_str().as_encoded_string()
+    }
+}
+
+impl SafeEncode for DeviceId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }
