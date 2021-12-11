@@ -471,6 +471,18 @@ impl VerificationMachine {
 
                             if s.is_done() {
                                 self.mark_sas_as_done(s, content).await?;
+                            } else {
+                                // Even if we are not done (yet), there might be content to send
+                                // out, e.g. in the case where we are done with our side of the
+                                // verification process, but the other side has not yet sent their
+                                // "done".
+                                if let Some(content) = content {
+                                    self.queue_up_content(
+                                        s.other_user_id(),
+                                        s.other_device_id(),
+                                        content,
+                                    );
+                                }
                             }
                         } else {
                             flow_id_mismatch();
