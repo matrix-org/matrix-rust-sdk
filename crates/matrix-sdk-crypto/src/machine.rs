@@ -1585,8 +1585,7 @@ pub(crate) mod test {
         },
         room_id,
         serde::Raw,
-        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId,
-        UserId,
+        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     };
     use serde_json::json;
 
