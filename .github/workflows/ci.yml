@@ -157,10 +157,6 @@ jobs:
     name: ${{ matrix.name }} WASM test
     runs-on: ubuntu-latest
 
-    # FIXME: enforce when libolm-wasm32-support is fixed:
-    # https://github.com/matrix-org/olm/issues/70
-    continue-on-error: true
-
     strategy:
       fail-fast: true
 
