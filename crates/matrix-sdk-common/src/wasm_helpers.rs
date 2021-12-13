@@ -35,7 +35,7 @@ pub trait SafeEncode {
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are
-    /// prefixed with this key, followed by `KEY_SEPARATOR`. Internaly
+    /// prefixed with this key, followed by `KEY_SEPARATOR`. Internally
     /// uses `as_encoded_string` to ensure the given key is escaped properly.
     fn encode_to_range(&self) -> Result<IdbKeyRange, String> {
         let key = self.as_encoded_string();
