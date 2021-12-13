@@ -43,7 +43,11 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, value::RawValue as RawJsonValue, Value};
+use serde_json::{
+    json,
+    value::{to_raw_value, RawValue as RawJsonValue},
+    Value,
+};
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 
@@ -661,14 +665,14 @@ impl ReadOnlyAccount {
     /// Returns None if no keys need to be uploaded.
     pub(crate) async fn keys_for_upload(
         &self,
-    ) -> Option<(Option<DeviceKeys>, Option<BTreeMap<Box<DeviceKeyId>, OneTimeKey>>)> {
+    ) -> Option<(Option<DeviceKeys>, BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>)> {
         if !self.should_upload_keys().await {
             return None;
         }
 
         let device_keys = if !self.shared() { Some(self.device_keys().await) } else { None };
 
-        let one_time_keys = self.signed_one_time_keys().await.ok();
+        let one_time_keys = self.signed_one_time_keys().await.ok().unwrap_or_default();
 
         Some((device_keys, one_time_keys))
     }
@@ -845,15 +849,20 @@ impl ReadOnlyAccount {
     /// # Panic
     ///
     /// Panics if the json value can't be serialized.
-    pub async fn sign_json(&self, json: Value) -> String {
+    pub async fn sign_json(&self, mut json: Value) -> String {
+        let object = json.as_object_mut().expect("Canonical json value isn't an object");
+        object.remove("unsigned");
+        object.remove("signatures");
+
         let canonical_json: CanonicalJsonValue =
             json.try_into().expect("Can't canonicalize the json value");
+
         self.sign(&canonical_json.to_string()).await
     }
 
     pub(crate) async fn signed_one_time_keys_helper(
         &self,
-    ) -> Result<BTreeMap<Box<DeviceKeyId>, OneTimeKey>, ()> {
+    ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
@@ -881,7 +890,10 @@ impl ReadOnlyAccount {
                     DeviceKeyAlgorithm::SignedCurve25519,
                     key_id.as_str().into(),
                 ),
-                OneTimeKey::SignedKey(signed_key),
+                Raw::from_json(
+                    to_raw_value(&OneTimeKey::SignedKey(signed_key))
+                        .expect("Couldn't serialize a new signed key"),
+                ),
             );
         }
 
@@ -893,7 +905,7 @@ impl ReadOnlyAccount {
     /// If no one-time keys need to be uploaded returns an empty error.
     pub(crate) async fn signed_one_time_keys(
         &self,
-    ) -> Result<BTreeMap<Box<DeviceKeyId>, OneTimeKey>, ()> {
+    ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
         let _ = self.generate_one_time_keys().await?;
         self.signed_one_time_keys_helper().await
     }
@@ -929,6 +941,7 @@ impl ReadOnlyAccount {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: their_identity_key.into(),
+            created_using_fallback_key: their_one_time_key.fallback,
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
@@ -948,7 +961,7 @@ impl ReadOnlyAccount {
     pub(crate) async fn create_outbound_session(
         &self,
         device: ReadOnlyDevice,
-        key_map: &BTreeMap<Box<DeviceKeyId>, OneTimeKey>,
+        key_map: &BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {
             SessionCreationError::OneTimeKeyMissing(
@@ -957,23 +970,24 @@ impl ReadOnlyAccount {
             )
         })?;
 
-        let one_time_key = match one_time_key {
-            OneTimeKey::SignedKey(k) => k,
-            OneTimeKey::Key(_) => {
+        let one_time_key: SignedKey = match one_time_key.deserialize() {
+            Ok(OneTimeKey::SignedKey(k)) => k,
+            Ok(OneTimeKey::Key(_)) => {
                 return Err(SessionCreationError::OneTimeKeyNotSigned(
                     device.user_id().to_owned(),
                     device.device_id().into(),
                 ));
             }
-            _ => {
+            Ok(_) => {
                 return Err(SessionCreationError::OneTimeKeyUnknown(
                     device.user_id().to_owned(),
                     device.device_id().into(),
                 ));
             }
+            Err(e) => return Err(SessionCreationError::InvalidJson(e)),
         };
 
-        device.verify_one_time_key(one_time_key).map_err(|e| {
+        device.verify_one_time_key(&one_time_key).map_err(|e| {
             SessionCreationError::InvalidSignature(
                 device.user_id().to_owned(),
                 device.device_id().into(),
@@ -988,7 +1002,7 @@ impl ReadOnlyAccount {
             )
         })?;
 
-        self.create_outbound_session_helper(curve_key, one_time_key).await.map_err(|e| {
+        self.create_outbound_session_helper(curve_key, &one_time_key).await.map_err(|e| {
             SessionCreationError::OlmError(
                 device.user_id().to_owned(),
                 device.device_id().into(),
@@ -1029,6 +1043,7 @@ impl ReadOnlyAccount {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: their_identity_key.into(),
+            created_using_fallback_key: false,
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
@@ -1178,14 +1193,18 @@ mod test {
         let one_time_keys = account
             .keys_for_upload()
             .await
-            .and_then(|(_, k)| k)
+            .map(|(_, k)| k)
             .expect("Initial keys can't be generated");
+
+        assert!(!one_time_keys.is_empty());
 
         let second_one_time_keys = account
             .keys_for_upload()
             .await
-            .and_then(|(_, k)| k)
+            .map(|(_, k)| k)
             .expect("Second round of one-time keys isn't generated");
+
+        assert!(!second_one_time_keys.is_empty());
 
         let device_key_ids: BTreeSet<&DeviceKeyId> =
             one_time_keys.keys().map(Deref::deref).collect();
@@ -1197,16 +1216,16 @@ mod test {
         account.mark_keys_as_published().await;
         account.update_uploaded_key_count(50);
 
-        let third_one_time_keys = account.keys_for_upload().await.and_then(|(_, k)| k);
+        let third_one_time_keys = account.keys_for_upload().await.map(|(_, k)| k).unwrap();
 
-        assert!(third_one_time_keys.is_none());
+        assert!(third_one_time_keys.is_empty());
 
         account.update_uploaded_key_count(0);
 
         let fourth_one_time_keys = account
             .keys_for_upload()
             .await
-            .and_then(|(_, k)| k)
+            .map(|(_, k)| k)
             .expect("Fourth round of one-time keys isn't generated");
 
         let fourth_device_key_ids: BTreeSet<&DeviceKeyId> =

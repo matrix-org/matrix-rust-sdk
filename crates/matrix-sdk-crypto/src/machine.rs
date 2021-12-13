@@ -46,9 +46,10 @@ use ruma::{
         secret::request::SecretName,
         AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent,
     },
+    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
-use serde_json::Value;
+use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "backups_v1")]
@@ -562,7 +563,13 @@ impl OlmMachine {
     /// [`OlmMachine`]: struct.OlmMachine.html
     async fn keys_for_upload(&self) -> Option<upload_keys::Request> {
         let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
-        Some(assign!(upload_keys::Request::new(), { device_keys, one_time_keys }))
+
+        let device_keys = device_keys
+            .map(|d| Raw::from_json(to_raw_value(&d).expect("Coulnd't serialize device keys")));
+
+        Some(
+            assign!(upload_keys::Request::new(), { device_keys, one_time_keys, fallback_keys: BTreeMap::new(), }),
+        )
     }
 
     /// Decrypt a to-device event.
@@ -860,8 +867,12 @@ impl OlmMachine {
         self.verification_machine.get_requests(user_id)
     }
 
-    fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
-        self.account.update_uploaded_key_count(key_count);
+    async fn update_key_counts(
+        &self,
+        one_time_key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
+        #[allow(unused_variables)] unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
+    ) {
+        self.account.update_uploaded_key_count(one_time_key_count);
     }
 
     async fn handle_to_device_event(&self, event: &AnyToDeviceEvent) {
@@ -914,6 +925,7 @@ impl OlmMachine {
         to_device_events: ToDevice,
         changed_devices: &DeviceLists,
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
+        unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
     ) -> OlmResult<ToDevice> {
         // Remove verification objects that have expired or are done.
         let mut events = self.verification_machine.garbage_collect();
@@ -923,7 +935,7 @@ impl OlmMachine {
         let mut changes =
             Changes { account: Some(self.account.inner.clone()), ..Default::default() };
 
-        self.update_one_time_key_count(one_time_keys_counts);
+        self.update_key_counts(one_time_keys_counts, unused_fallback_keys).await;
 
         for user_id in &changed_devices.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
@@ -1571,7 +1583,10 @@ pub(crate) mod test {
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
             AnyToDeviceEventContent, SyncMessageEvent, ToDeviceEvent, Unsigned,
         },
-        room_id, uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
+        room_id,
+        serde::Raw,
+        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId,
+        UserId,
     };
     use serde_json::json;
 
@@ -1583,7 +1598,7 @@ pub(crate) mod test {
     };
 
     /// These keys need to be periodically uploaded to the server.
-    type OneTimeKeys = BTreeMap<Box<DeviceKeyId>, OneTimeKey>;
+    type OneTimeKeys = BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>;
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -1637,7 +1652,7 @@ pub(crate) mod test {
         let response = keys_upload_response();
         machine.receive_keys_upload_response(&response).await.unwrap();
 
-        (machine, request.one_time_keys.unwrap())
+        (machine, request.one_time_keys)
     }
 
     async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
@@ -1838,7 +1853,7 @@ pub(crate) mod test {
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
-            &mut json!(&mut request.one_time_keys.as_mut().unwrap().values_mut().next()),
+            &mut json!(&mut request.one_time_keys.values_mut().next()),
         );
         assert!(ret.is_ok());
 
@@ -1854,7 +1869,7 @@ pub(crate) mod test {
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
             DeviceKeyAlgorithm::SignedCurve25519,
-            (request.one_time_keys.unwrap().len() as u64).try_into().unwrap(),
+            (request.one_time_keys.len() as u64).try_into().unwrap(),
         );
 
         machine.receive_keys_upload_response(&response).await.unwrap();

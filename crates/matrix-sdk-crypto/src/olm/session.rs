@@ -49,6 +49,7 @@ pub struct Session {
     pub(crate) inner: Arc<Mutex<OlmSession>>,
     pub(crate) session_id: Arc<str>,
     pub(crate) sender_key: Arc<str>,
+    pub(crate) created_using_fallback_key: bool,
     pub(crate) creation_time: Arc<Instant>,
     pub(crate) last_use_time: Arc<Instant>,
 }
@@ -183,6 +184,7 @@ impl Session {
         PickledSession {
             pickle: SessionPickle::from(pickle),
             sender_key: self.sender_key.to_string(),
+            created_using_fallback_key: self.created_using_fallback_key,
             creation_time: *self.creation_time,
             last_use_time: *self.last_use_time,
         }
@@ -221,6 +223,7 @@ impl Session {
             our_identity_keys,
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
+            created_using_fallback_key: pickle.created_using_fallback_key,
             sender_key: pickle.sender_key.into(),
             creation_time: Arc::new(pickle.creation_time),
             last_use_time: Arc::new(pickle.last_use_time),
@@ -244,6 +247,9 @@ pub struct PickledSession {
     pub pickle: SessionPickle,
     /// The curve25519 key of the other user that we share this session with.
     pub sender_key: String,
+    /// Was the session created using a fallback key.
+    #[serde(default)]
+    pub created_using_fallback_key: bool,
     /// The relative time elapsed since the session was created.
     #[serde(deserialize_with = "deserialize_instant", serialize_with = "serialize_instant")]
     pub creation_time: Instant,

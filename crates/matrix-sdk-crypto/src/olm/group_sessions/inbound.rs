@@ -379,7 +379,7 @@ impl InboundGroupSession {
         );
 
         if let Some(decrypted_content) =
-            decrypted_object.get_mut("content").map(|c| c.as_object_mut()).flatten()
+            decrypted_object.get_mut("content").and_then(|c| c.as_object_mut())
         {
             if !decrypted_content.contains_key("m.relates_to") {
                 let content = serde_json::to_value(&event.content)?;

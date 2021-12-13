@@ -30,7 +30,8 @@ use std::{
 
 use matrix_sdk_common::{locks::RwLock, uuid::Uuid};
 use ruma::{
-    api::client::r0::backup::RoomKeyBackup, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId,
+    api::client::r0::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, RoomId,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -368,6 +369,11 @@ impl BackupMachine {
                 .entry(sender_key)
                 .or_default()
                 .insert(session_id.clone());
+
+            let session = Raw::from_json(
+                serde_json::value::to_raw_value(&session)
+                    .expect("Can't serialize a backed up room key"),
+            );
 
             backup
                 .entry(room_id)

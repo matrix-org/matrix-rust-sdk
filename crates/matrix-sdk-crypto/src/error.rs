@@ -213,4 +213,6 @@ pub(crate) enum SessionCreationError {
     DeviceMissingCurveKey(Box<UserId>, Box<DeviceId>),
     #[error("Error creating new Olm session for {0} {1}: {2:?}")]
     OlmError(Box<UserId>, Box<DeviceId>, OlmSessionError),
+    #[error("Error deserializing the one-time key: {0}")]
+    InvalidJson(#[from] serde_json::Error),
 }

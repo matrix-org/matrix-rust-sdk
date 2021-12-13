@@ -124,7 +124,7 @@ impl SessionManager {
     ///
     /// If the device was wedged this will queue up a dummy to-device message.
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
-        if self.wedged_devices.get(user_id).map(|d| d.remove(device_id)).flatten().is_some() {
+        if self.wedged_devices.get(user_id).and_then(|d| d.remove(device_id)).is_some() {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
                 let content = AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new());
                 let (_, content) = device.encrypt(content).await?;
@@ -298,9 +298,6 @@ impl SessionManager {
                     }
                 };
 
-                changes.sessions.push(session);
-                new_sessions.entry(user_id).or_default().insert(device_id);
-
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
                 if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
@@ -309,6 +306,9 @@ impl SessionManager {
                         user_id, device_id, e
                     );
                 }
+
+                changes.sessions.push(session);
+                new_sessions.entry(user_id).or_default().insert(device_id);
             }
         }
 

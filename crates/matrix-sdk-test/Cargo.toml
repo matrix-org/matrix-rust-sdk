@@ -18,6 +18,10 @@ appservice = []
 http = "0.2.4"
 lazy_static = "1.4.0"
 matrix-sdk-test-macros = { version = "0.1.0", path = "../matrix-sdk-test-macros" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "6c4892664", features = ["client-api-c"] }
 serde = "1.0.126"
 serde_json = "1.0.64"
+
+[dependencies.ruma]
+git = "https://github.com/ruma/ruma/"
+rev = "fdbc4d6d1dd273c8a6ac95b329943ed8c68df70d"
+features = ["client-api-c"]

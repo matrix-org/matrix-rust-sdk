@@ -477,11 +477,10 @@ impl GroupSessionManager {
 
         let devices: Vec<Device> = devices
             .into_iter()
-            .map(|(_, d)| {
+            .flat_map(|(_, d)| {
                 d.into_iter()
                     .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
             })
-            .flatten()
             .collect();
 
         let key_content = outbound.as_content().await;

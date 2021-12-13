@@ -956,17 +956,19 @@ pub(crate) mod test {
 
     fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();
-        let first = ReadOnlyDevice::try_from(devices.next().unwrap()).unwrap();
-        let second = ReadOnlyDevice::try_from(devices.next().unwrap()).unwrap();
+        let first =
+            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
+        let second =
+            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
         (first, second)
     }
 
     fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
         let user_id = user_id!("@example:localhost");
 
-        let master_key = response.master_keys.get(user_id).unwrap();
-        let user_signing = response.user_signing_keys.get(user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(user_id).unwrap();
+        let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
+        let user_signing = response.user_signing_keys.get(user_id).unwrap().deserialize().unwrap();
+        let self_signing = response.self_signing_keys.get(user_id).unwrap().deserialize().unwrap();
 
         ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
             .unwrap()
@@ -980,8 +982,8 @@ pub(crate) mod test {
         let user_id = user_id!("@example2:localhost");
         let response = other_key_query();
 
-        let master_key = response.master_keys.get(user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(user_id).unwrap();
+        let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
+        let self_signing = response.self_signing_keys.get(user_id).unwrap().deserialize().unwrap();
 
         ReadOnlyUserIdentity::new(master_key.into(), self_signing.into()).unwrap()
     }
@@ -991,9 +993,9 @@ pub(crate) mod test {
         let user_id = user_id!("@example:localhost");
         let response = own_key_query();
 
-        let master_key = response.master_keys.get(user_id).unwrap();
-        let user_signing = response.user_signing_keys.get(user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(user_id).unwrap();
+        let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
+        let user_signing = response.user_signing_keys.get(user_id).unwrap().deserialize().unwrap();
+        let self_signing = response.self_signing_keys.get(user_id).unwrap().deserialize().unwrap();
 
         ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
             .unwrap();

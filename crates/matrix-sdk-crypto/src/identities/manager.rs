@@ -23,7 +23,7 @@ use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
-    DeviceId, UserId,
+    serde::Raw, DeviceId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -205,7 +205,7 @@ impl IdentityManager {
         own_user_id: Arc<UserId>,
         own_device_id: Arc<DeviceId>,
         user_id: Box<UserId>,
-        device_map: BTreeMap<Box<DeviceId>, DeviceKeys>,
+        device_map: BTreeMap<Box<DeviceId>, Raw<DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = (&*own_device_id).to_owned();
 
@@ -213,18 +213,31 @@ impl IdentityManager {
 
         let current_devices: HashSet<Box<DeviceId>> = device_map.keys().cloned().collect();
 
-        let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| {
-            if user_id != device_keys.user_id || device_id != device_keys.device_id {
+        let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
+            .deserialize()
+        {
+            Ok(device_keys) => {
+                if user_id != device_keys.user_id || device_id != device_keys.device_id {
+                    warn!(
+                        user_id = user_id.as_str(),
+                        device_id = device_id.as_str(),
+                        device_key_user = device_keys.user_id.as_str(),
+                        device_key_device_id = device_keys.device_id.as_str(),
+                        "Mismatch in the device keys payload",
+                    );
+                    None
+                } else {
+                    Some(spawn(Self::update_or_create_device(store.clone(), device_keys)))
+                }
+            }
+            Err(e) => {
                 warn!(
                     user_id = user_id.as_str(),
                     device_id = device_id.as_str(),
-                    device_key_user = device_keys.user_id.as_str(),
-                    device_key_device_id = device_keys.device_id.as_str(),
-                    "Mismatch in the device keys payload",
+                    error =? e,
+                    "Device keys failed to deserialize",
                 );
                 None
-            } else {
-                Some(spawn(Self::update_or_create_device(store.clone(), device_keys)))
             }
         });
 
@@ -272,7 +285,7 @@ impl IdentityManager {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
-        device_keys_map: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, DeviceKeys>>,
+        device_keys_map: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, Raw<DeviceKeys>>>,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 
@@ -312,93 +325,122 @@ impl IdentityManager {
         let mut changes = IdentityChanges::default();
         let mut changed_identity = None;
 
+        // TODO this is a bit chunky, refactor this into smaller methods.
+
         for (user_id, master_key) in &response.master_keys {
-            let master_key = MasterPubkey::from(master_key);
+            match master_key.deserialize() {
+                Ok(master_key) => {
+                    let master_key = MasterPubkey::from(master_key);
 
-            let self_signing = if let Some(s) = response.self_signing_keys.get(user_id) {
-                SelfSigningPubkey::from(s)
-            } else {
-                warn!(
-                    user_id = user_id.as_str(),
-                    "A user identity didn't contain a self signing pubkey"
-                );
-                continue;
-            };
+                    let self_signing = if let Some(s) =
+                        response.self_signing_keys.get(user_id).and_then(|k| k.deserialize().ok())
+                    {
+                        SelfSigningPubkey::from(s)
+                    } else {
+                        warn!(
+                            user_id = user_id.as_str(),
+                            "A user identity didn't contain a self signing pubkey \
+                            or the key was invalid"
+                        );
+                        continue;
+                    };
 
-            let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
-                match &mut i {
-                    ReadOnlyUserIdentities::Own(ref mut identity) => {
-                        let user_signing = if let Some(s) = response.user_signing_keys.get(user_id)
+                    let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
+                        match &mut i {
+                            ReadOnlyUserIdentities::Own(ref mut identity) => {
+                                let user_signing = if let Some(s) = response
+                                    .user_signing_keys
+                                    .get(user_id)
+                                    .and_then(|k| k.deserialize().ok())
+                                {
+                                    UserSigningPubkey::from(s)
+                                } else {
+                                    warn!(
+                                        user_id = user_id.as_str(),
+                                        "User identity for our own user didn't \
+                                        contain a user signing pubkey",
+                                    );
+                                    continue;
+                                };
+
+                                identity
+                                    .update(master_key, self_signing, user_signing)
+                                    .map(|_| (i, false))
+                            }
+                            ReadOnlyUserIdentities::Other(ref mut identity) => {
+                                identity.update(master_key, self_signing).map(|_| (i, false))
+                            }
+                        }
+                    } else if user_id == self.user_id() {
+                        if let Some(s) = response
+                            .user_signing_keys
+                            .get(user_id)
+                            .and_then(|k| k.deserialize().ok())
                         {
-                            UserSigningPubkey::from(s)
+                            let user_signing = UserSigningPubkey::from(s);
+
+                            if master_key.user_id() != user_id
+                                || self_signing.user_id() != user_id
+                                || user_signing.user_id() != user_id
+                            {
+                                warn!(
+                                    user_id = user_id.as_str(),
+                                    "User ID mismatch in one of the cross signing keys",
+                                );
+                                continue;
+                            }
+
+                            ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)
+                                .map(|i| (ReadOnlyUserIdentities::Own(i), true))
                         } else {
                             warn!(
                                 user_id = user_id.as_str(),
-                                "User identity for our own user didn't \
-                                contain a user signing pubkey",
+                                "User identity for our own user didn't contain a \
+                                user signing pubkey or the key isn't valid",
                             );
                             continue;
-                        };
-
-                        identity.update(master_key, self_signing, user_signing).map(|_| (i, false))
-                    }
-                    ReadOnlyUserIdentities::Other(ref mut identity) => {
-                        identity.update(master_key, self_signing).map(|_| (i, false))
-                    }
-                }
-            } else if user_id == self.user_id() {
-                if let Some(s) = response.user_signing_keys.get(user_id) {
-                    let user_signing = UserSigningPubkey::from(s);
-
-                    if master_key.user_id() != user_id
-                        || self_signing.user_id() != user_id
-                        || user_signing.user_id() != user_id
-                    {
+                        }
+                    } else if master_key.user_id() != user_id || self_signing.user_id() != user_id {
                         warn!(
-                            user_id = user_id.as_str(),
+                            user = user_id.as_str(),
                             "User ID mismatch in one of the cross signing keys",
                         );
                         continue;
-                    }
-
-                    ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)
-                        .map(|i| (ReadOnlyUserIdentities::Own(i), true))
-                } else {
-                    warn!(
-                        user_id = user_id.as_str(),
-                        "User identity for our own user didn't contain a \
-                        user signing pubkey",
-                    );
-                    continue;
-                }
-            } else if master_key.user_id() != user_id || self_signing.user_id() != user_id {
-                warn!(user = user_id.as_str(), "User ID mismatch in one of the cross signing keys",);
-                continue;
-            } else {
-                ReadOnlyUserIdentity::new(master_key, self_signing)
-                    .map(|i| (ReadOnlyUserIdentities::Other(i), true))
-            };
-
-            match result {
-                Ok((i, new)) => {
-                    if let Some(identity) = i.own() {
-                        let private_identity = self.store.private_identity();
-                        let private_identity = private_identity.lock().await;
-
-                        let result = private_identity.clear_if_differs(identity).await;
-
-                        if result.any_cleared() {
-                            changed_identity = Some((&*private_identity).clone());
-                            info!(cleared =? result, "Removed some or all of our private cross signing keys");
-                        }
-                    }
-
-                    if new {
-                        trace!(user_id = user_id.as_str(), identity =? i, "Created new user identity");
-                        changes.new.push(i);
                     } else {
-                        trace!(user_id = user_id.as_str(), identity =? i, "Updated a user identity");
-                        changes.changed.push(i);
+                        ReadOnlyUserIdentity::new(master_key, self_signing)
+                            .map(|i| (ReadOnlyUserIdentities::Other(i), true))
+                    };
+
+                    match result {
+                        Ok((i, new)) => {
+                            if let Some(identity) = i.own() {
+                                let private_identity = self.store.private_identity();
+                                let private_identity = private_identity.lock().await;
+
+                                let result = private_identity.clear_if_differs(identity).await;
+
+                                if result.any_cleared() {
+                                    changed_identity = Some((&*private_identity).clone());
+                                    info!(cleared =? result, "Removed some or all of our private cross signing keys");
+                                }
+                            }
+
+                            if new {
+                                trace!(user_id = user_id.as_str(), identity =? i, "Created new user identity");
+                                changes.new.push(i);
+                            } else {
+                                trace!(user_id = user_id.as_str(), identity =? i, "Updated a user identity");
+                                changes.changed.push(i);
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                user_id = user_id.as_str(),
+                                error =? e,
+                                "Couldn't update or create new user identity"
+                            );
+                            continue;
+                        }
                     }
                 }
                 Err(e) => {

@@ -33,12 +33,14 @@ async fn main() -> Result<(), OlmError> {
     let to_device_events = ToDevice::default();
     let changed_devices = DeviceLists::default();
     let one_time_key_counts = BTreeMap::default();
+    let unused_fallback_keys = Some(Vec::new());
 
     // Push changes that the server sent to us in a sync response.
     let decrypted_to_device = machine.receive_sync_changes(
         to_device_events,
         &changed_devices,
-        &one_time_key_counts
+        &one_time_key_counts,
+        unused_fallback_keys.as_deref(),
     ).await?;
 
     // Pull requests that we need to send out.

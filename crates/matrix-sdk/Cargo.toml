@@ -76,8 +76,8 @@ version = "0.11.3"
 default_features = false
 
 [dependencies.ruma]
-git = "https://github.com/ruma/ruma"
-rev = "6c4892664"
+git = "https://github.com/ruma/ruma/"
+rev = "fdbc4d6d1dd273c8a6ac95b329943ed8c68df70d"
 features = ["client-api-c", "compat", "unstable-pre-spec"]
 
 [dependencies.tokio-stream]
