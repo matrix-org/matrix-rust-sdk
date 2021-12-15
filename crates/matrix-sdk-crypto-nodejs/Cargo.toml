@@ -1,0 +1,36 @@
+[package]
+authors = ["Travis Ralston <travis@matrix.org>"]
+description = "matrix-sdk-crypto crate for Node JS"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
+license = "Apache-2.0"
+name = "matrix-sdk-crypto-nodejs"
+readme = "README.md"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version = "1.56"
+version = "0.1.0"
+
+[lib]
+crate-type=["cdylib"]
+
+[dependencies]
+napi = {version="2.0.0-beta.7", features=["serde-json"]}
+napi-derive = "2.0.0-beta.5"
+
+[dependencies.matrix-sdk-crypto]
+version = "0.4.1"
+path = "../matrix-sdk-crypto"
+
+[dependencies.ruma]
+git = "https://github.com/ruma/ruma/"
+rev = "fdbc4d6d1dd273c8a6ac95b329943ed8c68df70d"
+features = ["client-api-c", "compat", "unstable-pre-spec"]
+
+[dependencies.tokio]
+version = "1.7.1"
+default_features = false
+features = ["rt-multi-thread"]
+
+[build-dependencies]
+napi-build = "1"
