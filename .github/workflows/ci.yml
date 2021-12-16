@@ -162,11 +162,10 @@ jobs:
       fail-fast: true
 
       matrix:
-        node: [ "lts/*" ]
         experimental: [ false ]
         name:
           - matrix-sdk-example-wasm_command_bot
-          - "matrix-sdk-example-wasm_command_bot@latest Node"
+          - "matrix-sdk-example-wasm_command_bot@Node 14"
           - matrix-sdk-base
           - matrix-sdk-crypto
           - matrix-sdk
@@ -183,16 +182,16 @@ jobs:
             # FIXME: we have to skip all examples b/c of https://github.com/rustwasm/wasm-pack/issues/666
             cargo_args:  --no-default-features --features indexeddb_stores,rustls-tls --lib
           - name: matrix-sdk-example-wasm_command_bot
-            experimental: true # this might fail
             base_dir: matrix-sdk/examples/wasm_command_bot
+            # this might fail
+            experimental: true
             cmd: |
               npm install
               npm test
               wasm-pack test --firefox --headless
-
-          - name: "matrix-sdk-example-wasm_command_bot@latest Node"
+          - name: "matrix-sdk-example-wasm_command_bot@Node 14"
+            node_version: '14'
             # known to work
-            node: 14
             base_dir: matrix-sdk/examples/wasm_command_bot
             cmd: |
               npm install
@@ -225,7 +224,7 @@ jobs:
     - name: Setup Node
       uses: actions/setup-node@v2
       with:
-        node-version: ${{ matrix.node }}
+        node-version: ${{ matrix.node_version || 'lts/*' }}
 
     - name: Install emscripten
       uses: mymindstorm/setup-emsdk@v11
@@ -235,13 +234,13 @@ jobs:
 
     - name: Verify versions
       run: |
-        echo "node --version"
+        echo "> node --version"
         node --version
-        echo "npm --version"
+        echo "> npm --version"
         npm --version
-        echo "wasm-pack --version"
+        echo "> wasm-pack --version"
         wasm-pack --version
-        echo "emcc -v"
+        echo "> emcc -v"
         emcc -v
 
     - name: Default wasm-pack tests
