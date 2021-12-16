@@ -183,6 +183,7 @@ jobs:
             # FIXME: we have to skip all examples b/c of https://github.com/rustwasm/wasm-pack/issues/666
             cargo_args:  --no-default-features --features indexeddb_stores,rustls-tls --lib
           - name: matrix-sdk-example-wasm_command_bot
+            experimental: true # this might fail
             base_dir: matrix-sdk/examples/wasm_command_bot
             cmd: |
               npm install
@@ -190,8 +191,8 @@ jobs:
               wasm-pack test --firefox --headless
 
           - name: "matrix-sdk-example-wasm_command_bot@latest Node"
-            experimental: true # this might fail
-            node: "node" # building with latest
+            # known to work
+            node: 14
             base_dir: matrix-sdk/examples/wasm_command_bot
             cmd: |
               npm install
