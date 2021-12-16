@@ -180,7 +180,10 @@ jobs:
             cargo_args:  --no-default-features --features indexeddb_stores,rustls-tls --lib
           - name: matrix-sdk-example-wasm_command_bot
             base_dir: matrix-sdk/examples/wasm_command_bot
-            cmd: npm install && npm test
+            cmd: |
+              npm install
+              npm test
+              wasm-pack test --firefox --headless
 
     steps:
     - name: Checkout the repo
