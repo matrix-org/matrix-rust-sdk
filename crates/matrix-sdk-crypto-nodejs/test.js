@@ -17,13 +17,20 @@ class TestStore {
     }
 }
 
+class ProxyMachine {
+    #inner;
+
+    constructor(store) {
+        this.#inner = new mod.OlmMachine({
+            doCall: (s) => store.doCall(s),
+        });
+    }
+
+    test() {
+        this.#inner.test();
+    }
+}
+
 const store = new TestStore();
-
-const machine = new mod.OlmMachine([(s) => store.doCall(s)]);
-// console.log("User ID: ", machine.userId);
-// console.log("Device ID: ", machine.deviceId);
+const machine = new ProxyMachine(store);
 machine.test();
-
-// const mod = require("./index");
-const machine2 = new mod.DemoMachine(store);
-machine2.doWork("keyHere", "valueHere");
