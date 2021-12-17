@@ -1,2 +1,5 @@
 node_modules
 index.*
+!index.js
+napi-module.js
+yarn-error.log

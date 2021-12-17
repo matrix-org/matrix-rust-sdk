@@ -1,0 +1,30 @@
+FROM ubuntu
+
+# The install commands are broken out because apt gets confused about
+# how to install all the packages concurrently.
+RUN apt-get update
+RUN apt-get install -y build-essential
+RUN apt-get install -y gcc-i686-linux-gnu
+RUN apt-get install -y g++-i686-linux-gnu
+RUN apt-get install -y gcc-multilib
+
+# Install misc dependencies last to cache the expensive gcc layers
+RUN apt-get install -y curl
+
+# Headless install of NodeJS
+RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
+RUN apt-get install -y nodejs
+RUN npm install -g yarn@1
+
+# Headless install of Rust/Cargo
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+COPY ./package.json /src2/package.json
+WORKDIR /src2
+RUN yarn rust:targets
+
+VOLUME ["/src"]
+WORKDIR /src/crates/matrix-sdk-crypto-nodejs
+
+CMD yarn install && yarn build:linux

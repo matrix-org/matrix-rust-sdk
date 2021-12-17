@@ -8,22 +8,36 @@
   "author": "Travis Ralston <travis@matrix.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@napi-rs/cli": "^2.0.0-beta.5"
+    "@napi-rs/cli": "^2.0.0-beta.5",
+    "shelljs": "^0.8.4"
   },
+  "files": [
+    "package.json",
+    "README.md",
+    "check-exists.js",
+    "index.js",
+    "index.d.ts",
+    "src",
+    "Cargo.toml",
+    "Cargo.lock",
+    "build.rs",
+    "yarn.lock",
+    "index.*.node"
+  ],
   "scripts": {
-    "rust:targets": "rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu i686-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin",
+    "rust:targets": "rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc x86_64-unknown-linux-gnu i686-unknown-linux-gnu x86_64-apple-darwin",
     "build:win": "yarn build:win:x64 && yarn build:win:ia32",
-    "build:win:x64": "napi build --release --platform --target x86_64-pc-windows-msvc",
-    "build:win:ia32": "napi build --release --platform --target i686-pc-windows-msvc",
-    "build:linux": "yarn build:linux:arm64 && yarn build:linux:x64 && yarn build:linux:ia32",
-    "build:linux:arm64": "napi build --release --platform --target aarch64-unknown-linux-gnu",
-    "build:linux:x64": "napi build --release --platform --target x86_64-unknown-linux-gnu",
-    "build:linux:ia32": "napi build --release --platform --target i686-unknown-linux-gnu",
+    "build:win:x64": "napi build --js napi-module.js --release --platform --target x86_64-pc-windows-msvc",
+    "build:win:ia32": "napi build --js napi-module.js --release --platform --target i686-pc-windows-msvc",
+    "build:linux": "yarn build:linux:x64 && yarn build:linux:ia32",
+    "build:linux:x64": "napi build --js napi-module.js --release --platform --target x86_64-unknown-linux-gnu",
+    "build:linux:ia32": "napi build --js napi-module.js --release --platform --target i686-unknown-linux-gnu",
     "build:darwin": "yarn build:darwin:x64",
-    "build:darwin:x64": "napi build --release --platform --target x86_64-apple-darwin",
-    "build:darwin:arm64": "napi build --release --platform --target aarch64-apple-darwin",
-    "build": "yarn build:win && yarn build:linux && yarn build:darwin",
-    "build:debug": "napi build --platform",
+    "build:darwin:x64": "napi build --js napi-module.js --release --platform --target x86_64-apple-darwin",
+    "build:release": "napi build --js napi-module.js --release",
+    "build:debug": "napi build --js napi-module.js",
+    "prepublishOnly": "./prepare-release.sh",
+    "postinstall": "node check-exists.js",
     "example": "yarn build:debug && node test.js"
   }
 }
