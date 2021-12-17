@@ -19,7 +19,7 @@ class TestStore {
 
 const store = new TestStore();
 
-const machine = new mod.OlmMachine(store);
+const machine = new mod.OlmMachine([(s) => store.doCall(s)]);
 // console.log("User ID: ", machine.userId);
 // console.log("Device ID: ", machine.deviceId);
 machine.test();
