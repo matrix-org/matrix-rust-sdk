@@ -1,5 +1,5 @@
-use napi::bindgen_prelude::*;
-use napi::{JsFunction, JsObject, JsTypedArray, JsUndefined};
+use napi_derive::napi;
+use napi::{CallContext, Env, JsFunction, JsObject, JsTypedArray, JsUndefined, Result};
 use crate::store::CryptoStore;
 
 #[napi]
@@ -10,18 +10,24 @@ pub struct OlmMachine {
 #[napi]
 impl OlmMachine {
     #[napi(constructor)]
-    pub fn new(js_store: JsObject) -> Result<Self> {
+    pub fn new(env: Env, js_store: JsTypedArray) -> Result<Self> {
         Ok(OlmMachine {
             store: CryptoStore::new(
-                js_store.get::<&str, JsFunction>("doCall")?.expect("Missing doCall function"),
+                env,
+                js_store.get_element(0).expect("Missing doCall function"),
             )?,
         })
     }
 
     #[napi]
-    pub fn test(&self, env: Env) -> Result<JsUndefined> {
-        self.store.call_thing(env, "ping?")?;
+    pub fn test1(&self, env: Env) -> Result<JsUndefined> {
+        self.store.call_thing("ping?")?;
         Ok(env.get_undefined()?)
+    }
+
+    #[napi]
+    pub fn test2(&self) {
+        println!("from rust");
     }
 }
 

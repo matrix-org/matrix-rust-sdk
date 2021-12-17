@@ -21,16 +21,19 @@ class ProxyMachine {
     #inner;
 
     constructor(store) {
-        this.#inner = new mod.OlmMachine({
-            doCall: (s) => store.doCall(s),
-        });
+        this.#inner = new mod.OlmMachine([
+            (s) => store.doCall(s),
+        ]);
     }
 
-    test() {
-        this.#inner.test();
-    }
+    test1 = () => {
+        this.#inner.test1();
+    };
 }
 
 const store = new TestStore();
 const machine = new ProxyMachine(store);
-machine.test();
+// const machine = new mod.OlmMachine([
+//     (s) => store.doCall(s),
+// ]);
+machine.test1();

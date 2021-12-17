@@ -1,24 +1,27 @@
-use napi::bindgen_prelude::*;
-use napi::{Env, JsFunction, JsObject, JsUndefined};
+use napi_derive::napi;
+use napi::{CallContext, Env, JsFunction, JsObject, JsUndefined, Result};
 
 pub struct CryptoStore {
+    env: Env,
     do_call_fn: JsFunction,
 }
 
 impl CryptoStore {
     pub(crate) fn new(
+        env: Env,
         do_call_fn: JsFunction,
     ) -> Result<Self> {
         Ok(CryptoStore {
+            env,
             do_call_fn,
         })
     }
 
-    pub fn call_thing(&self, env: Env, s: &str) -> Result<JsUndefined> {
+    pub fn call_thing(&self, s: &str) -> Result<u32> {
         // self.do_call_fn.call_without_args(Option::None)?;
-        self.do_call_fn.call(Option::None, &[
-            env.create_string(s)?
+        self.do_call_fn.call(None, &[
+            self.env.create_string(s)?
         ])?;
-        Ok(env.get_undefined()?)
+        Ok(2)
     }
 }
