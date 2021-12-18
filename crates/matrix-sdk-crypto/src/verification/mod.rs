@@ -31,6 +31,10 @@ use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
 pub use qrcode::{QrVerification, ScanError};
 pub use requests::VerificationRequest;
+#[cfg(feature = "qrcode")]
+use ruma::events::key::verification::done::{
+    KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
+};
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
@@ -39,7 +43,6 @@ use ruma::{
                 CancelCode, KeyVerificationCancelEventContent,
                 ToDeviceKeyVerificationCancelEventContent,
             },
-            done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
             Relation,
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
@@ -243,6 +246,7 @@ pub struct Done {
 }
 
 impl Done {
+    #[cfg(feature = "qrcode")]
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
