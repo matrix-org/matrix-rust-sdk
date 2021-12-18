@@ -228,27 +228,27 @@ impl InnerSas {
         (InnerSas::Cancelled(sas), Some(content))
     }
 
-    pub fn confirm(self) -> (InnerSas, Option<OutgoingContent>) {
+    pub fn confirm(self) -> (InnerSas, Vec<OutgoingContent>) {
         match self {
             InnerSas::KeyReceived(s) => {
                 let sas = s.confirm();
                 let content = sas.as_content();
-                (InnerSas::Confirmed(sas), Some(content))
+                (InnerSas::Confirmed(sas), vec![content])
             }
             InnerSas::MacReceived(s) => {
                 if s.started_from_request {
                     let sas = s.confirm_and_wait_for_done();
-                    let content = sas.as_content();
+                    let contents = vec![sas.as_content(), sas.done_content()];
 
-                    (InnerSas::WaitingForDone(sas), Some(content))
+                    (InnerSas::WaitingForDone(sas), contents)
                 } else {
                     let sas = s.confirm();
                     let content = sas.as_content();
 
-                    (InnerSas::Done(sas), Some(content))
+                    (InnerSas::Done(sas), vec![content])
                 }
             }
-            _ => (self, None),
+            _ => (self, Vec::new()),
         }
     }
 
