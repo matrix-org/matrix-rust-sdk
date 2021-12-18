@@ -1177,10 +1177,6 @@ impl SasState<Done> {
         get_mac_content(&self.inner.lock().unwrap(), &self.ids, &self.verification_flow_id)
     }
 
-    pub fn done_content(&self) -> OutgoingContent {
-        self.state.as_content(self.verification_flow_id.as_ref())
-    }
-
     /// Get the list of verified devices.
     pub fn verified_devices(&self) -> Arc<[ReadOnlyDevice]> {
         self.state.verified_devices.clone()

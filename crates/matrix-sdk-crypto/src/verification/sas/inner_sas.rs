@@ -335,10 +335,7 @@ impl InnerSas {
             },
             AnyVerificationContent::Done(c) => match self {
                 InnerSas::WaitingForDone(s) => match s.into_done(sender, c) {
-                    Ok(s) => {
-                        let content = s.done_content();
-                        (InnerSas::Done(s), Some(content))
-                    }
+                    Ok(s) => (InnerSas::Done(s), None),
                     Err(s) => {
                         let content = s.as_content();
                         (InnerSas::Cancelled(s), Some(content))
