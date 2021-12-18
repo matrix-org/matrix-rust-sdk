@@ -2147,25 +2147,17 @@ pub(crate) mod test {
         assert_eq!(alice_sas.emoji(), bob_sas.emoji());
         assert_eq!(alice_sas.decimals(), bob_sas.decimals());
 
-        let event = bob_sas
-            .confirm()
-            .await
-            .unwrap()
-            .0
-            .map(|r| request_to_event(bob.user_id(), &r))
-            .unwrap();
+        let contents = bob_sas.confirm().await.unwrap().0;
+        assert!(contents.len() == 1);
+        let event = request_to_event(bob.user_id(), &contents[0]);
         alice.handle_verification_event(&event).await;
 
         assert!(!alice_sas.is_done());
         assert!(!bob_sas.is_done());
 
-        let event = alice_sas
-            .confirm()
-            .await
-            .unwrap()
-            .0
-            .map(|r| request_to_event(alice.user_id(), &r))
-            .unwrap();
+        let contents = alice_sas.confirm().await.unwrap().0;
+        assert!(contents.len() == 1);
+        let event = request_to_event(alice.user_id(), &contents[0]);
 
         assert!(alice_sas.is_done());
         assert!(bob_device.verified());
