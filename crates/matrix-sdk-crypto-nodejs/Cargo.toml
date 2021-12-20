@@ -15,8 +15,14 @@ version = "0.1.0"
 crate-type=["cdylib"]
 
 [dependencies]
-napi = "2.0.0"
 napi-derive = "2.0.0"
+serde = "1"
+serde_derive = "1"
+serde_json = "1"
+
+[dependencies.napi]
+version = "2.0.0"
+features = ["full"]
 
 [dependencies.matrix-sdk-crypto]
 version = "0.4.1"
@@ -27,7 +33,7 @@ features = ["sled_cryptostore", "backups_v1"]
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"
 rev = "fdbc4d6d1dd273c8a6ac95b329943ed8c68df70d"
-features = ["client-api-c", "compat", "unstable-pre-spec"]
+features = ["client-api-c"]
 
 [dependencies.tokio]
 version = "1.7.1"
