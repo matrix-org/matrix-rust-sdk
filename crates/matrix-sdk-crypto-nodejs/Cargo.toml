@@ -21,6 +21,8 @@ napi-derive = "2.0.0"
 [dependencies.matrix-sdk-crypto]
 version = "0.4.1"
 path = "../matrix-sdk-crypto"
+default_features = false
+features = ["sled_cryptostore", "backups_v1"]
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"

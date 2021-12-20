@@ -3,3 +3,4 @@ index.*
 !index.js
 napi-module.js
 yarn-error.log
+/sled
