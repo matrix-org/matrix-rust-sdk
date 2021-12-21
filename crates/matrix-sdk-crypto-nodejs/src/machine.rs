@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::device::Device;
-use crate::models::{DecryptedEvent, DeviceLists};
-use crate::request::{key_claim_to_request, outgoing_req_to_json, RequestKind};
-use crate::responses::{response_from_string, OwnedResponse};
+use std::{collections::BTreeMap, ops::Deref};
+
 use matrix_sdk_common::{deserialized_responses::AlgorithmInfo, uuid::Uuid};
 use matrix_sdk_crypto::OlmMachine as RSOlmMachine;
 use napi::Result;
@@ -35,18 +33,21 @@ use ruma::{
         },
         IncomingResponse,
     },
-    events::{room::encrypted::RoomEncryptedEventContent, SyncMessageEvent},
-    DeviceKeyAlgorithm,
+    events::{
+        room::encrypted::RoomEncryptedEventContent, AnyMessageEventContent, EventContent,
+        SyncMessageEvent,
+    },
+    DeviceKeyAlgorithm, RoomId, UInt, UserId,
 };
-use ruma::{
-    events::{AnyMessageEventContent, EventContent},
-    RoomId, UInt, UserId,
-};
-use serde_json::value::RawValue;
-use serde_json::{Map, Value};
-use std::collections::BTreeMap;
-use std::ops::Deref;
+use serde_json::{value::RawValue, Map, Value};
 use tokio::runtime::Runtime;
+
+use crate::{
+    device::Device,
+    models::{DecryptedEvent, DeviceLists},
+    request::{key_claim_to_request, outgoing_req_to_json, RequestKind},
+    responses::{response_from_string, OwnedResponse},
+};
 
 #[napi]
 pub struct SledBackedOlmMachine {
@@ -97,7 +98,8 @@ impl SledBackedOlmMachine {
             .collect()
     }
 
-    // We can't use structured enums in napi-rs, so export as a series of JSON-serialized Strings instead
+    // We can't use structured enums in napi-rs, so export as a series of
+    // JSON-serialized Strings instead
     #[napi(getter)]
     pub fn outgoing_requests(&self) -> Result<Vec<String>> {
         Ok(self
@@ -110,7 +112,8 @@ impl SledBackedOlmMachine {
     }
 
     // Function names from https://github.com/poljar/element-android/blob/rust/rust-sdk/src/machine.rs
-    // Some of the functions might be best served as getters (put above this comment block, with the other ones)
+    // Some of the functions might be best served as getters (put above this comment
+    // block, with the other ones)
 
     // TODO: get_identity
     // TODO: is_identity_verified

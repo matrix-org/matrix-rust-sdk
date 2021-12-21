@@ -13,12 +13,10 @@
 // limitations under the License.
 
 use matrix_sdk_common::uuid::Uuid;
-use matrix_sdk_crypto::OutgoingRequest;
-use matrix_sdk_crypto::OutgoingRequests::*;
+use matrix_sdk_crypto::{OutgoingRequest, OutgoingRequests::*};
 use napi::bindgen_prelude::ToNapiValue;
 use napi_derive::napi;
-use ruma::api::client::r0::keys::claim_keys::Request as KeysClaimRequest;
-use ruma::events::EventContent;
+use ruma::{api::client::r0::keys::claim_keys::Request as KeysClaimRequest, events::EventContent};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Error};
 
