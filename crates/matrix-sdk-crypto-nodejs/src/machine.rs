@@ -1,7 +1,12 @@
 use std::ops::Deref;
 use napi_derive::napi;
 use napi::{Result};
-use ruma::{RoomId, UserId, events::{{AnyMessageEventContent}}};
+use ruma::{
+    events::{
+        AnyMessageEventContent, EventContent,
+    },
+    RoomId, UserId,
+};
 use serde_json::{Map, Value};
 use serde_json::value::RawValue;
 use tokio::runtime::Runtime;
@@ -9,6 +14,7 @@ use matrix_sdk_crypto::{
     OlmMachine as RSOlmMachine,
 };
 use crate::device::Device;
+use crate::request::outgoing_req_to_json;
 
 #[napi]
 pub struct SledBackedOlmMachine {
@@ -52,16 +58,17 @@ impl SledBackedOlmMachine {
         self.inner.identity_keys().iter().map(|(k, v)| (k.to_string(), Value::String(v.to_string()))).collect()
     }
 
-    // TODO: TravisR
-    // #[napi(getter)]
-    // pub fn outgoing_requests(&self) -> Result<Vec<Request>> {
-    //     Ok(self
-    //         .runtime
-    //         .block_on(self.inner.outgoing_requests())?
-    //         .into_iter()
-    //         .map(|r| r.into())
-    //         .collect())
-    // }
+    // We can't use structured enums in napi-rs, so export as a series of JSON-serialized Strings instead
+    #[napi(getter)]
+    pub fn outgoing_requests(&self) -> Result<Vec<String>> {
+        Ok(self
+            .runtime
+            .block_on(self.inner.outgoing_requests())
+            .expect("Unknown error waiting for outgoing requests")
+            .into_iter()
+            .map(|r| outgoing_req_to_json(r).expect("Serialization failed"))
+            .collect())
+    }
 
     // Function names from https://github.com/poljar/element-android/blob/rust/rust-sdk/src/machine.rs
     // Some of the functions might be best served as getters (put above this comment block, with the other ones)
@@ -163,7 +170,7 @@ impl SledBackedOlmMachine {
     pub fn encrypt(&self, room_id: String, event_type: String, content: String) -> Result<String> {
         let room_id = Box::<RoomId>::try_from(room_id).expect("Failed to convert room ID");
         let content: Box<RawValue> = serde_json::from_str(content.as_str()).expect("Failed to convert content");
-        let content = AnyMessageEventContent::from_parts(event_type.as_str(), &content).failed("Failed to parse content");
+        let content = AnyMessageEventContent::from_parts(event_type.as_str(), &content).expect("Failed to parse content");
         let encrypted_content = self
             .runtime
             .block_on(self.inner.encrypt(&room_id, content))
