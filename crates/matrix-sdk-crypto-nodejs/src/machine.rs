@@ -111,6 +111,7 @@ impl SledBackedOlmMachine {
 
     // Function names from https://github.com/poljar/element-android/blob/rust/rust-sdk/src/machine.rs
     // Some of the functions might be best served as getters (put above this comment block, with the other ones)
+
     // TODO: get_identity
     // TODO: is_identity_verified
     // TODO: verify_identity
