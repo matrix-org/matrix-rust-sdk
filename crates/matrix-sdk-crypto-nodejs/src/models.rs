@@ -1,11 +1,7 @@
-use ruma::{
-    api::client::r0::{
-        sync::sync_events::DeviceLists as RumaDeviceLists,
-    },
-    assign,
-    identifiers::UserId,
-};
 use napi_derive::napi;
+use ruma::{
+    api::client::r0::sync::sync_events::DeviceLists as RumaDeviceLists, assign, identifiers::UserId,
+};
 use serde::{Deserialize, Serialize};
 
 #[napi(object)]

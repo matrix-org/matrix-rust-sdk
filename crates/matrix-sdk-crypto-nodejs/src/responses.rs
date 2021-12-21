@@ -1,26 +1,14 @@
 use http::Response;
-use ruma::{
-    api::client::r0::{
-        backup::add_backup_keys::Response as KeysBackupResponse,
-        keys::{
-            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-            get_keys::Response as KeysQueryResponse,
-            upload_keys::Response as KeysUploadResponse,
-            upload_signatures::{
-                Request as RustSignatureUploadRequest, Response as SignatureUploadResponse,
-            },
-        },
-        sync::sync_events::DeviceLists as RumaDeviceLists,
-        to_device::send_event_to_device::Response as ToDeviceResponse,
-        message::send_message_event::Response as RoomMessageResponse,
+use matrix_sdk_crypto::IncomingResponse;
+use ruma::api::client::r0::{
+    backup::add_backup_keys::Response as KeysBackupResponse,
+    keys::{
+        claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
+        upload_keys::Response as KeysUploadResponse,
+        upload_signatures::Response as SignatureUploadResponse,
     },
-    assign,
-    events::EventContent,
-    identifiers::UserId,
-};
-use matrix_sdk_crypto::{
-    IncomingResponse, OutgoingRequest, OutgoingVerificationRequest as SdkVerificationRequest,
-    RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest as RustUploadSigningKeysRequest,
+    message::send_message_event::Response as RoomMessageResponse,
+    to_device::send_event_to_device::Response as ToDeviceResponse,
 };
 
 pub(crate) fn response_from_string(body: &str) -> Response<Vec<u8>> {

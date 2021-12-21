@@ -1,7 +1,7 @@
-use matrix_sdk_crypto::{Device as RSDevice};
+use matrix_sdk_crypto::Device as RSDevice;
 use napi_derive::napi;
-use serde_json::{Map, Value};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 #[napi(object)]
 #[derive(Serialize, Deserialize)]
