@@ -46,6 +46,8 @@ pub use reqwest;
 #[doc(no_inline)]
 pub use ruma;
 
+/// Types and traits for attachments.
+pub mod attachment;
 mod client;
 pub mod config;
 mod error;

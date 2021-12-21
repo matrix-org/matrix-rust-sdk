@@ -31,7 +31,12 @@ use tracing::debug;
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
-use crate::{error::HttpResult, room::Common, BaseRoom, Client, Result, RoomType};
+use crate::{
+    attachment::{AttachmentInfo, Thumbnail},
+    error::HttpResult,
+    room::Common,
+    BaseRoom, Client, Result, RoomType,
+};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -597,6 +602,12 @@ impl Joined {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
+    /// * `info` - The metadata of the media. If the
+    /// `AttachmentInfo` type doesn't match the `content_type`, it is ignored.
+    ///
+    /// * `thumbnail` - The thumbnail of the media. If the `content_type` does
+    /// not support it (eg audio clips), it is ignored.
+    ///
     /// * `txn_id` - A unique ID that can be attached to a `MessageEvent`
     /// held in its unsigned field as `transaction_id`. If not given one is
     /// created for the message.
@@ -605,7 +616,7 @@ impl Joined {
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, ruma::room_id};
+    /// # use matrix_sdk::{Client, ruma::room_id, attachment::NONE_THUMBNAIL};
     /// # use url::Url;
     /// # use mime;
     /// # use futures::executor::block_on;
@@ -622,26 +633,37 @@ impl Joined {
     ///         &mime::IMAGE_JPEG,
     ///         &mut image,
     ///         None,
+    ///         NONE_THUMBNAIL,
+    ///         None,
     ///     ).await?;
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn send_attachment<R: Read>(
+    pub async fn send_attachment<R: Read, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
+        info: Option<AttachmentInfo>,
+        thumbnail: Option<Thumbnail<'_, T>>,
         txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
         #[cfg(feature = "encryption")]
         let content = if self.is_encrypted() {
-            self.client.prepare_encrypted_attachment_message(body, content_type, reader).await?
+            self.client
+                .prepare_encrypted_attachment_message(body, content_type, reader, info, thumbnail)
+                .await?
         } else {
-            self.client.prepare_attachment_message(body, content_type, reader).await?
+            self.client
+                .prepare_attachment_message(body, content_type, reader, info, thumbnail)
+                .await?
         };
 
         #[cfg(not(feature = "encryption"))]
-        let content = self.client.prepare_attachment_message(body, content_type, reader).await?;
+        let content = self
+            .client
+            .prepare_attachment_message(body, content_type, reader, info, thumbnail)
+            .await?;
 
         self.send(RoomMessageEventContent::new(content), txn_id).await
     }
