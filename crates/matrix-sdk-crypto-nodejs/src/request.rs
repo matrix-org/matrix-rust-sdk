@@ -2,7 +2,9 @@ use serde::{Serialize, Deserialize};
 use serde_json::{json, Error};
 use napi_derive::napi;
 use ruma::{events::{EventContent}};
+use ruma::api::client::r0::keys::claim_keys::Request as KeysClaimRequest;
 use napi::bindgen_prelude::ToNapiValue;
+use matrix_sdk_common::uuid::Uuid;
 use matrix_sdk_crypto::{OutgoingRequest};
 use matrix_sdk_crypto::OutgoingRequests::*;
 
@@ -16,6 +18,11 @@ pub enum RequestKind {
     RoomMessage = 5,
     KeysClaim = 6,
     KeysBackup = 7,
+}
+
+pub fn key_claim_to_request(tpl: (Uuid, KeysClaimRequest)) -> Result<String, Error> {
+    let (request_id, request) = tpl;
+    key_claim_request_serialize(&request_id, &request)
 }
 
 pub fn outgoing_req_to_json(r: OutgoingRequest) -> Result<String, Error> {
@@ -62,22 +69,7 @@ pub fn outgoing_req_to_json(r: OutgoingRequest) -> Result<String, Error> {
             }))
         }
         KeysClaim(c) => {
-            serde_json::to_string(&json!({
-                "request_kind": RequestKind::KeysClaim,
-                "request_id": r.request_id().to_string(),
-                "one_time_keys": c.one_time_keys,
-                // "one_time_keys": otks
-                //     .into_iter()
-                //     .map(|(u, d)| {
-                //         (
-                //             u.to_string(),
-                //             d.into_iter()
-                //                 .map(|(i, a)| (i.to_string(), a.to_string()))
-                //                 .collect(),
-                //         )
-                //     })
-                //     .collect(),
-            }))
+            key_claim_request_serialize(r.request_id(), c)
         }
         KeysBackup(b) => {
             serde_json::to_string(&json!({
@@ -88,4 +80,23 @@ pub fn outgoing_req_to_json(r: OutgoingRequest) -> Result<String, Error> {
             }))
         }
     }
+}
+
+fn key_claim_request_serialize(id: &Uuid, r: &KeysClaimRequest) -> Result<String, Error> {
+    serde_json::to_string(&json!({
+        "request_kind": RequestKind::KeysClaim,
+        "request_id": id.to_string(),
+        "one_time_keys": r.one_time_keys,
+        // "one_time_keys": otks
+        //     .into_iter()
+        //     .map(|(u, d)| {
+        //         (
+        //             u.to_string(),
+        //             d.into_iter()
+        //                 .map(|(i, a)| (i.to_string(), a.to_string()))
+        //                 .collect(),
+        //         )
+        //     })
+        //     .collect(),
+    }))
 }

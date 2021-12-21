@@ -1,20 +1,40 @@
+use std::collections::BTreeMap;
 use std::ops::Deref;
 use napi_derive::napi;
 use napi::{Result};
+use ruma::{events::{
+    AnyMessageEventContent, EventContent,
+}, RoomId, UInt, UserId};
 use ruma::{
-    events::{
-        AnyMessageEventContent, EventContent,
+    api::{
+        client::r0::{
+            backup::add_backup_keys::Response as KeysBackupResponse,
+            keys::{
+                claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
+                upload_keys::Response as KeysUploadResponse,
+                upload_signatures::Response as SignatureUploadResponse,
+            },
+            sync::sync_events::{DeviceLists as RumaDeviceLists, ToDevice},
+            to_device::send_event_to_device::Response as ToDeviceResponse,
+            message::send_message_event::Response as RoomMessageResponse,
+        },
+        IncomingResponse,
     },
-    RoomId, UserId,
+    events::{
+        key::verification::VerificationMethod, room::encrypted::RoomEncryptedEventContent,
+        SyncMessageEvent,
+    },
+    DeviceKeyAlgorithm, EventId,
 };
 use serde_json::{Map, Value};
 use serde_json::value::RawValue;
 use tokio::runtime::Runtime;
-use matrix_sdk_crypto::{
-    OlmMachine as RSOlmMachine,
-};
+use matrix_sdk_crypto::{OlmMachine as RSOlmMachine, OutgoingRequest, OutgoingRequests};
 use crate::device::Device;
-use crate::request::outgoing_req_to_json;
+use crate::request::{key_claim_to_request, outgoing_req_to_json, RequestKind};
+use matrix_sdk_common::{deserialized_responses::AlgorithmInfo, uuid::Uuid};
+use crate::responses::{response_from_string, OwnedResponse};
+use crate::models::{DecryptedEvent, DeviceLists};
 
 #[napi]
 pub struct SledBackedOlmMachine {
@@ -127,17 +147,72 @@ impl SledBackedOlmMachine {
         Ok(self.runtime.block_on(self.inner.get_user_devices(&user_id)).expect("Failed to get user device info").devices().map(|d| d.into()).collect())
     }
 
-    // TODO: TravisR
-    // #[napi]
-    // pub fn mark_request_as_sent(&self, request_id: String, request_type: RequestType, response_body: String) -> Result<()> {
-    //     // TODO: Impl
-    // }
+    #[napi]
+    pub fn mark_request_as_sent(&self, request_id: String, request_kind: RequestKind, response_body: String) -> Result<()> {
+        let req_id = Uuid::parse_str(request_id.as_str()).expect("Failed to parse request ID");
+        let response = response_from_string(response_body.as_str());
 
-    // TODO: TravisR
-    // #[napi]
-    // pub fn receive_sync_changes(&self, events: String, device_changes: DeviceLists, key_counts: Map<String, Value>, unused_fallback_keys: Option<Vec<String>>) -> Result<String> {
-    //     // TODO: Impl
-    // }
+        let response: OwnedResponse = match request_kind {
+            RequestKind::KeysUpload => {
+                KeysUploadResponse::try_from_http_response(response).map(Into::into)
+            }
+            RequestKind::KeysQuery => {
+                KeysQueryResponse::try_from_http_response(response).map(Into::into)
+            }
+            RequestKind::ToDevice => {
+                ToDeviceResponse::try_from_http_response(response).map(Into::into)
+            }
+            RequestKind::KeysClaim => {
+                KeysClaimResponse::try_from_http_response(response).map(Into::into)
+            }
+            RequestKind::SignatureUpload => {
+                SignatureUploadResponse::try_from_http_response(response).map(Into::into)
+            }
+            RequestKind::KeysBackup => {
+                KeysBackupResponse::try_from_http_response(response).map(Into::into)
+            }
+            RequestKind::RoomMessage => {
+                RoomMessageResponse::try_from_http_response(response).map(Into::into)
+            }
+        }.expect("Can't convert json string to response");
+
+        self.runtime
+            .block_on(self.inner.mark_request_as_sent(&req_id, &response))
+            .expect("Failed to mark request as sent");
+
+        Ok(())
+    }
+
+    #[napi]
+    pub fn receive_sync_changes(&self, events: String, device_changes: DeviceLists, key_counts: Map<String, Value>, unused_fallback_keys: Option<Vec<String>>) -> Result<String> {
+        // key_counts: Map<String, i32>
+
+        let events: ToDevice = serde_json::from_str(events.as_str())?;
+        let device_changes: RumaDeviceLists = device_changes.into();
+        let key_counts: BTreeMap<DeviceKeyAlgorithm, UInt> = key_counts
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    DeviceKeyAlgorithm::try_from(k).expect("Failed to convert key algorithm"),
+                    i32::try_from(v.as_i64().expect("Failed to get number")).expect("Failed to downcast").clamp(0, i32::MAX)
+                        .try_into()
+                        .expect("Couldn't convert key counts into an UInt"),
+                )
+            })
+            .collect();
+
+        let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> =
+            unused_fallback_keys.map(|u| u.into_iter().map(DeviceKeyAlgorithm::from).collect());
+
+        let events = self.runtime.block_on(self.inner.receive_sync_changes(
+            events,
+            &device_changes,
+            &key_counts,
+            unused_fallback_keys.as_deref(),
+        )).expect("Failed to handle sync changes");
+
+        Ok(serde_json::to_string(&events)?)
+    }
 
     #[napi]
     pub fn update_tracked_users(&self, users: Vec<String>) {
@@ -159,11 +234,22 @@ impl SledBackedOlmMachine {
         Ok(self.inner.tracked_users().contains(&user_id))
     }
 
-    // TODO: TravisR
-    // #[napi]
-    // pub fn get_missing_sessions(&self, users: Vec<String>) -> Result<Request> {
-    //     // TODO: Impl
-    // }
+    #[napi]
+    pub fn get_missing_sessions(&self, users: Vec<String>) -> Result<String> {
+        let users: Vec<Box<UserId>> = users
+            .into_iter()
+            .filter_map(|u| Box::<UserId>::try_from(u).ok())
+            .collect();
+
+        Ok(self
+            .runtime
+            .block_on(
+                self.inner
+                    .get_missing_sessions(users.iter().map(Deref::deref)),
+            ).expect("Failed to get missing sessions")
+            .map(|r| key_claim_to_request(r))
+            .expect("Failed to serialize").expect("Failed to unpack"))
+    }
 
     // TODO: Can we make this accept and return objects?
     #[napi]
@@ -179,17 +265,42 @@ impl SledBackedOlmMachine {
         Ok(serde_json::to_string(&encrypted_content).expect("Failed to convert encrypted content"))
     }
 
-    // TODO: TravisR
-    // #[napi]
-    // pub fn decrypt_room_event(&self, event: String, room_id: String) -> Result<DecryptedEvent> {
-    //     // TODO: Impl
-    //     // TODO: Try to return objects
-    // }
+    // TODO: Can we make this accept and return objects?
+    #[napi]
+    pub fn decrypt_room_event(&self, event: String, room_id: String) -> Result<DecryptedEvent> {
+        let event: SyncMessageEvent<RoomEncryptedEventContent> = serde_json::from_str(event.as_str()).expect("Failed to parse event");
+        let room_id = Box::<RoomId>::try_from(room_id).expect("Failed to parse room ID");
 
-    // TODO: TravisR
-    // #[napi]
-    // pub fn sign(&self, message: String) -> Map<String, Value> {
-    //     // TODO: Impl
-    // }
+        let decrypted = self
+            .runtime
+            .block_on(self.inner.decrypt_room_event(&event, &room_id)).expect("Failed to decrypt");
+
+        let encryption_info = decrypted
+            .encryption_info
+            .expect("Decrypted event didn't contain any encryption info");
+
+        Ok(match &encryption_info.algorithm_info {
+            AlgorithmInfo::MegolmV1AesSha2 {
+                curve25519_key,
+                sender_claimed_keys,
+                forwarding_curve25519_key_chain,
+            } => DecryptedEvent {
+                clear_event: serde_json::to_string(decrypted.event.json().get()).expect("Failed to serialize clear event"),
+                sender_curve25519_key: curve25519_key.to_owned(),
+                claimed_ed25519_key: sender_claimed_keys
+                    .get(&DeviceKeyAlgorithm::Ed25519)
+                    .cloned(),
+                forwarding_curve25519_chain: forwarding_curve25519_key_chain.to_owned(),
+            },
+        })
+    }
+
+    // TODO: Can we make this accept and return objects?
+    #[napi]
+    pub fn sign(&self, message: String) -> Result<String> {
+        Ok(serde_json::to_string(&self.runtime
+            .block_on(self.inner.sign(message.as_str())))
+            .expect("Failed to serialize"))
+    }
 }
 
