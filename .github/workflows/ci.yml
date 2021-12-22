@@ -159,8 +159,6 @@ jobs:
     continue-on-error: ${{ matrix.experimental }}
 
     strategy:
-      fail-fast: true
-
       matrix:
         include:
           - name: matrix-sdk-crypto
