@@ -12,15 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const { existsSync } = require('fs');
-const { join } = require('path');
-
-let mod;
-const independentBuildExists = existsSync(join(__dirname, 'index.node'));
-if (independentBuildExists) {
-    mod = require('./index.node');
-} else {
-    mod = require('./napi-module');
-}
-
-module.exports = mod;
+export * from "./napi";
+export * from "./OlmEngine";

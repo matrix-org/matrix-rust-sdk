@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es2021",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noImplicitAny": true,
+    "declaration": true,
+    "sourceMap": true,
+    "allowJs": true,
+    "outDir": "./lib",
+    "types": ["node"]
+  },
+  "include": [
+    "./src/ts/**/*.ts",
+    "./src/ts/**/napi-module.js"
+  ]
+}

@@ -1,5 +1,5 @@
 try {
-    require('./index');
+    require('./lib/napi');
 } catch (e) {
     if (e.message === 'Failed to load native binding' || e.message.startsWith("Cannot find module")) {
         if (process.env.NODE_ENV === "production") {

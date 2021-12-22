@@ -1,6 +1,6 @@
 node_modules
-index.*
-!index.js
 napi-module.js
+napi-module.d.ts
 yarn-error.log
 /sled
+/lib
