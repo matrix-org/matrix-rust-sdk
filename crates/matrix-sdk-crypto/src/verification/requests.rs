@@ -525,8 +525,8 @@ impl VerificationRequest {
         if let OutgoingContent::ToDevice(c) = cancel_content {
             let recipients: Vec<Box<DeviceId>> = self
                 .recipient_devices
-                .to_vec()
-                .into_iter()
+                .iter()
+                .cloned()
                 .filter(|d| if let Some(device) = filter_device { &**d != device } else { true })
                 .collect();
 
