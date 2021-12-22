@@ -288,7 +288,7 @@ impl SledBackedOlmMachine {
             .runtime
             .block_on(self.inner.get_missing_sessions(users.iter().map(Deref::deref)))
             .expect("Failed to get missing sessions")
-            .map(|r| key_claim_to_request(r))
+            .map(key_claim_to_request)
             .expect("Failed to serialize")
             .expect("Failed to unpack"))
     }

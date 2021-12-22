@@ -39,8 +39,7 @@ impl From<RSDevice> for Device {
                 .keys()
                 .iter()
                 .map(|(k, v)| (k.to_string(), Value::String(v.to_string())))
-                .collect::<Map<String, Value>>()
-                .into(),
+                .collect::<Map<String, Value>>(),
             algorithms: d.algorithms().iter().map(|a| a.to_string()).collect(),
             display_name: d.display_name().map(|d| d.to_owned()),
             is_blocked: d.is_blacklisted(),
