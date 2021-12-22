@@ -162,16 +162,17 @@ jobs:
       fail-fast: true
 
       matrix:
-        experimental: [ false ]
-
         include:
           - name: matrix-sdk-crypto
+            experimental: false
             base_dir: matrix-sdk-crypto
             cargo_args: --features indexeddb_cryptostore
           - name: matrix-sdk-base
+            experimental: false
             base_dir: matrix-sdk-base
             cargo_args: --features indexeddb_state_store,indexeddb_cryptostore
           - name: matrix-sdk
+            experimental: false
             base_dir: matrix-sdk
             # FIXME: we have to skip all examples b/c of https://github.com/rustwasm/wasm-pack/issues/666
             cargo_args:  --no-default-features --features indexeddb_stores,rustls-tls --lib
@@ -184,6 +185,7 @@ jobs:
               npm test
               wasm-pack test --firefox --headless
           - name: "matrix-sdk-example-wasm_command_bot@Node 14"
+            experimental: false
             node_version: '14'
             # known to work
             base_dir: matrix-sdk/examples/wasm_command_bot
