@@ -163,12 +163,6 @@ jobs:
 
       matrix:
         experimental: [ false ]
-        name:
-          - matrix-sdk-example-wasm_command_bot
-          - "matrix-sdk-example-wasm_command_bot@Node 14"
-          - matrix-sdk-base
-          - matrix-sdk-crypto
-          - matrix-sdk
 
         include:
           - name: matrix-sdk-crypto
