@@ -12,15 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {
-    SledBackedOlmMachine,
-    Device,
-    DeviceLists,
-    DecryptedEvent,
-    RequestKind,
-    // @ts-ignore
-} from "./napi-module";
-
 const { existsSync } = require('fs');
 const { join } = require('path');
 
@@ -32,11 +23,4 @@ if (independentBuildExists) {
     mod = require('./napi-module');
 }
 
-export default {...mod} as {
-    // We manually map these to import the correct types
-    SledBackedOlmMachine: typeof SledBackedOlmMachine,
-    Device: Device,
-    DeviceLists: DeviceLists,
-    DecryptedEvent: DecryptedEvent,
-    RequestKind: typeof RequestKind,
-};
+export default {...mod};

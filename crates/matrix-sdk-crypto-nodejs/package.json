@@ -1,6 +1,6 @@
 {
   "name": "matrix-sdk-crypto-nodejs",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "description": "matrix-sdk-crypto crate for Node JS",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -8,7 +8,7 @@
   "author": "Travis Ralston <travis@matrix.org>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@napi-rs/cli": "^2.0.0-beta.5",
+    "@napi-rs/cli": "^2.0.0",
     "shelljs": "^0.8.4"
   },
   "files": [
@@ -25,17 +25,17 @@
   "scripts": {
     "rust:targets": "rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc x86_64-unknown-linux-gnu i686-unknown-linux-gnu x86_64-apple-darwin",
     "build:win": "yarn build:win:x64 && yarn build:win:ia32",
-    "build:win:x64": "napi build --js ./src/ts/napi-module.js --dts ./../src/ts/napi-module.d.ts --release --platform --target x86_64-pc-windows-msvc ./lib",
-    "build:win:ia32": "napi build --js ./src/ts/napi-module.js --dts ./../src/ts/napi-module.d.ts --release --platform --target i686-pc-windows-msvc ./lib",
+    "build:win:x64": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release --platform --target x86_64-pc-windows-msvc ./lib",
+    "build:win:ia32": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release --platform --target i686-pc-windows-msvc ./lib",
     "build:linux": "yarn build:linux:x64 && yarn build:linux:ia32",
-    "build:linux:x64": "napi build --js ./src/ts/napi-module.js --dts ./../src/ts/napi-module.d.ts --release --platform --target x86_64-unknown-linux-gnu ./lib",
-    "build:linux:ia32": "napi build --js ./src/ts/napi-module.js --dts ./../src/ts/napi-module.d.ts --release --platform --target i686-unknown-linux-gnu ./lib",
+    "build:linux:x64": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release --platform --target x86_64-unknown-linux-gnu ./lib",
+    "build:linux:ia32": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release --platform --target i686-unknown-linux-gnu ./lib",
     "build:darwin": "yarn build:darwin:x64",
-    "build:darwin:x64": "napi build --js ./src/ts/napi-module.js --dts ./../src/ts/napi-module.d.ts --release --platform --target x86_64-apple-darwin ./lib",
-    "build:release": "napi build --js ./src/ts/napi-module.js --dts ./../src/ts/napi-module.d.ts --release ./lib",
+    "build:darwin:x64": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release --platform --target x86_64-apple-darwin ./lib",
+    "build:release": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release ./lib",
     "build:debug": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts ./lib",
     "build:ts": "tsc",
-    "prepublishOnly": "./prepare-release.sh",
+    "prepublishOnly": "yarn build:ts && ./prepare-release.sh",
     "postinstall": "node check-exists.js",
     "example": "yarn build:debug && node test.js"
   },

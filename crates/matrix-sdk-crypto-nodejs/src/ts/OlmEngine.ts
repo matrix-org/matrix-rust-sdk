@@ -15,7 +15,7 @@
 import napi from "./napi";
 
 // @ts-ignore
-import {Device, DeviceLists, DecryptedEvent} from "./napi-module";
+import {Device, DeviceLists} from "./napi-module";
 
 export type Optional<T> = T | null | undefined;
 
@@ -38,6 +38,13 @@ export interface MatrixEvent {
     content: Record<string, any>;
     origin_server_ts: number;
     unsigned: Record<string, any>;
+}
+
+export interface DecryptedMatrixEvent {
+    clearEvent: any;
+    senderCurve25519Key: string;
+    claimedEd25519Key?: Optional<string>;
+    forwardingCurve25519Chain: string[];
 }
 
 export interface GenericKeys {
@@ -148,7 +155,7 @@ export interface KeyQueryResults {
 }
 
 export interface OlmEngine {
-    uploadOneTimeKeys(deviceKeys: DeviceKeys, oneTimeKeys: GenericKeys): Promise<OTKCounts>;
+    uploadOneTimeKeys(body: {device_keys?: DeviceKeys, one_time_keys?: GenericKeys}): Promise<OTKCounts>;
     queryOneTimeKeys(userIds: string[]): Promise<KeyQueryResults>;
     claimOneTimeKeys(claim: KeyClaim): Promise<KeyClaimResponse>;
 }
@@ -171,28 +178,29 @@ export class OlmMachine {
         return (new OlmMachine(userId, deviceId, engine)).makeSled(sledPath);
     }
 
-    private async runEngineUntilComplete(): Promise<void> {
+    public async runEngineUntilComplete(): Promise<void> {
         const requests = (this.machine.outgoingRequests ?? []).map((r: string) => JSON.parse(r));
         for (const request of requests) {
-            switch(request['request_kind'] as RequestKind) {
-                case RequestKind.KeysUpload: {
-                    const resp = await this.engine.uploadOneTimeKeys(request['device_keys'], request['one_time_keys']);
+            switch(request['request_kind']) {
+                case 'KeysUpload': {
+                    const resp = await this.engine.uploadOneTimeKeys(request['body']);
                     this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysUpload, JSON.stringify(resp));
                     break;
                 }
-                case RequestKind.KeysQuery: {
-                    const resp = await this.engine.queryOneTimeKeys(request['users']);
+                case 'KeysQuery': {
+                    const userIds = Array.isArray(request['users']) ? request['users'] : [request['users']];
+                    const resp = await this.engine.queryOneTimeKeys(userIds);
                     this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysQuery, JSON.stringify(resp));
                     break;
                 }
-                case RequestKind.KeysClaim: {
+                case 'KeysClaim': {
                     const resp = await this.engine.claimOneTimeKeys(request['one_time_keys']);
                     this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysClaim, JSON.stringify(resp));
                     break;
                 }
                 default:
                     // TODO: Handle properly
-                    console.log(request);
+                    console.error("Unhandled request:", request);
                     break;
             }
         }
@@ -228,7 +236,7 @@ export class OlmMachine {
         return this.machine.getUserDevices(userId);
     }
 
-    public async pushSync(events: MatrixEvent[], deviceLists: DeviceLists, remainingKeyCounts: Record<string, Record<string, number>>, unusedFallbackKeyTypes?: string[]) {
+    public async pushSync(events: MatrixEvent[], deviceLists: DeviceLists, remainingKeyCounts: Record<string, number>, unusedFallbackKeyTypes?: string[]) {
         // TODO: Return type
         console.log(this.machine.receiveSyncChanges(JSON.stringify(events), deviceLists, remainingKeyCounts, unusedFallbackKeyTypes));
         await this.runEngineUntilComplete();
@@ -255,10 +263,13 @@ export class OlmMachine {
         return parsed;
     }
 
-    public async decryptRoomEvent(roomId: string, event: MatrixEvent): Promise<DecryptedEvent> {
+    public async decryptRoomEvent(roomId: string, event: MatrixEvent): Promise<DecryptedMatrixEvent> {
         const parsed = this.machine.decryptRoomEvent(JSON.stringify(event), roomId);
         await this.runEngineUntilComplete();
-        return parsed;
+        return {
+            ...parsed,
+            clearEvent: JSON.parse(parsed.clearEvent),
+        };
     }
 
     public async sign(message: Record<string, any>): Promise<Signatures> {
