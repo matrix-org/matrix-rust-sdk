@@ -16,6 +16,7 @@ import napi from "./napi";
 
 // @ts-ignore
 import {Device, DeviceLists} from "./napi-module";
+import {toArray} from "./utils";
 
 export type Optional<T> = T | null | undefined;
 
@@ -40,8 +41,14 @@ export interface MatrixEvent {
     unsigned: Record<string, any>;
 }
 
+export interface ToDeviceEvent {
+    type: string;
+    sender: string;
+    content: Record<string, any>;
+}
+
 export interface DecryptedMatrixEvent {
-    clearEvent: any;
+    clearEvent: MatrixEvent;
     senderCurve25519Key: string;
     claimedEd25519Key?: Optional<string>;
     forwardingCurve25519Chain: string[];
@@ -154,10 +161,18 @@ export interface KeyQueryResults {
     };
 }
 
+export interface ToDeviceMessages {
+    [userId: string]: {
+        [deviceId: string]: any;
+    };
+}
+
 export interface OlmEngine {
     uploadOneTimeKeys(body: {device_keys?: DeviceKeys, one_time_keys?: GenericKeys}): Promise<OTKCounts>;
     queryOneTimeKeys(userIds: string[]): Promise<KeyQueryResults>;
     claimOneTimeKeys(claim: KeyClaim): Promise<KeyClaimResponse>;
+    sendToDevices(eventType: string, messages: ToDeviceMessages): Promise<void>;
+    getEffectiveJoinedUsersInRoom(roomId: string): Promise<string[]>;
 }
 
 // Dev note: Due to complexities in the types structure, we can't reliably pull in the types for the
@@ -179,34 +194,42 @@ export class OlmMachine {
     }
 
     public async runEngineUntilComplete(): Promise<void> {
-        const requests = (this.machine.outgoingRequests ?? []).map((r: string) => JSON.parse(r));
+        const requests = toArray(this.machine.outgoingRequests ?? []).map((r: string) => JSON.parse(r));
         for (const request of requests) {
-            switch(request['request_kind']) {
-                case 'KeysUpload': {
-                    const resp = await this.engine.uploadOneTimeKeys(request['body']);
-                    this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysUpload, JSON.stringify(resp));
-                    break;
-                }
-                case 'KeysQuery': {
-                    const userIds = Array.isArray(request['users']) ? request['users'] : [request['users']];
-                    const resp = await this.engine.queryOneTimeKeys(userIds);
-                    this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysQuery, JSON.stringify(resp));
-                    break;
-                }
-                case 'KeysClaim': {
-                    const resp = await this.engine.claimOneTimeKeys(request['one_time_keys']);
-                    this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysClaim, JSON.stringify(resp));
-                    break;
-                }
-                default:
-                    // TODO: Handle properly
-                    console.error("Unhandled request:", request);
-                    break;
-            }
+            await this.runEngineRequest(request);
         }
         if ((this.machine.outgoingRequests ?? []).length > 0) {
             // recurse, hopefully not too much
             await this.runEngineUntilComplete();
+        }
+    }
+
+    private async runEngineRequest(request: any) {
+        switch(request['request_kind']) {
+            case 'KeysUpload': {
+                const resp = await this.engine.uploadOneTimeKeys(request['body']);
+                this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysUpload, JSON.stringify(resp));
+                break;
+            }
+            case 'KeysQuery': {
+                const userIds = Array.isArray(request['users']) ? request['users'] : [request['users']];
+                const resp = await this.engine.queryOneTimeKeys(userIds);
+                this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysQuery, JSON.stringify(resp));
+                break;
+            }
+            case 'KeysClaim': {
+                const resp = await this.engine.claimOneTimeKeys(request['one_time_keys']);
+                this.machine.markRequestAsSent(request['request_id'], RequestKind.KeysClaim, JSON.stringify(resp));
+                break;
+            }
+            case 'ToDevice': {
+                await this.engine.sendToDevices(request['event_type'], request['body']);
+                break;
+            }
+            default:
+                // TODO: Handle properly
+                console.error("Unhandled request:", request);
+                break;
         }
     }
 
@@ -236,9 +259,9 @@ export class OlmMachine {
         return this.machine.getUserDevices(userId);
     }
 
-    public async pushSync(events: MatrixEvent[], deviceLists: DeviceLists, remainingKeyCounts: Record<string, number>, unusedFallbackKeyTypes?: string[]) {
-        // TODO: Return type
-        console.log(this.machine.receiveSyncChanges(JSON.stringify(events), deviceLists, remainingKeyCounts, unusedFallbackKeyTypes));
+    public async pushSync(events: ToDeviceEvent[], deviceLists: DeviceLists, remainingKeyCounts: Record<string, number>, unusedFallbackKeyTypes?: string[]) {
+        const keyCounts = Object.entries(remainingKeyCounts).map(e => [e[0], e[1].toString()]).reduce((c, p) => ({...c, [p[0]]: p[1]}), {});
+        this.machine.receiveSyncChanges(JSON.stringify({events}), deviceLists, keyCounts, unusedFallbackKeyTypes);
         await this.runEngineUntilComplete();
     }
 
@@ -251,25 +274,40 @@ export class OlmMachine {
         return this.machine.isUserTracked(userId);
     }
 
-    public async getMissingSessions(userIds: string[]) {
-        // TODO: Return type
-        console.log(this.machine.getMissingSessions(userIds));
+    public async ensureSessionsFor(userIds: string[]) {
+        const request = JSON.parse(this.machine.getMissingSessions(userIds));
+        if (request['request_kind']) {
+            await this.runEngineRequest(request);
+        }
         await this.runEngineUntilComplete();
     }
 
+    // TODO: Need to lock based on room ID
     public async encryptRoomEvent(roomId: string, eventType: string, content: Record<string, any>): Promise<Record<string, any>> {
+        const userIds = await this.engine.getEffectiveJoinedUsersInRoom(roomId);
+
+        this.machine.updateTrackedUsers(userIds);
+        await this.runEngineUntilComplete();
+
+        await this.ensureSessionsFor(userIds); // runs the engine internally
+
+        const requests = toArray(JSON.parse(this.machine.shareRoomKey(roomId, userIds)));
+        for (const request of requests) {
+            await this.runEngineRequest(request);
+        }
+        await this.runEngineUntilComplete();
+
         const parsed = JSON.parse(this.machine.encrypt(roomId, eventType, JSON.stringify(content)));
         await this.runEngineUntilComplete();
+
         return parsed;
     }
 
     public async decryptRoomEvent(roomId: string, event: MatrixEvent): Promise<DecryptedMatrixEvent> {
         const parsed = this.machine.decryptRoomEvent(JSON.stringify(event), roomId);
+        parsed.clearEvent = JSON.parse(parsed.clearEvent);
         await this.runEngineUntilComplete();
-        return {
-            ...parsed,
-            clearEvent: JSON.parse(parsed.clearEvent),
-        };
+        return parsed;
     }
 
     public async sign(message: Record<string, any>): Promise<Signatures> {

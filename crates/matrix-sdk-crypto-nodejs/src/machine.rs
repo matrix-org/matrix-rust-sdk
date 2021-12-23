@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use matrix_sdk_common::{deserialized_responses::AlgorithmInfo, uuid::Uuid};
-use matrix_sdk_crypto::OlmMachine as RSOlmMachine;
+use matrix_sdk_crypto::{EncryptionSettings, OlmMachine as RSOlmMachine};
 use napi::Result;
 use napi_derive::napi;
 use ruma::{
@@ -48,6 +48,7 @@ use crate::{
     request::{key_claim_to_request, outgoing_req_to_json, RequestKind},
     responses::{response_from_string, OwnedResponse},
 };
+use crate::request::to_device_request_serialize;
 
 #[napi]
 pub struct SledBackedOlmMachine {
@@ -120,7 +121,6 @@ impl SledBackedOlmMachine {
     // TODO: verify_identity
     // TODO: verify_device
     // TODO: mark_device_as_trusted
-    // TODO: share_room_key
     // TODO: request_room_key
     // TODO: export_keys
     // TODO: import_keys
@@ -230,7 +230,7 @@ impl SledBackedOlmMachine {
         key_counts: Map<String, Value>,
         unused_fallback_keys: Option<Vec<String>>,
     ) -> Result<String> {
-        // key_counts: Map<String, i32>
+        // key_counts: Map<String, String> (cast to Map<String, i32>)
 
         let events: ToDevice = serde_json::from_str(events.as_str())?;
         let device_changes: RumaDeviceLists = device_changes.into();
@@ -239,11 +239,7 @@ impl SledBackedOlmMachine {
             .map(|(k, v)| {
                 (
                     DeviceKeyAlgorithm::try_from(k).expect("Failed to convert key algorithm"),
-                    i32::try_from(v.as_i64().expect("Failed to get number"))
-                        .expect("Failed to downcast")
-                        .clamp(0, i32::MAX)
-                        .try_into()
-                        .expect("Couldn't convert key counts into an UInt"),
+                    v.as_str().expect("Failed to get string for number").parse::<i32>().unwrap().try_into().expect("Failed to convert to number"),
                 )
             })
             .collect();
@@ -284,13 +280,34 @@ impl SledBackedOlmMachine {
         let users: Vec<Box<UserId>> =
             users.into_iter().filter_map(|u| Box::<UserId>::try_from(u).ok()).collect();
 
-        Ok(self
+        let request = self
             .runtime
             .block_on(self.inner.get_missing_sessions(users.iter().map(Deref::deref)))
-            .expect("Failed to get missing sessions")
-            .map(key_claim_to_request)
-            .expect("Failed to serialize")
-            .expect("Failed to unpack"))
+            .expect("Failed to get missing sessions");
+        if request.is_none() {
+            Ok("{}".to_string())
+        } else {
+            Ok(request
+                .map(key_claim_to_request)
+                .expect("Failed to serialize")
+                .expect("Failed to unpack"))
+        }
+    }
+
+    // TODO: Support encryption settings and history visibility
+    #[napi]
+    pub fn share_room_key(&self, room_id: String, user_ids: Vec<String>) -> Result<Vec<String>> {
+        let users: Vec<Box<UserId>> =
+            user_ids.into_iter().filter_map(|u| Box::<UserId>::try_from(u).ok()).collect();
+        let room_id = Box::<RoomId>::try_from(room_id.as_str()).expect("Failed to convert room ID");
+
+        Ok(self.runtime
+            .block_on(self.inner.share_group_session(&room_id, users.iter().map(Deref::deref), EncryptionSettings::default()))
+            .expect("Unknown error waiting for outgoing requests")
+            .into_iter()
+            .map(|r| to_device_request_serialize(&*r).expect("Serialization failed"))
+            .collect()
+        )
     }
 
     // TODO: Can we make this accept and return objects?
@@ -330,8 +347,7 @@ impl SledBackedOlmMachine {
                 sender_claimed_keys,
                 forwarding_curve25519_key_chain,
             } => DecryptedEvent {
-                clear_event: serde_json::to_string(decrypted.event.json().get())
-                    .expect("Failed to serialize clear event"),
+                clear_event: decrypted.event.json().get().to_string(),
                 sender_curve25519_key: curve25519_key.to_owned(),
                 claimed_ed25519_key: sender_claimed_keys.get(&DeviceKeyAlgorithm::Ed25519).cloned(),
                 forwarding_curve25519_chain: forwarding_curve25519_key_chain.to_owned(),

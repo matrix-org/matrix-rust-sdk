@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_common::uuid::Uuid;
-use matrix_sdk_crypto::{OutgoingRequest, OutgoingRequests::*};
+use matrix_sdk_crypto::{OutgoingRequest, OutgoingRequests::*, ToDeviceRequest};
 use napi::bindgen_prelude::ToNapiValue;
 use napi_derive::napi;
 use ruma::{api::client::r0::keys::claim_keys::Request as KeysClaimRequest, events::EventContent};
@@ -52,12 +52,7 @@ pub fn outgoing_req_to_json(r: OutgoingRequest) -> Result<String, Error> {
             "request_id": r.request_id().to_string(),
             "users": k.device_keys.keys().map(|u| u.to_string()).collect::<String>(),
         })),
-        ToDeviceRequest(t) => serde_json::to_string(&json!({
-            "request_kind": RequestKind::ToDevice,
-            "request_id": t.txn_id_string(),
-            "event_type": t.event_type.to_string(),
-            "body": &t.messages,
-        })),
+        ToDeviceRequest(t) => to_device_request_serialize(t),
         SignatureUpload(s) => serde_json::to_string(&json!({
             "request_kind": RequestKind::SignatureUpload,
             "request_id": r.request_id().to_string(),
@@ -78,6 +73,15 @@ pub fn outgoing_req_to_json(r: OutgoingRequest) -> Result<String, Error> {
             "rooms": b.rooms,
         })),
     }
+}
+
+pub fn to_device_request_serialize(r: &ToDeviceRequest) -> Result<String, Error> {
+    serde_json::to_string(&json!({
+            "request_kind": RequestKind::ToDevice,
+            "request_id": r.txn_id_string(),
+            "event_type": r.event_type.to_string(),
+            "body": &r.messages,
+        }))
 }
 
 fn key_claim_request_serialize(id: &Uuid, r: &KeysClaimRequest) -> Result<String, Error> {
