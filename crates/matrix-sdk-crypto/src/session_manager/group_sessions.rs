@@ -226,13 +226,21 @@ impl GroupSessionManager {
         BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
         Vec<Session>,
     )> {
+        // Use a named type instead of a tuple with rather long type name
+        struct EncryptResult {
+            used_session: Option<Session>,
+            share_info: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+            message:
+                BTreeMap<Box<UserId>, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+        }
+
         let mut messages = BTreeMap::new();
         let mut changed_sessions = Vec::new();
         let mut share_infos = BTreeMap::new();
 
         let encrypt = |device: Device, content: AnyToDeviceEventContent| async move {
             let mut message = BTreeMap::new();
-            let mut share_infos = BTreeMap::new();
+            let mut share_info = BTreeMap::new();
 
             let encrypted = device.encrypt(content.clone()).await;
 
@@ -246,7 +254,7 @@ impl GroupSessionManager {
                             Raw::new(&AnyToDeviceEventContent::RoomEncrypted(encrypted))
                                 .expect("Failed to serialize encrypted event"),
                         );
-                    share_infos
+                    share_info
                         .entry(device.user_id().to_owned())
                         .or_insert_with(BTreeMap::new)
                         .insert(
@@ -265,7 +273,7 @@ impl GroupSessionManager {
                 Err(e) => return Err(e),
             };
 
-            Ok((used_session, share_infos, message))
+            Ok(EncryptResult { used_session, share_info, message })
         };
 
         let tasks: Vec<_> =
@@ -274,7 +282,8 @@ impl GroupSessionManager {
         let results = join_all(tasks).await;
 
         for result in results {
-            let (used_session, infos, message) = result.expect("Encryption task panicked")?;
+            let EncryptResult { used_session, share_info, message } =
+                result.expect("Encryption task panicked")?;
 
             if let Some(session) = used_session {
                 changed_sessions.push(session);
@@ -284,7 +293,7 @@ impl GroupSessionManager {
                 messages.entry(user).or_insert_with(BTreeMap::new).extend(device_messages);
             }
 
-            for (user, infos) in infos.into_iter() {
+            for (user, infos) in share_info.into_iter() {
                 share_infos.entry(user).or_insert_with(BTreeMap::new).extend(infos);
             }
         }
