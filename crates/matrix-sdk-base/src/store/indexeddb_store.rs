@@ -123,6 +123,7 @@ impl IndexeddbStore {
                 let db = evt.db();
 
                 db.create_object_store(KEYS::SESSION)?;
+                db.create_object_store(KEYS::SYNC_TOKEN)?;
                 db.create_object_store(KEYS::ACCOUNT_DATA)?;
 
                 db.create_object_store(KEYS::MEMBERS)?;
