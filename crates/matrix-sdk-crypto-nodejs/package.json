@@ -1,6 +1,6 @@
 {
   "name": "matrix-sdk-crypto-nodejs",
-  "version": "0.1.15",
+  "version": "0.1.18",
   "description": "matrix-sdk-crypto crate for Node JS",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",

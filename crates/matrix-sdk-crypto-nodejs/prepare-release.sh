@@ -1,4 +1,7 @@
 #!/bin/bash
+
+set -ex
+
 yarn install
 
 # Remove generated file to ensure the default `yarn install` on the consumer side
