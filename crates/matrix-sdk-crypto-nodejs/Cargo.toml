@@ -36,7 +36,7 @@ features = ["sled_cryptostore", "backups_v1"]
 
 # use git for release mode
 git = "https://github.com/matrix-org/matrix-rust-sdk"
-rev = "6e0cd60dbfa0f719422068ae2126434a92de76e5"
+rev = "c04217f018d917437ed62c51147bec87f4971d83"
 
 # use path in local development mode
 #path = "../matrix-sdk-crypto"
@@ -46,7 +46,7 @@ version = "0.4.1"
 
 # use git for release mode
 git = "https://github.com/matrix-org/matrix-rust-sdk"
-rev = "6e0cd60dbfa0f719422068ae2126434a92de76e5"
+rev = "c04217f018d917437ed62c51147bec87f4971d83"
 
 # use path in local development mode
 #path = "../matrix-sdk-common"
