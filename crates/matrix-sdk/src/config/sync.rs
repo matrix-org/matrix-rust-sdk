@@ -40,6 +40,7 @@ impl<'a> Default for SyncSettings<'a> {
 
 impl<'a> SyncSettings<'a> {
     /// Create new default sync settings.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }
@@ -49,6 +50,7 @@ impl<'a> SyncSettings<'a> {
     /// # Arguments
     ///
     /// * `token` - The sync token that should be used for the sync call.
+    #[must_use]
     pub fn token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
         self
@@ -60,6 +62,7 @@ impl<'a> SyncSettings<'a> {
     /// # Arguments
     ///
     /// * `timeout` - The time the server is allowed to wait.
+    #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
@@ -72,6 +75,7 @@ impl<'a> SyncSettings<'a> {
     ///
     /// * `filter` - The filter configuration that should be used for the sync
     ///   call.
+    #[must_use]
     pub fn filter(mut self, filter: sync_events::Filter<'a>) -> Self {
         self.filter = Some(filter);
         self
@@ -84,6 +88,7 @@ impl<'a> SyncSettings<'a> {
     /// # Arguments
     /// * `full_state` - A boolean deciding if the server should return the full
     ///   state or not.
+    #[must_use]
     pub fn full_state(mut self, full_state: bool) -> Self {
         self.full_state = full_state;
         self
