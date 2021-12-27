@@ -525,9 +525,9 @@ impl VerificationRequest {
         if let OutgoingContent::ToDevice(c) = cancel_content {
             let recipients: Vec<Box<DeviceId>> = self
                 .recipient_devices
-                .to_vec()
-                .into_iter()
-                .filter(|d| if let Some(device) = filter_device { &**d != device } else { true })
+                .iter()
+                .filter(|&d| if let Some(device) = filter_device { **d != *device } else { true })
+                .cloned()
                 .collect();
 
             // We don't need to notify anyone if no recipients were present
