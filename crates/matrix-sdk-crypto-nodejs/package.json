@@ -36,8 +36,7 @@
     "build:debug": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts ./lib",
     "build:ts": "tsc",
     "prepublishOnly": "yarn build:ts && ./prepare-release.sh",
-    "postinstall": "node check-exists.js",
-    "example": "yarn build:debug && node test.js"
+    "postinstall": "node check-exists.js"
   },
   "devDependencies": {
     "@types/node": "^14",
