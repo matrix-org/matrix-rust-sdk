@@ -28,7 +28,7 @@ pub struct EncryptedMedia {
 #[napi]
 pub fn encrypt_file(data: String) -> String {
     let data: Vec<u8> = serde_json::from_str(data.as_str()).expect("Failed to decode input array");
-    let mut cursor = Cursor::new(data.clone());
+    let mut cursor = Cursor::new(data);
     let mut encryptor = AttachmentEncryptor::new(&mut cursor);
     let mut encrypted = Vec::<u8>::new();
     encryptor.read_to_end(&mut encrypted).unwrap();
@@ -46,8 +46,8 @@ pub fn decrypt_file(payload: String) -> String {
         serde_json::from_str(payload.as_str()).expect("Failed to decode inputs");
     let data = payload.0;
     let info = payload.1;
-    let mut cursor = Cursor::new(data.clone());
-    let mut decryptor = AttachmentDecryptor::new(&mut cursor, info.into()).unwrap();
+    let mut cursor = Cursor::new(data);
+    let mut decryptor = AttachmentDecryptor::new(&mut cursor, info).unwrap();
     let mut decrypted = Vec::<u8>::new();
     decryptor.read_to_end(&mut decrypted).unwrap();
     serde_json::to_string(&json!({
