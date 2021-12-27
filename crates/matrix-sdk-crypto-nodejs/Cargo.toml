@@ -21,6 +21,10 @@ serde_derive = "1"
 serde_json = "1"
 http = "0.2.4"
 
+# For some reason the futures lib is missing in published builds, so copy the dep from
+# the matrix-sdk-crypto crate.
+futures = { version = "0.3.15", default-features = false, features = ["executor"] }
+
 [dependencies.napi]
 version = "2.0.0"
 features = ["full"]
