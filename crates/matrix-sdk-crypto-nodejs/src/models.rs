@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use napi_derive::napi;
-use serde::{Deserialize, Serialize};
 use ruma::{
     api::client::r0::sync::sync_events::DeviceLists as RumaDeviceLists, assign, identifiers::UserId,
 };
+use serde::{Deserialize, Serialize};
 
 #[napi(object)]
 #[derive(Serialize, Deserialize)]

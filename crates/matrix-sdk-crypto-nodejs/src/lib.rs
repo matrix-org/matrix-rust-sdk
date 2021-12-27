@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod attachments;
 mod device;
 mod machine;
 mod models;
 mod request;
 mod responses;
-mod attachments;

@@ -77,11 +77,11 @@ pub fn outgoing_req_to_json(r: OutgoingRequest) -> Result<String, Error> {
 
 pub fn to_device_request_serialize(r: &ToDeviceRequest) -> Result<String, Error> {
     serde_json::to_string(&json!({
-            "request_kind": RequestKind::ToDevice,
-            "request_id": r.txn_id_string(),
-            "event_type": r.event_type.to_string(),
-            "body": &r.messages,
-        }))
+        "request_kind": RequestKind::ToDevice,
+        "request_id": r.txn_id_string(),
+        "event_type": r.event_type.to_string(),
+        "body": &r.messages,
+    }))
 }
 
 fn key_claim_request_serialize(id: &Uuid, r: &KeysClaimRequest) -> Result<String, Error> {

@@ -45,10 +45,11 @@ use tokio::runtime::Runtime;
 use crate::{
     device::Device,
     models::{DecryptedEvent, DeviceLists},
-    request::{key_claim_to_request, outgoing_req_to_json, RequestKind},
+    request::{
+        key_claim_to_request, outgoing_req_to_json, to_device_request_serialize, RequestKind,
+    },
     responses::{response_from_string, OwnedResponse},
 };
-use crate::request::to_device_request_serialize;
 
 #[napi]
 pub struct SledBackedOlmMachine {
@@ -239,7 +240,12 @@ impl SledBackedOlmMachine {
             .map(|(k, v)| {
                 (
                     DeviceKeyAlgorithm::try_from(k).expect("Failed to convert key algorithm"),
-                    v.as_str().expect("Failed to get string for number").parse::<i32>().unwrap().try_into().expect("Failed to convert to number"),
+                    v.as_str()
+                        .expect("Failed to get string for number")
+                        .parse::<i32>()
+                        .unwrap()
+                        .try_into()
+                        .expect("Failed to convert to number"),
                 )
             })
             .collect();
@@ -301,13 +307,17 @@ impl SledBackedOlmMachine {
             user_ids.into_iter().filter_map(|u| Box::<UserId>::try_from(u).ok()).collect();
         let room_id = Box::<RoomId>::try_from(room_id.as_str()).expect("Failed to convert room ID");
 
-        Ok(self.runtime
-            .block_on(self.inner.share_group_session(&room_id, users.iter().map(Deref::deref), EncryptionSettings::default()))
+        Ok(self
+            .runtime
+            .block_on(self.inner.share_group_session(
+                &room_id,
+                users.iter().map(Deref::deref),
+                EncryptionSettings::default(),
+            ))
             .expect("Unknown error waiting for outgoing requests")
             .into_iter()
             .map(|r| to_device_request_serialize(&*r).expect("Serialization failed"))
-            .collect()
-        )
+            .collect())
     }
 
     // TODO: Can we make this accept and return objects?

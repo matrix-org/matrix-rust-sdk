@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io::{Cursor, Read};
+
+use matrix_sdk_crypto::{AttachmentDecryptor, AttachmentEncryptor, MediaEncryptionInfo};
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
-use std::io::{Cursor, Read};
 use serde_json::json;
-use matrix_sdk_crypto::{AttachmentDecryptor, AttachmentEncryptor, MediaEncryptionInfo};
 
 #[derive(Serialize, Deserialize)]
 pub struct EncryptedMedia {
@@ -35,12 +36,14 @@ pub fn encrypt_file(data: String) -> String {
     serde_json::to_string(&json!({
         "data": encrypted,
         "info": info,
-    })).expect("Failed to serialize json")
+    }))
+    .expect("Failed to serialize json")
 }
 
 #[napi]
 pub fn decrypt_file(payload: String) -> String {
-    let payload: (Vec<u8>, MediaEncryptionInfo) = serde_json::from_str(payload.as_str()).expect("Failed to decode inputs");
+    let payload: (Vec<u8>, MediaEncryptionInfo) =
+        serde_json::from_str(payload.as_str()).expect("Failed to decode inputs");
     let data = payload.0;
     let info = payload.1;
     let mut cursor = Cursor::new(data.clone());
@@ -49,5 +52,6 @@ pub fn decrypt_file(payload: String) -> String {
     decryptor.read_to_end(&mut decrypted).unwrap();
     serde_json::to_string(&json!({
         "data": decrypted,
-    })).expect("Failed to serialize json")
+    }))
+    .expect("Failed to serialize json")
 }
