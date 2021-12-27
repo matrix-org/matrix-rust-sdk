@@ -4,9 +4,10 @@
 
 1. Install Rust (latest) and NodeJS (latest LTS preferred).
 2. `npm install -g yarn@1` to ensure you have Yarn.
-3. `yarn rust:targets` to configure the targets.
-4. `yarn build:release` for a release build. `yarn build:debug` for a debug build.
-5. `yarn build:ts` to build the TypeScript part.
+3. `yarn install` to configure dependencies.
+4. `yarn rust:targets` to configure the targets.
+5. `yarn build:release` for a release build. `yarn build:debug` for a debug build.
+6. `yarn build:ts` to build the TypeScript part.
 
 Note that the output will not be capable of a publishable release, but will allow for local
 development in the case of a platform-specific binding not being available. Downstream projects
