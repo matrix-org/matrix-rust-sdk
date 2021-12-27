@@ -289,11 +289,11 @@ impl GroupSessionManager {
                 changed_sessions.push(session);
             }
 
-            for (user, device_messages) in message.into_iter() {
+            for (user, device_messages) in message {
                 messages.entry(user).or_insert_with(BTreeMap::new).extend(device_messages);
             }
 
-            for (user, infos) in share_info.into_iter() {
+            for (user, infos) in share_info {
                 share_infos.entry(user).or_insert_with(BTreeMap::new).extend(infos);
             }
         }

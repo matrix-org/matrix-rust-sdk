@@ -357,7 +357,7 @@ impl BackupMachine {
         let mut session_record: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>> =
             BTreeMap::new();
 
-        for session in sessions.into_iter() {
+        for session in sessions {
             let room_id = session.room_id().to_owned();
             let session_id = session.session_id().to_owned();
             let sender_key = session.sender_key().to_owned();
