@@ -27,13 +27,25 @@ features = ["full"]
 
 [dependencies.matrix-sdk-crypto]
 version = "0.4.1"
-path = "../matrix-sdk-crypto"
 default_features = false
 features = ["sled_cryptostore", "backups_v1"]
 
+# use git for release mode
+git = "https://github.com/matrix-org/matrix-rust-sdk"
+rev = "ea411e0023b798284123672e4983c34d85388f30"
+
+# use path in local development mode
+#path = "../matrix-sdk-crypto"
+
 [dependencies.matrix-sdk-common]
 version = "0.4.1"
-path = "../matrix-sdk-common"
+
+# use git for release mode
+git = "https://github.com/matrix-org/matrix-rust-sdk"
+rev = "ea411e0023b798284123672e4983c34d85388f30"
+
+# use path in local development mode
+#path = "../matrix-sdk-common"
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"
