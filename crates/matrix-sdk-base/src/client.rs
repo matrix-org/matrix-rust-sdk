@@ -31,8 +31,8 @@ use matrix_sdk_common::{
         StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline,
     },
     instant::Instant,
-    util::milli_seconds_since_unix_epoch,
     locks::RwLock,
+    util::milli_seconds_since_unix_epoch,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
