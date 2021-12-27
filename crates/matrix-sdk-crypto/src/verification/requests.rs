@@ -526,7 +526,7 @@ impl VerificationRequest {
             let recipients: Vec<Box<DeviceId>> = self
                 .recipient_devices
                 .iter()
-                .filter(|&d| if let Some(device) = filter_device { **d != *device } else { true })
+                .filter(|&d| filter_device.map_or(true, |device| **d != *device))
                 .cloned()
                 .collect();
 
