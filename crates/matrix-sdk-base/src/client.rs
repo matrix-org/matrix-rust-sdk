@@ -31,6 +31,7 @@ use matrix_sdk_common::{
         StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline,
     },
     instant::Instant,
+    util::milli_seconds_since_unix_epoch,
     locks::RwLock,
 };
 #[cfg(feature = "encryption")]
@@ -522,7 +523,7 @@ impl BaseClient {
                                     event.event.clone(),
                                     false,
                                     room_id.to_owned(),
-                                    MilliSecondsSinceUnixEpoch::now(),
+                                    milli_seconds_since_unix_epoch(),
                                 ),
                             );
                         }
