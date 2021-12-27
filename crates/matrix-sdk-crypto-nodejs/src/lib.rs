@@ -17,3 +17,4 @@ mod machine;
 mod models;
 mod request;
 mod responses;
+mod attachments;

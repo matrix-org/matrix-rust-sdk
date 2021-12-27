@@ -14,3 +14,4 @@
 
 export * from "./napi";
 export * from "./OlmMachine";
+export * from "./attachments";
