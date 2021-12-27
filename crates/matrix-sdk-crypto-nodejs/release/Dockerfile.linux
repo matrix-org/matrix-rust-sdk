@@ -1,5 +1,7 @@
 FROM ubuntu
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 # The install commands are broken out because apt gets confused about
 # how to install all the packages concurrently.
 RUN apt-get update
@@ -7,6 +9,8 @@ RUN apt-get install -y build-essential
 RUN apt-get install -y gcc-i686-linux-gnu
 RUN apt-get install -y g++-i686-linux-gnu
 RUN apt-get install -y gcc-multilib
+RUN apt-get install -y g++-multilib
+RUN apt-get install -y cmake
 
 # Install misc dependencies last to cache the expensive gcc layers
 RUN apt-get install -y curl
