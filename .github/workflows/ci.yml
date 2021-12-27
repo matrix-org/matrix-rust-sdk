@@ -143,7 +143,9 @@ jobs:
 
     # needed for libolm-sys compilation
     - name: Install emscripten
-      uses: mymindstorm/setup-emsdk@v7
+      uses: mymindstorm/setup-emsdk@v11
+      with:
+        version: 2.0.27
 
     - name: check
       uses: actions-rs/cargo@v1
@@ -227,6 +229,8 @@ jobs:
 
     - name: Install emscripten
       uses: mymindstorm/setup-emsdk@v11
+      with:
+        version: 2.0.27
 
     - name: Install wasm-pack
       run: cargo install wasm-pack
