@@ -36,6 +36,12 @@ compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled
 #[cfg(all(feature = "sso_login", target_arch = "wasm32"))]
 compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
 
+#[cfg(all(feature = "image_rayon", target_arch = "wasm32"))]
+compile_error!("'image_rayon' cannot be enabled on 'wasm32' arch");
+
+#[cfg(all(feature = "image_rayon", not(feature = "image_proc")))]
+compile_error!("'image_rayon' only works with 'image_proc' feature");
+
 pub use bytes;
 pub use matrix_sdk_base::{
     media, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
@@ -62,6 +68,8 @@ mod sync;
 pub mod encryption;
 
 pub use client::{Client, LoopCtrl};
+#[cfg(feature = "image_proc")]
+pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
