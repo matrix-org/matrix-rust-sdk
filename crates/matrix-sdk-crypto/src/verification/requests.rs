@@ -526,8 +526,8 @@ impl VerificationRequest {
             let recipients: Vec<Box<DeviceId>> = self
                 .recipient_devices
                 .iter()
+                .filter(|&d| filter_device.map_or(true, |device| **d != *device))
                 .cloned()
-                .filter(|d| if let Some(device) = filter_device { &**d != device } else { true })
                 .collect();
 
             // We don't need to notify anyone if no recipients were present

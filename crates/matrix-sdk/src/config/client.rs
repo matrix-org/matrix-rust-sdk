@@ -69,6 +69,7 @@ impl Debug for ClientConfig {
 
 impl ClientConfig {
     /// Create a new default `ClientConfig`.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }
@@ -98,6 +99,7 @@ impl ClientConfig {
     }
 
     /// Disable SSL verification for the HTTP requests.
+    #[must_use]
     pub fn disable_ssl_verification(mut self) -> Self {
         self.disable_ssl_verification = true;
         self
@@ -112,6 +114,7 @@ impl ClientConfig {
     ///// Set a custom implementation of a `StateStore`.
     /////
     ///// The state store should be opened before being set.
+    //#[must_use]
     //pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
     //    self.base_config = self.base_config.state_store(store);
     //    self
@@ -128,6 +131,7 @@ impl ClientConfig {
     /// implementations for the crypto store and the state store. It will use
     /// the given path to open the stores. If no path is provided no store will
     /// be opened
+    #[must_use]
     pub fn store_path(mut self, path: impl AsRef<Path>) -> Self {
         self.base_config = self.base_config.store_path(path);
         self
@@ -141,12 +145,14 @@ impl ClientConfig {
     /// the cryptostore.
     ///
     /// This is only used if no custom cryptostore is set.
+    #[must_use]
     pub fn passphrase(mut self, passphrase: String) -> Self {
         self.base_config = self.base_config.passphrase(passphrase);
         self
     }
 
     /// Set the default timeout, fail and retry behavior for all HTTP requests.
+    #[must_use]
     pub fn request_config(mut self, request_config: RequestConfig) -> Self {
         self.request_config = request_config;
         self
@@ -161,6 +167,7 @@ impl ClientConfig {
     ///
     /// Any type that implements the `HttpSend` trait can be used to
     /// send/receive `http` types.
+    #[must_use]
     pub fn client(mut self, client: Arc<dyn HttpSend>) -> Self {
         self.client = Some(client);
         self
@@ -171,6 +178,7 @@ impl ClientConfig {
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
     #[cfg(feature = "appservice")]
+    #[must_use]
     pub fn appservice_mode(mut self) -> Self {
         self.appservice_mode = true;
         self
@@ -180,6 +188,7 @@ impl ClientConfig {
     ///
     /// The crypto store should be opened before being set.
     #[cfg(feature = "encryption")]
+    #[must_use]
     pub fn crypto_store(
         mut self,
         store: Box<dyn matrix_sdk_base::crypto::store::CryptoStore>,
@@ -190,6 +199,7 @@ impl ClientConfig {
 
     /// Update the client's homeserver URL with the discovery information
     /// present in the login response, if any.
+    #[must_use]
     pub fn use_discovery_response(mut self) -> Self {
         self.use_discovery_response = true;
         self

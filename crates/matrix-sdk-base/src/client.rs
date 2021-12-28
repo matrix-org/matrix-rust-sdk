@@ -133,6 +133,7 @@ impl std::fmt::Debug for BaseClientConfig {
 
 impl BaseClientConfig {
     /// Create a new default `BaseClientConfig`.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }
