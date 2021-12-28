@@ -15,7 +15,8 @@ version = "0.1.0"
 crate-type=["cdylib"]
 
 [dependencies]
-napi-derive = "2.0.0"
+napi-derive = { version = "2.0.0", features = ["full"] }
+napi = { version = "2.0.0", features = ["full"] }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
@@ -24,10 +25,6 @@ http = "0.2.4"
 # For some reason the futures lib is missing in published builds, so copy the dep from
 # the matrix-sdk-crypto crate.
 futures = { version = "0.3.15", default-features = false, features = ["executor"] }
-
-[dependencies.napi]
-version = "2.0.0"
-features = ["full"]
 
 [dependencies.matrix-sdk-crypto]
 version = "0.4.1"
@@ -62,4 +59,4 @@ default_features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
-napi-build = "1"
+napi-build = "1.2.1"

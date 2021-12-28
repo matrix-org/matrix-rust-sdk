@@ -7,10 +7,6 @@
   "repository": "https://github.com/matrix-org/matrix-rust-sdk",
   "author": "Travis Ralston <travis@matrix.org>",
   "license": "Apache-2.0",
-  "dependencies": {
-    "@napi-rs/cli": "^2.0.0-beta.5",
-    "shelljs": "^0.8.4"
-  },
   "files": [
     "package.json",
     "README.md",
@@ -33,11 +29,17 @@
     "build:linux:ia32": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release --platform --target i686-unknown-linux-gnu ./lib",
     "build:darwin": "yarn build:darwin:x64",
     "build:darwin:x64": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release --platform --target x86_64-apple-darwin ./lib",
-    "build:release": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --release ./lib",
-    "build:debug": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts ./lib",
+    "build:types": "napi build --js ./lib/napi-module.js --dts napi-module.d.ts --platform ./lib",
+    "build:release": "yarn build:types && napi build --release ./lib",
+    "build:debug": "yarn build:types && napi build --js ./lib/napi-module.js --dts napi-module.d.ts ./lib",
     "build:ts": "tsc",
+    "build:test": "napi build",
     "prepublishOnly": "yarn build:ts && ./prepare-release.sh",
     "postinstall": "node check-exists.js"
+  },
+  "dependencies": {
+    "@napi-rs/cli": "^2.2.0",
+    "shelljs": "^0.8.4"
   },
   "devDependencies": {
     "@types/node": "^14",
