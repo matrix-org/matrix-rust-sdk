@@ -681,7 +681,7 @@ impl Client {
         Ok(olm.import_keys(import, false, |_, _| {}).await?)
     }
 
-    /// Tries to decrypt a `AnyRoomEvent`. Returns unencrypted room event when
+    /// Tries to decrypt a `AnyRoomEvent`. Returns undecrypted room event when
     /// decryption fails.
     #[cfg(feature = "encryption")]
     pub(crate) async fn decrypt_room_event(
