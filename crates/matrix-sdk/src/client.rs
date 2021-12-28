@@ -2353,7 +2353,6 @@ impl Client {
         use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                // TODO create a thumbnail using the image crate?.
                 let info = assign!(
                     info.map(room::ImageInfo::from).unwrap_or_default(),
                     {
