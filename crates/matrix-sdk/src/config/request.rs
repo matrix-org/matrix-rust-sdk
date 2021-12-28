@@ -110,7 +110,7 @@ impl RequestConfig {
     /// Force sending authorization even if the endpoint does not require it.
     /// Default is only sending authorization if it is required.
     #[must_use]
-    pub(crate) fn force_auth(mut self) -> Self {
+    pub fn force_auth(mut self) -> Self {
         self.force_auth = true;
         self
     }
