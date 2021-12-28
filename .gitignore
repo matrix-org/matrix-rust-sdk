@@ -2,3 +2,4 @@ Cargo.lock
 target
 master.zip
 emsdk-*
+.idea/
