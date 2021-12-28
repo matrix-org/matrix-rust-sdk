@@ -1,6 +1,6 @@
 {
   "name": "@turt2live/matrix-sdk-crypto-nodejs",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.4",
   "description": "matrix-sdk-crypto crate for Node JS",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -17,6 +17,7 @@
     "check-exists.js",
     "src",
     "lib",
+    "!lib/index.node",
     "Cargo.toml",
     "Cargo.lock",
     "build.rs",
