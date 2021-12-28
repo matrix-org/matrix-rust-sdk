@@ -7,7 +7,12 @@ mod invited;
 mod joined;
 mod left;
 
-pub use self::{common::Common, invited::Invited, joined::Joined, left::Left};
+pub use self::{
+    common::{Common, Messages},
+    invited::Invited,
+    joined::Joined,
+    left::Left,
+};
 
 /// An enum that abstracts over the different states a room can be in.
 #[derive(Debug, Clone)]

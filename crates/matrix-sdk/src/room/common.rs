@@ -8,13 +8,14 @@ use ruma::{
         message::get_message_events,
         room::get_room_event,
     },
-    events::{room::history_visibility::HistoryVisibility, AnySyncStateEvent, EventType},
+    events::{
+        room::history_visibility::HistoryVisibility, AnyStateEvent, AnySyncStateEvent, EventType,
+    },
     serde::Raw,
     UserId,
 };
 
 use crate::{
-    error::HttpResult,
     media::{MediaFormat, MediaRequest, MediaType},
     room::RoomType,
     BaseRoom, Client, Result, RoomMember,
@@ -34,6 +35,25 @@ impl Deref for Common {
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
+}
+
+/// The result of a `Room::messages` call.
+///
+/// In short, this is a possibly decrypted version of the response of a
+/// `room/messages` api call.
+#[derive(Debug)]
+pub struct Messages {
+    /// The token the pagination starts from.
+    pub start: Option<String>,
+
+    /// The token the pagination ends at.
+    pub end: Option<String>,
+
+    /// A list of room events.
+    pub chunk: Vec<RoomEvent>,
+
+    /// A list of state events relevant to showing the `chunk`.
+    pub state: Vec<Raw<AnyStateEvent>>,
 }
 
 impl Common {
@@ -109,8 +129,8 @@ impl Common {
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
-    /// returns a `get_message_events::Response` that contains a chunk of
-    /// room and state events (`AnyRoomEvent` and `AnyStateEvent`).
+    /// returns a `Messages` struct that contains a chunk of room and state
+    /// events (`RoomEvent` and `AnyStateEvent`).
     ///
     /// # Arguments
     ///
@@ -144,9 +164,30 @@ impl Common {
     pub async fn messages(
         &self,
         request: impl Into<get_message_events::Request<'_>>,
-    ) -> HttpResult<get_message_events::Response> {
+    ) -> Result<Messages> {
         let request = request.into();
-        self.client.send(request, None).await
+        let http_response = self.client.send(request, None).await?;
+
+        let mut response = Messages {
+            start: http_response.start,
+            end: http_response.end,
+            chunk: Vec::with_capacity(http_response.chunk.len()),
+            state: http_response.state,
+        };
+
+        for event in &http_response.chunk {
+            let event = event.deserialize()?;
+
+            #[cfg(feature = "encryption")]
+            let event = self.client.decrypt_room_event(&event).await?;
+
+            #[cfg(not(feature = "encryption"))]
+            let event = RoomEvent { event: Raw::new(&event)?, encryption_info: None };
+
+            response.chunk.push(event);
+        }
+
+        Ok(response)
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{roomId}/event/{eventId}`
