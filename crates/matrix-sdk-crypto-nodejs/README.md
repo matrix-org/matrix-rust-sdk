@@ -24,8 +24,9 @@ You will need Docker installed.
    relies upon commit hashes.
 2. Update the relevant commit hashes in the `Cargo.toml` file, and ensure they are being used. Push
    these changes.
-3. Run `yarn publish --new-version 0.2.0` with the appropriate version set. This will build and
-   set up various Docker containers.
+3. Update the `package.json` version. `npm version` may be of use.
+4. Run `npm publish`. This will build and set up various Docker containers.
+   * **Do not use yarn to publish, as it might publish the wrong thing.**
 
 ## TODO: Release stuff
 
