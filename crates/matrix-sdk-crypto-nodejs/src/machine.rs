@@ -345,8 +345,13 @@ impl SledBackedOlmMachine {
 
         let decrypted = self
             .runtime
-            .block_on(self.inner.decrypt_room_event(&event, &room_id))
-            .expect("Failed to decrypt");
+            .block_on(self.inner.decrypt_room_event(&event, &room_id));
+
+        if !decrypted.is_ok() {
+            return Err(napi::Error::from_reason("Decryption failed: ".to_owned() + &decrypted.err().unwrap().to_string()));
+        }
+
+        let decrypted = decrypted.unwrap();
 
         let encryption_info =
             decrypted.encryption_info.expect("Decrypted event didn't contain any encryption info");
