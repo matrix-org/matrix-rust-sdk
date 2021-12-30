@@ -132,6 +132,10 @@ impl Common {
     /// returns a `Messages` struct that contains a chunk of room and state
     /// events (`RoomEvent` and `AnyStateEvent`).
     ///
+    /// With the encryption feature, messages are decrypted if possible. If
+    /// decryption fails for an individual message, that message is returned
+    /// undecrypted.
+    ///
     /// # Arguments
     ///
     /// * `request` - The easiest way to create this request is using the
@@ -175,14 +179,19 @@ impl Common {
             state: http_response.state,
         };
 
-        for event in &http_response.chunk {
-            let event = event.deserialize()?;
-
+        for event in http_response.chunk {
             #[cfg(feature = "encryption")]
-            let event = self.client.decrypt_room_event(&event).await?;
+            let event = match event.deserialize() {
+                Ok(event) => self.client.decrypt_room_event(&event).await?,
+                Err(_) => {
+                    // "Broken" messages (i.e., those that cannot be deserialized) are
+                    // returned unchanged so that the caller can handle them individually.
+                    RoomEvent { event, encryption_info: None }
+                }
+            };
 
             #[cfg(not(feature = "encryption"))]
-            let event = RoomEvent { event: Raw::new(&event)?, encryption_info: None };
+            let event = RoomEvent { event, encryption_info: None };
 
             response.chunk.push(event);
         }
