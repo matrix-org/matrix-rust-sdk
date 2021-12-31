@@ -317,7 +317,26 @@ impl Client {
         *homeserver = homeserver_url;
     }
 
-    async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
+    /// Get the versions supported by the homeserver.
+    ///
+    /// This method should be used to check that a server is a valid Matrix
+    /// homeserver.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// use matrix_sdk::{Client};
+    /// use url::Url;
+    ///
+    /// let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver)?;
+    ///
+    /// // Check that it is a valid homeserver.
+    /// client.get_supported_versions().await?;
+    /// # Result::<_, anyhow::Error>::Ok(()) });
+    /// ```
+    pub async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
         self.send(
             get_supported_versions::Request::new(),
             Some(RequestConfig::new().disable_retry()),
