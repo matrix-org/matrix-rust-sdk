@@ -12,7 +12,7 @@ use ruma::{
         room::history_visibility::HistoryVisibility, AnyStateEvent, AnySyncStateEvent, EventType,
     },
     serde::Raw,
-    UserId,
+    EventId, UserId,
 };
 
 use crate::{
@@ -190,14 +190,9 @@ impl Common {
         Ok(response)
     }
 
-    /// Sends a request to `/_matrix/client/r0/rooms/{roomId}/event/{eventId}`
-    /// and returns a `get_room_event::Response` that contains a event
-    /// (`AnyRoomEvent`).
-    pub async fn event(
-        &self,
-        request: impl Into<get_room_event::Request<'_>>,
-    ) -> Result<RoomEvent> {
-        let request = request.into();
+    /// Fetch the event with the given `EventId` in this room.
+    pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
+        let request = get_room_event::Request::new(self.room_id(), event_id);
         let event = self.client.send(request, None).await?.event.deserialize()?;
 
         #[cfg(feature = "encryption")]
