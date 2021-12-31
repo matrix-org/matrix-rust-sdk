@@ -281,9 +281,9 @@ impl Common {
 
     /// Get active members for this room, includes invited, joined members.
     ///
-    /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Because of
-    /// that, it might panic if it isn't run on a tokio thread.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing from the list.
     ///
     /// Use [active_members()](#method.active_members) if you want to ensure to
     /// always get the full member list.
