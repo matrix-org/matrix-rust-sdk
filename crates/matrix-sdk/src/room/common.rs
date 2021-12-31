@@ -12,7 +12,7 @@ use ruma::{
         room::history_visibility::HistoryVisibility, AnyStateEvent, AnySyncStateEvent, EventType,
     },
     serde::Raw,
-    UserId,
+    EventId, UserId,
 };
 
 use crate::{
@@ -190,14 +190,9 @@ impl Common {
         Ok(response)
     }
 
-    /// Sends a request to `/_matrix/client/r0/rooms/{roomId}/event/{eventId}`
-    /// and returns a `get_room_event::Response` that contains a event
-    /// (`AnyRoomEvent`).
-    pub async fn event(
-        &self,
-        request: impl Into<get_room_event::Request<'_>>,
-    ) -> Result<RoomEvent> {
-        let request = request.into();
+    /// Fetch the event with the given `EventId` in this room.
+    pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
+        let request = get_room_event::Request::new(self.room_id(), event_id);
         let event = self.client.send(request, None).await?.event.deserialize()?;
 
         #[cfg(feature = "encryption")]
@@ -281,9 +276,9 @@ impl Common {
 
     /// Get active members for this room, includes invited, joined members.
     ///
-    /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Because of
-    /// that, it might panic if it isn't run on a tokio thread.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing from the list.
     ///
     /// Use [active_members()](#method.active_members) if you want to ensure to
     /// always get the full member list.
