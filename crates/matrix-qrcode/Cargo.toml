@@ -12,14 +12,12 @@ rust-version = "1.56"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [package.metadata.docs.rs]
-features = ["docsrs"]
+all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["decode_image"]
 decode_image = ["image", "rqrr", "qrcode/image", "qrcode/svg"]
-
-docsrs = ["decode_image"]
 
 [dependencies]
 base64 = "0.13.0"
