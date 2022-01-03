@@ -983,29 +983,33 @@ impl CryptoStore for SledStore {
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        let version = self
-            .account
-            .get("backup_version_v1".encode())?
-            .map(|v| serde_json::from_slice(&v))
-            .transpose()?;
-
         #[cfg(feature = "backups_v1")]
-        let recovery_key = {
-            self.account
-                .get("recovery_key_v1".encode())?
-                .map(|p| serde_json::from_slice(&p))
-                .transpose()?
-                .map(|p| {
-                    crate::backups::RecoveryKey::from_pickle(p, self.get_pickle_key())
-                        .map_err(|_| CryptoStoreError::UnpicklingError)
-                })
-                .transpose()?
+        let key = {
+            let backup_version = self
+                .account
+                .get("backup_version_v1".encode())?
+                .map(|v| serde_json::from_slice(&v))
+                .transpose()?;
+
+            let recovery_key = {
+                self.account
+                    .get("recovery_key_v1".encode())?
+                    .map(|p| serde_json::from_slice(&p))
+                    .transpose()?
+                    .map(|p| {
+                        crate::backups::RecoveryKey::from_pickle(p, self.get_pickle_key())
+                            .map_err(|_| CryptoStoreError::UnpicklingError)
+                    })
+                    .transpose()?
+            };
+
+            BackupKeys { backup_version, recovery_key }
         };
 
         #[cfg(not(feature = "backups_v1"))]
-        let recovery_key = None;
+        let key = BackupKeys {};
 
-        Ok(BackupKeys { backup_version: version, recovery_key })
+        Ok(key)
     }
 }
 

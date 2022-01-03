@@ -16,7 +16,7 @@ features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
-default = ["backups_v1"]
+default = []
 qrcode = ["matrix-qrcode"]
 backups_v1 = []
 sled_cryptostore = ["sled"]

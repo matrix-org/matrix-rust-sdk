@@ -26,7 +26,6 @@
 )]
 
 #[cfg(feature = "backups_v1")]
-#[cfg_attr(feature = "docs", doc(cfg(backups_v1)))]
 pub mod backups;
 mod error;
 mod file_encryption;
