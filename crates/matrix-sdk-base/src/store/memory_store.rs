@@ -395,7 +395,7 @@ impl MemoryStore {
                         .map(|m| m.iter().map(|r| (r.key().clone(), r.value().clone())).collect())
                 })
             })
-            .unwrap_or_else(Vec::new))
+            .unwrap_or_default())
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
