@@ -103,6 +103,16 @@ impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
     }
 }
 
+impl From<RoomEvent> for SyncRoomEvent {
+    fn from(o: RoomEvent) -> Self {
+        // This conversion is unproblematic since a SyncRoomEvent is just a
+        // RoomEvent without the room_id. By converting the raw value in this
+        // way, we simply cause the `room_id` field in the json to be ignored by
+        // a subsequent deserialization.
+        Self { encryption_info: o.encryption_info, event: Raw::from_json(o.event.into_json()) }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {
     /// The batch token to supply in the `since` param of the next `/sync`
@@ -342,4 +352,49 @@ pub struct MembersResponse {
     pub chunk: Vec<MemberEvent>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
+}
+
+#[cfg(test)]
+mod test {
+    use ruma::{
+        event_id,
+        events::{
+            room::message::RoomMessageEventContent, AnyMessageEvent, AnySyncMessageEvent,
+            AnySyncRoomEvent, MessageEvent,
+        },
+        room_id, user_id, MilliSecondsSinceUnixEpoch,
+    };
+
+    use super::{Raw, RoomEvent, SyncRoomEvent, Unsigned};
+
+    #[test]
+    fn room_event_to_sync_room_event() {
+        let content = RoomMessageEventContent::text_plain("foobar");
+
+        let event: AnyMessageEvent = MessageEvent {
+            content,
+            event_id: event_id!("$xxxxx:example.org").to_owned(),
+            room_id: room_id!("!someroom:example.com").to_owned(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
+            sender: user_id!("@carl:example.com").to_owned(),
+            unsigned: Unsigned::default(),
+        }
+        .into();
+
+        let room_event =
+            RoomEvent { event: Raw::new(&event.clone().into()).unwrap(), encryption_info: None };
+
+        let converted_room_event: SyncRoomEvent = room_event.into();
+
+        let converted_event: AnySyncRoomEvent = converted_room_event.event.deserialize().unwrap();
+
+        let sync_event: AnySyncMessageEvent = event.into();
+        let sync_event: AnySyncRoomEvent = sync_event.into();
+
+        // There is no PartialEq implementation for AnySyncRoomEvent, so we
+        // just compare a couple of fields here. The important thing is that
+        // the deserialization above worked.
+        assert_eq!(converted_event.event_id(), sync_event.event_id());
+        assert_eq!(converted_event.sender(), sync_event.sender());
+    }
 }
