@@ -182,7 +182,7 @@ impl Common {
         for event in http_response.chunk {
             #[cfg(feature = "encryption")]
             let event = match event.deserialize() {
-                Ok(event) => self.client.decrypt_room_event(&event).await?,
+                Ok(event) => self.client.decrypt_room_event(&event).await,
                 Err(_) => {
                     // "Broken" messages (i.e., those that cannot be deserialized) are
                     // returned unchanged so that the caller can handle them individually.
@@ -205,7 +205,7 @@ impl Common {
         let event = self.client.send(request, None).await?.event.deserialize()?;
 
         #[cfg(feature = "encryption")]
-        return Ok(self.client.decrypt_room_event(&event).await?);
+        return Ok(self.client.decrypt_room_event(&event).await);
 
         #[cfg(not(feature = "encryption"))]
         return Ok(RoomEvent { event: Raw::new(&event)?, encryption_info: None });

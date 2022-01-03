@@ -422,7 +422,7 @@ impl BaseClient {
                                 if let Ok(decrypted) =
                                     olm.decrypt_room_event(encrypted, room_id).await
                                 {
-                                    event = decrypted;
+                                    event = decrypted.into();
                                 }
                             }
                         }

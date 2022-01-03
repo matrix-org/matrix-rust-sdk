@@ -70,7 +70,7 @@ pub(crate) mod test {
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{Relation, Replacement, RoomMessageEventContent},
-            AnySyncMessageEvent, AnySyncRoomEvent,
+            AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent,
         },
         room_id, user_id, DeviceId, UserId,
     };
@@ -281,9 +281,7 @@ pub(crate) mod test {
 
         let decrypted = inbound.decrypt(&event).await?.0;
 
-        if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(e)) =
-            decrypted.deserialize()?
-        {
+        if let AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(e)) = decrypted.deserialize()? {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {
             panic!("Invalid event type")
