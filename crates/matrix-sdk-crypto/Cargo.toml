@@ -12,15 +12,15 @@ rust-version = "1.56"
 version = "0.4.1"
 
 [package.metadata.docs.rs]
-features = ["docs"]
-rustdoc-args = ["--cfg", "feature=\"docs\""]
+features = ["docsrs"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
 qrcode = ["matrix-qrcode"]
 backups_v1 = []
 sled_cryptostore = ["sled"]
-docs = ["sled_cryptostore"]
+docsrs = ["sled_cryptostore"]
 
 [dependencies]
 aes = { version = "0.7.4", features = ["ctr"] }

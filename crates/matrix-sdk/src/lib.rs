@@ -25,7 +25,7 @@
     unused_import_braces,
     unused_qualifications
 )]
-#![cfg_attr(feature = "docs", feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(not(any(feature = "native-tls", feature = "rustls-tls",)))]
 compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
