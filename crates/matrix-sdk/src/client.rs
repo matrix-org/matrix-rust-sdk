@@ -330,7 +330,7 @@ impl Client {
     /// use url::Url;
     ///
     /// let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     ///
     /// // Check that it is a valid homeserver.
     /// client.get_supported_versions().await?;
