@@ -281,7 +281,9 @@ pub(crate) mod test {
 
         let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
-        if let AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(e)) = decrypted.deserialize().unwrap() {
+        if let AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(e)) =
+            decrypted.deserialize().unwrap()
+        {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {
             panic!("Invalid event type")
