@@ -38,7 +38,7 @@ use ruma::{
             encrypted::{EncryptedEventScheme, SyncRoomEncryptedEvent},
             history_visibility::HistoryVisibility,
         },
-        AnySyncRoomEvent,
+        AnyRoomEvent,
     },
     serde::Raw,
     DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
@@ -346,7 +346,7 @@ impl InboundGroupSession {
     pub(crate) async fn decrypt(
         &self,
         event: &SyncRoomEncryptedEvent,
-    ) -> MegolmResult<(Raw<AnySyncRoomEvent>, u32)> {
+    ) -> MegolmResult<(Raw<AnyRoomEvent>, u32)> {
         let content = match &event.content.scheme {
             EncryptedEventScheme::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -389,7 +389,7 @@ impl InboundGroupSession {
             }
         }
 
-        Ok((serde_json::from_value::<Raw<AnySyncRoomEvent>>(decrypted_value)?, message_index))
+        Ok((serde_json::from_value::<Raw<AnyRoomEvent>>(decrypted_value)?, message_index))
     }
 }
 

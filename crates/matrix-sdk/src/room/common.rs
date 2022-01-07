@@ -8,13 +8,14 @@ use ruma::{
         message::get_message_events,
         room::get_room_event,
     },
-    events::{room::history_visibility::HistoryVisibility, AnySyncStateEvent, EventType},
+    events::{
+        room::history_visibility::HistoryVisibility, AnyStateEvent, AnySyncStateEvent, EventType,
+    },
     serde::Raw,
-    UserId,
+    EventId, UserId,
 };
 
 use crate::{
-    error::HttpResult,
     media::{MediaFormat, MediaRequest, MediaType},
     room::RoomType,
     BaseRoom, Client, Result, RoomMember,
@@ -34,6 +35,25 @@ impl Deref for Common {
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
+}
+
+/// The result of a `Room::messages` call.
+///
+/// In short, this is a possibly decrypted version of the response of a
+/// `room/messages` api call.
+#[derive(Debug)]
+pub struct Messages {
+    /// The token the pagination starts from.
+    pub start: Option<String>,
+
+    /// The token the pagination ends at.
+    pub end: Option<String>,
+
+    /// A list of room events.
+    pub chunk: Vec<RoomEvent>,
+
+    /// A list of state events relevant to showing the `chunk`.
+    pub state: Vec<Raw<AnyStateEvent>>,
 }
 
 impl Common {
@@ -109,8 +129,12 @@ impl Common {
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
-    /// returns a `get_message_events::Response` that contains a chunk of
-    /// room and state events (`AnyRoomEvent` and `AnyStateEvent`).
+    /// returns a `Messages` struct that contains a chunk of room and state
+    /// events (`RoomEvent` and `AnyStateEvent`).
+    ///
+    /// With the encryption feature, messages are decrypted if possible. If
+    /// decryption fails for an individual message, that message is returned
+    /// undecrypted.
     ///
     /// # Arguments
     ///
@@ -144,23 +168,44 @@ impl Common {
     pub async fn messages(
         &self,
         request: impl Into<get_message_events::Request<'_>>,
-    ) -> HttpResult<get_message_events::Response> {
+    ) -> Result<Messages> {
         let request = request.into();
-        self.client.send(request, None).await
+        let http_response = self.client.send(request, None).await?;
+
+        let mut response = Messages {
+            start: http_response.start,
+            end: http_response.end,
+            chunk: Vec::with_capacity(http_response.chunk.len()),
+            state: http_response.state,
+        };
+
+        for event in http_response.chunk {
+            #[cfg(feature = "encryption")]
+            let event = match event.deserialize() {
+                Ok(event) => self.client.decrypt_room_event(&event).await,
+                Err(_) => {
+                    // "Broken" messages (i.e., those that cannot be deserialized) are
+                    // returned unchanged so that the caller can handle them individually.
+                    RoomEvent { event, encryption_info: None }
+                }
+            };
+
+            #[cfg(not(feature = "encryption"))]
+            let event = RoomEvent { event, encryption_info: None };
+
+            response.chunk.push(event);
+        }
+
+        Ok(response)
     }
 
-    /// Sends a request to `/_matrix/client/r0/rooms/{roomId}/event/{eventId}`
-    /// and returns a `get_room_event::Response` that contains a event
-    /// (`AnyRoomEvent`).
-    pub async fn event(
-        &self,
-        request: impl Into<get_room_event::Request<'_>>,
-    ) -> Result<RoomEvent> {
-        let request = request.into();
+    /// Fetch the event with the given `EventId` in this room.
+    pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
+        let request = get_room_event::Request::new(self.room_id(), event_id);
         let event = self.client.send(request, None).await?.event.deserialize()?;
 
         #[cfg(feature = "encryption")]
-        return Ok(self.client.decrypt_room_event(&event).await?);
+        return Ok(self.client.decrypt_room_event(&event).await);
 
         #[cfg(not(feature = "encryption"))]
         return Ok(RoomEvent { event: Raw::new(&event)?, encryption_info: None });
@@ -240,9 +285,9 @@ impl Common {
 
     /// Get active members for this room, includes invited, joined members.
     ///
-    /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Because of
-    /// that, it might panic if it isn't run on a tokio thread.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing from the list.
     ///
     /// Use [active_members()](#method.active_members) if you want to ensure to
     /// always get the full member list.

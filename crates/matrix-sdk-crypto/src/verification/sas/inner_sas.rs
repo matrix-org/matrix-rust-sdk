@@ -181,7 +181,7 @@ impl InnerSas {
         methods: Vec<ShortAuthenticationString>,
     ) -> Option<(InnerSas, OwnedAcceptContent)> {
         if let InnerSas::Started(s) = self {
-            let sas = s.into_accepted(methods);
+            let sas = s.into_we_accepted(methods);
             let content = sas.as_content();
             Some((InnerSas::WeAccepted(sas), content))
         } else {
@@ -258,22 +258,29 @@ impl InnerSas {
         content: &AnyVerificationContent,
     ) -> (Self, Option<OutgoingContent>) {
         match content {
-            AnyVerificationContent::Accept(c) => {
-                if let InnerSas::Created(s) = self {
-                    match s.into_accepted(sender, c) {
-                        Ok(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Accepted(s), Some(content))
-                        }
-                        Err(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content))
-                        }
+            AnyVerificationContent::Accept(c) => match self {
+                InnerSas::Created(s) => match s.into_accepted(sender, c) {
+                    Ok(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Accepted(s), Some(content))
                     }
-                } else {
-                    (self, None)
-                }
-            }
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Cancelled(s), Some(content))
+                    }
+                },
+                InnerSas::Started(s) => match s.into_accepted(sender, c) {
+                    Ok(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Accepted(s), Some(content))
+                    }
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Cancelled(s), Some(content))
+                    }
+                },
+                _ => (self, None),
+            },
             AnyVerificationContent::Cancel(c) => {
                 let (sas, _) = self.cancel(false, c.cancel_code().to_owned());
                 (sas, None)

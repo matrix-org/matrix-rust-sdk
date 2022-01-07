@@ -137,6 +137,7 @@ impl std::fmt::Debug for BaseClientConfig {
 
 impl BaseClientConfig {
     /// Create a new default `BaseClientConfig`.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }
@@ -145,6 +146,7 @@ impl BaseClientConfig {
     ///
     /// The crypto store should be opened before being set.
     #[cfg(feature = "encryption")]
+    #[must_use]
     pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
         self.crypto_store = Some(store);
         self
@@ -173,6 +175,7 @@ impl BaseClientConfig {
     /// implementations for the crypto store and the state store. It will use
     /// the given path to open the stores. If no path is provided no store will
     /// be opened
+    #[must_use]
     pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.store_path = Some(path.as_ref().into());
         self
@@ -186,6 +189,7 @@ impl BaseClientConfig {
     /// the cryptostore.
     ///
     /// This is only used if no custom cryptostore is set.
+    #[must_use]
     pub fn passphrase(mut self, passphrase: String) -> Self {
         self.passphrase = Some(Zeroizing::new(passphrase));
         self
@@ -495,7 +499,7 @@ impl BaseClient {
                                 if let Ok(decrypted) =
                                     olm.decrypt_room_event(encrypted, room_id).await
                                 {
-                                    event = decrypted;
+                                    event = decrypted.into();
                                 }
                             }
                         }

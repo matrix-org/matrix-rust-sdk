@@ -70,6 +70,17 @@ const MACS: &[MessageAuthenticationCode] = &[MessageAuthenticationCode::HkdfHmac
 const STRINGS: &[ShortAuthenticationString] =
     &[ShortAuthenticationString::Decimal, ShortAuthenticationString::Emoji];
 
+fn the_protocol_definitions() -> SasV1Content {
+    SasV1ContentInit {
+        short_authentication_string: STRINGS.to_vec(),
+        key_agreement_protocols: KEY_AGREEMENT_PROTOCOLS.to_vec(),
+        message_authentication_codes: MACS.to_vec(),
+        hashes: HASHES.to_vec(),
+    }
+    .try_into()
+    .expect("Invalid protocol definition.")
+}
+
 // The max time a SAS flow can take from start to done.
 const MAX_AGE: Duration = Duration::from_secs(60 * 5);
 
@@ -420,16 +431,7 @@ impl SasState<Created> {
             last_event_time: Arc::new(Instant::now()),
             started_from_request,
 
-            state: Arc::new(Created {
-                protocol_definitions: SasV1ContentInit {
-                    short_authentication_string: STRINGS.to_vec(),
-                    key_agreement_protocols: KEY_AGREEMENT_PROTOCOLS.to_vec(),
-                    message_authentication_codes: MACS.to_vec(),
-                    hashes: HASHES.to_vec(),
-                }
-                .try_into()
-                .expect("Invalid protocol definition."),
-            }),
+            state: Arc::new(Created { protocol_definitions: the_protocol_definitions() }),
         }
     }
 
@@ -571,7 +573,7 @@ impl SasState<Started> {
         }
     }
 
-    pub fn into_accepted(self, methods: Vec<ShortAuthenticationString>) -> SasState<WeAccepted> {
+    pub fn into_we_accepted(self, methods: Vec<ShortAuthenticationString>) -> SasState<WeAccepted> {
         let mut accepted_protocols = self.state.accepted_protocols.as_ref().to_owned();
         accepted_protocols.short_auth_string = methods;
 
@@ -592,6 +594,69 @@ impl SasState<Started> {
                 accepted_protocols: accepted_protocols.into(),
                 commitment: self.state.commitment.clone(),
             }),
+        }
+    }
+
+    fn as_content(&self) -> OwnedStartContent {
+        match self.verification_flow_id.as_ref() {
+            FlowId::ToDevice(s) => {
+                OwnedStartContent::ToDevice(ToDeviceKeyVerificationStartEventContent::new(
+                    self.device_id().into(),
+                    s.to_string(),
+                    StartMethod::SasV1(the_protocol_definitions()),
+                ))
+            }
+            FlowId::InRoom(r, e) => OwnedStartContent::Room(
+                r.clone(),
+                KeyVerificationStartEventContent::new(
+                    self.device_id().into(),
+                    StartMethod::SasV1(the_protocol_definitions()),
+                    Relation::new(e.clone()),
+                ),
+            ),
+        }
+    }
+
+    /// Receive a m.key.verification.accept event, changing the state into
+    /// an Accepted one.
+    ///
+    /// Note: Even though the other side has started the (or rather "a") sas
+    /// verification, it can still accept one, if we have sent one
+    /// simultaneously. In this case we just go on with the verification
+    /// that *we* started.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.accept event that was sent to us by
+    /// the other side.
+    pub fn into_accepted(
+        self,
+        sender: &UserId,
+        content: &AcceptContent,
+    ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
+
+        if let AcceptMethod::SasV1(content) = content.method() {
+            let accepted_protocols = AcceptedProtocols::try_from(content.clone())
+                .map_err(|c| self.clone().cancel(true, c))?;
+
+            let start_content = self.as_content().into();
+
+            Ok(SasState {
+                inner: self.inner,
+                ids: self.ids,
+                verification_flow_id: self.verification_flow_id,
+                creation_time: self.creation_time,
+                last_event_time: Instant::now().into(),
+                started_from_request: self.started_from_request,
+                state: Arc::new(Accepted {
+                    start_content,
+                    commitment: content.commitment.clone(),
+                    accepted_protocols: accepted_protocols.into(),
+                }),
+            })
+        } else {
+            Err(self.cancel(true, CancelCode::UnknownMethod))
         }
     }
 }
@@ -1192,7 +1257,7 @@ mod test {
             &start_content.as_start_content(),
             false,
         );
-        let bob_sas = bob_sas.unwrap().into_accepted(vec![ShortAuthenticationString::Emoji]);
+        let bob_sas = bob_sas.unwrap().into_we_accepted(vec![ShortAuthenticationString::Emoji]);
 
         (alice_sas, bob_sas)
     }

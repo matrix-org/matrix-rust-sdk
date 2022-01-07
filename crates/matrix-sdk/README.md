@@ -9,7 +9,7 @@ client or bot, this is likely the crate you need.
 However, the crate is designed in a modular way and depends on several
 other lower-level crates. If you're attempting something more custom, you might be interested in these:
 
-- [`matrix_sdk_base`]: A no-network-IO client state machine which cab be used
+- [`matrix_sdk_base`]: A no-network-IO client state machine which can be used
   to embed a Matrix client into an existing network stack or to build a new
   Matrix client library on top.
 - [`matrix_sdk_crypto`](https://docs.rs/matrix-sdk-crypto/*/matrix_sdk_crypto/):

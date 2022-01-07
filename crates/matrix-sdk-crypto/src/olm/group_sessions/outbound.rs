@@ -223,7 +223,7 @@ impl OutboundGroupSession {
                 "Marking to-device request carrying a room key as sent"
             );
 
-            for (user_id, info) in r.into_iter() {
+            for (user_id, info) in r {
                 self.shared_with_set.entry(user_id).or_insert_with(DashMap::new).extend(info)
             }
 

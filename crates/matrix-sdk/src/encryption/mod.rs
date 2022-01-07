@@ -682,15 +682,13 @@ impl Client {
         Ok(olm.import_keys(import, false, |_, _| {}).await?)
     }
 
-    /// Tries to decrypt a `AnyRoomEvent`. Returns unencrypted room event when
+    /// Tries to decrypt a `AnyRoomEvent`. Returns undecrypted room event when
     /// decryption fails.
     #[cfg(feature = "encryption")]
     pub(crate) async fn decrypt_room_event(
         &self,
         event: &AnyRoomEvent,
-    ) -> serde_json::Result<RoomEvent> {
-        use ruma::serde::JsonObject;
-
+    ) -> RoomEvent {
         if let Some(machine) = self.olm_machine().await {
             if let AnyRoomEvent::Message(event) = event {
                 if let AnyMessageEvent::RoomEncrypted(_) = event {
@@ -700,15 +698,7 @@ impl Client {
 
                     if let AnySyncMessageEvent::RoomEncrypted(e) = event {
                         if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
-                            let mut full_event = decrypted.event.deserialize_as::<JsonObject>()?;
-                            full_event.insert("room_id".to_owned(), serde_json::to_value(room_id)?);
-
-                            let event =
-                                Raw::from_json(serde_json::value::to_raw_value(&full_event)?);
-                            let encryption_info = decrypted.encryption_info;
-
-                            // Return decrypted room event
-                            return Ok(RoomEvent { event, encryption_info });
+                            return decrypted;
                         }
                     }
                 }
@@ -716,7 +706,7 @@ impl Client {
         }
 
         // Fallback to still-encrypted room event
-        Ok(RoomEvent { event: Raw::new(event)?, encryption_info: None })
+        RoomEvent { event: Raw::new(event).expect("AnyRoomEvent serialization should not fail"), encryption_info: None }
     }
 
     /// Query the server for users device keys.

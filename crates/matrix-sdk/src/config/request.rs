@@ -72,24 +72,28 @@ impl Default for RequestConfig {
 
 impl RequestConfig {
     /// Create a new default `RequestConfig`.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }
 
     /// This is a convince method to disable the retries of a request. Setting
     /// the `retry_limit` to `0` has the same effect.
+    #[must_use]
     pub fn disable_retry(mut self) -> Self {
         self.retry_limit = Some(0);
         self
     }
 
     /// The number of times a request should be retried. The default is no limit
+    #[must_use]
     pub fn retry_limit(mut self, retry_limit: u64) -> Self {
         self.retry_limit = Some(retry_limit);
         self
     }
 
     /// Set the timeout duration for all HTTP requests.
+    #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
@@ -97,6 +101,7 @@ impl RequestConfig {
 
     /// Set a timeout for how long a request should be retried. The default is
     /// no timeout, meaning requests are retried forever.
+    #[must_use]
     pub fn retry_timeout(mut self, retry_timeout: Duration) -> Self {
         self.retry_timeout = Some(retry_timeout);
         self
@@ -104,7 +109,8 @@ impl RequestConfig {
 
     /// Force sending authorization even if the endpoint does not require it.
     /// Default is only sending authorization if it is required.
-    pub(crate) fn force_auth(mut self) -> Self {
+    #[must_use]
+    pub fn force_auth(mut self) -> Self {
         self.force_auth = true;
         self
     }
@@ -116,6 +122,7 @@ impl RequestConfig {
     ///
     /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
     #[cfg(feature = "appservice")]
+    #[must_use]
     pub fn assert_identity(mut self) -> Self {
         self.assert_identity = true;
         self

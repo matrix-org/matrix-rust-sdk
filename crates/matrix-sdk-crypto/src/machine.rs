@@ -22,7 +22,7 @@ use std::{
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
+    deserialized_responses::{AlgorithmInfo, EncryptionInfo, RoomEvent, VerificationState},
     locks::Mutex,
     uuid::Uuid,
 };
@@ -1101,7 +1101,7 @@ impl OlmMachine {
         room_id: &RoomId,
         event: &SyncRoomEncryptedEvent,
         content: &MegolmV1AesSha2Content,
-    ) -> MegolmResult<SyncRoomEvent> {
+    ) -> MegolmResult<RoomEvent> {
         if let Some(session) = self
             .store
             .get_inbound_group_session(room_id, &content.sender_key, &content.session_id)
@@ -1121,9 +1121,8 @@ impl OlmMachine {
                         sender_key = session.sender_key(),
                         "Successfully decrypted a room event"
                     );
-                    let event = e.into_full_event(room_id.to_owned());
 
-                    if let AnyRoomEvent::Message(e) = event {
+                    if let AnyRoomEvent::Message(e) = e {
                         self.verification_machine.receive_any_event(&e).await?;
                     }
                 }
@@ -1142,7 +1141,7 @@ impl OlmMachine {
             let encryption_info =
                 self.get_encryption_info(&session, &event.sender, &content.device_id).await?;
 
-            Ok(SyncRoomEvent { encryption_info: Some(encryption_info), event: decrypted_event })
+            Ok(RoomEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
             self.key_request_machine
                 .create_outgoing_key_request(room_id, &content.sender_key, &content.session_id)
@@ -1163,7 +1162,7 @@ impl OlmMachine {
         &self,
         event: &SyncRoomEncryptedEvent,
         room_id: &RoomId,
-    ) -> MegolmResult<SyncRoomEvent> {
+    ) -> MegolmResult<RoomEvent> {
         match &event.content.scheme {
             EncryptedEventScheme::MegolmV1AesSha2(c) => {
                 match self.decrypt_megolm_v1_event(room_id, event, c).await {
@@ -1580,8 +1579,8 @@ pub(crate) mod test {
                 encrypted::ToDeviceRoomEncryptedEventContent,
                 message::{MessageType, RoomMessageEventContent},
             },
-            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
-            AnyToDeviceEventContent, SyncMessageEvent, ToDeviceEvent, Unsigned,
+            AnyMessageEvent, AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent,
+            AnyToDeviceEventContent, MessageEvent, SyncMessageEvent, ToDeviceEvent, Unsigned,
         },
         room_id,
         serde::Raw,
@@ -2047,7 +2046,7 @@ pub(crate) mod test {
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
-        if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
+        if let AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(MessageEvent {
             sender,
             content,
             ..

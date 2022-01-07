@@ -12,15 +12,15 @@ rust-version = "1.56"
 version = "0.4.1"
 
 [package.metadata.docs.rs]
-features = ["docs"]
-rustdoc-args = ["--cfg", "feature=\"docs\""]
+features = ["docsrs"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["backups_v1"]
+default = []
 qrcode = ["matrix-qrcode"]
 backups_v1 = []
 sled_cryptostore = ["sled"]
-docs = ["sled_cryptostore"]
+docsrs = ["sled_cryptostore"]
 indexeddb_cryptostore = ["indexed_db_futures", "wasm-bindgen"]
 
 [dependencies]
@@ -31,7 +31,7 @@ base64 = "0.13.0"
 bs58 = "0.4.0"
 byteorder = "1.4.3"
 dashmap = "4.0.2"
-futures-util = { version = "0.3.15", default-features = false }
+futures-util = { version = "0.3.15", default-features = false, features = ["alloc"] }
 getrandom = "0.2.3"
 hmac = "0.11.0"
 matrix-qrcode = { version = "0.2.0", path = "../matrix-qrcode", optional = true }

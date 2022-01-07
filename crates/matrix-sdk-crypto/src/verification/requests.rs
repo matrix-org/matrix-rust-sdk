@@ -44,7 +44,7 @@ use super::{
     event_enums::{
         CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
     },
-    CancelInfo, Cancelled, FlowId, VerificationStore,
+    CancelInfo, Cancelled, FlowId, Verification, VerificationStore,
 };
 #[cfg(feature = "qrcode")]
 use super::{
@@ -526,8 +526,8 @@ impl VerificationRequest {
             let recipients: Vec<Box<DeviceId>> = self
                 .recipient_devices
                 .iter()
+                .filter(|&d| filter_device.map_or(true, |device| **d != *device))
                 .cloned()
-                .filter(|d| if let Some(device) = filter_device { &**d != device } else { true })
                 .collect();
 
             // We don't need to notify anyone if no recipients were present
@@ -1126,11 +1126,10 @@ impl RequestState<Ready> {
         };
 
         let identity = self.store.get_user_identity(sender).await?;
-        let own_identity = self
-            .store
-            .get_user_identity(self.store.account.user_id())
-            .await?
-            .and_then(|i| i.into_own());
+        let own_user_id = self.store.account.user_id();
+        let own_device_id = self.store.account.device_id();
+        let own_identity =
+            self.store.get_user_identity(own_user_id).await?.and_then(|i| i.into_own());
 
         match content.method() {
             StartMethod::SasV1(_) => {
@@ -1142,13 +1141,27 @@ impl RequestState<Ready> {
                     we_started,
                     request_handle,
                 ) {
-                    // TODO check if there is already a SAS verification, i.e. we
-                    // already started one before the other side tried to do the
-                    // same; ignore it if we did and we're the lexicographically
-                    // smaller user ID, otherwise auto-accept the newly started one.
                     Ok(s) => {
-                        info!("Started a new SAS verification.");
-                        self.verification_cache.insert_sas(s);
+                        let start_new = if let Some(Verification::SasV1(_sas)) =
+                            self.verification_cache.get(sender, self.flow_id.as_str())
+                        {
+                            // If there is already a SAS verification, i.e. we already started one
+                            // before the other side tried to do the same; ignore it if we did and
+                            // we're the lexicographically smaller user ID (or device ID if equal).
+                            use std::cmp::Ordering;
+                            match (sender.cmp(own_user_id), device.device_id().cmp(own_device_id)) {
+                                (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
+                                    false
+                                }
+                                _ => true,
+                            }
+                        } else {
+                            true
+                        };
+                        if start_new {
+                            info!("Started a new SAS verification.");
+                            self.verification_cache.insert_sas(s);
+                        }
                     }
                     Err(c) => {
                         warn!(

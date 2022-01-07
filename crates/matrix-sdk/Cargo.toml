@@ -12,8 +12,8 @@ rust-version = "1.56"
 version = "0.4.1"
 
 [package.metadata.docs.rs]
-features = ["docs"]
-rustdoc-args = ["--cfg", "feature=\"docs\""]
+features = ["docsrs"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = [
@@ -37,7 +37,7 @@ socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
 appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper", "ruma/rand"]
 
-docs = [
+docsrs = [
     "encryption",
     "sled_cryptostore",
     "sled_state_store",

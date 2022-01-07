@@ -185,7 +185,7 @@ impl SessionManager {
         for user_id in users {
             let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
 
-            for (device_id, device) in user_devices.into_iter() {
+            for (device_id, device) in user_devices {
                 if !device.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
                 {
                     warn!(
