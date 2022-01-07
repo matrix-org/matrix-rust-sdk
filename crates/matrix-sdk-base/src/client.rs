@@ -59,8 +59,7 @@ use ruma::{
         EventContent, EventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
-    serde::Raw,
-    MilliSecondsSinceUnixEpoch, RoomId, UInt, UserId,
+    serde::Raw, RoomId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 use zeroize::Zeroizing;
