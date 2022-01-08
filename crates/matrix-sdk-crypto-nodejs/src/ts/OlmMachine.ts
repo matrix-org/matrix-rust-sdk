@@ -193,14 +193,10 @@ export class OlmMachine {
         return (new OlmMachine(userId, deviceId, engine)).makeSled(sledPath);
     }
 
-    public async runEngineUntilComplete(): Promise<void> {
+    public async runEngine(): Promise<void> {
         const requests = toArray(this.machine.outgoingRequests ?? []).map((r: string) => JSON.parse(r));
         for (const request of requests) {
             await this.runEngineRequest(request);
-        }
-        if ((this.machine.outgoingRequests ?? []).length > 0) {
-            // recurse, hopefully not too much
-            await this.runEngineUntilComplete();
         }
     }
 
@@ -262,12 +258,18 @@ export class OlmMachine {
     public async pushSync(events: ToDeviceEvent[], deviceLists: DeviceLists, remainingKeyCounts: Record<string, number>, unusedFallbackKeyTypes?: string[]) {
         const keyCounts = Object.entries(remainingKeyCounts).map(e => [e[0], e[1].toString()]).reduce((c, p) => ({...c, [p[0]]: p[1]}), {});
         this.machine.receiveSyncChanges(JSON.stringify({events}), deviceLists, keyCounts, unusedFallbackKeyTypes);
-        await this.runEngineUntilComplete();
+        await this.runEngine();
     }
 
+    /**
+     * Adds users to the tracked user list. `runEngine()` should be
+     * called after this, though can be delayed until all updates have
+     * been made.
+     * @param {string[]} userIds The user IDs to add.
+     * @returns {Promise<void>} Resolves when complete.
+     */
     public async updateTrackedUsers(userIds: string[]) {
         this.machine.updateTrackedUsers(userIds);
-        await this.runEngineUntilComplete();
     }
 
     public isUserTracked(userId: string): boolean {
@@ -279,7 +281,6 @@ export class OlmMachine {
         if (request['request_kind']) {
             await this.runEngineRequest(request);
         }
-        await this.runEngineUntilComplete();
     }
 
     // TODO: Need to lock based on room ID
@@ -287,32 +288,27 @@ export class OlmMachine {
         const userIds = await this.engine.getEffectiveJoinedUsersInRoom(roomId);
 
         this.machine.updateTrackedUsers(userIds);
-        await this.runEngineUntilComplete();
+        await this.runEngine();
 
-        await this.ensureSessionsFor(userIds); // runs the engine internally
+        await this.ensureSessionsFor(userIds); // runs the relevant parts of the engine internally
 
-        const requests = toArray(JSON.parse(this.machine.shareRoomKey(roomId, userIds)));
+        const requests = toArray(this.machine.shareRoomKey(roomId, userIds)).map(k => JSON.parse(k));
         for (const request of requests) {
             await this.runEngineRequest(request);
         }
-        await this.runEngineUntilComplete();
+        await this.runEngine();
 
-        const parsed = JSON.parse(this.machine.encrypt(roomId, eventType, JSON.stringify(content)));
-        await this.runEngineUntilComplete();
-
-        return parsed;
+        return JSON.parse(this.machine.encrypt(roomId, eventType, JSON.stringify(content)));
     }
 
     public async decryptRoomEvent(roomId: string, event: MatrixEvent): Promise<DecryptedMatrixEvent> {
         const parsed = this.machine.decryptRoomEvent(JSON.stringify(event), roomId);
         parsed.clearEvent = JSON.parse(parsed.clearEvent);
-        await this.runEngineUntilComplete();
+        await this.runEngine();
         return parsed;
     }
 
     public async sign(message: Record<string, any>): Promise<Signatures> {
-        const parsed = JSON.parse(this.machine.sign(JSON.stringify(message)));
-        await this.runEngineUntilComplete();
-        return parsed;
+        return JSON.parse(this.machine.sign(JSON.stringify(message)));
     }
 }
