@@ -714,10 +714,10 @@ impl OlmMachine {
         room_id: &RoomId,
         content: impl MessageEventContent,
     ) -> MegolmResult<RoomEncryptedEventContent> {
-        let event_type = content.event_type().to_owned();
-        let content = serde_json::to_value(content)?;
+        let event_type = content.event_type();
+        let content = serde_json::to_value(&content)?;
 
-        self.group_session_manager.encrypt(room_id, content, &event_type).await
+        self.group_session_manager.encrypt(room_id, content, event_type).await
     }
 
     /// Encrypt a json [`Value`] content for the given room.
