@@ -45,7 +45,7 @@ use ruma::{
     api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyMessageEventContent, AnySyncMessageEvent,
+        AnySyncMessageEvent, MessageEventContent,
     },
     DeviceId,
 };
@@ -1111,12 +1111,12 @@ impl BaseClient {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl Into<AnyMessageEventContent>,
+        content: impl MessageEventContent,
     ) -> Result<RoomEncryptedEventContent> {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => Ok(o.encrypt(room_id, content.into()).await?),
+            Some(o) => Ok(o.encrypt(room_id, content).await?),
             None => panic!("Olm machine wasn't started"),
         }
     }

@@ -44,7 +44,7 @@ use ruma::{
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent,
+        AnyRoomEvent, AnyToDeviceEvent, MessageEventContent,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
@@ -695,9 +695,6 @@ impl OlmMachine {
     /// [`should_share_group_session`] method if a new group session needs to
     /// be shared.
     ///
-    /// **Note**: This method doesn't support encrypting custom events, see the
-    /// [`encrypt_raw()`] method to do so.
-    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
@@ -712,11 +709,10 @@ impl OlmMachine {
     ///
     /// [`should_share_group_session`]: #method.should_share_group_session
     /// [`share_group_session`]: #method.share_group_session
-    /// [`encrypt_raw()`]: #method.encrypt_raw
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: AnyMessageEventContent,
+        content: impl MessageEventContent,
     ) -> MegolmResult<RoomEncryptedEventContent> {
         let event_type = content.event_type().to_owned();
         let content = serde_json::to_value(content)?;
@@ -726,8 +722,8 @@ impl OlmMachine {
 
     /// Encrypt a json [`Value`] content for the given room.
     ///
-    /// This method is equivalent to the [`encrypt()`] method but allows custom
-    /// events to be encrypted.
+    /// This method is equivalent to the [`encrypt()`] method but operates on an
+    /// arbitrary JSON value instead of strongly-typed event content struct.
     ///
     /// # Arguments
     ///
