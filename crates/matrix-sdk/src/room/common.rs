@@ -10,8 +10,9 @@ use ruma::{
         tag::{create_tag, delete_tag},
     },
     events::{
-        room::history_visibility::HistoryVisibility, tag::TagInfo, AnyStateEvent,
-        AnySyncStateEvent, EventType,
+        room::history_visibility::HistoryVisibility,
+        tag::{TagInfo, TagName},
+        AnyStateEvent, AnySyncStateEvent, EventType,
     },
     serde::Raw,
     EventId, UserId,
@@ -460,7 +461,8 @@ impl Common {
     /// # Example
     ///
     /// ```no_run
-    /// # use ruma::events::tag::TagInfo;
+    /// # use std::str::FromStr;
+    /// # use ruma::events::tag::{TagInfo, TagName, UserTagName};
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
     /// # let mut client = matrix_sdk::Client::new(homeserver)?;
@@ -470,14 +472,20 @@ impl Common {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     let mut tag_info = TagInfo::new();
     ///     tag_info.order = Some(0.9);
+    ///     let user_tag = UserTagName::from_str("u.work")?;
     ///
-    ///     room.set_tag("u.work", tag_info ).await?;
+    ///     room.set_tag(TagName::User(user_tag), tag_info ).await?;
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> HttpResult<create_tag::Response> {
+    pub async fn set_tag(
+        &self,
+        tag: TagName,
+        tag_info: TagInfo,
+    ) -> HttpResult<create_tag::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
-        let request = create_tag::Request::new(&user_id, self.inner.room_id(), tag, tag_info);
+        let request =
+            create_tag::Request::new(&user_id, self.inner.room_id(), tag.as_ref(), tag_info);
         self.client.send(request, None).await
     }
 
@@ -487,9 +495,9 @@ impl Common {
     ///
     /// # Arguments
     /// * `tag` - The tag to remove.
-    pub async fn remove_tag(&self, tag: &str) -> HttpResult<delete_tag::Response> {
+    pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
-        let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag);
+        let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
         self.client.send(request, None).await
     }
 }
