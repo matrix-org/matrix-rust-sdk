@@ -313,6 +313,13 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()>;
+
+    /// Removes a room and all elements associated from the state store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The `RoomId` of the room to delete.
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()>;
 }
 
 /// A state store wrapper for the SDK.
