@@ -26,12 +26,14 @@ pub enum EventsJson {
     HistoryVisibility,
     JoinRules,
     Member,
+    MemberInvite,
     MemberNameChange,
     MessageEmote,
     MessageNotice,
     MessageText,
     Name,
     PowerLevels,
+    PushRules,
     Presence,
     ReadReceipt,
     ReadReceiptOther,
@@ -122,9 +124,10 @@ impl EventBuilder {
     }
 
     /// Add an event to the room events `Vec`.
-    #[allow(clippy::match_single_binding, unused)]
+    #[allow(unused)]
     pub fn add_account(&mut self, json: EventsJson) -> &mut Self {
         let val: &JsonValue = match json {
+            EventsJson::PushRules => &test_json::PUSH_RULES,
             _ => panic!("unknown account event {:?}", json),
         };
 
@@ -137,6 +140,7 @@ impl EventBuilder {
     pub fn add_room_event(&mut self, json: EventsJson) -> &mut Self {
         let val: &JsonValue = match json {
             EventsJson::Member => &test_json::MEMBER,
+            EventsJson::MemberInvite => &test_json::MEMBER_INVITE,
             EventsJson::MemberNameChange => &test_json::MEMBER_NAME_CHANGE,
             EventsJson::PowerLevels => &test_json::POWER_LEVELS,
             _ => panic!("unknown room event json {:?}", json),

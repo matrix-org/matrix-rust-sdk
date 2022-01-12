@@ -613,7 +613,7 @@ mod test {
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::client::r0::media::get_content_thumbnail::Method,
-        events::{AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent},
+        events::{AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent, EventType},
         mxc_uri,
         receipt::ReceiptType,
         uint,
@@ -623,7 +623,9 @@ mod test {
     use super::{MemoryStore, StateChanges};
     use crate::{
         media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
-        store::test::{first_receipt_event_id, room_id, second_receipt_event_id, user_id},
+        store::test::{
+            first_receipt_event_id, populated_store, room_id, second_receipt_event_id, user_id,
+        },
     };
 
     #[async_test]
@@ -753,5 +755,46 @@ mod test {
         store.remove_media_content_for_uri(uri).await.unwrap();
         assert!(store.get_media_content(&request_file).await.unwrap().is_none());
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn test_populate_store() {
+        let room_id = room_id();
+        let user_id = user_id();
+
+        let store = populated_store(Box::new(MemoryStore::new())).await.unwrap();
+
+        assert!(store.get_sync_token().await.unwrap().is_some());
+        assert!(store.get_presence_event(user_id).await.unwrap().is_some());
+        assert_eq!(store.get_room_infos().await.unwrap().len(), 2);
+        assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 1);
+        assert!(store.get_account_data_event(EventType::PushRules).await.unwrap().is_some());
+
+        assert!(store.get_state_event(room_id, EventType::RoomName, "").await.unwrap().is_some());
+        assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await.unwrap().len(), 1);
+        assert!(store.get_profile(room_id, user_id).await.unwrap().is_some());
+        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
+        assert_eq!(store.get_user_ids(room_id).await.unwrap().len(), 2);
+        assert_eq!(store.get_invited_user_ids(room_id).await.unwrap().len(), 1);
+        assert_eq!(store.get_joined_user_ids(room_id).await.unwrap().len(), 1);
+        assert_eq!(store.get_users_with_display_name(room_id, "example").await.unwrap().len(), 2);
+        assert!(store
+            .get_room_account_data_event(room_id, EventType::Tag)
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }
