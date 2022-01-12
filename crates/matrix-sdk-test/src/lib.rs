@@ -33,6 +33,8 @@ pub enum EventsJson {
     Name,
     PowerLevels,
     Presence,
+    ReadReceipt,
+    ReadReceiptOther,
     RedactedInvalid,
     RedactedState,
     Redacted,
@@ -108,6 +110,8 @@ impl EventBuilder {
     /// Add an event to the room events `Vec`.
     pub fn add_ephemeral(&mut self, json: EventsJson) -> &mut Self {
         let val: &JsonValue = match json {
+            EventsJson::ReadReceipt => &test_json::READ_RECEIPT,
+            EventsJson::ReadReceiptOther => &test_json::READ_RECEIPT_OTHER,
             EventsJson::Typing => &test_json::TYPING,
             _ => panic!("unknown ephemeral event {:?}", json),
         };

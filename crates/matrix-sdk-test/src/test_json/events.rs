@@ -499,6 +499,38 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref READ_RECEIPT: JsonValue = json!({
+        "content": {
+            "$example": {
+                "m.read": {
+                    "@example:localhost": {
+                        "ts": 1436451550
+                    }
+                }
+            }
+        },
+        "room_id": "!test:localhost",
+        "type": "m.receipt"
+    });
+}
+
+lazy_static! {
+    pub static ref READ_RECEIPT_OTHER: JsonValue = json!({
+        "content": {
+            "$other": {
+                "m.read": {
+                    "@example:localhost": {
+                        "ts": 1436964550
+                    }
+                }
+            }
+        },
+        "room_id": "!test:localhost",
+        "type": "m.receipt"
+    });
+}
+
+lazy_static! {
     pub static ref REDACTED_INVALID: JsonValue = json!({
         "content": {},
         "event_id": "$15275046980maRLj:localhost",

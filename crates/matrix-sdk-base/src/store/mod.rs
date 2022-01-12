@@ -571,3 +571,24 @@ impl StateChanges {
         self.receipts.insert(room_id.to_owned(), event);
     }
 }
+
+#[cfg(test)]
+mod test {
+    use ruma::{event_id, room_id, user_id, EventId, RoomId, UserId};
+
+    pub(crate) fn user_id() -> &'static UserId {
+        user_id!("@example:localhost")
+    }
+
+    pub(crate) fn room_id() -> &'static RoomId {
+        room_id!("!test:localhost")
+    }
+
+    pub(crate) fn first_receipt_event_id() -> &'static EventId {
+        event_id!("$example")
+    }
+
+    pub(crate) fn second_receipt_event_id() -> &'static EventId {
+        event_id!("$other")
+    }
+}

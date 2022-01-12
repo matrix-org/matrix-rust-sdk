@@ -588,107 +588,105 @@ impl StateStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, test_json};
     use ruma::{
-        api::client::r0::media::get_content_thumbnail::Method, event_id, mxc_uri,
-        receipt::ReceiptType, room_id, uint, user_id, UserId,
+        api::client::r0::media::get_content_thumbnail::Method,
+        events::{AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent},
+        mxc_uri,
+        receipt::ReceiptType,
+        uint,
     };
-    use serde_json::json;
+    use serde_json::Value as JsonValue;
 
     use super::{MemoryStore, StateChanges};
-    use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
-
-    fn user_id() -> &'static UserId {
-        user_id!("@example:localhost")
-    }
+    use crate::{
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        store::test::{first_receipt_event_id, room_id, second_receipt_event_id, user_id},
+    };
 
     #[async_test]
     async fn test_receipts_saving() {
         let store = MemoryStore::new();
 
-        let room_id = room_id!("!test:localhost");
+        let user_id = user_id();
+        let room_id = room_id();
+        let first_event_id = first_receipt_event_id();
+        let second_event_id = second_receipt_event_id();
 
-        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org").to_owned();
-        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org").to_owned();
+        let first_receipt_json: &JsonValue = &test_json::READ_RECEIPT;
+        let first_receipt_event =
+            serde_json::from_value::<AnySyncEphemeralRoomEvent>(first_receipt_json.clone())
+                .unwrap();
+        let first_receipt_content = match first_receipt_event.content() {
+            AnyEphemeralRoomEventContent::Receipt(content) => content,
+            _ => panic!(),
+        };
 
-        let first_receipt_event = serde_json::from_value(json!({
-            first_event_id.clone(): {
-                "m.read": {
-                    user_id().to_owned(): {
-                        "ts": 1436451550453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
-
-        let second_receipt_event = serde_json::from_value(json!({
-            second_event_id.clone(): {
-                "m.read": {
-                    user_id().to_owned(): {
-                        "ts": 1436451551453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
+        let second_receipt_json: &JsonValue = &test_json::READ_RECEIPT_OTHER;
+        let second_receipt_event =
+            serde_json::from_value::<AnySyncEphemeralRoomEvent>(second_receipt_json.clone())
+                .unwrap();
+        let second_receipt_content = match second_receipt_event.content() {
+            AnyEphemeralRoomEventContent::Receipt(content) => content,
+            _ => panic!(),
+        };
 
         assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(room_id, first_receipt_event);
+        changes.add_receipts(room_id, first_receipt_content);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
             .await
             .unwrap()
             .is_some(),);
         assert_eq!(
             store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, first_event_id)
                 .await
                 .unwrap()
                 .len(),
             1
         );
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(room_id, second_receipt_event);
+        changes.add_receipts(room_id, second_receipt_content);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert_eq!(
             store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, second_event_id)
                 .await
                 .unwrap()
                 .len(),
