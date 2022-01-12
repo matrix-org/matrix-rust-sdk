@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, ReadOnlyDevice, Sas as BaseSas};
-use ruma::UserId;
+use ruma::{events::key::verification::cancel::CancelCode, UserId};
 
 use crate::{error::Result, Client};
 
@@ -84,6 +84,16 @@ impl SasVerification {
 
         if let Some(s) = signature {
             self.client.send(s, None).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Cancel the interactive verification flow because the short auth strings didn't match on both sides.
+    pub async fn mismatch(&self) -> Result<()> {
+        // FIXME: Use variant once https://github.com/ruma/ruma/pull/804 is merged
+        if let Some(request) = self.inner.cancel_with_code(CancelCode::from("m.mismatched_sas")) {
+            self.client.send_verification_request(request).await?;
         }
 
         Ok(())
