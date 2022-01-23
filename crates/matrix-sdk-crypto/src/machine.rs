@@ -1677,9 +1677,9 @@ pub(crate) mod test {
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().next().unwrap();
+        let (device_key_id, one_time_key) = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
-        keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
+        keys.insert(device_key_id.clone(), one_time_key.clone());
         bob_keys.insert(bob.device_id().into(), keys);
 
         let mut one_time_keys = BTreeMap::new();
@@ -1909,9 +1909,9 @@ pub(crate) mod test {
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().next().unwrap();
+        let (device_key_id, one_time_key) = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
-        keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
+        keys.insert(device_key_id.clone(), one_time_key.clone());
         bob_keys.insert(bob_machine.device_id().into(), keys);
 
         let mut one_time_keys = BTreeMap::new();

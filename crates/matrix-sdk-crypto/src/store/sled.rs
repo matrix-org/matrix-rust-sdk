@@ -1084,7 +1084,7 @@ mod test {
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key =
-            bob.one_time_keys().await.curve25519().iter().next().unwrap().1.to_owned();
+            bob.one_time_keys().await.curve25519().values().next().unwrap().to_owned();
         let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session =
