@@ -57,6 +57,18 @@ trait EncodeKey {
     fn encode(&self) -> Vec<u8>;
 }
 
+impl<T: EncodeKey> EncodeKey for &T {
+    fn encode(&self) -> Vec<u8> {
+        T::encode(self)
+    }
+}
+
+impl<T: EncodeKey> EncodeKey for Box<T> {
+    fn encode(&self) -> Vec<u8> {
+        T::encode(self)
+    }
+}
+
 impl EncodeKey for Uuid {
     fn encode(&self) -> Vec<u8> {
         self.as_u128().to_be_bytes().to_vec()
@@ -78,7 +90,7 @@ impl EncodeKey for SecretInfo {
     }
 }
 
-impl EncodeKey for &RequestedKeyInfo {
+impl EncodeKey for RequestedKeyInfo {
     fn encode(&self) -> Vec<u8> {
         [
             self.room_id.as_bytes(),
@@ -94,25 +106,31 @@ impl EncodeKey for &RequestedKeyInfo {
     }
 }
 
-impl EncodeKey for &UserId {
+impl EncodeKey for UserId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &ReadOnlyDevice {
+impl EncodeKey for ReadOnlyDevice {
     fn encode(&self) -> Vec<u8> {
         (self.user_id().as_str(), self.device_id().as_str()).encode()
     }
 }
 
-impl EncodeKey for &RoomId {
+impl EncodeKey for RoomId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &str {
+impl EncodeKey for String {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+}
+
+impl EncodeKey for str {
     fn encode(&self) -> Vec<u8> {
         [self.as_bytes(), &[Self::SEPARATOR]].concat()
     }
@@ -613,7 +631,7 @@ impl SledStore {
 
                     for (key, session) in &outbound_session_changes {
                         outbound_sessions.insert(
-                            (&**key).encode(),
+                            key.encode(),
                             serde_json::to_vec(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -628,10 +646,8 @@ impl SledStore {
                     }
 
                     for key_request in &key_requests {
-                        secret_requests_by_info.insert(
-                            (&key_request.info).encode(),
-                            key_request.request_id.encode(),
-                        )?;
+                        secret_requests_by_info
+                            .insert(key_request.info.encode(), key_request.request_id.encode())?;
 
                         let key_request_id = key_request.request_id.encode();
 
@@ -965,11 +981,11 @@ impl CryptoStore for SledStore {
                         .map_err(ConflictableTransactionError::Abort)?;
 
                     if let Some(request) = sent_request {
-                        key_requests_by_info.remove((&request.info).encode())?;
+                        key_requests_by_info.remove(request.info.encode())?;
                     }
 
                     if let Some(request) = unsent_request {
-                        key_requests_by_info.remove((&request.info).encode())?;
+                        key_requests_by_info.remove(request.info.encode())?;
                     }
 
                     Ok(())

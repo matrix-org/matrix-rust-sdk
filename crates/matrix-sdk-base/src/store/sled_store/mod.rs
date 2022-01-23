@@ -93,19 +93,37 @@ trait EncodeKey {
     fn encode(&self) -> Vec<u8>;
 }
 
-impl EncodeKey for &UserId {
+impl<T: EncodeKey> EncodeKey for &T {
+    fn encode(&self) -> Vec<u8> {
+        T::encode(self)
+    }
+}
+
+impl<T: EncodeKey> EncodeKey for Box<T> {
+    fn encode(&self) -> Vec<u8> {
+        T::encode(self)
+    }
+}
+
+impl EncodeKey for UserId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &RoomId {
+impl EncodeKey for RoomId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &str {
+impl EncodeKey for String {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+}
+
+impl EncodeKey for str {
     fn encode(&self) -> Vec<u8> {
         [self.as_bytes(), &[ENCODE_SEPARATOR]].concat()
     }
@@ -425,7 +443,7 @@ impl SledStore {
 
                     for (event_type, event) in &changes.account_data {
                         account_data.insert(
-                            event_type.as_str().encode(),
+                            event_type.encode(),
                             self.serialize_event(&event)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -456,7 +474,7 @@ impl SledStore {
 
                     for (room_id, room_info) in &changes.room_infos {
                         rooms.insert(
-                            (&**room_id).encode(),
+                            room_id.encode(),
                             self.serialize_event(room_info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -464,7 +482,7 @@ impl SledStore {
 
                     for (sender, event) in &changes.presence {
                         presence.insert(
-                            (&**sender).encode(),
+                            sender.encode(),
                             self.serialize_event(&event)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -472,7 +490,7 @@ impl SledStore {
 
                     for (room_id, info) in &changes.invited_room_info {
                         striped_rooms.insert(
-                            (&**room_id).encode(),
+                            room_id.encode(),
                             self.serialize_event(&info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
