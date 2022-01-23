@@ -412,7 +412,7 @@ mod test {
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
         bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys_helper().await.unwrap();
+        let one_time = bob.signed_one_time_keys_helper().await;
         bob.mark_keys_as_published().await;
 
         let mut one_time_keys = BTreeMap::new();
@@ -462,7 +462,7 @@ mod test {
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
         bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys_helper().await.unwrap();
+        let one_time = bob.signed_one_time_keys_helper().await;
         bob.mark_keys_as_published().await;
 
         let mut one_time_keys = BTreeMap::new();

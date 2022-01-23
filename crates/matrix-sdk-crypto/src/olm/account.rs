@@ -862,7 +862,7 @@ impl ReadOnlyAccount {
 
     pub(crate) async fn signed_one_time_keys_helper(
         &self,
-    ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
+    ) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
@@ -897,7 +897,7 @@ impl ReadOnlyAccount {
             );
         }
 
-        Ok(one_time_key_map)
+        one_time_key_map
     }
 
     /// Generate, sign and prepare one-time keys to be uploaded.
@@ -907,7 +907,7 @@ impl ReadOnlyAccount {
         &self,
     ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
         let _ = self.generate_one_time_keys().await?;
-        self.signed_one_time_keys_helper().await
+        Ok(self.signed_one_time_keys_helper().await)
     }
 
     /// Create a new session with another account given a one-time key.
