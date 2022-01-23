@@ -606,8 +606,8 @@ mod test {
         fn proptest_emoji(bytes in prop::array::uniform6(0u8..)) {
             let numbers = bytes_to_emoji_index(bytes.to_vec());
 
-            for number in numbers.iter() {
-                prop_assert!(*number < 64);
+            for number in numbers {
+                prop_assert!(number < 64);
             }
         }
     }

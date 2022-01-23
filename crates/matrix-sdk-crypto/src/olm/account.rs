@@ -866,7 +866,7 @@ impl ReadOnlyAccount {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
-        for (key_id, key) in one_time_keys.curve25519().iter() {
+        for (key_id, key) in one_time_keys.curve25519() {
             let key_json = json!({
                 "key": key,
             });
