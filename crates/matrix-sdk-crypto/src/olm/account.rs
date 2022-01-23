@@ -625,7 +625,7 @@ impl ReadOnlyAccount {
             let max_keys = self.max_one_time_keys().await;
             let max_on_server = (max_keys as u64) / 2;
 
-            if count >= (max_on_server) {
+            if count >= max_on_server {
                 return Err(());
             }
 
