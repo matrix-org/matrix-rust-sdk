@@ -19,7 +19,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use matrix_sdk_common::uuid::Uuid;
 use olm_rs::sas::OlmSas;
 use ruma::{
     events::{
@@ -40,7 +39,8 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, RoomId, UserId,
+    serde::Base64,
+    DeviceId, EventId, RoomId, TransactionId, UserId,
 };
 use tracing::info;
 
@@ -239,7 +239,7 @@ pub struct Created {
 /// The initial SAS state if the other side started the SAS verification.
 #[derive(Clone, Debug)]
 pub struct Started {
-    commitment: String,
+    commitment: Base64,
     pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
@@ -249,7 +249,7 @@ pub struct Started {
 pub struct Accepted {
     pub accepted_protocols: Arc<AcceptedProtocols>,
     start_content: Arc<OwnedStartContent>,
-    commitment: String,
+    commitment: Base64,
 }
 
 /// The SAS state we're going to be in after we accepted our
@@ -258,7 +258,7 @@ pub struct Accepted {
 pub struct WeAccepted {
     we_started: bool,
     pub accepted_protocols: Arc<AcceptedProtocols>,
-    commitment: String,
+    commitment: Base64,
 }
 
 /// The SAS state we're going to be in after we received the public key of the
@@ -267,7 +267,7 @@ pub struct WeAccepted {
 /// From now on we can show the short auth string to the user.
 #[derive(Clone, Debug)]
 pub struct KeyReceived {
-    their_pubkey: String,
+    their_pubkey: Base64,
     we_started: bool,
     pub accepted_protocols: Arc<AcceptedProtocols>,
 }
@@ -286,7 +286,7 @@ pub struct Confirmed {
 #[derive(Clone, Debug)]
 pub struct MacReceived {
     we_started: bool,
-    their_pubkey: String,
+    their_pubkey: Base64,
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
     pub accepted_protocols: Arc<AcceptedProtocols>,
@@ -375,11 +375,10 @@ impl SasState<Created> {
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<String>,
+        transaction_id: Option<Box<TransactionId>>,
     ) -> SasState<Created> {
         let started_from_request = transaction_id.is_some();
-        let flow_id =
-            FlowId::ToDevice(transaction_id.unwrap_or_else(|| Uuid::new_v4().to_string()));
+        let flow_id = FlowId::ToDevice(transaction_id.unwrap_or_else(TransactionId::new));
         Self::new_helper(
             flow_id,
             account,
@@ -440,7 +439,7 @@ impl SasState<Created> {
             FlowId::ToDevice(s) => {
                 OwnedStartContent::ToDevice(ToDeviceKeyVerificationStartEventContent::new(
                     self.device_id().into(),
-                    s.to_string(),
+                    s.clone(),
                     StartMethod::SasV1(self.state.protocol_definitions.clone()),
                 ))
             }
@@ -540,7 +539,8 @@ impl SasState<Started> {
         if let StartMethod::SasV1(method_content) = content.method() {
             let sas = OlmSas::new();
 
-            let pubkey = sas.public_key();
+            let pubkey =
+                Base64::parse(sas.public_key()).expect("Couldn't base64-decode public key");
             let commitment = calculate_commitment(&pubkey, content);
 
             info!(
@@ -602,7 +602,7 @@ impl SasState<Started> {
             FlowId::ToDevice(s) => {
                 OwnedStartContent::ToDevice(ToDeviceKeyVerificationStartEventContent::new(
                     self.device_id().into(),
-                    s.to_string(),
+                    s.clone(),
                     StartMethod::SasV1(the_protocol_definitions()),
                 ))
             }
@@ -695,7 +695,7 @@ impl SasState<WeAccepted> {
 
         match self.verification_flow_id.as_ref() {
             FlowId::ToDevice(s) => {
-                ToDeviceKeyVerificationAcceptEventContent::new(s.to_string(), method).into()
+                ToDeviceKeyVerificationAcceptEventContent::new(s.clone(), method).into()
             }
             FlowId::InRoom(r, e) => (
                 r.clone(),
@@ -725,7 +725,7 @@ impl SasState<WeAccepted> {
         self.inner
             .lock()
             .unwrap()
-            .set_their_public_key(their_pubkey.clone())
+            .set_their_public_key(their_pubkey.encode())
             .expect("Can't set public key");
 
         Ok(SasState {
@@ -773,7 +773,7 @@ impl SasState<Accepted> {
             self.inner
                 .lock()
                 .unwrap()
-                .set_their_public_key(their_pubkey.clone())
+                .set_their_public_key(their_pubkey.encode())
                 .expect("Can't set public key");
 
             Ok(SasState {
@@ -799,15 +799,17 @@ impl SasState<Accepted> {
         match &*self.verification_flow_id {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
                 ToDeviceKeyVerificationKeyEventContent::new(
-                    s.to_string(),
-                    self.inner.lock().unwrap().public_key(),
+                    s.clone(),
+                    Base64::parse(self.inner.lock().unwrap().public_key())
+                        .expect("Couldn't base64-decode public key"),
                 ),
             )
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
                 AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
-                    self.inner.lock().unwrap().public_key(),
+                    Base64::parse(self.inner.lock().unwrap().public_key())
+                        .expect("Couldn't base64-decode public key"),
                     Relation::new(e.clone()),
                 )),
             )
@@ -825,15 +827,17 @@ impl SasState<KeyReceived> {
         match &*self.verification_flow_id {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
                 ToDeviceKeyVerificationKeyEventContent::new(
-                    s.to_string(),
-                    self.inner.lock().unwrap().public_key(),
+                    s.clone(),
+                    Base64::parse(self.inner.lock().unwrap().public_key())
+                        .expect("Couldn't base64-decode public key"),
                 ),
             )
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
                 AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
-                    self.inner.lock().unwrap().public_key(),
+                    Base64::parse(self.inner.lock().unwrap().public_key())
+                        .expect("Couldn't base64-decode public key"),
                     Relation::new(e.clone()),
                 )),
             )
@@ -849,7 +853,7 @@ impl SasState<KeyReceived> {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey,
+            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -863,7 +867,7 @@ impl SasState<KeyReceived> {
         get_emoji_index(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey,
+            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -877,7 +881,7 @@ impl SasState<KeyReceived> {
         get_decimal(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey,
+            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -1078,7 +1082,7 @@ impl SasState<MacReceived> {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey,
+            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -1092,7 +1096,7 @@ impl SasState<MacReceived> {
         get_emoji_index(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey,
+            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -1106,7 +1110,7 @@ impl SasState<MacReceived> {
         get_decimal(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey,
+            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -1205,13 +1209,17 @@ mod test {
             start::{StartMethod, ToDeviceKeyVerificationStartEventContent},
             ShortAuthenticationString,
         },
+        serde::Base64,
         user_id, DeviceId, UserId,
     };
     use serde_json::json;
 
     use super::{Accepted, Created, SasState, Started, WeAccepted};
     use crate::{
-        verification::event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
+        verification::{
+            event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
+            FlowId,
+        },
         ReadOnlyAccount, ReadOnlyDevice,
     };
 
@@ -1342,8 +1350,8 @@ mod test {
         let mut method = content.method_mut();
 
         match &mut method {
-            AcceptMethod::SasV1(ref mut c) => {
-                c.commitment = "".to_string();
+            AcceptMethod::SasV1(c) => {
+                c.commitment = Base64::empty();
             }
             _ => panic!("Unknown accept event content"),
         }
@@ -1464,7 +1472,7 @@ mod test {
             alice_device,
             None,
             None,
-            flow_id.into(),
+            FlowId::ToDevice(flow_id.into()),
             &content,
             false,
         )

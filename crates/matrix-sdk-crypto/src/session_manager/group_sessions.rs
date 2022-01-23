@@ -20,7 +20,7 @@ use std::{
 
 use dashmap::DashMap;
 use futures_util::future::join_all;
-use matrix_sdk_common::{executor::spawn, uuid::Uuid};
+use matrix_sdk_common::executor::spawn;
 use ruma::{
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
@@ -28,7 +28,7 @@ use ruma::{
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, RoomId, UserId,
+    DeviceId, RoomId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, info, trace};
@@ -46,7 +46,7 @@ pub(crate) struct GroupSessionCache {
     sessions: Arc<DashMap<Box<RoomId>, OutboundGroupSession>>,
     /// A map from the request id to the group session that the request belongs
     /// to. Used to mark requests belonging to the session as shared.
-    sessions_being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
+    sessions_being_shared: Arc<DashMap<Box<TransactionId>, OutboundGroupSession>>,
 }
 
 impl GroupSessionCache {
@@ -137,7 +137,7 @@ impl GroupSessionManager {
         }
     }
 
-    pub async fn mark_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
+    pub async fn mark_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
         if let Some((_, s)) = self.sessions.sessions_being_shared.remove(request_id) {
             s.mark_request_as_sent(request_id);
 
@@ -221,7 +221,7 @@ impl GroupSessionManager {
         devices: Vec<Device>,
         message_index: u32,
     ) -> OlmResult<(
-        Uuid,
+        Box<TransactionId>,
         ToDeviceRequest,
         BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
         Vec<Session>,
@@ -298,18 +298,20 @@ impl GroupSessionManager {
             }
         }
 
-        let id = Uuid::new_v4();
-
-        let request =
-            ToDeviceRequest { event_type: EventType::RoomEncrypted, txn_id: id, messages };
+        let txn_id = TransactionId::new();
+        let request = ToDeviceRequest {
+            event_type: EventType::RoomEncrypted,
+            txn_id: txn_id.clone(),
+            messages,
+        };
 
         trace!(
             recipient_count = request.message_count(),
-            transaction_id = ?id,
+            transaction_id = ?txn_id,
             "Created a to-device request carrying a room_key"
         );
 
-        Ok((id, request, share_infos, changed_sessions))
+        Ok((txn_id, request, share_infos, changed_sessions))
     }
 
     /// Given a list of user and an outbound session, return the list of users
@@ -412,13 +414,13 @@ impl GroupSessionManager {
         content: AnyToDeviceEventContent,
         outbound: OutboundGroupSession,
         message_index: u32,
-        being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
+        being_shared: Arc<DashMap<Box<TransactionId>, OutboundGroupSession>>,
     ) -> OlmResult<Vec<Session>> {
         let (id, request, share_infos, used_sessions) =
             Self::encrypt_session_for(content.clone(), chunk, message_index).await?;
 
         if !request.messages.is_empty() {
-            outbound.add_request(id, request.into(), share_infos);
+            outbound.add_request(id.clone(), request.into(), share_infos);
             being_shared.insert(id, outbound.clone());
         }
 
@@ -553,7 +555,7 @@ impl GroupSessionManager {
                 }
             }
 
-            let transaction_ids: Vec<Uuid> = requests.iter().map(|r| r.txn_id).collect();
+            let transaction_ids: Vec<_> = requests.iter().map(|r| r.txn_id.clone()).collect();
 
             // TODO log the withheld reasons here as well.
             info!(
@@ -587,14 +589,13 @@ impl GroupSessionManager {
 mod test {
     use std::ops::Deref;
 
-    use matrix_sdk_common::uuid::Uuid;
     use matrix_sdk_test::response_from_file;
     use ruma::{
         api::{
             client::r0::keys::{claim_keys, get_keys},
             IncomingResponse,
         },
-        device_id, room_id, user_id, DeviceId, UserId,
+        device_id, room_id, user_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::Value;
 
@@ -627,12 +628,12 @@ mod test {
     async fn machine() -> OlmMachine {
         let keys_query = keys_query_response();
         let keys_claim = keys_claim_response();
-        let uuid = Uuid::new_v4();
+        let txn_id = TransactionId::new();
 
         let machine = OlmMachine::new(alice_id(), alice_device_id());
 
-        machine.mark_request_as_sent(&uuid, &keys_query).await.unwrap();
-        machine.mark_request_as_sent(&uuid, &keys_claim).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &keys_claim).await.unwrap();
 
         machine
     }

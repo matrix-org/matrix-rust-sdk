@@ -24,7 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{instant::Instant, locks::Mutex, uuid::Uuid};
+use matrix_sdk_common::{instant::Instant, locks::Mutex};
 pub use olm_rs::{
     account::IdentityKeys,
     session::{OlmMessage, PreKeyMessage},
@@ -45,7 +45,7 @@ use ruma::{
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -130,7 +130,8 @@ pub struct OutboundGroupSession {
     settings: Arc<EncryptionSettings>,
     #[allow(clippy::type_complexity)]
     pub(crate) shared_with_set: Arc<DashMap<Box<UserId>, DashMap<Box<DeviceId>, ShareInfo>>>,
-    to_share_with_set: Arc<DashMap<Uuid, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
+    #[allow(clippy::type_complexity)]
+    to_share_with_set: Arc<DashMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
 }
 
 /// A a map of userid/device it to a `ShareInfo`.
@@ -191,7 +192,7 @@ impl OutboundGroupSession {
 
     pub(crate) fn add_request(
         &self,
-        request_id: Uuid,
+        request_id: Box<TransactionId>,
         request: Arc<ToDeviceRequest>,
         share_infos: ShareInfoSet,
     ) {
@@ -212,7 +213,7 @@ impl OutboundGroupSession {
     ///
     /// This removes the request from the queue and marks the set of
     /// users/devices that received the session.
-    pub fn mark_request_as_sent(&self, request_id: &Uuid) {
+    pub fn mark_request_as_sent(&self, request_id: &TransactionId) {
         if let Some((_, (_, r))) = self.to_share_with_set.remove(request_id) {
             let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> =
                 r.iter().map(|(u, d)| (&**u, d.keys().map(|d| d.as_ref()).collect())).collect();
@@ -456,8 +457,8 @@ impl OutboundGroupSession {
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
-    pub(crate) fn pending_request_ids(&self) -> Vec<Uuid> {
-        self.to_share_with_set.iter().map(|e| *e.key()).collect()
+    pub(crate) fn pending_request_ids(&self) -> Vec<Box<TransactionId>> {
+        self.to_share_with_set.iter().map(|e| e.key().clone()).collect()
     }
 
     /// Restore a Session from a previously pickled string.
@@ -541,7 +542,7 @@ impl OutboundGroupSession {
             requests: self
                 .to_share_with_set
                 .iter()
-                .map(|r| (*r.key(), r.value().clone()))
+                .map(|r| (r.key().clone(), r.value().clone()))
                 .collect(),
         }
     }
@@ -592,7 +593,7 @@ pub struct PickledOutboundGroupSession {
     /// The set of users the session has been already shared with.
     pub shared_with_set: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
-    pub requests: BTreeMap<Uuid, (Arc<ToDeviceRequest>, ShareInfoSet)>,
+    pub requests: BTreeMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }
 
 #[cfg(test)]

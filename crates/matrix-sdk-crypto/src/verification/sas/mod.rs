@@ -21,14 +21,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use inner_sas::InnerSas;
-use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{cancel::CancelCode, ShortAuthenticationString},
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, RoomId, UserId,
+    DeviceId, EventId, RoomId, TransactionId, UserId,
 };
 use tracing::trace;
 
@@ -190,7 +189,7 @@ impl Sas {
         store: VerificationStore,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<String>,
+        transaction_id: Option<Box<TransactionId>>,
         we_started: bool,
         request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
@@ -336,7 +335,7 @@ impl Sas {
                 }
                 OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
                     room_id,
-                    txn_id: Uuid::new_v4(),
+                    txn_id: TransactionId::new(),
                     content: AnyMessageEventContent::KeyVerificationAccept(content),
                 }
                 .into(),
@@ -371,7 +370,8 @@ impl Sas {
             .map(|c| match c {
                 OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
                 OutgoingContent::Room(r, c) => {
-                    RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
+                    RoomMessageRequest { room_id: r, txn_id: TransactionId::new(), content: c }
+                        .into()
                 }
             })
             .collect::<Vec<_>>();
@@ -438,7 +438,7 @@ impl Sas {
         *guard = sas;
         content.map(|c| match c {
             OutgoingContent::Room(room_id, content) => {
-                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+                RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
             OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
         })

@@ -20,12 +20,12 @@ use std::{
 };
 
 use dashmap::DashSet;
-use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
+use matrix_sdk_common::{async_trait, locks::Mutex};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
     encryption::DeviceKeys,
     events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 pub use sled::Error;
@@ -34,7 +34,6 @@ use sled::{
     Config, Db, IVec, Transactional, Tree,
 };
 use tracing::debug;
-use uuid::Uuid;
 
 use super::{
     caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, InboundGroupSession,
@@ -69,9 +68,9 @@ impl<T: EncodeKey> EncodeKey for Box<T> {
     }
 }
 
-impl EncodeKey for Uuid {
+impl EncodeKey for TransactionId {
     fn encode(&self) -> Vec<u8> {
-        self.as_u128().to_be_bytes().to_vec()
+        self.as_str().encode()
     }
 }
 
@@ -930,7 +929,7 @@ impl CryptoStore for SledStore {
 
     async fn get_outgoing_secret_requests(
         &self,
-        request_id: Uuid,
+        request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
         let request_id = request_id.encode();
 
@@ -960,7 +959,7 @@ impl CryptoStore for SledStore {
         requests
     }
 
-    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
+    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let ret: Result<(), TransactionError<serde_json::Error>> = (
             &self.outgoing_secret_requests,
             &self.unsent_secret_requests,
@@ -1033,12 +1032,11 @@ impl CryptoStore for SledStore {
 mod test {
     use std::collections::BTreeMap;
 
-    use matrix_sdk_common::uuid::Uuid;
     use matrix_sdk_test::async_test;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma::{
         device_id, encryption::SignedKey, events::room_key_request::RequestedKeyInfo, room_id,
-        user_id, DeviceId, EventEncryptionAlgorithm, UserId,
+        serde::Base64, user_id, DeviceId, EventEncryptionAlgorithm, TransactionId, UserId,
     };
     use tempfile::tempdir;
 
@@ -1100,7 +1098,7 @@ mod test {
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key =
-            bob.one_time_keys().await.curve25519().values().next().unwrap().to_owned();
+            Base64::parse(bob.one_time_keys().await.curve25519().values().next().unwrap()).unwrap();
         let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session =
@@ -1479,7 +1477,7 @@ mod test {
     async fn key_request_saving() {
         let (account, store, _dir) = get_loaded_store().await;
 
-        let id = Uuid::new_v4();
+        let id = TransactionId::new();
         let info: SecretInfo = RequestedKeyInfo::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             room_id!("!test:localhost").to_owned(),
@@ -1490,12 +1488,12 @@ mod test {
 
         let request = GossipRequest {
             request_recipient: account.user_id().to_owned(),
-            request_id: id,
+            request_id: id.clone(),
             info: info.clone(),
             sent_out: false,
         };
 
-        assert!(store.get_outgoing_secret_requests(id).await.unwrap().is_none());
+        assert!(store.get_outgoing_secret_requests(&id).await.unwrap().is_none());
 
         let mut changes = Changes::default();
         changes.key_requests.push(request.clone());
@@ -1503,7 +1501,7 @@ mod test {
 
         let request = Some(request);
 
-        let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
+        let stored_request = store.get_outgoing_secret_requests(&id).await.unwrap();
         assert_eq!(request, stored_request);
 
         let stored_request = store.get_secret_request_by_info(&info).await.unwrap();
@@ -1512,7 +1510,7 @@ mod test {
 
         let request = GossipRequest {
             request_recipient: account.user_id().to_owned(),
-            request_id: id,
+            request_id: id.clone(),
             info: info.clone(),
             sent_out: true,
         };
@@ -1522,12 +1520,12 @@ mod test {
         store.save_changes(changes).await.unwrap();
 
         assert!(store.get_unsent_secret_requests().await.unwrap().is_empty());
-        let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
+        let stored_request = store.get_outgoing_secret_requests(&id).await.unwrap();
         assert_eq!(Some(request), stored_request);
 
-        store.delete_outgoing_secret_requests(id).await.unwrap();
+        store.delete_outgoing_secret_requests(&id).await.unwrap();
 
-        let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
+        let stored_request = store.get_outgoing_secret_requests(&id).await.unwrap();
         assert_eq!(None, stored_request);
 
         let stored_request = store.get_secret_request_by_info(&info).await.unwrap();

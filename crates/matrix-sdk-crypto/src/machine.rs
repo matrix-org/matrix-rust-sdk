@@ -24,7 +24,6 @@ use dashmap::DashMap;
 use matrix_sdk_common::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, RoomEvent, VerificationState},
     locks::Mutex,
-    uuid::Uuid,
 };
 use ruma::{
     api::client::r0::{
@@ -47,7 +46,8 @@ use ruma::{
         AnyRoomEvent, AnyToDeviceEvent, MessageEventContent,
     },
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
+    UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
@@ -322,21 +322,17 @@ impl OlmMachine {
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
         let mut requests = Vec::new();
 
-        if let Some(r) = self
-            .keys_for_upload()
-            .await
-            .map(|r| OutgoingRequest { request_id: Uuid::new_v4(), request: Arc::new(r.into()) })
-        {
+        if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
+            request_id: TransactionId::new(),
+            request: Arc::new(r.into()),
+        }) {
             self.account.save().await?;
             requests.push(r);
         }
 
-        for request in
-            self.identity_manager.users_for_key_query().await.into_iter().map(|r| OutgoingRequest {
-                request_id: Uuid::new_v4(),
-                request: Arc::new(r.into()),
-            })
-        {
+        for request in self.identity_manager.users_for_key_query().await.into_iter().map(|r| {
+            OutgoingRequest { request_id: TransactionId::new(), request: Arc::new(r.into()) }
+        }) {
             requests.push(request);
         }
 
@@ -357,7 +353,7 @@ impl OlmMachine {
     /// outgoing request was sent out.
     pub async fn mark_request_as_sent<'a>(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         response: impl Into<IncomingResponse<'a>>,
     ) -> OlmResult<()> {
         match response.into() {
@@ -522,7 +518,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(Box<TransactionId>, KeysClaimRequest)>> {
         self.session_manager.get_missing_sessions(users).await
     }
 
@@ -834,9 +830,9 @@ impl OlmMachine {
     }
 
     /// Mark an outgoing to-device requests as sent.
-    async fn mark_to_device_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
+    async fn mark_to_device_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
         self.verification_machine.mark_request_as_sent(request_id);
-        self.key_request_machine.mark_outgoing_request_as_sent(*request_id).await?;
+        self.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
         self.group_session_manager.mark_request_as_sent(request_id).await?;
         self.session_manager.mark_outgoing_request_as_sent(request_id);
 

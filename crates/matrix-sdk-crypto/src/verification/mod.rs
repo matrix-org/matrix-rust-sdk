@@ -47,7 +47,7 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyId, EventId, RoomId, UserId,
+    DeviceId, DeviceKeyId, EventId, RoomId, TransactionId, UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
@@ -355,7 +355,7 @@ impl Cancelled {
 
 #[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
 pub enum FlowId {
-    ToDevice(String),
+    ToDevice(Box<TransactionId>),
     InRoom(Box<RoomId>, Box<EventId>),
 }
 
@@ -376,8 +376,8 @@ impl FlowId {
     }
 }
 
-impl From<String> for FlowId {
-    fn from(transaction_id: String) -> Self {
+impl From<Box<TransactionId>> for FlowId {
+    fn from(transaction_id: Box<TransactionId>) -> Self {
         FlowId::ToDevice(transaction_id)
     }
 }

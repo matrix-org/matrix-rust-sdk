@@ -23,13 +23,14 @@ use aes::{
 };
 use base64::DecodeError;
 use getrandom::getrandom;
-use ruma::events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit};
+use ruma::{
+    events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit},
+    serde::Base64,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use zeroize::Zeroizing;
-
-use crate::utilities::{decode, decode_url_safe, encode, encode_url_safe};
 
 const IV_SIZE: usize = 16;
 const KEY_SIZE: usize = 32;
@@ -131,9 +132,10 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
             return Err(DecryptorError::UnknownVersion);
         }
 
-        let hash = decode(info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?)?;
-        let key = Zeroizing::from(decode_url_safe(info.web_key.k)?);
-        let iv = decode(info.iv)?;
+        let hash =
+            info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?.as_bytes().to_owned();
+        let key = Zeroizing::from(info.web_key.k.into_inner());
+        let iv = info.iv.into_inner();
         let iv = GenericArray::from_exact_iter(iv).ok_or(DecryptorError::KeyNonceLength)?;
 
         let sha = Sha256::default();
@@ -149,8 +151,8 @@ pub struct AttachmentEncryptor<'a, R: Read + 'a> {
     finished: bool,
     inner: &'a mut R,
     web_key: JsonWebKey,
-    iv: String,
-    hashes: BTreeMap<String, String>,
+    iv: Base64,
+    hashes: BTreeMap<String, Base64>,
     aes: Aes256Ctr,
     sha: Sha256,
 }
@@ -170,7 +172,9 @@ impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
-            self.hashes.entry("sha256".to_owned()).or_insert_with(|| encode(hash));
+            self.hashes
+                .entry("sha256".to_owned())
+                .or_insert_with(|| Base64::new(hash.as_slice().to_owned()));
             Ok(0)
         } else {
             self.aes.apply_keystream(&mut buf[0..read_bytes]);
@@ -223,10 +227,10 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
             kty: "oct".to_owned(),
             key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
             alg: "A256CTR".to_owned(),
-            k: encode_url_safe(&*key),
+            k: Base64::new((*key).to_vec()),
             ext: true,
         });
-        let encoded_iv = encode(&*iv);
+        let encoded_iv = Base64::new((*iv).to_vec());
         let iv = GenericArray::from_slice(&*iv);
         let key = GenericArray::from_slice(&*key);
 
@@ -247,7 +251,9 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
     /// Consume the encryptor and get the encryption key.
     pub fn finish(mut self) -> MediaEncryptionInfo {
         let hash = self.sha.finalize();
-        self.hashes.entry("sha256".to_owned()).or_insert_with(|| encode(hash));
+        self.hashes
+            .entry("sha256".to_owned())
+            .or_insert_with(|| Base64::new(hash.as_slice().to_owned()));
 
         MediaEncryptionInfo {
             version: VERSION.to_string(),
@@ -268,9 +274,9 @@ pub struct MediaEncryptionInfo {
     /// The web key that was used to encrypt the file.
     pub web_key: JsonWebKey,
     /// The initialization vector that was used to encrypt the file.
-    pub iv: String,
+    pub iv: Base64,
     /// The hashes that can be used to check the validity of the file.
-    pub hashes: BTreeMap<String, String>,
+    pub hashes: BTreeMap<String, Base64>,
 }
 
 impl From<EncryptedFile> for MediaEncryptionInfo {

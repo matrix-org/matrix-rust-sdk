@@ -18,7 +18,6 @@ use matrix_qrcode::{
     qrcode::QrCode, EncodingError, QrVerificationData, SelfVerificationData,
     SelfVerificationNoMasterKey, VerificationData,
 };
-use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
@@ -33,7 +32,8 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, RoomId, UserId,
+    serde::Base64,
+    DeviceId, DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tracing::trace;
@@ -287,7 +287,7 @@ impl QrVerification {
     fn content_to_request(&self, content: OutgoingContent) -> OutgoingVerificationRequest {
         match content {
             OutgoingContent::Room(room_id, content) => {
-                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+                RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
             OutgoingContent::ToDevice(c) => ToDeviceRequest::new(
                 self.identities.other_user_id(),
@@ -430,11 +430,11 @@ impl QrVerification {
         }
     }
 
-    fn generate_secret() -> String {
+    fn generate_secret() -> Base64 {
         let mut shared_secret = [0u8; SECRET_SIZE];
         getrandom::getrandom(&mut shared_secret)
             .expect("Can't generate randomness for the shared secret");
-        crate::utilities::encode(shared_secret)
+        Base64::new(shared_secret.to_vec())
     }
 
     pub(crate) fn new_self(
@@ -647,7 +647,7 @@ impl<S: Clone> QrState<S> {
 
 #[derive(Clone, Debug)]
 struct Created {
-    secret: String,
+    secret: Base64,
 }
 
 #[derive(Clone, Debug)]
@@ -659,7 +659,7 @@ struct Confirmed {}
 #[derive(Clone, Debug)]
 struct Reciprocated {
     own_device_id: Box<DeviceId>,
-    secret: String,
+    secret: Base64,
 }
 
 impl Reciprocated {
@@ -830,7 +830,7 @@ mod test {
         let store = VerificationStore { account: account.clone(), inner: store };
 
         let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
-        let flow_id = FlowId::ToDevice("test_transaction".to_owned());
+        let flow_id = FlowId::ToDevice("test_transaction".into());
 
         let device_key = account.identity_keys().ed25519().to_owned();
         let master_key = private_identity.master_public_key().await.unwrap();
@@ -994,7 +994,7 @@ mod test {
             assert!(identity.is_verified());
         };
 
-        let flow_id = FlowId::ToDevice("test_transaction".to_owned());
+        let flow_id = FlowId::ToDevice("test_transaction".into());
         test(flow_id).await;
 
         let flow_id =

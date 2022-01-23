@@ -18,6 +18,7 @@ use base64::{decode_config, encode_config, STANDARD_NO_PAD};
 #[cfg(feature = "decode_image")]
 use image::{GenericImage, GenericImageView, Luma};
 use qrcode::{bits::Bits, EcLevel, QrCode, Version};
+use ruma_serde::Base64;
 
 #[cfg(feature = "decode_image")]
 use crate::error::DecodingError;
@@ -41,14 +42,13 @@ pub(crate) fn to_bytes(
     flow_id: &str,
     first_key: &str,
     second_key: &str,
-    shared_secret: &str,
+    shared_secret: &Base64,
 ) -> Result<Vec<u8>, EncodingError> {
     let flow_id_len: u16 = flow_id.len().try_into()?;
     let flow_id_len = flow_id_len.to_be_bytes();
 
     let first_key = base64_decode(first_key)?;
     let second_key = base64_decode(second_key)?;
-    let shared_secret = base64_decode(shared_secret)?;
 
     let data = [
         HEADER,
@@ -58,7 +58,7 @@ pub(crate) fn to_bytes(
         flow_id.as_bytes(),
         &first_key,
         &second_key,
-        &shared_secret,
+        shared_secret.as_bytes(),
     ]
     .concat();
 
@@ -70,7 +70,7 @@ pub(crate) fn to_qr_code(
     flow_id: &str,
     first_key: &str,
     second_key: &str,
-    shared_secret: &str,
+    shared_secret: &Base64,
 ) -> Result<QrCode, EncodingError> {
     let data = to_bytes(mode, flow_id, first_key, second_key, shared_secret)?;
 

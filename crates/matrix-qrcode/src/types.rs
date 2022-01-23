@@ -22,6 +22,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Luma};
 use qrcode::QrCode;
 use ruma_identifiers::EventId;
+use ruma_serde::Base64;
 
 #[cfg(feature = "decode_image")]
 use crate::utils::decode_qr;
@@ -312,7 +313,7 @@ impl QrVerificationData {
         let first_key = base_64_encode(&first_key);
         let second_key = base_64_encode(&second_key);
         let flow_id = String::from_utf8(flow_id)?;
-        let shared_secret = base_64_encode(&shared_secret);
+        let shared_secret = Base64::new(shared_secret);
 
         match mode {
             VerificationData::QR_MODE => {
@@ -360,7 +361,7 @@ impl QrVerificationData {
     }
 
     /// Get the secret of this `QrVerificationData`.
-    pub fn secret(&self) -> &str {
+    pub fn secret(&self) -> &Base64 {
         match self {
             QrVerificationData::Verification(v) => &v.shared_secret,
             QrVerificationData::SelfVerification(v) => &v.shared_secret,
@@ -378,7 +379,7 @@ pub struct VerificationData {
     event_id: Box<EventId>,
     first_master_key: String,
     second_master_key: String,
-    shared_secret: String,
+    shared_secret: Base64,
 }
 
 impl VerificationData {
@@ -401,7 +402,7 @@ impl VerificationData {
         event_id: Box<EventId>,
         first_key: String,
         second_key: String,
-        shared_secret: String,
+        shared_secret: Base64,
     ) -> Self {
         Self { event_id, first_master_key: first_key, second_master_key: second_key, shared_secret }
     }
@@ -477,7 +478,7 @@ pub struct SelfVerificationData {
     transaction_id: String,
     master_key: String,
     device_key: String,
-    shared_secret: String,
+    shared_secret: Base64,
 }
 
 impl SelfVerificationData {
@@ -504,7 +505,7 @@ impl SelfVerificationData {
         transaction_id: String,
         master_key: String,
         device_key: String,
-        shared_secret: String,
+        shared_secret: Base64,
     ) -> Self {
         Self { transaction_id, master_key, device_key, shared_secret }
     }
@@ -580,7 +581,7 @@ pub struct SelfVerificationNoMasterKey {
     transaction_id: String,
     device_key: String,
     master_key: String,
-    shared_secret: String,
+    shared_secret: Base64,
 }
 
 impl SelfVerificationNoMasterKey {
@@ -607,7 +608,7 @@ impl SelfVerificationNoMasterKey {
         transaction_id: String,
         device_key: String,
         master_key: String,
-        shared_secret: String,
+        shared_secret: Base64,
     ) -> Self {
         Self { transaction_id, device_key, master_key, shared_secret }
     }

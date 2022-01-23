@@ -39,7 +39,7 @@ use ruma::{
         },
         AnyToDeviceEvent, OlmV1Keys,
     },
-    serde::{CanonicalJsonValue, Raw},
+    serde::{Base64, CanonicalJsonValue, Raw},
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -883,7 +883,10 @@ impl ReadOnlyAccount {
             let mut signatures = BTreeMap::new();
             signatures.insert((*self.user_id).to_owned(), signature_map);
 
-            let signed_key = SignedKey::new(key.to_owned(), signatures);
+            let signed_key = SignedKey::new(
+                Base64::parse(key).expect("Couldn't base64-decode one-time key"),
+                signatures,
+            );
 
             one_time_key_map.insert(
                 DeviceKeyId::from_parts(
@@ -929,7 +932,7 @@ impl ReadOnlyAccount {
             .inner
             .lock()
             .await
-            .create_outbound_session(their_identity_key, &their_one_time_key.key)?;
+            .create_outbound_session(their_identity_key, &their_one_time_key.key.encode())?;
 
         let now = Instant::now();
         let session_id = session.session_id();
@@ -1173,7 +1176,7 @@ mod test {
     use std::{collections::BTreeSet, ops::Deref};
 
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, identifiers::DeviceId, user_id, DeviceKeyId, UserId};
+    use ruma::{device_id, user_id, DeviceId, DeviceKeyId, UserId};
 
     use super::ReadOnlyAccount;
     use crate::error::OlmResult as Result;

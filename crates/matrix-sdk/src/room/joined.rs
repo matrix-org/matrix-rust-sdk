@@ -2,12 +2,9 @@
 use std::sync::Arc;
 use std::{io::Read, ops::Deref};
 
+use matrix_sdk_common::instant::{Duration, Instant};
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
-use matrix_sdk_common::{
-    instant::{Duration, Instant},
-    uuid::Uuid,
-};
 use mime::{self, Mime};
 use ruma::{
     api::client::r0::{
@@ -27,7 +24,7 @@ use ruma::{
     events::{room::message::RoomMessageEventContent, MessageEventContent, StateEventContent},
     receipt::ReceiptType,
     serde::Raw,
-    EventId, UserId,
+    EventId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::debug;
@@ -406,15 +403,12 @@ impl Joined {
     /// # use matrix_sdk::ruma::room_id;
     /// # use std::convert::TryFrom;
     /// # use serde::{Deserialize, Serialize};
-    /// use matrix_sdk::{
-    ///     uuid::Uuid,
-    ///     ruma::{
-    ///         events::{
-    ///             macros::EventContent,
-    ///             room::message::{RoomMessageEventContent, TextMessageEventContent},
-    ///         },
-    ///         uint, MilliSecondsSinceUnixEpoch,
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         macros::EventContent,
+    ///         room::message::{RoomMessageEventContent, TextMessageEventContent},
     ///     },
+    ///     uint, MilliSecondsSinceUnixEpoch, TransactionId,
     /// };
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
@@ -422,10 +416,10 @@ impl Joined {
     /// # let room_id = room_id!("!test:localhost");
     ///
     /// let content = RoomMessageEventContent::text_plain("Hello world");
-    /// let txn_id = Uuid::new_v4();
+    /// let txn_id = TransactionId::new();
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send(content, Some(txn_id)).await?;
+    ///     room.send(content, Some(&txn_id)).await?;
     /// }
     ///
     /// // Custom events work too:
@@ -445,10 +439,10 @@ impl Joined {
     ///         MilliSecondsSinceUnixEpoch(now.0 + uint!(30_000))
     ///     },
     /// };
-    /// let txn_id = Uuid::new_v4();
+    /// let txn_id = TransactionId::new();
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send(content, Some(txn_id)).await?;
+    ///     room.send(content, Some(&txn_id)).await?;
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
@@ -459,7 +453,7 @@ impl Joined {
     pub async fn send(
         &self,
         content: impl MessageEventContent,
-        txn_id: Option<Uuid>,
+        txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
         let event_type = content.event_type();
         let content = serde_json::to_value(&content)?;
@@ -528,9 +522,9 @@ impl Joined {
         &self,
         content: Value,
         event_type: &str,
-        txn_id: Option<Uuid>,
+        txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+        let txn_id: Box<TransactionId> = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
         #[cfg(not(feature = "encryption"))]
         let content = {
@@ -604,7 +598,7 @@ impl Joined {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
+    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent`
     /// held in its unsigned field as `transaction_id`. If not given one is
     /// created for the message.
     ///
@@ -638,7 +632,7 @@ impl Joined {
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        txn_id: Option<Uuid>,
+        txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
         #[cfg(feature = "encryption")]
         let content = if self.is_encrypted() {
@@ -774,7 +768,7 @@ impl Joined {
     ///
     /// * `reason` - The reason for the event being redacted.
     ///
-    /// * `txn_id` - A unique [`Uuid`] that can be attached to this event as
+    /// * `txn_id` - A unique ID that can be attached to this event as
     /// its transaction ID. If not given one is created for the message.
     ///
     /// # Example
@@ -797,9 +791,9 @@ impl Joined {
         &self,
         event_id: &EventId,
         reason: Option<&str>,
-        txn_id: Option<Uuid>,
+        txn_id: Option<Box<TransactionId>>,
     ) -> HttpResult<redact_event::Response> {
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+        let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request =
             assign!(redact_event::Request::new(self.inner.room_id(), event_id, &txn_id), {
                 reason

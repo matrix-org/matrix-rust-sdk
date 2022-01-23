@@ -18,8 +18,8 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid};
-use ruma::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::{async_trait, locks::Mutex};
+use ruma::{DeviceId, RoomId, TransactionId, UserId};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -51,8 +51,8 @@ pub struct MemoryStore {
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
     identities: Arc<DashMap<Box<UserId>, ReadOnlyUserIdentities>>,
-    outgoing_key_requests: Arc<DashMap<Uuid, GossipRequest>>,
-    key_requests_by_info: Arc<DashMap<String, Uuid>>,
+    outgoing_key_requests: Arc<DashMap<Box<TransactionId>, GossipRequest>>,
+    key_requests_by_info: Arc<DashMap<String, Box<TransactionId>>>,
 }
 
 impl Default for MemoryStore {
@@ -137,10 +137,10 @@ impl CryptoStore for MemoryStore {
         }
 
         for key_request in changes.key_requests {
-            let id = key_request.request_id;
+            let id = key_request.request_id.clone();
             let info_string = encode_key_info(&key_request.info);
 
-            self.outgoing_key_requests.insert(id, key_request);
+            self.outgoing_key_requests.insert(id.clone(), key_request);
             self.key_requests_by_info.insert(info_string, id);
         }
 
@@ -266,9 +266,9 @@ impl CryptoStore for MemoryStore {
 
     async fn get_outgoing_secret_requests(
         &self,
-        request_id: Uuid,
+        request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        Ok(self.outgoing_key_requests.get(&request_id).map(|r| r.clone()))
+        Ok(self.outgoing_key_requests.get(request_id).map(|r| r.clone()))
     }
 
     async fn get_secret_request_by_info(
@@ -280,7 +280,7 @@ impl CryptoStore for MemoryStore {
         Ok(self
             .key_requests_by_info
             .get(&key_info_string)
-            .and_then(|i| self.outgoing_key_requests.get(&i).map(|r| r.clone())))
+            .and_then(|i| self.outgoing_key_requests.get(&*i).map(|r| r.clone())))
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
@@ -292,8 +292,8 @@ impl CryptoStore for MemoryStore {
             .collect())
     }
 
-    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
-        self.outgoing_key_requests.remove(&request_id).and_then(|(_, i)| {
+    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
+        self.outgoing_key_requests.remove(request_id).and_then(|(_, i)| {
             let key_info_string = encode_key_info(&i.info);
             self.key_requests_by_info.remove(&key_info_string)
         });

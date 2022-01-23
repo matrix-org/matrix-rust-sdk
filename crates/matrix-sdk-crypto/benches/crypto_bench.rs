@@ -1,7 +1,6 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 
 use criterion::*;
-use matrix_sdk_common::uuid::Uuid;
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_test::response_from_file;
 use ruma::{
@@ -12,7 +11,7 @@ use ruma::{
         },
         IncomingResponse,
     },
-    device_id, room_id, user_id, DeviceId, UserId,
+    device_id, room_id, user_id, DeviceId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tokio::runtime::Builder;
@@ -51,7 +50,7 @@ pub fn keys_query(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
     let machine = OlmMachine::new(alice_id(), alice_device_id());
     let response = keys_query_response();
-    let uuid = Uuid::new_v4();
+    let txn_id = TransactionId::new();
 
     let count = response.device_keys.values().fold(0, |acc, d| acc + d.len())
         + response.master_keys.len()
@@ -65,7 +64,7 @@ pub fn keys_query(c: &mut Criterion) {
 
     group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
         b.to_async(&runtime)
-            .iter(|| async { machine.mark_request_as_sent(&uuid, response).await.unwrap() })
+            .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
     });
 
     let dir = tempfile::tempdir().unwrap();
@@ -80,17 +79,17 @@ pub fn keys_query(c: &mut Criterion) {
 
     group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
         b.to_async(&runtime)
-            .iter(|| async { machine.mark_request_as_sent(&uuid, response).await.unwrap() })
+            .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
     });
 
     group.finish()
 }
 
 pub fn keys_claiming(c: &mut Criterion) {
-    let runtime = Arc::new(Builder::new_multi_thread().build().expect("Can't create runtime"));
+    let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
 
     let keys_query_response = keys_query_response();
-    let uuid = Uuid::new_v4();
+    let txn_id = TransactionId::new();
 
     let response = keys_claim_response();
 
@@ -106,12 +105,12 @@ pub fn keys_claiming(c: &mut Criterion) {
             || {
                 let machine = OlmMachine::new(alice_id(), alice_device_id());
                 runtime
-                    .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
+                    .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
                     .unwrap();
-                (machine, runtime.clone())
+                (machine, &runtime, &txn_id)
             },
-            move |(machine, runtime)| {
-                runtime.block_on(machine.mark_request_as_sent(&uuid, response)).unwrap()
+            move |(machine, runtime, txn_id)| {
+                runtime.block_on(machine.mark_request_as_sent(txn_id, response)).unwrap()
             },
             BatchSize::SmallInput,
         )
@@ -130,12 +129,12 @@ pub fn keys_claiming(c: &mut Criterion) {
                     ))
                     .unwrap();
                 runtime
-                    .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
+                    .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
                     .unwrap();
-                (machine, runtime.clone())
+                (machine, &runtime, &txn_id)
             },
-            move |(machine, runtime)| {
-                runtime.block_on(machine.mark_request_as_sent(&uuid, response)).unwrap()
+            move |(machine, runtime, txn_id)| {
+                runtime.block_on(machine.mark_request_as_sent(txn_id, response)).unwrap()
             },
             BatchSize::SmallInput,
         )
@@ -148,7 +147,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
 
     let keys_query_response = keys_query_response();
-    let uuid = Uuid::new_v4();
+    let txn_id = TransactionId::new();
     let response = keys_claim_response();
     let room_id = room_id!("!test:localhost");
 
@@ -158,8 +157,8 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let count = response.one_time_keys.values().fold(0, |acc, d| acc + d.len());
 
     let machine = OlmMachine::new(alice_id(), alice_device_id());
-    runtime.block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
-    runtime.block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
     let mut group = c.benchmark_group("Room key sharing");
     group.throughput(Throughput::Elements(count as u64));
@@ -195,8 +194,8 @@ pub fn room_key_sharing(c: &mut Criterion) {
             None,
         ))
         .unwrap();
-    runtime.block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
-    runtime.block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
     group.bench_function(BenchmarkId::new("sled store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
@@ -227,7 +226,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 
     let machine = OlmMachine::new(alice_id(), alice_device_id());
     let response = huge_keys_query_response();
-    let uuid = Uuid::new_v4();
+    let txn_id = TransactionId::new();
     let users: Vec<Box<UserId>> = response.device_keys.keys().cloned().collect();
 
     let count = response.device_keys.values().fold(0, |acc, d| acc + d.len());
@@ -237,7 +236,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 
     let name = format!("{} devices", count);
 
-    runtime.block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
         b.to_async(&runtime).iter_with_large_drop(|| async {
@@ -255,7 +254,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
         ))
         .unwrap();
 
-    runtime.block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
+    runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
     group.bench_function(BenchmarkId::new("sled store", &name), |b| {
         b.to_async(&runtime).iter(|| async {

@@ -42,7 +42,7 @@ use ruma::{
         room::message::{KeyVerificationRequestEventContent, MessageType},
         AnyMessageEvent, AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
     },
-    serde::CanonicalJsonValue,
+    serde::{Base64, CanonicalJsonValue},
     DeviceId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 
@@ -431,7 +431,7 @@ impl<'a> StartContent<'a> {
 
     pub fn flow_id(&self) -> &str {
         match self {
-            Self::ToDevice(c) => &c.transaction_id,
+            Self::ToDevice(c) => c.transaction_id.as_str(),
             Self::Room(c) => c.relates_to.event_id.as_str(),
         }
     }
@@ -483,7 +483,7 @@ impl<'a> From<&'a ToDeviceKeyVerificationDoneEventContent> for DoneContent<'a> {
 impl<'a> DoneContent<'a> {
     pub fn flow_id(&self) -> &str {
         match self {
-            Self::ToDevice(c) => &c.transaction_id,
+            Self::ToDevice(c) => c.transaction_id.as_str(),
             Self::Room(c) => c.relates_to.event_id.as_str(),
         }
     }
@@ -498,7 +498,7 @@ pub enum AcceptContent<'a> {
 impl AcceptContent<'_> {
     pub fn flow_id(&self) -> &str {
         match self {
-            Self::ToDevice(c) => &c.transaction_id,
+            Self::ToDevice(c) => c.transaction_id.as_str(),
             Self::Room(c) => c.relates_to.event_id.as_str(),
         }
     }
@@ -529,12 +529,12 @@ pub enum KeyContent<'a> {
 impl KeyContent<'_> {
     pub fn flow_id(&self) -> &str {
         match self {
-            Self::ToDevice(c) => &c.transaction_id,
+            Self::ToDevice(c) => c.transaction_id.as_str(),
             Self::Room(c) => c.relates_to.event_id.as_str(),
         }
     }
 
-    pub fn public_key(&self) -> &str {
+    pub fn public_key(&self) -> &Base64 {
         match self {
             Self::ToDevice(c) => &c.key,
             Self::Room(c) => &c.key,
@@ -551,19 +551,19 @@ pub enum MacContent<'a> {
 impl MacContent<'_> {
     pub fn flow_id(&self) -> &str {
         match self {
-            Self::ToDevice(c) => &c.transaction_id,
+            Self::ToDevice(c) => c.transaction_id.as_str(),
             Self::Room(c) => c.relates_to.event_id.as_str(),
         }
     }
 
-    pub fn mac(&self) -> &BTreeMap<String, String> {
+    pub fn mac(&self) -> &BTreeMap<String, Base64> {
         match self {
             Self::ToDevice(c) => &c.mac,
             Self::Room(c) => &c.mac,
         }
     }
 
-    pub fn keys(&self) -> &str {
+    pub fn keys(&self) -> &Base64 {
         match self {
             Self::ToDevice(c) => &c.keys,
             Self::Room(c) => &c.keys,

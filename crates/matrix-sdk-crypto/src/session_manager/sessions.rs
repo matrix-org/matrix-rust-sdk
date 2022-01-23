@@ -19,14 +19,13 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::claim_keys::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, TransactionId, UserId,
 };
 use tracing::{debug, error, info, warn};
 
@@ -50,7 +49,7 @@ pub(crate) struct SessionManager {
     users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
     wedged_devices: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
     key_request_machine: GossipMachine,
-    outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
+    outgoing_to_device_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
 }
 
 impl SessionManager {
@@ -74,7 +73,7 @@ impl SessionManager {
     }
 
     /// Mark the outgoing request as sent.
-    pub fn mark_outgoing_request_as_sent(&self, id: &Uuid) {
+    pub fn mark_outgoing_request_as_sent(&self, id: &TransactionId) {
         self.outgoing_to_device_requests.remove(id);
     }
 
@@ -136,11 +135,11 @@ impl SessionManager {
                 );
 
                 let request = OutgoingRequest {
-                    request_id: request.txn_id,
+                    request_id: request.txn_id.clone(),
                     request: Arc::new(request.into()),
                 };
 
-                self.outgoing_to_device_requests.insert(request.request_id, request);
+                self.outgoing_to_device_requests.insert(request.request_id.clone(), request);
             }
         }
 
@@ -177,7 +176,7 @@ impl SessionManager {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(Box<TransactionId>, KeysClaimRequest)>> {
         let mut missing = BTreeMap::new();
 
         // Add the list of devices that the user wishes to establish sessions
@@ -240,7 +239,7 @@ impl SessionManager {
             debug!(?missing, "Collected user/device pairs that are missing an Olm session");
 
             Ok(Some((
-                Uuid::new_v4(),
+                TransactionId::new(),
                 assign!(KeysClaimRequest::new(missing), {
                     timeout: Some(Self::KEY_CLAIM_TIMEOUT),
                 }),

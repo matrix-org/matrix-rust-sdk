@@ -52,13 +52,13 @@ use std::{
 };
 
 use base64::DecodeError;
-use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid, AsyncTraitDeps};
+use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
     events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    DeviceKeyAlgorithm, RoomId, UserId,
+    DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -704,8 +704,10 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `request_id` - The unique request id that identifies this outgoing
     /// secret request.
-    async fn get_outgoing_secret_requests(&self, request_id: Uuid)
-        -> Result<Option<GossipRequest>>;
+    async fn get_outgoing_secret_requests(
+        &self,
+        request_id: &TransactionId,
+    ) -> Result<Option<GossipRequest>>;
 
     /// Get an outgoing key request that we created that matches the given
     /// requested key info.
@@ -728,5 +730,5 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `request_id` - The unique request id that identifies this outgoing key
     /// request.
-    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()>;
+    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()>;
 }

@@ -263,7 +263,7 @@ use matrix_sdk_base::{
     },
     deserialized_responses::RoomEvent,
 };
-use matrix_sdk_common::{instant::Duration, uuid::Uuid};
+use matrix_sdk_common::instant::Duration;
 use ruma::{
     api::client::r0::{
         backup::add_backup_keys::Response as KeysBackupResponse,
@@ -277,7 +277,7 @@ use ruma::{
     assign,
     events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType},
     serde::Raw,
-    DeviceId, UserId,
+    DeviceId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -717,7 +717,7 @@ impl Client {
     #[instrument]
     pub(crate) async fn keys_query(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>,
     ) -> Result<get_keys::Response> {
         let request = assign!(get_keys::Request::new(), { device_keys });
@@ -879,7 +879,7 @@ impl Client {
     #[instrument]
     pub(crate) async fn keys_upload(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         request: &upload_keys::Request,
     ) -> Result<upload_keys::Response> {
         debug!(
@@ -900,7 +900,7 @@ impl Client {
         request: &RoomMessageRequest,
     ) -> Result<send_message_event::Response> {
         let content = request.content.clone();
-        let txn_id = request.txn_id;
+        let txn_id = &request.txn_id;
         let room_id = &request.room_id;
 
         self.get_joined_room(room_id)
@@ -914,11 +914,9 @@ impl Client {
         &self,
         request: &ToDeviceRequest,
     ) -> HttpResult<ToDeviceResponse> {
-        let txn_id_string = request.txn_id_string();
-
         let request = RumaToDeviceRequest::new_raw(
             request.event_type.as_str(),
-            &txn_id_string,
+            &request.txn_id,
             request.messages.clone(),
         );
 
