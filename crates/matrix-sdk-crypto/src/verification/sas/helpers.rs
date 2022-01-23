@@ -321,7 +321,7 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
 
     // TODO Add the cross signing master key here if we trust/have it.
 
-    let mut keys = mac.keys().cloned().collect::<Vec<String>>();
+    let mut keys: Vec<_> = mac.keys().map(|s| s.as_str()).collect();
     keys.sort();
     let keys = sas
         .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
