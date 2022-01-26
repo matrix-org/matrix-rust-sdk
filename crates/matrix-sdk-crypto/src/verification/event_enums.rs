@@ -272,6 +272,7 @@ pub enum RequestContent<'a> {
 }
 
 impl RequestContent<'_> {
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_device(&self) -> &DeviceId {
         match self {
             Self::ToDevice(t) => &t.from_device,
@@ -294,6 +295,7 @@ pub enum ReadyContent<'a> {
 }
 
 impl ReadyContent<'_> {
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_device(&self) -> &DeviceId {
         match self {
             Self::ToDevice(t) => &t.from_device,
@@ -422,6 +424,7 @@ pub enum StartContent<'a> {
 }
 
 impl<'a> StartContent<'a> {
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_device(&self) -> &DeviceId {
         match self {
             Self::ToDevice(c) => &c.from_device,
