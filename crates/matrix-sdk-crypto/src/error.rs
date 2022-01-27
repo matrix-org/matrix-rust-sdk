@@ -60,8 +60,7 @@ pub enum OlmError {
     /// Encryption failed because the device does not have a valid Olm session
     /// with us.
     #[error(
-        "encryption failed because the device does not \
-            have a valid Olm session with us"
+        "encryption failed because the device does not have a valid Olm session with us"
     )]
     MissingSession,
 }
