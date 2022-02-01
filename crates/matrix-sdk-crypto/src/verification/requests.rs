@@ -1345,6 +1345,7 @@ mod test {
             None,
         );
 
+        #[allow(clippy::needless_borrow)]
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice_identity,
@@ -1405,6 +1406,7 @@ mod test {
             None,
         );
 
+        #[allow(clippy::needless_borrow)]
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice_identity,
