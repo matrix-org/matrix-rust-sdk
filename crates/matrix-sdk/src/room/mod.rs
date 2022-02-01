@@ -8,7 +8,7 @@ mod joined;
 mod left;
 
 pub use self::{
-    common::{Common, Messages},
+    common::{Common, Messages, MessagesOptions},
     invited::Invited,
     joined::Joined,
     left::Left,

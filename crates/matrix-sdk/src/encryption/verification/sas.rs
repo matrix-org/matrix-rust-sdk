@@ -76,9 +76,9 @@ impl SasVerification {
 
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
-        let (request, signature) = self.inner.confirm().await?;
+        let (requests, signature) = self.inner.confirm().await?;
 
-        if let Some(request) = request {
+        for request in requests {
             self.client.send_verification_request(request).await?;
         }
 
