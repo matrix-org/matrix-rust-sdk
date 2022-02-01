@@ -31,6 +31,10 @@ use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
 pub use qrcode::{QrVerification, ScanError};
 pub use requests::VerificationRequest;
+#[cfg(feature = "qrcode")]
+use ruma::events::key::verification::done::{
+    KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
+};
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
@@ -39,7 +43,6 @@ use ruma::{
                 CancelCode, KeyVerificationCancelEventContent,
                 ToDeviceKeyVerificationCancelEventContent,
             },
-            done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
             Relation,
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
@@ -243,6 +246,7 @@ pub struct Done {
 }
 
 impl Done {
+    #[cfg(feature = "qrcode")]
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
@@ -715,6 +719,12 @@ pub(crate) mod test {
         let sender = sender.to_owned();
 
         match content {
+            AnyToDeviceEventContent::KeyVerificationRequest(c) => {
+                AnyToDeviceEvent::KeyVerificationRequest(ToDeviceEvent { sender, content: c })
+            }
+            AnyToDeviceEventContent::KeyVerificationReady(c) => {
+                AnyToDeviceEvent::KeyVerificationReady(ToDeviceEvent { sender, content: c })
+            }
             AnyToDeviceEventContent::KeyVerificationKey(c) => {
                 AnyToDeviceEvent::KeyVerificationKey(ToDeviceEvent { sender, content: c })
             }
@@ -726,6 +736,9 @@ pub(crate) mod test {
             }
             AnyToDeviceEventContent::KeyVerificationMac(c) => {
                 AnyToDeviceEvent::KeyVerificationMac(ToDeviceEvent { sender, content: c })
+            }
+            AnyToDeviceEventContent::KeyVerificationDone(c) => {
+                AnyToDeviceEvent::KeyVerificationDone(ToDeviceEvent { sender, content: c })
             }
 
             _ => unreachable!(),

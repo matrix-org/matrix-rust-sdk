@@ -471,6 +471,18 @@ impl VerificationMachine {
 
                             if s.is_done() {
                                 self.mark_sas_as_done(s, content).await?;
+                            } else {
+                                // Even if we are not done (yet), there might be content to send
+                                // out, e.g. in the case where we are done with our side of the
+                                // verification process, but the other side has not yet sent their
+                                // "done".
+                                if let Some(content) = content {
+                                    self.queue_up_content(
+                                        s.other_user_id(),
+                                        s.other_device_id(),
+                                        content,
+                                    );
+                                }
                             }
                         } else {
                             flow_id_mismatch();
@@ -630,12 +642,16 @@ mod test {
         assert!(bob.emoji().is_some());
         assert_eq!(alice.emoji(), bob.emoji());
 
-        let request = alice.confirm().await.unwrap().0.unwrap();
+        let mut requests = alice.confirm().await.unwrap().0;
+        assert!(requests.len() == 1);
+        let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap().into();
         bob.receive_any_event(alice.user_id(), &content);
 
-        let request = bob.confirm().await.unwrap().0.unwrap();
+        let mut requests = bob.confirm().await.unwrap().0;
+        assert!(requests.len() == 1);
+        let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap().into();
         alice.receive_any_event(bob.user_id(), &content);
