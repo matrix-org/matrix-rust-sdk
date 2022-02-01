@@ -139,7 +139,7 @@ impl Session {
         let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
 
         let mut content = BTreeMap::new();
-        content.insert((&*self.sender_key).to_owned(), ciphertext);
+        content.insert((*self.sender_key).to_owned(), ciphertext);
 
         Ok(EncryptedEventScheme::OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content::new(
             content,

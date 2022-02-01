@@ -207,7 +207,7 @@ impl IdentityManager {
         user_id: Box<UserId>,
         device_map: BTreeMap<Box<DeviceId>, Raw<DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
-        let own_device_id = (&*own_device_id).to_owned();
+        let own_device_id = (*own_device_id).to_owned();
 
         let mut changes = DeviceChanges::default();
 
@@ -420,7 +420,7 @@ impl IdentityManager {
                                 let result = private_identity.clear_if_differs(identity).await;
 
                                 if result.any_cleared() {
-                                    changed_identity = Some((&*private_identity).clone());
+                                    changed_identity = Some((*private_identity).clone());
                                     info!(cleared =? result, "Removed some or all of our private cross signing keys");
                                 }
                             }

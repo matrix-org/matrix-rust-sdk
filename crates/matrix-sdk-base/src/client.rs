@@ -660,9 +660,9 @@ impl BaseClient {
             }
         }
 
-        changes.members.insert((&*room_id).to_owned(), members);
-        changes.profiles.insert((&*room_id).to_owned(), profiles);
-        changes.state.insert((&*room_id).to_owned(), state_events);
+        changes.members.insert((*room_id).to_owned(), members);
+        changes.profiles.insert((*room_id).to_owned(), profiles);
+        changes.state.insert((*room_id).to_owned(), state_events);
 
         Ok(user_ids)
     }

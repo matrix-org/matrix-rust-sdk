@@ -90,7 +90,7 @@ impl GroupSessionStore {
     /// already in the store.
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
-            .entry((&*session.room_id).to_owned())
+            .entry((*session.room_id).to_owned())
             .or_insert_with(HashMap::new)
             .entry(session.sender_key.to_string())
             .or_insert_with(HashMap::new)

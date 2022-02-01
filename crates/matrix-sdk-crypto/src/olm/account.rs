@@ -763,7 +763,7 @@ impl ReadOnlyAccount {
         DeviceKeys::new(
             (*self.user_id).to_owned(),
             (*self.device_id).to_owned(),
-            Self::ALGORITHMS.iter().map(|a| (&**a).clone()).collect(),
+            Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
             BTreeMap::new(),
         )

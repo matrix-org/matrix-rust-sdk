@@ -1687,7 +1687,7 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        Ok(self.inner.http_client.send(request, config).await?)
+        self.inner.http_client.send(request, config).await
     }
 
     /// Get information of all our own devices.
