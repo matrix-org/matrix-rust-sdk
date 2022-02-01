@@ -465,10 +465,10 @@ impl Joined {
         content: impl MessageEventContent,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let event_type = content.event_type().to_owned();
-        let content = serde_json::to_value(content)?;
+        let event_type = content.event_type();
+        let content = serde_json::to_value(&content)?;
 
-        self.send_raw(content, &event_type, txn_id).await
+        self.send_raw(content, event_type, txn_id).await
     }
 
     /// Send a room message to this room from a json `Value`.
