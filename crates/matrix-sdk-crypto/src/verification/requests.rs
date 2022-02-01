@@ -952,7 +952,7 @@ impl RequestState<Ready> {
         request_handle: RequestHandle,
     ) -> Result<Sas, OutgoingContent> {
         Sas::from_start_event(
-            (&*self.flow_id).to_owned(),
+            (*self.flow_id).to_owned(),
             content,
             self.store.clone(),
             self.private_cross_signing_identity.clone(),

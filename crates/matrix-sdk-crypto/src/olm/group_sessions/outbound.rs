@@ -300,7 +300,7 @@ impl OutboundGroupSession {
             ciphertext,
             sender_key: self.account_identity_keys.curve25519().to_owned(),
             session_id: self.session_id().to_owned(),
-            device_id: (&*self.device_id).to_owned(),
+            device_id: (*self.device_id).to_owned(),
         }
         .into();
 

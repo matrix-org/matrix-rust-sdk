@@ -451,7 +451,7 @@ impl PrivateCrossSigningIdentity {
 
         let mut signed_keys = BTreeMap::new();
         signed_keys
-            .entry((&*self.user_id).to_owned())
+            .entry((*self.user_id).to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(device_keys.device_id.to_string(), serde_json::to_value(device_keys)?);
 
