@@ -4,18 +4,20 @@ use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::r0::{
+        filter::RoomEventFilter,
         membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events,
+        message::get_message_events::{self, Direction},
         room::get_room_event,
         tag::{create_tag, delete_tag},
     },
+    assign,
     events::{
         room::history_visibility::HistoryVisibility,
         tag::{TagInfo, TagName},
         AnyStateEvent, AnySyncStateEvent, EventType,
     },
     serde::Raw,
-    EventId, UserId,
+    uint, EventId, RoomId, UInt, UserId,
 };
 
 use crate::{
@@ -139,40 +141,30 @@ impl Common {
     /// decryption fails for an individual message, that message is returned
     /// undecrypted.
     ///
-    /// # Arguments
-    ///
-    /// * `request` - The easiest way to create this request is using the
-    /// `get_message_events::Request` itself.
-    ///
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::Client;
-    /// # use matrix_sdk::ruma::room_id;
-    /// # use matrix_sdk::ruma::api::client::r0::{
-    /// #     filter::RoomEventFilter,
-    /// #     message::get_message_events::Request as MessagesRequest,
+    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     room_id,
     /// # };
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let room_id = room_id!("!roomid:example.com");
-    /// let request = MessagesRequest::backward(&room_id, "t47429-4392820_219380_26003_2265");
+    /// let request = MessagesOptions::backward("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).unwrap();
-    /// # let room = client
-    /// #    .get_joined_room(&room_id)
-    /// #    .unwrap();
+    /// let room = client
+    ///    .get_joined_room(room_id!("!roomid:example.com"))
+    ///    .unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// assert!(room.messages(request).await.is_ok());
     /// # });
     /// ```
-    pub async fn messages(
-        &self,
-        request: impl Into<get_message_events::Request<'_>>,
-    ) -> Result<Messages> {
-        let request = request.into();
+    pub async fn messages(&self, options: MessagesOptions<'_>) -> Result<Messages> {
+        let request = options.into_request(self.inner.room_id());
         let http_response = self.client.send(request, None).await?;
 
         let mut response = Messages {
@@ -499,5 +491,66 @@ impl Common {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
         let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
         self.client.send(request, None).await
+    }
+}
+
+/// Options for [`messages`][Common::messages].
+///
+/// See that method for details.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct MessagesOptions<'a> {
+    /// The token to start returning events from.
+    ///
+    /// This token can be obtained from a `prev_batch` token returned for each
+    /// room from the sync API, or from a start or end token returned by a
+    /// previous `messages` call.
+    pub from: &'a str,
+
+    /// The token to stop returning events at.
+    ///
+    /// This token can be obtained from a `prev_batch` token returned for each
+    /// room by the sync API, or from a start or end token returned by a
+    /// previous `messages` call.
+    pub to: Option<&'a str>,
+
+    /// The direction to return events in.
+    pub dir: Direction,
+
+    /// The maximum number of events to return.
+    ///
+    /// Default: 10.
+    pub limit: UInt,
+
+    /// A [`RoomEventFilter`] to filter returned events with.
+    pub filter: Option<RoomEventFilter<'a>>,
+}
+
+impl<'a> MessagesOptions<'a> {
+    /// Creates `MessagesOptions` with the given start token and direction.
+    ///
+    /// All other parameters will be defaulted.
+    pub fn new(from: &'a str, dir: Direction) -> Self {
+        Self { from, to: None, dir, limit: uint!(10), filter: None }
+    }
+
+    /// Creates `MessagesOptions` with the given start token, and `dir` set to
+    /// `Backward`.
+    pub fn backward(from: &'a str) -> Self {
+        Self::new(from, Direction::Backward)
+    }
+
+    /// Creates `MessagesOptions` with the given start token, and `dir` set to
+    /// `Forward`.
+    pub fn forward(from: &'a str) -> Self {
+        Self::new(from, Direction::Forward)
+    }
+
+    fn into_request(self, room_id: &'a RoomId) -> get_message_events::Request {
+        assign!(get_message_events::Request::new(room_id, self.from, self.dir), {
+            to: self.to,
+            limit: self.limit,
+            filter: self.filter,
+        })
     }
 }
