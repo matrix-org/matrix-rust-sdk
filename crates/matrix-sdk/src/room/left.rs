@@ -42,6 +42,7 @@ impl Left {
     pub async fn forget(&self) -> Result<()> {
         let request = forget_room::Request::new(self.inner.room_id());
         let _response = self.client.send(request, None).await?;
+        self.client.store().remove_room(self.inner.room_id()).await?;
 
         Ok(())
     }

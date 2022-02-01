@@ -438,6 +438,24 @@ impl MemoryStore {
 
         Ok(())
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        self.members.remove(room_id);
+        self.profiles.remove(room_id);
+        self.display_names.remove(room_id);
+        self.joined_user_ids.remove(room_id);
+        self.invited_user_ids.remove(room_id);
+        self.room_info.remove(room_id);
+        self.room_state.remove(room_id);
+        self.room_account_data.remove(room_id);
+        self.stripped_room_info.remove(room_id);
+        self.stripped_room_state.remove(room_id);
+        self.stripped_members.remove(room_id);
+        self.room_user_receipts.remove(room_id);
+        self.room_event_receipts.remove(room_id);
+
+        Ok(())
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -584,111 +602,116 @@ impl StateStore for MemoryStore {
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        self.remove_room(room_id).await
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, test_json};
     use ruma::{
-        api::client::r0::media::get_content_thumbnail::Method, event_id, mxc_uri,
-        receipt::ReceiptType, room_id, uint, user_id, UserId,
+        api::client::r0::media::get_content_thumbnail::Method,
+        events::{AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent, EventType},
+        mxc_uri,
+        receipt::ReceiptType,
+        uint,
     };
-    use serde_json::json;
+    use serde_json::Value as JsonValue;
 
     use super::{MemoryStore, StateChanges};
-    use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
-
-    fn user_id() -> &'static UserId {
-        user_id!("@example:localhost")
-    }
+    use crate::{
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        store::test::{
+            first_receipt_event_id, populated_store, room_id, second_receipt_event_id,
+            stripped_room_id, user_id,
+        },
+    };
 
     #[async_test]
     async fn test_receipts_saving() {
         let store = MemoryStore::new();
 
-        let room_id = room_id!("!test:localhost");
+        let user_id = user_id();
+        let room_id = room_id();
+        let first_event_id = first_receipt_event_id();
+        let second_event_id = second_receipt_event_id();
 
-        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org").to_owned();
-        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org").to_owned();
+        let first_receipt_json: &JsonValue = &test_json::READ_RECEIPT;
+        let first_receipt_event =
+            serde_json::from_value::<AnySyncEphemeralRoomEvent>(first_receipt_json.clone())
+                .unwrap();
+        let first_receipt_content = match first_receipt_event.content() {
+            AnyEphemeralRoomEventContent::Receipt(content) => content,
+            _ => panic!(),
+        };
 
-        let first_receipt_event = serde_json::from_value(json!({
-            first_event_id.clone(): {
-                "m.read": {
-                    user_id().to_owned(): {
-                        "ts": 1436451550453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
-
-        let second_receipt_event = serde_json::from_value(json!({
-            second_event_id.clone(): {
-                "m.read": {
-                    user_id().to_owned(): {
-                        "ts": 1436451551453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
+        let second_receipt_json: &JsonValue = &test_json::READ_RECEIPT_OTHER;
+        let second_receipt_event =
+            serde_json::from_value::<AnySyncEphemeralRoomEvent>(second_receipt_json.clone())
+                .unwrap();
+        let second_receipt_content = match second_receipt_event.content() {
+            AnyEphemeralRoomEventContent::Receipt(content) => content,
+            _ => panic!(),
+        };
 
         assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(room_id, first_receipt_event);
+        changes.add_receipts(room_id, first_receipt_content);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
             .await
             .unwrap()
             .is_some(),);
         assert_eq!(
             store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, first_event_id)
                 .await
                 .unwrap()
                 .len(),
             1
         );
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, second_event_id)
             .await
             .unwrap()
             .is_empty());
 
         let mut changes = StateChanges::default();
-        changes.add_receipts(room_id, second_receipt_event);
+        changes.add_receipts(room_id, second_receipt_content);
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
+            .get_event_room_receipt_events(room_id, ReceiptType::Read, first_event_id)
             .await
             .unwrap()
             .is_empty());
         assert_eq!(
             store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, second_event_id)
                 .await
                 .unwrap()
                 .len(),
@@ -733,5 +756,94 @@ mod test {
         store.remove_media_content_for_uri(uri).await.unwrap();
         assert!(store.get_media_content(&request_file).await.unwrap().is_none());
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn test_populate_store() {
+        let room_id = room_id();
+        let user_id = user_id();
+
+        let store = populated_store(Box::new(MemoryStore::new())).await.unwrap();
+
+        assert!(store.get_sync_token().await.unwrap().is_some());
+        assert!(store.get_presence_event(user_id).await.unwrap().is_some());
+        assert_eq!(store.get_room_infos().await.unwrap().len(), 2);
+        assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 1);
+        assert!(store.get_account_data_event(EventType::PushRules).await.unwrap().is_some());
+
+        assert!(store.get_state_event(room_id, EventType::RoomName, "").await.unwrap().is_some());
+        assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await.unwrap().len(), 1);
+        assert!(store.get_profile(room_id, user_id).await.unwrap().is_some());
+        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
+        assert_eq!(store.get_user_ids(room_id).await.unwrap().len(), 2);
+        assert_eq!(store.get_invited_user_ids(room_id).await.unwrap().len(), 1);
+        assert_eq!(store.get_joined_user_ids(room_id).await.unwrap().len(), 1);
+        assert_eq!(store.get_users_with_display_name(room_id, "example").await.unwrap().len(), 2);
+        assert!(store
+            .get_room_account_data_event(room_id, EventType::Tag)
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[async_test]
+    async fn test_room_removal() {
+        let room_id = room_id();
+        let user_id = user_id();
+        let stripped_room_id = stripped_room_id();
+
+        let store = populated_store(Box::new(MemoryStore::new())).await.unwrap();
+
+        // We assume the store was correctly populated like the test above.
+
+        store.remove_room(room_id).await.unwrap();
+
+        assert_eq!(store.get_room_infos().await.unwrap().len(), 1);
+        assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 1);
+
+        assert!(store.get_state_event(room_id, EventType::RoomName, "").await.unwrap().is_none());
+        assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await.unwrap().len(), 0);
+        assert!(store.get_profile(room_id, user_id).await.unwrap().is_none());
+        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
+        assert_eq!(store.get_user_ids(room_id).await.unwrap().len(), 0);
+        assert_eq!(store.get_invited_user_ids(room_id).await.unwrap().len(), 0);
+        assert_eq!(store.get_joined_user_ids(room_id).await.unwrap().len(), 0);
+        assert_eq!(store.get_users_with_display_name(room_id, "example").await.unwrap().len(), 0);
+        assert!(store
+            .get_room_account_data_event(room_id, EventType::Tag)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+
+        store.remove_room(stripped_room_id).await.unwrap();
+
+        assert_eq!(store.get_room_infos().await.unwrap().len(), 0);
+        assert_eq!(store.get_stripped_room_infos().await.unwrap().len(), 0);
     }
 }
