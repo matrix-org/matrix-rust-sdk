@@ -933,6 +933,10 @@ impl StateStore for IndexeddbStore {
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

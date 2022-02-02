@@ -22,7 +22,7 @@ use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{async_trait, locks::Mutex, SafeEncode};
 use olm_rs::{account::IdentityKeys, PicklingMode};
-use ruma::{DeviceId, RoomId, UserId};
+use ruma::{DeviceId, RoomId, UserId, TransactionId};
 use wasm_bindgen::JsValue;
 
 use super::{
@@ -757,7 +757,7 @@ impl CryptoStore for IndexeddbStore {
         &self,
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        self.get_outgoing_key_request_helper(&request_id.as_str().encode()).await
+        self.get_outgoing_key_request_helper(&request_id.as_str()).await
     }
 
     async fn get_secret_request_by_info(

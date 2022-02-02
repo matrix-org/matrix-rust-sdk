@@ -1,5 +1,4 @@
-use ruma::{events::EventType, receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, UserId};
-use uuid::Uuid;
+use ruma::{events::EventType, receipt::ReceiptType, DeviceId, EventId, TransactionId, MxcUri, RoomId, UserId};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -126,10 +125,8 @@ impl<T: SafeEncode + ?Sized> SafeEncode for Box<T> {
     }
 }
 
-impl SafeEncode for Uuid {
+impl SafeEncode for TransactionId {
     fn as_encoded_string(&self) -> String {
-        // UUID view is only hexadecimal characters
-        // no need to escape further.
         self.to_string()
     }
 }
