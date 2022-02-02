@@ -22,7 +22,7 @@ use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{async_trait, locks::Mutex, SafeEncode};
 use olm_rs::{account::IdentityKeys, PicklingMode};
-use ruma::{DeviceId, RoomId, UserId, TransactionId};
+use ruma::{DeviceId, RoomId, TransactionId, UserId};
 use wasm_bindgen::JsValue;
 
 use super::{

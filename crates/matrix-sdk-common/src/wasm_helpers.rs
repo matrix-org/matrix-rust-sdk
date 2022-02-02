@@ -1,4 +1,7 @@
-use ruma::{events::EventType, receipt::ReceiptType, DeviceId, EventId, TransactionId, MxcUri, RoomId, UserId};
+use ruma::{
+    events::EventType, receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId,
+    UserId,
+};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
