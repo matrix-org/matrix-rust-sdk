@@ -329,7 +329,11 @@ async fn send_request(
         };
 
         // Turn errors into permanent errors when the retry limit is reached
-        let error_type = if stop { RetryError::Permanent } else { RetryError::Transient };
+        let error_type = if stop {
+            RetryError::Permanent
+        } else {
+            |err| RetryError::Transient { err, retry_after: None }
+        };
 
         let request = request.try_clone().ok_or(HttpError::UnableToCloneRequest)?;
 

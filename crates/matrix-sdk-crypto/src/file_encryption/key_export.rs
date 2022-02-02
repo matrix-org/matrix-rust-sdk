@@ -20,7 +20,7 @@ use aes::{
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use getrandom::getrandom;
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2;
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
@@ -220,7 +220,7 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
 
     let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create an HMAC object");
     hmac.update(&decoded[0..ciphertext_end]);
-    hmac.verify(&mac).map_err(|_| KeyExportError::InvalidMac)?;
+    hmac.verify_slice(&mac).map_err(|_| KeyExportError::InvalidMac)?;
 
     let key = GenericArray::from_slice(key);
     let iv = GenericArray::from_slice(&iv);

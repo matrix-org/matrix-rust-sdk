@@ -61,8 +61,8 @@ pub fn calculate_commitment(public_key: &Base64, content: &StartContent) -> Base
 
     Base64::new(
         Sha256::new()
-            .chain(public_key.encode())
-            .chain(&content_string)
+            .chain_update(public_key.encode())
+            .chain_update(&content_string)
             .finalize()
             .as_slice()
             .to_owned(),
