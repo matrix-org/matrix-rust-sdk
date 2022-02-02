@@ -152,14 +152,14 @@ impl Common {
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
     /// let request = MessagesOptions::backward("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).await.unwrap();
     /// let room = client
     ///    .get_joined_room(room_id!("!roomid:example.com"))
     ///    .unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
     /// assert!(room.messages(request).await.is_ok());
     /// # });
     /// ```
@@ -457,7 +457,7 @@ impl Common {
     /// # use ruma::events::tag::{TagInfo, TagName, UserTagName};
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// use matrix_sdk::ruma::events::tag::TagInfo;
     ///
