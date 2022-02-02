@@ -2166,7 +2166,7 @@ pub(crate) mod test {
         assert!(alice_device.verified());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn interactive_verification_started_from_request() {
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
 
