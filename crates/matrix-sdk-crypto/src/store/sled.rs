@@ -645,10 +645,8 @@ impl SledStore {
                     }
 
                     for key_request in &key_requests {
-                        secret_requests_by_info.insert(
-                            key_request.info.encode(),
-                            key_request.request_id.encode(),
-                        )?;
+                        secret_requests_by_info
+                            .insert(key_request.info.encode(), key_request.request_id.encode())?;
 
                         let key_request_id = key_request.request_id.encode();
 

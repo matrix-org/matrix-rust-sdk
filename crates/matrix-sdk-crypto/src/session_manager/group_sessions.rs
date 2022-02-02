@@ -588,6 +588,7 @@ impl GroupSessionManager {
 #[cfg(test)]
 mod test {
     use std::ops::Deref;
+
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
