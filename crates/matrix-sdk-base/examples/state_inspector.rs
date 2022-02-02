@@ -3,7 +3,7 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use atty::Stream;
 #[cfg(not(target_arch = "wasm32"))]
-use clap::{App as Argparse, AppSettings as ArgParseSettings, Arg, ArgMatches, SubCommand};
+use clap::{App as Argparse, AppSettings as ArgParseSettings, Arg, ArgMatches};
 use futures::executor::block_on;
 use matrix_sdk_base::{RoomInfo, Store};
 use ruma::{events::EventType, RoomId, UserId};
@@ -219,30 +219,26 @@ impl Inspector {
         Self { store, printer }
     }
 
-    async fn run(&self, matches: ArgMatches<'_>) {
+    async fn run(&self, matches: ArgMatches) {
         match matches.subcommand() {
-            ("get-profiles", args) => {
-                let args = args.expect("No args provided for get-state");
+            Some(("get-profiles", args)) => {
                 let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
 
                 self.get_profiles(room_id).await;
             }
 
-            ("get-members", args) => {
-                let args = args.expect("No args provided for get-state");
+            Some(("get-members", args)) => {
                 let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
 
                 self.get_members(room_id).await;
             }
-            ("list-rooms", _) => self.list_rooms().await,
-            ("get-display-names", args) => {
-                let args = args.expect("No args provided for get-state");
+            Some(("list-rooms", _)) => self.list_rooms().await,
+            Some(("get-display-names", args)) => {
                 let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
                 let display_name = args.value_of("display-name").unwrap().to_string();
                 self.get_display_name_owners(room_id, display_name).await;
             }
-            ("get-state", args) => {
-                let args = args.expect("No args provided for get-state");
+            Some(("get-state", args)) => {
                 let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
                 let event_type = EventType::try_from(args.value_of("event-type").unwrap()).unwrap();
                 self.get_state(room_id, event_type).await;
@@ -285,37 +281,33 @@ impl Inspector {
         );
     }
 
-    fn subcommands() -> Vec<Argparse<'static, 'static>> {
+    fn subcommands() -> Vec<Argparse<'static>> {
         vec![
-            SubCommand::with_name("list-rooms"),
-            SubCommand::with_name("get-members").arg(
-                Arg::with_name("room-id").required(true).validator(|r| {
-                    Box::<RoomId>::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
-                }),
-            ),
-            SubCommand::with_name("get-profiles").arg(
-                Arg::with_name("room-id").required(true).validator(|r| {
-                    Box::<RoomId>::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
-                }),
-            ),
-            SubCommand::with_name("get-display-names")
-                .arg(Arg::with_name("room-id").required(true).validator(|r| {
+            Argparse::new("list-rooms"),
+            Argparse::new("get-members").arg(Arg::new("room-id").required(true).validator(|r| {
+                Box::<RoomId>::try_from(r)
+                    .map(|_| ())
+                    .map_err(|_| "Invalid room id given".to_owned())
+            })),
+            Argparse::new("get-profiles").arg(Arg::new("room-id").required(true).validator(|r| {
+                Box::<RoomId>::try_from(r)
+                    .map(|_| ())
+                    .map_err(|_| "Invalid room id given".to_owned())
+            })),
+            Argparse::new("get-display-names")
+                .arg(Arg::new("room-id").required(true).validator(|r| {
                     Box::<RoomId>::try_from(r)
                         .map(|_| ())
                         .map_err(|_| "Invalid room id given".to_owned())
                 }))
-                .arg(Arg::with_name("display-name").required(true)),
-            SubCommand::with_name("get-state")
-                .arg(Arg::with_name("room-id").required(true).validator(|r| {
+                .arg(Arg::new("display-name").required(true)),
+            Argparse::new("get-state")
+                .arg(Arg::new("room-id").required(true).validator(|r| {
                     Box::<RoomId>::try_from(r)
                         .map(|_| ())
                         .map_err(|_| "Invalid room id given".to_owned())
                 }))
-                .arg(Arg::with_name("event-type").required(true).validator(|e| {
+                .arg(Arg::new("event-type").required(true).validator(|e| {
                     EventType::try_from(e).map(|_| ()).map_err(|_| "Invalid event type".to_string())
                 })),
         ]
@@ -323,14 +315,13 @@ impl Inspector {
 
     async fn parse_and_run(&self, input: &str) {
         let argparse = Argparse::new("state-inspector")
-            .global_setting(ArgParseSettings::DisableHelpFlags)
-            .global_setting(ArgParseSettings::DisableVersion)
-            .global_setting(ArgParseSettings::VersionlessSubcommands)
+            .global_setting(ArgParseSettings::DisableHelpFlag)
+            .global_setting(ArgParseSettings::DisableVersionFlag)
             .global_setting(ArgParseSettings::NoBinaryName)
             .setting(ArgParseSettings::SubcommandRequiredElseHelp)
             .subcommands(Inspector::subcommands());
 
-        match argparse.get_matches_from_safe(input.split_ascii_whitespace()) {
+        match argparse.try_get_matches_from(input.split_ascii_whitespace()) {
             Ok(m) => {
                 self.run(m).await;
             }
@@ -344,11 +335,10 @@ impl Inspector {
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let argparse = Argparse::new("state-inspector")
-        .global_setting(ArgParseSettings::DisableVersion)
-        .global_setting(ArgParseSettings::VersionlessSubcommands)
-        .arg(Arg::with_name("database").required(true))
+        .global_setting(ArgParseSettings::DisableVersionFlag)
+        .arg(Arg::new("database").required(true))
         .arg(
-            Arg::with_name("json")
+            Arg::new("json")
                 .long("json")
                 .help("set the output to raw json instead of Rust structs")
                 .global(true)
@@ -358,13 +348,13 @@ fn main() {
 
     let matches = argparse.get_matches();
 
-    let database_path = matches.args.get("database").expect("No database path");
+    let database_path = matches.value_of("database").expect("No database path");
     let json = matches.is_present("json");
     let color = atty::is(Stream::Stdout);
 
-    let inspector = Inspector::new(&database_path.vals[0].to_string_lossy(), json, color);
+    let inspector = Inspector::new(database_path, json, color);
 
-    if matches.subcommand.is_none() {
+    if matches.subcommand().is_none() {
         let config = Config::builder()
             .history_ignore_space(true)
             .completion_type(CompletionType::List)

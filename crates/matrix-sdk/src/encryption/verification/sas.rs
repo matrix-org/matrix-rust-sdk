@@ -91,8 +91,7 @@ impl SasVerification {
 
     /// Cancel the interactive verification flow because the short auth strings didn't match on both sides.
     pub async fn mismatch(&self) -> Result<()> {
-        // FIXME: Use variant once https://github.com/ruma/ruma/pull/804 is merged
-        if let Some(request) = self.inner.cancel_with_code(CancelCode::from("m.mismatched_sas")) {
+        if let Some(request) = self.inner.cancel_with_code(CancelCode::MismatchedSas) {
             self.client.send_verification_request(request).await?;
         }
 

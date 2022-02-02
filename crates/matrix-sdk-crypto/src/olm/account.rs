@@ -111,8 +111,13 @@ pub struct OlmMessageHash {
 
 impl OlmMessageHash {
     fn new(sender_key: &str, message_type: u8, ciphertext: &str) -> Self {
-        let sha = Sha256::new().chain(sender_key).chain(&[message_type]).chain(&ciphertext);
-        Self { sender_key: sender_key.to_owned(), hash: encode(sha.finalize().as_slice()) }
+        let sha = Sha256::new()
+            .chain_update(sender_key)
+            .chain_update(&[message_type])
+            .chain_update(&ciphertext)
+            .finalize();
+
+        Self { sender_key: sender_key.to_owned(), hash: encode(sha.as_slice()) }
     }
 }
 
