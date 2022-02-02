@@ -189,9 +189,9 @@ jobs:
               wasm-pack test --firefox --headless
 
           # these are _known_ broken on latest node
-          - name: matrix-sdk-crypto
-            experimental: true
-            base_dir: matrix-sdk-crypto
+          # - name: matrix-sdk-crypto
+          #   experimental: true
+          #   base_dir: matrix-sdk-crypto
           - name: matrix-sdk-example-wasm_command_bot
             base_dir: matrix-sdk/examples/wasm_command_bot
             # this might fail
