@@ -792,6 +792,57 @@ impl IndexeddbStore {
 
         tx.await.into_result().map_err(|e| e.into())
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+
+        let direct_stores = [
+            KEYS::ROOM_INFOS,
+            KEYS::STRIPPED_ROOM_INFO,
+        ];
+
+        let prefixed_stores = [
+            KEYS::MEMBERS,
+            KEYS::PROFILES,
+            KEYS::DISPLAY_NAMES,
+            KEYS::INVITED_USER_IDS,
+            KEYS::JOINED_USER_IDS,
+            KEYS::ROOM_STATE,
+            KEYS::ROOM_ACCOUNT_DATA,
+            KEYS::ROOM_EVENT_RECEIPTS,
+            KEYS::ROOM_USER_RECEIPTS,
+            KEYS::STRIPPED_ROOM_STATE,
+            KEYS::STRIPPED_MEMBERS,
+        ];
+
+        let all_stores = {
+            let mut v = Vec::new();
+            v.extend(prefixed_stores);
+            v.extend(direct_stores);
+            v
+        };
+
+        let tx =
+            self.inner.transaction_on_multi_with_mode(&all_stores, IdbTransactionMode::Readwrite)?;
+
+        let room_key = room_id.encode();
+        for store_name in direct_stores {
+            tx.object_store(store_name)?
+                .delete(&room_key)?;
+        }
+
+        let range = room_id.encode_to_range().map_err(|e| StoreError::Codec(e))?;
+        for store_name in prefixed_stores {
+            let store = tx.object_store(store_name)?;
+            for key in store
+                .get_all_keys_with_key(&range)?
+                .await?
+                .iter()
+            {
+                store.delete(&key)?;
+            }
+        }
+        tx.await.into_result().map_err::<StoreError, _>(|e| e.into())
+    }
 }
 
 #[async_trait(?Send)]
@@ -935,7 +986,7 @@ impl StateStore for IndexeddbStore {
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        Ok(())
+        self.remove_room(room_id).await
     }
 }
 
