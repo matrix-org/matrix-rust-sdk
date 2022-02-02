@@ -20,10 +20,9 @@ use std::{
 
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{async_trait, locks::Mutex, uuid, SafeEncode};
+use matrix_sdk_common::{async_trait, locks::Mutex, SafeEncode};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{DeviceId, RoomId, UserId};
-use uuid::Uuid;
 use wasm_bindgen::JsValue;
 
 use super::{
@@ -756,9 +755,9 @@ impl CryptoStore for IndexeddbStore {
 
     async fn get_outgoing_secret_requests(
         &self,
-        request_id: Uuid,
+        request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        self.get_outgoing_key_request_helper(&request_id.as_encoded_string()).await
+        self.get_outgoing_key_request_helper(&request_id.as_str().encode()).await
     }
 
     async fn get_secret_request_by_info(
@@ -798,8 +797,8 @@ impl CryptoStore for IndexeddbStore {
             .collect())
     }
 
-    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
-        let jskey = request_id.encode();
+    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
+        let jskey = request_id.as_str().encode();
         let dbs = [
             KEYS::OUTGOING_SECRET_REQUESTS,
             KEYS::UNSENT_SECRET_REQUESTS,
