@@ -49,7 +49,7 @@ impl Deref for Common {
 #[derive(Debug)]
 pub struct Messages {
     /// The token the pagination starts from.
-    pub start: Option<String>,
+    pub start: String,
 
     /// The token the pagination ends at.
     pub end: Option<String>,

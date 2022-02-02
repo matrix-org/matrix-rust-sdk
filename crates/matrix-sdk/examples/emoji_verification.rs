@@ -86,8 +86,9 @@ async fn login(
             for event in response.to_device.events.iter().filter_map(|e| e.deserialize().ok()) {
                 match event {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
-                        if let Some(Verification::SasV1(sas)) =
-                            client.get_verification(&e.sender, &e.content.transaction_id).await
+                        if let Some(Verification::SasV1(sas)) = client
+                            .get_verification(&e.sender, e.content.transaction_id.as_str())
+                            .await
                         {
                             println!(
                                 "Starting verification with {} {}",
@@ -100,16 +101,18 @@ async fn login(
                     }
 
                     AnyToDeviceEvent::KeyVerificationKey(e) => {
-                        if let Some(Verification::SasV1(sas)) =
-                            client.get_verification(&e.sender, &e.content.transaction_id).await
+                        if let Some(Verification::SasV1(sas)) = client
+                            .get_verification(&e.sender, e.content.transaction_id.as_str())
+                            .await
                         {
                             tokio::spawn(wait_for_confirmation((*client).clone(), sas));
                         }
                     }
 
                     AnyToDeviceEvent::KeyVerificationMac(e) => {
-                        if let Some(Verification::SasV1(sas)) =
-                            client.get_verification(&e.sender, &e.content.transaction_id).await
+                        if let Some(Verification::SasV1(sas)) = client
+                            .get_verification(&e.sender, e.content.transaction_id.as_str())
+                            .await
                         {
                             if sas.is_done() {
                                 print_result(&sas);

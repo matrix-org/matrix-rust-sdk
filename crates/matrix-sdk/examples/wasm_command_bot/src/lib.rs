@@ -45,7 +45,8 @@ impl WasmBot {
 
             if let Some(room) = self.0.get_joined_room(&room_id) {
                 // send our message to the room we found the "!party" command in
-                // the last parameter is an optional Uuid which we don't care about.
+                // the last parameter is an optional transaction id which we
+                // don't care about.
                 room.send(content, None).await.unwrap();
             }
 

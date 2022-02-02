@@ -19,7 +19,7 @@ use std::{
 
 #[cfg(feature = "qrcode")]
 use matrix_qrcode::QrVerificationData;
-use matrix_sdk_common::{instant::Instant, util::milli_seconds_since_unix_epoch, uuid::Uuid};
+use matrix_sdk_common::{instant::Instant, util::milli_seconds_since_unix_epoch};
 #[cfg(feature = "qrcode")]
 use ruma::DeviceKeyAlgorithm;
 use ruma::{
@@ -35,7 +35,7 @@ use ruma::{
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, RoomId, UserId,
+    DeviceId, RoomId, TransactionId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -159,7 +159,7 @@ impl VerificationRequest {
 
         let content = ToDeviceKeyVerificationRequestEventContent::new(
             self.account.device_id().into(),
-            self.flow_id().as_str().to_string(),
+            self.flow_id().as_str().into(),
             methods,
             milli_seconds_since_unix_epoch(),
         );
@@ -168,7 +168,7 @@ impl VerificationRequest {
             self.other_user(),
             self.recipient_devices.to_vec(),
             AnyToDeviceEventContent::KeyVerificationRequest(content),
-            Uuid::new_v4(),
+            TransactionId::new(),
         )
     }
 
@@ -399,7 +399,7 @@ impl VerificationRequest {
                 ToDeviceRequest::new(self.other_user(), inner.other_device_id(), content).into()
             }
             OutgoingContent::Room(room_id, content) => {
-                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+                RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
         })
     }
@@ -446,7 +446,7 @@ impl VerificationRequest {
                         self.other_user(),
                         self.recipient_devices.to_vec(),
                         content,
-                        Uuid::new_v4(),
+                        TransactionId::new(),
                     )
                     .into()
                 } else {
@@ -454,7 +454,7 @@ impl VerificationRequest {
                 }
             }
             OutgoingContent::Room(room_id, content) => {
-                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+                RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
         });
 
@@ -541,7 +541,7 @@ impl VerificationRequest {
                     self.other_user(),
                     recipients,
                     c,
-                    Uuid::new_v4(),
+                    TransactionId::new(),
                 ))
             }
         } else {
@@ -656,7 +656,8 @@ impl VerificationRequest {
                         )
                         .into(),
                         OutgoingContent::Room(room_id, content) => {
-                            RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+                            RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }
+                                .into()
                         }
                     };
 
@@ -1345,6 +1346,7 @@ mod test {
             None,
         );
 
+        #[allow(clippy::needless_borrow)]
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice_identity,
@@ -1405,6 +1407,7 @@ mod test {
             None,
         );
 
+        #[allow(clippy::needless_borrow)]
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice_identity,
@@ -1460,7 +1463,7 @@ mod test {
 
         let bob_store = VerificationStore { account: bob.clone(), inner: bob_store.into() };
 
-        let flow_id = FlowId::from("TEST_FLOW_ID".to_owned());
+        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
 
         let bob_request = VerificationRequest::new(
             VerificationCache::new(),

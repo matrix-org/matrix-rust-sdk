@@ -20,12 +20,12 @@ use std::{
 };
 
 use dashmap::DashSet;
-use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
+use matrix_sdk_common::{async_trait, locks::Mutex};
 use olm_rs::{account::IdentityKeys, PicklingMode};
 use ruma::{
     encryption::DeviceKeys,
     events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 pub use sled::Error;
@@ -34,7 +34,6 @@ use sled::{
     Config, Db, IVec, Transactional, Tree,
 };
 use tracing::debug;
-use uuid::Uuid;
 
 use super::{
     caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, InboundGroupSession,
@@ -57,9 +56,21 @@ trait EncodeKey {
     fn encode(&self) -> Vec<u8>;
 }
 
-impl EncodeKey for Uuid {
+impl<T: EncodeKey> EncodeKey for &T {
     fn encode(&self) -> Vec<u8> {
-        self.as_u128().to_be_bytes().to_vec()
+        T::encode(self)
+    }
+}
+
+impl<T: EncodeKey> EncodeKey for Box<T> {
+    fn encode(&self) -> Vec<u8> {
+        T::encode(self)
+    }
+}
+
+impl EncodeKey for TransactionId {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
     }
 }
 
@@ -78,7 +89,7 @@ impl EncodeKey for SecretInfo {
     }
 }
 
-impl EncodeKey for &RequestedKeyInfo {
+impl EncodeKey for RequestedKeyInfo {
     fn encode(&self) -> Vec<u8> {
         [
             self.room_id.as_bytes(),
@@ -94,25 +105,31 @@ impl EncodeKey for &RequestedKeyInfo {
     }
 }
 
-impl EncodeKey for &UserId {
+impl EncodeKey for UserId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &ReadOnlyDevice {
+impl EncodeKey for ReadOnlyDevice {
     fn encode(&self) -> Vec<u8> {
         (self.user_id().as_str(), self.device_id().as_str()).encode()
     }
 }
 
-impl EncodeKey for &RoomId {
+impl EncodeKey for RoomId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &str {
+impl EncodeKey for String {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+}
+
+impl EncodeKey for str {
     fn encode(&self) -> Vec<u8> {
         [self.as_bytes(), &[Self::SEPARATOR]].concat()
     }
@@ -424,7 +441,7 @@ impl SledStore {
     }
 
     async fn load_tracked_users(&self) -> Result<()> {
-        for value in self.tracked_users.iter() {
+        for value in &self.tracked_users {
             let (user, dirty) = value?;
             let user = Box::<UserId>::try_from(String::from_utf8_lossy(&user).to_string())?;
             let dirty = dirty.get(0).map(|d| *d == 1).unwrap_or(true);
@@ -613,7 +630,7 @@ impl SledStore {
 
                     for (key, session) in &outbound_session_changes {
                         outbound_sessions.insert(
-                            (&**key).encode(),
+                            key.encode(),
                             serde_json::to_vec(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -914,7 +931,7 @@ impl CryptoStore for SledStore {
 
     async fn get_outgoing_secret_requests(
         &self,
-        request_id: Uuid,
+        request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
         let request_id = request_id.encode();
 
@@ -944,7 +961,7 @@ impl CryptoStore for SledStore {
         requests
     }
 
-    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
+    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let ret: Result<(), TransactionError<serde_json::Error>> = (
             &self.outgoing_secret_requests,
             &self.unsent_secret_requests,

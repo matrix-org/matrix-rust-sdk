@@ -36,6 +36,8 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
+#[cfg(feature = "encryption")]
+use ruma::TransactionId;
 use ruma::{
     api::{
         client::{
@@ -285,7 +287,7 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn mark_request_as_sent(
         &self,
-        request_id: &matrix_sdk_base::uuid::Uuid,
+        request_id: &TransactionId,
         response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
     ) -> Result<(), matrix_sdk_base::Error> {
         self.base_client().mark_request_as_sent(request_id, response).await
@@ -2404,7 +2406,7 @@ pub(crate) mod test {
             },
             AnySyncStateEvent, EventType,
         },
-        mxc_uri, room_id, thirdparty, uint, user_id, UserId,
+        mxc_uri, room_id, thirdparty, uint, user_id, TransactionId, UserId,
     };
     use serde_json::json;
 
@@ -3158,8 +3160,6 @@ pub(crate) mod test {
 
     #[async_test]
     async fn room_message_send() {
-        use matrix_sdk_common::uuid::Uuid;
-
         let client = logged_in_client().await;
 
         let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
@@ -3181,8 +3181,8 @@ pub(crate) mod test {
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         let content = RoomMessageEventContent::text_plain("Hello world");
-        let txn_id = Uuid::new_v4();
-        let response = room.send(content, Some(txn_id)).await.unwrap();
+        let txn_id = TransactionId::new();
+        let response = room.send(content, Some(&txn_id)).await.unwrap();
 
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
@@ -3230,8 +3230,6 @@ pub(crate) mod test {
 
     #[async_test]
     async fn room_redact() {
-        use matrix_sdk_common::uuid::Uuid;
-
         let client = logged_in_client().await;
 
         let _m =
@@ -3255,7 +3253,7 @@ pub(crate) mod test {
 
         let event_id = event_id!("$xxxxxxxx:example.com");
 
-        let txn_id = Uuid::new_v4();
+        let txn_id = TransactionId::new();
         let reason = Some("Indecent material");
         let response = room.redact(event_id, reason, Some(txn_id)).await.unwrap();
 

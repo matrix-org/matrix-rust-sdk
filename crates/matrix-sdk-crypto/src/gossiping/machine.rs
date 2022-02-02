@@ -23,7 +23,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
-use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
     events::{
@@ -40,7 +39,7 @@ use ruma::{
         },
         AnyToDeviceEvent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -60,7 +59,7 @@ pub(crate) struct GossipMachine {
     device_id: Arc<DeviceId>,
     store: Store,
     outbound_group_sessions: GroupSessionCache,
-    outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
+    outgoing_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
     incoming_key_requests: Arc<DashMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
@@ -133,7 +132,7 @@ impl GossipMachine {
         if !users_for_key_claim.is_empty() {
             let key_claim_request = KeysClaimRequest::new(users_for_key_claim);
             key_requests.push(OutgoingRequest {
-                request_id: Uuid::new_v4(),
+                request_id: TransactionId::new(),
                 request: Arc::new(key_claim_request.into()),
             });
         }
@@ -439,9 +438,11 @@ impl GossipMachine {
             AnyToDeviceEventContent::RoomEncrypted(content),
         );
 
-        let request =
-            OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) };
-        self.outgoing_requests.insert(request.request_id, request);
+        let request = OutgoingRequest {
+            request_id: request.txn_id.clone(),
+            request: Arc::new(request.into()),
+        };
+        self.outgoing_requests.insert(request.request_id.clone(), request);
 
         Ok(used_session)
     }
@@ -461,9 +462,11 @@ impl GossipMachine {
             AnyToDeviceEventContent::RoomEncrypted(content),
         );
 
-        let request =
-            OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) };
-        self.outgoing_requests.insert(request.request_id, request);
+        let request = OutgoingRequest {
+            request_id: request.txn_id.clone(),
+            request: Arc::new(request.into()),
+        };
+        self.outgoing_requests.insert(request.request_id.clone(), request);
 
         Ok(used_session)
     }
@@ -633,7 +636,7 @@ impl GossipMachine {
     ) -> Result<OutgoingRequest, CryptoStoreError> {
         let request = GossipRequest {
             request_recipient: self.user_id().to_owned(),
-            request_id: Uuid::new_v4(),
+            request_id: TransactionId::new(),
             info: key_info,
             sent_out: false,
         };
@@ -707,11 +710,14 @@ impl GossipMachine {
 
     /// Delete the given outgoing key info.
     async fn delete_key_info(&self, info: &GossipRequest) -> Result<(), CryptoStoreError> {
-        self.store.delete_outgoing_secret_requests(info.request_id).await
+        self.store.delete_outgoing_secret_requests(&info.request_id).await
     }
 
     /// Mark the outgoing request as sent.
-    pub async fn mark_outgoing_request_as_sent(&self, id: Uuid) -> Result<(), CryptoStoreError> {
+    pub async fn mark_outgoing_request_as_sent(
+        &self,
+        id: &TransactionId,
+    ) -> Result<(), CryptoStoreError> {
         let info = self.store.get_outgoing_secret_requests(id).await?;
 
         if let Some(mut info) = info {
@@ -725,7 +731,7 @@ impl GossipMachine {
             self.save_outgoing_key_info(info).await?;
         }
 
-        self.outgoing_requests.remove(&id);
+        self.outgoing_requests.remove(id);
 
         Ok(())
     }
@@ -747,7 +753,7 @@ impl GossipMachine {
         self.delete_key_info(&key_info).await?;
 
         let request = key_info.to_cancellation(self.device_id());
-        self.outgoing_requests.insert(request.request_id, request);
+        self.outgoing_requests.insert(request.request_id.clone(), request);
 
         Ok(())
     }
@@ -763,12 +769,7 @@ impl GossipMachine {
             "Received a m.secret.send event"
         );
 
-        let request_id = if let Ok(r) = Uuid::parse_str(&event.content.request_id) {
-            r
-        } else {
-            warn!("Received a m.secret.send event but the request ID is invalid");
-            return Ok(None);
-        };
+        let request_id = <&TransactionId>::from(event.content.request_id.as_str());
 
         let secret = std::mem::take(&mut event.content.secret);
 
@@ -1066,7 +1067,7 @@ mod test {
 
         assert!(cancel.is_none());
 
-        machine.mark_outgoing_request_as_sent(request.request_id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         let (cancel, _) = machine
             .request_key(session.room_id(), &session.sender_key, session.session_id())
@@ -1116,7 +1117,7 @@ mod test {
 
         let request = requests.get(0).unwrap();
 
-        machine.mark_outgoing_request_as_sent(request.request_id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
     }
 
@@ -1145,7 +1146,7 @@ mod test {
 
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         let request = requests.get(0).unwrap();
-        let id = request.request_id;
+        let id = &request.request_id;
 
         machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1178,9 +1179,9 @@ mod test {
 
         // Get the cancel request.
         let request = machine.outgoing_requests.iter().next().unwrap();
-        let id = request.request_id;
+        let id = request.request_id.clone();
         drop(request);
-        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
 
         machine
             .create_outgoing_key_request(
@@ -1194,7 +1195,7 @@ mod test {
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        machine.mark_outgoing_request_as_sent(request.request_id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         let export = session.export_at_index(15).await;
 
@@ -1391,7 +1392,7 @@ mod test {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let id = request.request_id;
+        let id = &request.request_id;
         let content = request
             .request
             .to_device()
@@ -1420,7 +1421,7 @@ mod test {
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        let id = request.request_id;
+        let id = &request.request_id;
         let content = request
             .request
             .to_device()
@@ -1494,7 +1495,7 @@ mod test {
             content: ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 bob_account.device_id().to_owned(),
-                "request_id".to_owned(),
+                "request_id".into(),
             ),
         };
 
@@ -1523,7 +1524,7 @@ mod test {
             content: ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
                 second_account.device_id().into(),
-                "request_id".to_owned(),
+                "request_id".into(),
             ),
         };
 
@@ -1595,7 +1596,7 @@ mod test {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let id = request.request_id;
+        let id = &request.request_id;
         let content = request
             .request
             .to_device()
@@ -1644,7 +1645,7 @@ mod test {
 
         let request = &requests[0];
 
-        let id = request.request_id;
+        let id = &request.request_id;
         let content = request
             .request
             .to_device()

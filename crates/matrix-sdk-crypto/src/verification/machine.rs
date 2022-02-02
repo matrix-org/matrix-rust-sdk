@@ -18,14 +18,14 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch, uuid::Uuid};
+use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch};
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
         ToDeviceEvent,
     },
     serde::Raw,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -80,7 +80,7 @@ impl VerificationMachine {
         recipient_devices: Vec<Box<DeviceId>>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
-        let flow_id = FlowId::from(Uuid::new_v4().to_string());
+        let flow_id = FlowId::from(TransactionId::new());
 
         let verification = VerificationRequest::new(
             self.verifications.clone(),
@@ -145,7 +145,7 @@ impl VerificationMachine {
 
         let request = match content {
             OutgoingContent::Room(r, c) => {
-                RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
+                RoomMessageRequest { room_id: r, txn_id: TransactionId::new(), content: c }.into()
             }
             OutgoingContent::ToDevice(c) => {
                 let request =
@@ -215,8 +215,8 @@ impl VerificationMachine {
         self.verifications.queue_up_content(recipient, recipient_device, content)
     }
 
-    pub fn mark_request_as_sent(&self, uuid: &Uuid) {
-        self.verifications.mark_request_as_sent(uuid);
+    pub fn mark_request_as_sent(&self, txn_id: &TransactionId) {
+        self.verifications.mark_request_as_sent(txn_id);
     }
 
     pub fn outgoing_messages(&self) -> Vec<OutgoingRequest> {
@@ -616,7 +616,7 @@ mod test {
         assert!(!alice_machine.verifications.outgoing_requests().is_empty());
 
         let request = alice_machine.verifications.outgoing_requests().get(0).cloned().unwrap();
-        let txn_id = *request.request_id();
+        let txn_id = request.request_id().to_owned();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = KeyContent::try_from(&content).unwrap().into();
 

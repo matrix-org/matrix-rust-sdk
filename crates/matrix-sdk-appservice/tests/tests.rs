@@ -36,13 +36,8 @@ async fn appservice(registration: Option<Registration>) -> Result<AppService> {
     let client_config =
         ClientConfig::default().request_config(RequestConfig::default().disable_retry());
 
-    Ok(AppService::new_with_config(
-        homeserver_url.as_ref(),
-        server_name,
-        registration,
-        client_config,
-    )
-    .await?)
+    AppService::new_with_config(homeserver_url.as_ref(), server_name, registration, client_config)
+        .await
 }
 
 #[async_test]

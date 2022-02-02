@@ -25,6 +25,8 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     deserialized_responses::{
         AmbiguityChanges, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Rooms,
@@ -34,8 +36,6 @@ use matrix_sdk_common::{
     locks::RwLock,
     util::milli_seconds_since_unix_epoch,
 };
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError},
@@ -49,7 +49,7 @@ use ruma::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
         AnySyncMessageEvent, MessageEventContent,
     },
-    DeviceId,
+    DeviceId, TransactionId,
 };
 use ruma::{
     api::client::r0::{self as api, push::get_notifications::Notification},
@@ -1115,7 +1115,7 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     pub async fn mark_request_as_sent<'a>(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         response: impl Into<IncomingResponse<'a>>,
     ) -> Result<()> {
         let olm = self.olm.lock().await;
@@ -1133,7 +1133,7 @@ impl BaseClient {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> Result<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> Result<Option<(Box<TransactionId>, KeysClaimRequest)>> {
         let olm = self.olm.lock().await;
 
         match &*olm {

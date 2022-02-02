@@ -7,13 +7,12 @@ macro_rules! cryptostore_integration_tests {
             use super::get_store;
             use std::collections::BTreeMap;
 
-            use matrix_sdk_common::uuid::Uuid;
             use matrix_sdk_test::async_test;
             use olm_rs::outbound_group_session::OlmOutboundGroupSession;
             use ruma::{
                 encryption::SignedKey, events::room_key_request::RequestedKeyInfo,
-                room_id, user_id, device_id,
-                DeviceId, EventEncryptionAlgorithm, UserId,
+                serde::Base64, user_id, TransactionId, DeviceId, EventEncryptionAlgorithm, UserId,
+                room_id, device_id,
             };
 
             use crate::{
@@ -63,7 +62,7 @@ macro_rules! cryptostore_integration_tests {
 
                 bob.generate_one_time_keys_helper(1).await;
                 let one_time_key =
-                    bob.one_time_keys().await.curve25519().iter().next().unwrap().1.to_owned();
+                    Base64::parse(bob.one_time_keys().await.curve25519().values().next().unwrap()).unwrap();
                 let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
                 let sender_key = bob.identity_keys().curve25519().to_owned();
                 let session =
@@ -544,7 +543,7 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "key_request_saving".to_owned();
                 let (account, store) = get_loaded_store(dir).await;
 
-                let id = Uuid::new_v4();
+                let id = TransactionId::new();
                 let info: SecretInfo = RequestedKeyInfo::new(
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     room_id!("!test:localhost").to_owned(),
@@ -555,12 +554,12 @@ macro_rules! cryptostore_integration_tests {
 
                 let request = GossipRequest {
                     request_recipient: account.user_id().to_owned(),
-                    request_id: id,
+                    request_id: id.clone(),
                     info: info.clone(),
                     sent_out: false,
                 };
 
-                assert!(store.get_outgoing_secret_requests(id).await.unwrap().is_none());
+                assert!(store.get_outgoing_secret_requests(&id).await.unwrap().is_none());
 
                 let mut changes = Changes::default();
                 changes.key_requests.push(request.clone());
@@ -568,7 +567,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let request = Some(request);
 
-                let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
+                let stored_request = store.get_outgoing_secret_requests(&id).await.unwrap();
                 assert_eq!(request, stored_request);
 
                 let stored_request = store.get_secret_request_by_info(&info).await.unwrap();
@@ -577,7 +576,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let request = GossipRequest {
                     request_recipient: account.user_id().to_owned(),
-                    request_id: id,
+                    request_id: id.clone(),
                     info: info.clone(),
                     sent_out: true,
                 };
@@ -587,12 +586,12 @@ macro_rules! cryptostore_integration_tests {
                 store.save_changes(changes).await.unwrap();
 
                 assert!(store.get_unsent_secret_requests().await.unwrap().is_empty());
-                let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
+                let stored_request = store.get_outgoing_secret_requests(&id).await.unwrap();
                 assert_eq!(Some(request), stored_request);
 
-                store.delete_outgoing_secret_requests(id).await.unwrap();
+                store.delete_outgoing_secret_requests(&id).await.unwrap();
 
-                let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
+                let stored_request = store.get_outgoing_secret_requests(&id).await.unwrap();
                 assert_eq!(None, stored_request);
 
                 let stored_request = store.get_secret_request_by_info(&info).await.unwrap();

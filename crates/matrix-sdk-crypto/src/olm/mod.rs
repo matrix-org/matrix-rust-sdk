@@ -74,7 +74,9 @@ pub(crate) mod test {
             room::message::{Relation, Replacement, RoomMessageEventContent},
             AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent,
         },
-        room_id, user_id, DeviceId, UserId,
+        room_id,
+        serde::Base64,
+        user_id, DeviceId, UserId,
     };
     use serde_json::json;
 
@@ -102,7 +104,7 @@ pub(crate) mod test {
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key =
-            bob.one_time_keys().await.curve25519().iter().next().unwrap().1.to_owned();
+            Base64::parse(bob.one_time_keys().await.curve25519().values().next().unwrap()).unwrap();
         let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session =
@@ -162,7 +164,8 @@ pub(crate) mod test {
         let one_time_keys = alice.one_time_keys().await;
         alice.mark_keys_as_published().await;
 
-        let one_time_key = one_time_keys.curve25519().iter().next().unwrap().1.to_owned();
+        let one_time_key =
+            Base64::parse(one_time_keys.curve25519().values().next().unwrap()).unwrap();
 
         let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
 
