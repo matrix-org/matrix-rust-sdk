@@ -8,4 +8,5 @@ members = [
     "crates/matrix-sdk-crypto",
     "crates/matrix-sdk-test",
     "crates/matrix-sdk-test-macros",
+    "crates/matrix-sdk-ffi",
 ]
