@@ -18,14 +18,14 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
+use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch};
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
         ToDeviceEvent,
     },
     serde::Raw,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -80,7 +80,7 @@ impl VerificationMachine {
         recipient_devices: Vec<Box<DeviceId>>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
-        let flow_id = FlowId::from(Uuid::new_v4().to_string());
+        let flow_id = FlowId::from(TransactionId::new());
 
         let verification = VerificationRequest::new(
             self.verifications.clone(),
@@ -145,7 +145,7 @@ impl VerificationMachine {
 
         let request = match content {
             OutgoingContent::Room(r, c) => {
-                RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
+                RoomMessageRequest { room_id: r, txn_id: TransactionId::new(), content: c }.into()
             }
             OutgoingContent::ToDevice(c) => {
                 let request =
@@ -190,7 +190,6 @@ impl VerificationMachine {
         self.verifications.get_sas(user_id, flow_id)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
         use ruma::{uint, UInt};
 
@@ -201,19 +200,10 @@ impl VerificationMachine {
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();
-        let now = MilliSecondsSinceUnixEpoch::now().as_secs();
+        let now = milli_seconds_since_unix_epoch().as_secs();
 
         !(now.saturating_sub(timestamp) > old_timestamp_threshold
             || timestamp.saturating_sub(now) > timestamp_threshold)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
-        // TODO the non-wasm method with the same name uses
-        // `MilliSecondsSinceUnixEpoch::now()` which internally uses
-        // `SystemTime::now()` this panics under WASM, thus we're returning here
-        // true for now.
-        true
     }
 
     fn queue_up_content(
@@ -225,8 +215,8 @@ impl VerificationMachine {
         self.verifications.queue_up_content(recipient, recipient_device, content)
     }
 
-    pub fn mark_request_as_sent(&self, uuid: &Uuid) {
-        self.verifications.mark_request_as_sent(uuid);
+    pub fn mark_request_as_sent(&self, txn_id: &TransactionId) {
+        self.verifications.mark_request_as_sent(txn_id);
     }
 
     pub fn outgoing_messages(&self) -> Vec<OutgoingRequest> {
@@ -471,6 +461,18 @@ impl VerificationMachine {
 
                             if s.is_done() {
                                 self.mark_sas_as_done(s, content).await?;
+                            } else {
+                                // Even if we are not done (yet), there might be content to send
+                                // out, e.g. in the case where we are done with our side of the
+                                // verification process, but the other side has not yet sent their
+                                // "done".
+                                if let Some(content) = content {
+                                    self.queue_up_content(
+                                        s.other_user_id(),
+                                        s.other_device_id(),
+                                        content,
+                                    );
+                                }
                             }
                         } else {
                             flow_id_mismatch();
@@ -515,14 +517,10 @@ impl VerificationMachine {
 
 #[cfg(test)]
 mod test {
+    use std::{convert::TryFrom, sync::Arc, time::Duration};
 
-    use std::{
-        convert::TryFrom,
-        sync::Arc,
-        time::{Duration, Instant},
-    };
-
-    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_common::{instant::Instant, locks::Mutex};
+    use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::{Sas, VerificationMachine};
@@ -589,8 +587,8 @@ mod test {
         (machine, bob_sas)
     }
 
-    #[test]
-    fn create() {
+    #[async_test]
+    async fn create() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
@@ -598,7 +596,7 @@ mod test {
         let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
@@ -618,7 +616,7 @@ mod test {
         assert!(!alice_machine.verifications.outgoing_requests().is_empty());
 
         let request = alice_machine.verifications.outgoing_requests().get(0).cloned().unwrap();
-        let txn_id = *request.request_id();
+        let txn_id = request.request_id().to_owned();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = KeyContent::try_from(&content).unwrap().into();
 
@@ -630,12 +628,16 @@ mod test {
         assert!(bob.emoji().is_some());
         assert_eq!(alice.emoji(), bob.emoji());
 
-        let request = alice.confirm().await.unwrap().0.unwrap();
+        let mut requests = alice.confirm().await.unwrap().0;
+        assert!(requests.len() == 1);
+        let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap().into();
         bob.receive_any_event(alice.user_id(), &content);
 
-        let request = bob.confirm().await.unwrap().0.unwrap();
+        let mut requests = bob.confirm().await.unwrap().0;
+        assert!(requests.len() == 1);
+        let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap().into();
         alice.receive_any_event(bob.user_id(), &content);
@@ -644,8 +646,8 @@ mod test {
         assert!(bob.is_done());
     }
 
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
+    #[cfg(not(target_os = "macos"))]
+    #[async_test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
         let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();

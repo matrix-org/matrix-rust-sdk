@@ -24,6 +24,7 @@ default = [
     "native-tls"
 ]
 
+indexeddb_stores = ["matrix-sdk-base/indexeddb_state_store", "matrix-sdk-base/indexeddb_cryptostore"]
 encryption = ["matrix-sdk-base/encryption"]
 qrcode = ["encryption", "matrix-sdk-base/qrcode"]
 # TODO merge those two sled features
@@ -34,7 +35,7 @@ native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
-appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper", "ruma/rand"]
+appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper"]
 
 docsrs = [
     "encryption",
@@ -76,8 +77,8 @@ default_features = false
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"
-rev = "fdbc4d6d1dd273c8a6ac95b329943ed8c68df70d"
-features = ["client-api-c", "compat", "unstable-pre-spec"]
+rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
+features = ["client-api-c", "compat", "rand", "unstable-pre-spec"]
 
 [dependencies.tokio-stream]
 version = "0.1.6"
@@ -90,7 +91,7 @@ default-features = false
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.backoff]
-version = "0.3.0"
+version = "0.4.0"
 features = ["tokio"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -107,7 +108,7 @@ features = ["wasm-bindgen"]
 
 [dev-dependencies]
 anyhow = "1.0"
-dirs = "3.0.2"
+dirs = "4.0.0"
 futures = { version = "0.3.15", default-features = false, features = ["executor"] }
 lazy_static = "1.4.0"
 matches = "0.1.8"
@@ -115,8 +116,16 @@ matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
 mockito = "0.30.0"
 serde_json = "1.0.64"
 tempfile = "3.2.0"
-tokio = { version = "1.7.1", default-features = false, features = ["rt-multi-thread", "macros"] }
-tracing-subscriber = "0.2.18"
+tracing-subscriber = "0.3.7"
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.tokio]
+version = "1.7.1"
+default-features = false
+features = ["rt-multi-thread", "macros"]
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.24"
 
 [[example]]
 name = "cross_signing_bootstrap"

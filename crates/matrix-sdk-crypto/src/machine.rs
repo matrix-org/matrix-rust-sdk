@@ -24,7 +24,6 @@ use dashmap::DashMap;
 use matrix_sdk_common::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, RoomEvent, VerificationState},
     locks::Mutex,
-    uuid::Uuid,
 };
 use ruma::{
     api::client::r0::{
@@ -44,10 +43,11 @@ use ruma::{
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent,
+        AnyRoomEvent, AnyToDeviceEvent, MessageEventContent,
     },
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
+    UInt, UserId,
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
@@ -322,21 +322,17 @@ impl OlmMachine {
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
         let mut requests = Vec::new();
 
-        if let Some(r) = self
-            .keys_for_upload()
-            .await
-            .map(|r| OutgoingRequest { request_id: Uuid::new_v4(), request: Arc::new(r.into()) })
-        {
+        if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
+            request_id: TransactionId::new(),
+            request: Arc::new(r.into()),
+        }) {
             self.account.save().await?;
             requests.push(r);
         }
 
-        for request in
-            self.identity_manager.users_for_key_query().await.into_iter().map(|r| OutgoingRequest {
-                request_id: Uuid::new_v4(),
-                request: Arc::new(r.into()),
-            })
-        {
+        for request in self.identity_manager.users_for_key_query().await.into_iter().map(|r| {
+            OutgoingRequest { request_id: TransactionId::new(), request: Arc::new(r.into()) }
+        }) {
             requests.push(request);
         }
 
@@ -357,7 +353,7 @@ impl OlmMachine {
     /// outgoing request was sent out.
     pub async fn mark_request_as_sent<'a>(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         response: impl Into<IncomingResponse<'a>>,
     ) -> OlmResult<()> {
         match response.into() {
@@ -522,7 +518,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(Box<TransactionId>, KeysClaimRequest)>> {
         self.session_manager.get_missing_sessions(users).await
     }
 
@@ -673,6 +669,7 @@ impl OlmMachine {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) async fn create_inbound_session(
         &self,
         room_id: &RoomId,
@@ -695,9 +692,6 @@ impl OlmMachine {
     /// [`should_share_group_session`] method if a new group session needs to
     /// be shared.
     ///
-    /// **Note**: This method doesn't support encrypting custom events, see the
-    /// [`encrypt_raw()`] method to do so.
-    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
@@ -712,22 +706,21 @@ impl OlmMachine {
     ///
     /// [`should_share_group_session`]: #method.should_share_group_session
     /// [`share_group_session`]: #method.share_group_session
-    /// [`encrypt_raw()`]: #method.encrypt_raw
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: AnyMessageEventContent,
+        content: impl MessageEventContent,
     ) -> MegolmResult<RoomEncryptedEventContent> {
-        let event_type = content.event_type().to_owned();
-        let content = serde_json::to_value(content)?;
+        let event_type = content.event_type();
+        let content = serde_json::to_value(&content)?;
 
-        self.group_session_manager.encrypt(room_id, content, &event_type).await
+        self.group_session_manager.encrypt(room_id, content, event_type).await
     }
 
     /// Encrypt a json [`Value`] content for the given room.
     ///
-    /// This method is equivalent to the [`encrypt()`] method but allows custom
-    /// events to be encrypted.
+    /// This method is equivalent to the [`encrypt()`] method but operates on an
+    /// arbitrary JSON value instead of strongly-typed event content struct.
     ///
     /// # Arguments
     ///
@@ -838,9 +831,9 @@ impl OlmMachine {
     }
 
     /// Mark an outgoing to-device requests as sent.
-    async fn mark_to_device_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
+    async fn mark_to_device_request_as_sent(&self, request_id: &TransactionId) -> StoreResult<()> {
         self.verification_machine.mark_request_as_sent(request_id);
-        self.key_request_machine.mark_outgoing_request_as_sent(*request_id).await?;
+        self.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
         self.group_session_manager.mark_request_as_sent(request_id).await?;
         self.session_manager.mark_outgoing_request_as_sent(request_id);
 
@@ -1440,15 +1433,15 @@ impl OlmMachine {
     ) -> StoreResult<Vec<ExportedRoomKey>> {
         let mut exported = Vec::new();
 
-        let mut sessions: Vec<InboundGroupSession> = self
+        let sessions: Vec<InboundGroupSession> = self
             .store
             .get_inbound_group_sessions()
             .await?
-            .drain(..)
+            .into_iter()
             .filter(|s| predicate(s))
             .collect();
 
-        for session in sessions.drain(..) {
+        for session in sessions {
             let export = session.export().await;
             exported.push(export);
         }
@@ -1558,10 +1551,12 @@ impl OlmMachine {
 
 #[cfg(test)]
 pub(crate) mod test {
+
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
     use http::Response;
-    use matrix_sdk_test::test_json;
+    use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
+    use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
             client::r0::keys::{claim_keys, get_keys, upload_keys},
@@ -1572,6 +1567,7 @@ pub(crate) mod test {
         event_id,
         events::{
             dummy::ToDeviceDummyEventContent,
+            key::verification::VerificationMethod,
             room::{
                 encrypted::ToDeviceRoomEncryptedEventContent,
                 message::{MessageType, RoomMessageEventContent},
@@ -1581,8 +1577,7 @@ pub(crate) mod test {
         },
         room_id,
         serde::Raw,
-        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-        UserId,
+        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     };
     use serde_json::json;
 
@@ -1680,9 +1675,9 @@ pub(crate) mod test {
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().next().unwrap();
+        let (device_key_id, one_time_key) = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
-        keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
+        keys.insert(device_key_id.clone(), one_time_key.clone());
         bob_keys.insert(bob.device_id().into(), keys);
 
         let mut one_time_keys = BTreeMap::new();
@@ -1714,13 +1709,13 @@ pub(crate) mod test {
         (alice, bob)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn create_olm_machine() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         assert!(machine.should_upload_keys().await);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn receive_keys_upload_response() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         let mut response = keys_upload_response();
@@ -1744,7 +1739,7 @@ pub(crate) mod test {
         assert!(!machine.should_upload_keys().await);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn generate_one_time_keys() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
 
@@ -1761,7 +1756,7 @@ pub(crate) mod test {
         assert!(machine.account.generate_one_time_keys().await.is_err());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_device_key_signing() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
 
@@ -1779,7 +1774,7 @@ pub(crate) mod test {
         assert!(ret.is_ok());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn tests_session_invalidation() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         let room_id = room_id!("!test:example.org");
@@ -1796,7 +1791,7 @@ pub(crate) mod test {
             .invalidated());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_invalid_signature() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
 
@@ -1812,7 +1807,7 @@ pub(crate) mod test {
         assert!(ret.is_err());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_one_time_key_signing() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(49);
@@ -1833,7 +1828,7 @@ pub(crate) mod test {
         assert!(ret.is_ok());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_keys_for_upload() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(0);
@@ -1874,7 +1869,7 @@ pub(crate) mod test {
         assert!(ret.is_none());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_keys_query() {
         let (machine, _) = get_prepared_machine().await;
         let response = keys_query_response();
@@ -1891,7 +1886,7 @@ pub(crate) mod test {
         assert_eq!(device.device_id(), alice_device_id);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_missing_sessions_calculation() {
         let (machine, _) = get_machine_after_query().await;
 
@@ -1906,15 +1901,15 @@ pub(crate) mod test {
         assert!(user_sessions.contains_key(alice_device));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_session_creation() {
         let (alice_machine, bob_machine, one_time_keys) = get_machine_pair().await;
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().next().unwrap();
+        let (device_key_id, one_time_key) = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
-        keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
+        keys.insert(device_key_id.clone(), one_time_key.clone());
         bob_keys.insert(bob_machine.device_id().into(), keys);
 
         let mut one_time_keys = BTreeMap::new();
@@ -1934,7 +1929,7 @@ pub(crate) mod test {
         assert!(!session.lock().await.is_empty())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_olm_encryption() {
         let (alice, bob) = get_machine_pair_with_session().await;
 
@@ -1958,7 +1953,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_room_key_sharing() {
         let (alice, bob) = get_machine_pair_with_session().await;
 
@@ -2005,7 +2000,7 @@ pub(crate) mod test {
         assert!(session.unwrap().is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_megolm_encryption() {
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
         let room_id = room_id!("!test:example.org");
@@ -2035,7 +2030,7 @@ pub(crate) mod test {
 
         let event = SyncMessageEvent {
             event_id: event_id!("$xxxxx:example.org").to_owned(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
+            origin_server_ts: milli_seconds_since_unix_epoch(),
             sender: alice.user_id().to_owned(),
             content: encrypted_content,
             unsigned: Unsigned::default(),
@@ -2061,7 +2056,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     #[cfg(feature = "sled_cryptostore")]
     async fn test_machine_with_default_store() {
         use tempfile::tempdir;
@@ -2099,7 +2094,7 @@ pub(crate) mod test {
         assert_eq!(ed25519_key, machine.identity_keys().ed25519());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn interactive_verification() {
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
 
@@ -2147,25 +2142,17 @@ pub(crate) mod test {
         assert_eq!(alice_sas.emoji(), bob_sas.emoji());
         assert_eq!(alice_sas.decimals(), bob_sas.decimals());
 
-        let event = bob_sas
-            .confirm()
-            .await
-            .unwrap()
-            .0
-            .map(|r| request_to_event(bob.user_id(), &r))
-            .unwrap();
+        let contents = bob_sas.confirm().await.unwrap().0;
+        assert!(contents.len() == 1);
+        let event = request_to_event(bob.user_id(), &contents[0]);
         alice.handle_verification_event(&event).await;
 
         assert!(!alice_sas.is_done());
         assert!(!bob_sas.is_done());
 
-        let event = alice_sas
-            .confirm()
-            .await
-            .unwrap()
-            .0
-            .map(|r| request_to_event(alice.user_id(), &r))
-            .unwrap();
+        let contents = alice_sas.confirm().await.unwrap().0;
+        assert!(contents.len() == 1);
+        let event = request_to_event(alice.user_id(), &contents[0]);
 
         assert!(alice_sas.is_done());
         assert!(bob_device.verified());
@@ -2177,5 +2164,173 @@ pub(crate) mod test {
         bob.handle_verification_event(&event).await;
         assert!(bob_sas.is_done());
         assert!(alice_device.verified());
+    }
+
+    #[async_test]
+    async fn interactive_verification_started_from_request() {
+        let (alice, bob) = get_machine_pair_with_setup_sessions().await;
+
+        // ----------------------------------------------------------------------------
+        // On Alice's device:
+        let bob_device = alice.get_device(bob.user_id(), bob.device_id()).await.unwrap().unwrap();
+
+        assert!(!bob_device.verified());
+
+        // Alice sends a verification request with her desired methods to Bob
+        let (alice_ver_req, request) =
+            bob_device.request_verification_with_methods(vec![VerificationMethod::SasV1]).await;
+
+        // ----------------------------------------------------------------------------
+        // On Bobs's device:
+        let event = request_to_event(alice.user_id(), &request);
+        bob.handle_verification_event(&event).await;
+        let flow_id = alice_ver_req.flow_id().as_str();
+
+        let verification_request = bob.get_verification_request(alice.user_id(), flow_id).unwrap();
+
+        // Bob accepts the request, sending a Ready request
+        let accept_request =
+            verification_request.accept_with_methods(vec![VerificationMethod::SasV1]).unwrap();
+        // And also immediately sends a start request
+        let (_, start_request_from_bob) = verification_request.start_sas().await.unwrap().unwrap();
+
+        // ----------------------------------------------------------------------------
+        // On Alice's device:
+
+        // Alice receives the Ready
+        let event = request_to_event(bob.user_id(), &accept_request);
+        alice.handle_verification_event(&event).await;
+
+        let verification_request = alice.get_verification_request(bob.user_id(), flow_id).unwrap();
+
+        // And also immediately sends a start request
+        let (alice_sas, start_request_from_alice) =
+            verification_request.start_sas().await.unwrap().unwrap();
+
+        // Now alice receives Bob's start:
+        let event = request_to_event(bob.user_id(), &start_request_from_bob);
+        alice.handle_verification_event(&event).await;
+
+        // Since Alice's user id is lexicographically smaller than Bob's, Alice does not
+        // do anything with the request, however.
+        assert!(alice.user_id() < bob.user_id());
+
+        // ----------------------------------------------------------------------------
+        // On Bob's device:
+
+        // Bob receives Alice's start:
+        let event = request_to_event(alice.user_id(), &start_request_from_alice);
+        bob.handle_verification_event(&event).await;
+
+        let bob_sas = bob
+            .get_verification(alice.user_id(), alice_sas.flow_id().as_str())
+            .unwrap()
+            .sas_v1()
+            .unwrap();
+
+        assert!(alice_sas.emoji().is_none());
+        assert!(bob_sas.emoji().is_none());
+
+        // ... and accepts it
+        let event = bob_sas.accept().map(|r| request_to_event(bob.user_id(), &r)).unwrap();
+
+        // ----------------------------------------------------------------------------
+        // On Alice's device:
+
+        // Alice receives the Accept request:
+        alice.handle_verification_event(&event).await;
+
+        // Alice sends a key
+        let msgs = alice.verification_machine.outgoing_messages();
+        assert!(msgs.len() == 1);
+        let msg = msgs.first().unwrap();
+        let event = outgoing_request_to_event(alice.user_id(), msg);
+        alice.verification_machine.mark_request_as_sent(&msg.request_id);
+
+        // ----------------------------------------------------------------------------
+        // On Bob's device:
+
+        // And bob receive's it:
+        bob.handle_verification_event(&event).await;
+
+        // Now bob sends a key
+        let msgs = bob.verification_machine.outgoing_messages();
+        assert!(msgs.len() == 1);
+        let msg = msgs.first().unwrap();
+        let event = outgoing_request_to_event(bob.user_id(), msg);
+        bob.verification_machine.mark_request_as_sent(&msg.request_id);
+
+        // ----------------------------------------------------------------------------
+        // On Alice's device:
+
+        // And alice receives it
+        alice.handle_verification_event(&event).await;
+
+        // As a result, both devices now can show emojis/decimals
+        assert!(alice_sas.emoji().is_some());
+        assert!(bob_sas.emoji().is_some());
+
+        // ----------------------------------------------------------------------------
+        // On Bob's device:
+
+        assert_eq!(alice_sas.emoji(), bob_sas.emoji());
+        assert_eq!(alice_sas.decimals(), bob_sas.decimals());
+
+        // Bob first confirms that the emojis match and sends the MAC...
+        let contents = bob_sas.confirm().await.unwrap().0;
+        assert!(contents.len() == 1);
+        let event = request_to_event(bob.user_id(), &contents[0]);
+
+        // ----------------------------------------------------------------------------
+        // On Alice's device:
+
+        // ...which alice receives
+        alice.handle_verification_event(&event).await;
+
+        assert!(!alice_sas.is_done());
+        assert!(!bob_sas.is_done());
+
+        // Now alice confirms that the emojis match and sends...
+        let contents = alice_sas.confirm().await.unwrap().0;
+        assert!(contents.len() == 2);
+        // ... her own MAC...
+        let event_mac = request_to_event(alice.user_id(), &contents[0]);
+        // ... and a Done message
+        let event_done = request_to_event(alice.user_id(), &contents[1]);
+
+        // ----------------------------------------------------------------------------
+        // On Bob's device:
+
+        // Bob receives the MAC message
+        bob.handle_verification_event(&event_mac).await;
+
+        // Bob verifies that the MAC is valid and also sends a "done" message.
+        let msgs = bob.verification_machine.outgoing_messages();
+        eprintln!("{:?}", msgs);
+        assert!(msgs.len() == 1);
+        let event = msgs.first().map(|r| outgoing_request_to_event(bob.user_id(), r)).unwrap();
+
+        let alice_device =
+            bob.get_device(alice.user_id(), alice.device_id()).await.unwrap().unwrap();
+
+        assert!(!bob_sas.is_done());
+        assert!(!alice_device.verified());
+        // And Bob receives the Done message of alice.
+        bob.handle_verification_event(&event_done).await;
+
+        assert!(bob_sas.is_done());
+        assert!(alice_device.verified());
+
+        // ----------------------------------------------------------------------------
+        // On Alice's device:
+
+        assert!(!alice_sas.is_done());
+        assert!(!bob_device.verified());
+        // Alices receives the done message
+        eprintln!("{:?}", event);
+        alice.handle_verification_event(&event).await;
+
+        assert!(alice_sas.is_done());
+        assert!(bob_device.verified());
     }
 }

@@ -20,7 +20,7 @@ use aes::{
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use getrandom::getrandom;
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2;
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
@@ -220,7 +220,7 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
 
     let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create an HMAC object");
     hmac.update(&decoded[0..ciphertext_end]);
-    hmac.verify(&mac).map_err(|_| KeyExportError::InvalidMac)?;
+    hmac.verify_slice(&mac).map_err(|_| KeyExportError::InvalidMac)?;
 
     let key = GenericArray::from_slice(key);
     let iv = GenericArray::from_slice(&iv);
@@ -233,6 +233,25 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     Ok(String::from_utf8(ciphertext.to_owned())?)
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod proptests {
+    use proptest::prelude::*;
+
+    use super::{decrypt_helper, encrypt_helper};
+
+    proptest! {
+        #[test]
+        fn proptest_encrypt_cycle(plaintext in prop::string::string_regex(".*").unwrap()) {
+            let mut plaintext_bytes = plaintext.clone().into_bytes();
+
+            let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
+            let decrypted = decrypt_helper(&ciphertext, "test").unwrap();
+
+            prop_assert!(plaintext == decrypted);
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{
@@ -242,7 +261,6 @@ mod test {
 
     use indoc::indoc;
     use matrix_sdk_test::async_test;
-    use proptest::prelude::*;
     use ruma::room_id;
 
     use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
@@ -275,18 +293,6 @@ mod test {
     fn test_decode() {
         let export = export_without_headers();
         assert!(decode(export).is_ok());
-    }
-
-    proptest! {
-        #[test]
-        fn proptest_encrypt_cycle(plaintext in prop::string::string_regex(".*").unwrap()) {
-            let mut plaintext_bytes = plaintext.clone().into_bytes();
-
-            let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
-            let decrypted = decrypt_helper(&ciphertext, "test").unwrap();
-
-            prop_assert!(plaintext == decrypted);
-        }
     }
 
     #[test]

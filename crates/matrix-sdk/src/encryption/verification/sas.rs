@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, ReadOnlyDevice, Sas as BaseSas};
-use ruma::UserId;
+use ruma::{events::key::verification::cancel::CancelCode, UserId};
 
 use crate::{error::Result, Client};
 
@@ -52,7 +52,7 @@ impl SasVerification {
     /// # let user_id = user_id!("@alice:example");
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let sas = client
     ///     .get_verification(&user_id, flow_id)
     ///     .await
@@ -76,14 +76,23 @@ impl SasVerification {
 
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
-        let (request, signature) = self.inner.confirm().await?;
+        let (requests, signature) = self.inner.confirm().await?;
 
-        if let Some(request) = request {
+        for request in requests {
             self.client.send_verification_request(request).await?;
         }
 
         if let Some(s) = signature {
             self.client.send(s, None).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Cancel the interactive verification flow because the short auth strings didn't match on both sides.
+    pub async fn mismatch(&self) -> Result<()> {
+        if let Some(request) = self.inner.cancel_with_code(CancelCode::MismatchedSas) {
+            self.client.send_verification_request(request).await?;
         }
 
         Ok(())
@@ -116,7 +125,7 @@ impl SasVerification {
     /// # let user_id = user_id!("@alice:example");
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let sas_verification = client
     ///     .get_verification(&user_id, flow_id)
     ///     .await

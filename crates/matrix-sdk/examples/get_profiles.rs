@@ -37,7 +37,7 @@ async fn login(
     password: &str,
 ) -> Result<Client, matrix_sdk::Error> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::new(homeserver_url).unwrap();
+    let client = Client::new(homeserver_url).await.unwrap();
 
     client.login(username, password, None, Some("rust-sdk")).await?;
 

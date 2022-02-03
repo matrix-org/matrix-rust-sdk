@@ -245,11 +245,12 @@
 //! [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
 //! [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
 
+#![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub mod identities;
 pub mod verification;
 use std::{
     collections::{BTreeMap, HashSet},
-    io::{Read,Write},
+    io::{Read, Write},
     path::PathBuf,
     result::Result as StdResult, iter,
 };
@@ -263,7 +264,7 @@ use matrix_sdk_base::{
     },
     deserialized_responses::RoomEvent,
 };
-use matrix_sdk_common::{instant::Duration, uuid::Uuid};
+use matrix_sdk_common::instant::Duration;
 use ruma::{
     api::client::r0::{
         backup::add_backup_keys::Response as KeysBackupResponse,
@@ -277,7 +278,7 @@ use ruma::{
     assign,
     events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType},
     serde::Raw,
-    DeviceId, UserId,
+    DeviceId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
 
@@ -372,7 +373,7 @@ impl Client {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// if let Some(device) = client.get_device(&alice, device_id!("DEVICEID")).await? {
     ///     println!("{:?}", device.verified());
     ///
@@ -412,7 +413,7 @@ impl Client {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let devices = client.get_user_devices(&alice).await?;
     ///
     /// for device in devices.devices() {
@@ -451,7 +452,7 @@ impl Client {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {
@@ -507,7 +508,7 @@ impl Client {
     /// # block_on(async {
     /// # let user_id = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// if let Err(e) = client.bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.uiaa_response() {
     ///         let auth_data = uiaa::AuthData::Password(assign!(
@@ -584,7 +585,7 @@ impl Client {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
     /// // Export all room keys.
     /// client
@@ -651,7 +652,7 @@ impl Client {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
     /// let result = client.import_keys(path, "secret-passphrase").await?;
     ///
@@ -717,7 +718,7 @@ impl Client {
     #[instrument]
     pub(crate) async fn keys_query(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>,
     ) -> Result<get_keys::Response> {
         let request = assign!(get_keys::Request::new(), { device_keys });
@@ -879,7 +880,7 @@ impl Client {
     #[instrument]
     pub(crate) async fn keys_upload(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         request: &upload_keys::Request,
     ) -> Result<upload_keys::Response> {
         debug!(
@@ -900,7 +901,7 @@ impl Client {
         request: &RoomMessageRequest,
     ) -> Result<send_message_event::Response> {
         let content = request.content.clone();
-        let txn_id = request.txn_id;
+        let txn_id = &request.txn_id;
         let room_id = &request.room_id;
 
         self.get_joined_room(room_id)
@@ -914,11 +915,9 @@ impl Client {
         &self,
         request: &ToDeviceRequest,
     ) -> HttpResult<ToDeviceResponse> {
-        let txn_id_string = request.txn_id_string();
-
         let request = RumaToDeviceRequest::new_raw(
             request.event_type.as_str(),
-            &txn_id_string,
+            &request.txn_id,
             request.messages.clone(),
         );
 

@@ -36,6 +36,8 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
+#[cfg(feature = "encryption")]
+use ruma::TransactionId;
 use ruma::{
     api::{
         client::{
@@ -161,9 +163,9 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    pub fn new(homeserver_url: Url) -> Result<Self> {
+    pub async fn new(homeserver_url: Url) -> Result<Self> {
         let config = ClientConfig::new();
-        Client::new_with_config(homeserver_url, config)
+        Client::new_with_config(homeserver_url, config).await
     }
 
     /// Create a new [`Client`] for the given homeserver and use the given
@@ -174,7 +176,7 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     ///
     /// * `config` - Configuration for the client.
-    pub fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
+    pub async fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
         let homeserver = Arc::new(RwLock::new(homeserver_url));
 
         let client = if let Some(client) = config.client {
@@ -183,7 +185,7 @@ impl Client {
             Arc::new(client_with_config(&config)?)
         };
 
-        let base_client = BaseClient::new_with_config(config.base_config)?;
+        let base_client = BaseClient::new_with_config(config.base_config).await?;
         let session = base_client.session().clone();
 
         let http_client =
@@ -264,7 +266,7 @@ impl Client {
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = Client::homeserver_from_user_id(user_id)?;
-        let client = Client::new_with_config(homeserver, config)?;
+        let client = Client::new_with_config(homeserver, config).await?;
 
         let well_known = client.discover_homeserver().await?;
         let well_known = Url::parse(well_known.homeserver.base_url.as_ref())?;
@@ -285,7 +287,7 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn mark_request_as_sent(
         &self,
-        request_id: &matrix_sdk_base::uuid::Uuid,
+        request_id: &TransactionId,
         response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
     ) -> Result<(), matrix_sdk_base::Error> {
         self.base_client().mark_request_as_sent(request_id, response).await
@@ -330,7 +332,7 @@ impl Client {
     /// use url::Url;
     ///
     /// let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     ///
     /// // Check that it is a valid homeserver.
     /// client.get_supported_versions().await?;
@@ -406,7 +408,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// if let Some(name) = client.display_name().await.unwrap() {
@@ -431,7 +433,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// client.set_display_name(Some("Alice")).await.expect("Failed setting display name");
@@ -454,7 +456,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// if let Some(url) = client.avatar_url().await.unwrap() {
@@ -492,7 +494,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let user = "example";
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
     /// if let Some(avatar) = client.avatar(MediaFormat::File).await.unwrap() {
@@ -540,7 +542,7 @@ impl Client {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let path = Path::new("/home/example/selfie.jpg");
     /// let mut image = File::open(&path).unwrap();
     ///
@@ -580,7 +582,6 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// use matrix_sdk::{
     ///     deserialized_responses::EncryptionInfo,
     ///     room::Room,
@@ -597,6 +598,7 @@ impl Client {
     /// use serde::{Deserialize, Serialize};
     ///
     /// # block_on(async {
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// client
     ///     .register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
@@ -709,8 +711,8 @@ impl Client {
     /// # struct SomeType;
     /// # fn obtain_gui_handle() -> SomeType { SomeType }
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
-    /// # let client = matrix_sdk::Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let client = matrix_sdk::Client::new(homeserver).await.unwrap();
     ///
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
@@ -904,7 +906,7 @@ impl Client {
     /// # block_on(async {
     /// use matrix_sdk::Client;
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// let user = "example";
     ///
     /// let response = client
@@ -1000,7 +1002,7 @@ impl Client {
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
     /// # block_on(async {
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     ///
     /// let response = client
     ///     .login_with_sso(
@@ -1183,7 +1185,7 @@ impl Client {
     /// # let redirect_url = "http://localhost:1234";
     /// # let login_token = "token";
     /// # block_on(async {
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// let sso_url = client.get_sso_login_url(redirect_url);
     ///
     /// // Let the user authenticate at the SSO URL
@@ -1266,7 +1268,7 @@ impl Client {
     /// # block_on(async {
     ///
     /// let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     ///
     /// let session = Session {
     ///     access_token: "My-Token".to_owned(),
@@ -1288,7 +1290,7 @@ impl Client {
     /// # block_on(async {
     ///
     /// let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     ///
     /// let session: Session = client
     ///     .login("example", "my-password", None, None)
@@ -1337,7 +1339,7 @@ impl Client {
     ///         uiaa::FallbackAcknowledgement::new("foobar"),
     ///     )),
     /// });
-    /// let client = Client::new(homeserver).unwrap();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// client.register(request).await;
     /// # })
     /// ```
@@ -1386,9 +1388,9 @@ impl Client {
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
     /// let mut filter = FilterDefinition::default();
     /// let mut room_filter = RoomFilter::default();
     /// let mut event_filter = RoomEventFilter::default();
@@ -1484,10 +1486,10 @@ impl Client {
     /// # let limit = Some(10);
     /// # let since = Some("since token");
     /// # let server = Some("servername.com".try_into().unwrap());
-    ///
-    /// let mut client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
+    ///
+    /// let mut client = Client::new(homeserver).await.unwrap();
     ///
     /// client.public_rooms(limit, since, server).await;
     /// # });
@@ -1527,11 +1529,11 @@ impl Client {
     /// # };
     /// # use url::Url;
     ///
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let request = CreateRoomRequest::new();
-    /// let client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let request = CreateRoomRequest::new();
+    /// let client = Client::new(homeserver).await.unwrap();
     /// assert!(client.create_room(request).await.is_ok());
     /// # });
     /// ```
@@ -1565,7 +1567,7 @@ impl Client {
     ///         assign,
     ///     }
     /// };
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     ///
     /// let generic_search_term = Some("rust");
     /// let filter = assign!(Filter::new(), { generic_search_term });
@@ -1606,7 +1608,7 @@ impl Client {
     /// # use mime;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
     /// let mut image = File::open(path)?;
     ///
@@ -1662,7 +1664,7 @@ impl Client {
     /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// use matrix_sdk::ruma::{api::client::r0::profile, user_id};
     ///
     /// // First construct the request you want to make
@@ -1687,7 +1689,7 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        Ok(self.inner.http_client.send(request, config).await?)
+        self.inner.http_client.send(request, config).await
     }
 
     /// Get information of all our own devices.
@@ -1701,7 +1703,7 @@ impl Client {
     /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let response = client.devices().await?;
     ///
     /// for device in response.devices {
@@ -1749,7 +1751,7 @@ impl Client {
     /// # use std::{collections::BTreeMap, convert::TryFrom};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// let devices = &[device_id!("DEVICEID").to_owned()];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
@@ -1838,7 +1840,7 @@ impl Client {
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
     /// // Sync once so we receive the client state and old messages.
@@ -1943,7 +1945,7 @@ impl Client {
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
     /// // Register our handler so we start responding once we receive a new
@@ -1991,7 +1993,7 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let mut client = Client::new(homeserver).await.unwrap();
     ///
     /// use tokio::sync::mpsc::channel;
     ///
@@ -2069,7 +2071,7 @@ impl Client {
     /// use futures::StreamExt;
     /// use matrix_sdk::{Client, config::SyncSettings};
     ///
-    /// let client = Client::new(homeserver)?;
+    /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
     /// let mut sync_stream = Box::pin(client.sync_stream(SyncSettings::default()).await);
@@ -2358,9 +2360,13 @@ impl Client {
         })
     }
 }
-
-#[cfg(test)]
+// mockito (the http mocking library) is not supported for wasm32
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod test {
+    use matrix_sdk_test::async_test;
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
     use std::{
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
@@ -2400,7 +2406,7 @@ pub(crate) mod test {
             },
             AnySyncStateEvent, EventType,
         },
-        mxc_uri, room_id, thirdparty, uint, user_id, UserId,
+        mxc_uri, room_id, thirdparty, uint, user_id, TransactionId, UserId,
     };
     use serde_json::json;
 
@@ -2418,17 +2424,17 @@ pub(crate) mod test {
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
         client.restore_login(session).await.unwrap();
 
         client
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn set_homeserver() {
         let homeserver = Url::from_str("http://example.com/").unwrap();
 
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
@@ -2437,7 +2443,7 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await, homeserver);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn successful_discovery() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2459,7 +2465,7 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn discovery_broken_server() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
@@ -2479,11 +2485,11 @@ pub(crate) mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let client = Client::new(homeserver.clone()).unwrap();
+        let client = Client::new(homeserver.clone()).await.unwrap();
 
         let _m_types = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2512,12 +2518,12 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await, homeserver);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_with_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
 
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2532,12 +2538,12 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await.as_str(), "https://example.org/");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_no_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
 
-        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
+        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2553,7 +2559,7 @@ pub(crate) mod test {
     }
 
     #[cfg(feature = "sso_login")]
-    #[tokio::test]
+    #[async_test]
     async fn login_with_sso() {
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2561,7 +2567,7 @@ pub(crate) mod test {
             .create();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         client
             .login_with_sso(
@@ -2590,11 +2596,11 @@ pub(crate) mod test {
         assert!(logged_in, "Client should be logged in");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_with_sso_token() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2624,7 +2630,7 @@ pub(crate) mod test {
         assert!(logged_in, "Client should be logged in");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn devices() {
         let client = logged_in_client().await;
 
@@ -2636,7 +2642,7 @@ pub(crate) mod test {
         assert!(client.devices().await.is_ok());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_join_leave_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
@@ -2665,7 +2671,7 @@ pub(crate) mod test {
         let config = ClientConfig::default()
             .store_path(path)
             .request_config(RequestConfig::new().disable_retry());
-        let joined_client = Client::new_with_config(homeserver, config).unwrap();
+        let joined_client = Client::new_with_config(homeserver, config).await.unwrap();
         joined_client.restore_login(session).await.unwrap();
 
         // joined room reloaded from state store
@@ -2687,7 +2693,7 @@ pub(crate) mod test {
         assert!(room.is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn account_data() {
         let client = logged_in_client().await;
 
@@ -2705,7 +2711,7 @@ pub(crate) mod test {
         // assert_eq!(1, ignored_users.len())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_creation() {
         let client = logged_in_client().await;
 
@@ -2723,11 +2729,11 @@ pub(crate) mod test {
         assert!(room.is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn login_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
@@ -2753,10 +2759,10 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn register_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_string()))
             .with_status(403)
@@ -2791,7 +2797,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn join_room_by_id() {
         let client = logged_in_client().await;
 
@@ -2811,7 +2817,7 @@ pub(crate) mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn join_room_by_id_or_alias() {
         let client = logged_in_client().await;
 
@@ -2835,7 +2841,7 @@ pub(crate) mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invite_user_by_id() {
         let client = logged_in_client().await;
 
@@ -2861,7 +2867,7 @@ pub(crate) mod test {
         room.invite_user_by_id(user).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invite_user_by_3pid() {
         let client = logged_in_client().await;
 
@@ -2897,10 +2903,10 @@ pub(crate) mod test {
         .unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_search_all() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()))
             .with_status(200)
@@ -2912,7 +2918,7 @@ pub(crate) mod test {
         assert_eq!(chunk.len(), 1);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_search_filtered() {
         let client = logged_in_client().await;
 
@@ -2931,7 +2937,7 @@ pub(crate) mod test {
         assert_eq!(chunk.len(), 1);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn leave_room() {
         let client = logged_in_client().await;
 
@@ -2957,7 +2963,7 @@ pub(crate) mod test {
         room.leave().await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn ban_user() {
         let client = logged_in_client().await;
 
@@ -2984,7 +2990,7 @@ pub(crate) mod test {
         room.ban_user(user, None).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn kick_user() {
         let client = logged_in_client().await;
 
@@ -3011,7 +3017,7 @@ pub(crate) mod test {
         room.kick_user(user, None).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn forget_room() {
         let client = logged_in_client().await;
 
@@ -3037,7 +3043,7 @@ pub(crate) mod test {
         room.forget().await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn read_receipt() {
         let client = logged_in_client().await;
 
@@ -3064,7 +3070,7 @@ pub(crate) mod test {
         room.read_receipt(event_id).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn read_marker() {
         let client = logged_in_client().await;
 
@@ -3092,7 +3098,7 @@ pub(crate) mod test {
         room.read_marker(event_id, None).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn typing_notice() {
         let client = logged_in_client().await;
 
@@ -3118,7 +3124,7 @@ pub(crate) mod test {
         room.typing_notice(true).await.unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_state_event_send() {
         use ruma::events::room::member::{MembershipState, RoomMemberEventContent};
 
@@ -3152,10 +3158,8 @@ pub(crate) mod test {
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_message_send() {
-        use matrix_sdk_common::uuid::Uuid;
-
         let client = logged_in_client().await;
 
         let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
@@ -3177,13 +3181,13 @@ pub(crate) mod test {
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         let content = RoomMessageEventContent::text_plain("Hello world");
-        let txn_id = Uuid::new_v4();
-        let response = room.send(content, Some(txn_id)).await.unwrap();
+        let txn_id = TransactionId::new();
+        let response = room.send(content, Some(&txn_id)).await.unwrap();
 
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_attachment_send() {
         let client = logged_in_client().await;
 
@@ -3224,10 +3228,8 @@ pub(crate) mod test {
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_redact() {
-        use matrix_sdk_common::uuid::Uuid;
-
         let client = logged_in_client().await;
 
         let _m =
@@ -3251,14 +3253,14 @@ pub(crate) mod test {
 
         let event_id = event_id!("$xxxxxxxx:example.com");
 
-        let txn_id = Uuid::new_v4();
+        let txn_id = TransactionId::new();
         let reason = Some("Indecent material");
         let response = room.redact(event_id, reason, Some(txn_id)).await.unwrap();
 
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn user_presence() {
         let client = logged_in_client().await;
 
@@ -3285,7 +3287,7 @@ pub(crate) mod test {
         // assert!(room.power_levels.is_some())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn calculate_room_names_from_summary() {
         let client = logged_in_client().await;
 
@@ -3302,7 +3304,7 @@ pub(crate) mod test {
         assert_eq!("example2", room.display_name().await.unwrap());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn invited_rooms() {
         let client = logged_in_client().await;
 
@@ -3321,7 +3323,7 @@ pub(crate) mod test {
         assert!(client.get_invited_room(room_id!("!696r7674:example.com")).is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn left_rooms() {
         let client = logged_in_client().await;
 
@@ -3340,7 +3342,7 @@ pub(crate) mod test {
         assert!(client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).is_some())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sync() {
         let client = logged_in_client().await;
 
@@ -3359,7 +3361,7 @@ pub(crate) mod test {
         assert!(client.sync_token().await.is_some());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_names() {
         let client = logged_in_client().await;
 
@@ -3392,10 +3394,10 @@ pub(crate) mod test {
         assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn delete_devices() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/delete_devices")
             .with_status(401)
@@ -3445,12 +3447,12 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn retry_limit_http_requests() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
         assert!(config.request_config.retry_limit.unwrap() == 3);
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
@@ -3461,7 +3463,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn retry_timeout_http_requests() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         // Keep this timeout small so that the test doesn't take long
@@ -3469,7 +3471,7 @@ pub(crate) mod test {
         let config = ClientConfig::default()
             .request_config(RequestConfig::new().retry_timeout(retry_timeout));
         assert!(config.request_config.retry_timeout.unwrap() == retry_timeout);
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
@@ -3481,12 +3483,12 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn no_retry_http_requests() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
         assert!(config.request_config.retry_limit.unwrap() == 0);
-        let client = Client::new_with_config(homeserver, config).unwrap();
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).create();
 
@@ -3497,7 +3499,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn get_media_content() {
         let client = logged_in_client().await;
 
@@ -3521,7 +3523,7 @@ pub(crate) mod test {
         m.assert();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn get_media_file() {
         let client = logged_in_client().await;
 
@@ -3567,7 +3569,7 @@ pub(crate) mod test {
         m.assert();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn whoami() {
         let client = logged_in_client().await;
 
@@ -3582,7 +3584,7 @@ pub(crate) mod test {
         assert_eq!(client.whoami().await.unwrap().user_id, user_id);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_state_event_getting() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
@@ -3654,7 +3656,7 @@ pub(crate) mod test {
             .create();
 
         let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
-        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
+        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
         client.restore_login(session.clone()).await.unwrap();
 
         let room = client.get_joined_room(room_id);

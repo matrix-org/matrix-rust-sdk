@@ -24,6 +24,7 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
+    serde::Base64,
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
 use sha2::{Digest, Sha256};
@@ -32,7 +33,6 @@ use tracing::{trace, warn};
 use super::{FlowId, OutgoingContent};
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    utilities::encode,
     verification::event_enums::{MacContent, StartContent},
     Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
@@ -55,11 +55,18 @@ pub struct SasIds {
 ///
 /// * `content` - The `m.key.verification.start` event content that started the
 /// interactive verification process.
-pub fn calculate_commitment(public_key: &str, content: &StartContent) -> String {
+pub fn calculate_commitment(public_key: &Base64, content: &StartContent) -> Base64 {
     let content = content.canonical_json();
     let content_string = content.to_string();
 
-    encode(Sha256::new().chain(&public_key).chain(&content_string).finalize())
+    Base64::new(
+        Sha256::new()
+            .chain_update(public_key.encode())
+            .chain_update(&content_string)
+            .finalize()
+            .as_slice()
+            .to_owned(),
+    )
 }
 
 /// Get a tuple of an emoji and a description of the emoji using a number.
@@ -198,11 +205,13 @@ pub fn receive_mac_event(
     let mut keys = content.mac().keys().map(|k| k.as_str()).collect::<Vec<_>>();
     keys.sort_unstable();
 
-    let keys = sas
-        .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
-        .expect("Can't calculate SAS MAC");
+    let keys = Base64::parse(
+        sas.calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
+            .expect("Can't calculate SAS MAC"),
+    )
+    .expect("Can't base64-decode SAS MAC");
 
-    if keys != content.keys() {
+    if keys != *content.keys() {
         return Err(CancelCode::KeyMismatch);
     }
 
@@ -220,13 +229,14 @@ pub fn receive_mac_event(
         };
 
         if let Some(key) = ids.other_device.keys().get(&key_id) {
-            if key_mac
-                == &sas
-                    .calculate_mac(key, &format!("{}{}", info, key_id))
-                    .expect("Can't calculate SAS MAC")
-            {
-                trace!("Successfully verified the device key {} from {}", key_id, sender);
+            let calculated_mac = Base64::parse(
+                sas.calculate_mac(key, &format!("{}{}", info, key_id))
+                    .expect("Can't calculate SAS MAC"),
+            )
+            .expect("Can't base64-decode SAS MAC");
 
+            if *key_mac == calculated_mac {
+                trace!("Successfully verified the device key {} from {}", key_id, sender);
                 verified_devices.push(ids.other_device.clone());
             } else {
                 return Err(CancelCode::KeyMismatch);
@@ -235,11 +245,13 @@ pub fn receive_mac_event(
             if let Some(key) = identity.master_key().get_key(&key_id) {
                 // TODO we should check that the master key signs the device,
                 // this way we know the master key also trusts the device
-                if key_mac
-                    == &sas
-                        .calculate_mac(key, &format!("{}{}", info, key_id))
-                        .expect("Can't calculate SAS MAC")
-                {
+                let calculated_mac = Base64::parse(
+                    sas.calculate_mac(key, &format!("{}{}", info, key_id))
+                        .expect("Can't calculate SAS MAC"),
+                )
+                .expect("Can't base64-decode SAS MAC");
+
+                if *key_mac == calculated_mac {
                     trace!("Successfully verified the master key {} from {}", key_id, sender);
                     verified_identities.push(identity.clone())
                 } else {
@@ -294,7 +306,7 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 ///
 /// This will panic if the public key of the other side wasn't set.
 pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> OutgoingContent {
-    let mut mac: BTreeMap<String, String> = BTreeMap::new();
+    let mut mac: BTreeMap<String, Base64> = BTreeMap::new();
 
     let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
     let key = ids.account.identity_keys().ed25519();
@@ -302,7 +314,11 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
 
     mac.insert(
         key_id.to_string(),
-        sas.calculate_mac(key, &format!("{}{}", info, key_id)).expect("Can't calculate SAS MAC"),
+        Base64::parse(
+            sas.calculate_mac(key, &format!("{}{}", info, key_id))
+                .expect("Can't calculate SAS MAC"),
+        )
+        .expect("Can't base64-decode SAS MAC"),
     );
 
     if let Some(own_identity) = &ids.own_identity {
@@ -310,9 +326,11 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
             if let Some(key) = own_identity.master_key().get_first_key() {
                 let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, &key);
 
-                let calculated_mac = sas
-                    .calculate_mac(key, &format!("{}{}", info, &key_id))
-                    .expect("Can't calculate SAS Master key MAC");
+                let calculated_mac = Base64::parse(
+                    sas.calculate_mac(key, &format!("{}{}", info, &key_id))
+                        .expect("Can't calculate SAS Master key MAC"),
+                )
+                .expect("Can't base64-decode SAS Master key MAC");
 
                 mac.insert(key_id, calculated_mac);
             }
@@ -321,15 +339,18 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
 
     // TODO Add the cross signing master key here if we trust/have it.
 
-    let mut keys = mac.keys().cloned().collect::<Vec<String>>();
-    keys.sort();
-    let keys = sas
-        .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
-        .expect("Can't calculate SAS MAC");
+    let mut keys: Vec<_> = mac.keys().map(|s| s.as_str()).collect();
+    keys.sort_unstable();
+
+    let keys = Base64::parse(
+        sas.calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
+            .expect("Can't calculate SAS MAC"),
+    )
+    .expect("Can't base64-decode SAS MAC");
 
     match flow_id {
         FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationMac(
-            ToDeviceKeyVerificationMacEventContent::new(s.to_string(), mac, keys),
+            ToDeviceKeyVerificationMacEventContent::new(s.clone(), mac, keys),
         )
         .into(),
         FlowId::InRoom(r, e) => (
@@ -540,10 +561,12 @@ fn bytes_to_decimal(bytes: Vec<u8>) -> (u16, u16, u16) {
     (first + 1000, second + 1000, third + 1000)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use proptest::prelude::*;
-    use ruma::events::key::verification::start::ToDeviceKeyVerificationStartEventContent;
+    use ruma::{
+        events::key::verification::start::ToDeviceKeyVerificationStartEventContent, serde::Base64,
+    };
     use serde_json::json;
 
     use super::{
@@ -554,9 +577,9 @@ mod test {
 
     #[test]
     fn commitment_calculation() {
-        let commitment = "CCQmB4JCdB0FW21FdAnHj/Hu8+W9+Nb0vgwPEnZZQ4g";
+        let commitment = Base64::parse("CCQmB4JCdB0FW21FdAnHj/Hu8+W9+Nb0vgwPEnZZQ4g").unwrap();
 
-        let public_key = "Q/NmNFEUS1fS+YeEmiZkjjblKTitrKOAk7cPEumcMlg";
+        let public_key = Base64::parse("Q/NmNFEUS1fS+YeEmiZkjjblKTitrKOAk7cPEumcMlg").unwrap();
         let content = json!({
             "from_device":"XOWLHHFSWM",
             "transaction_id":"bYxBsirjUJO9osar6ST4i2M2NjrYLA7l",
@@ -570,9 +593,9 @@ mod test {
         let content: ToDeviceKeyVerificationStartEventContent =
             serde_json::from_value(content).unwrap();
         let content = StartContent::from(&content);
-        let calculated_commitment = calculate_commitment(public_key, &content);
+        let calculated_commitment = calculate_commitment(&public_key, &content);
 
-        assert_eq!(commitment, &calculated_commitment);
+        assert_eq!(commitment, calculated_commitment);
     }
 
     #[test]
@@ -606,8 +629,8 @@ mod test {
         fn proptest_emoji(bytes in prop::array::uniform6(0u8..)) {
             let numbers = bytes_to_emoji_index(bytes.to_vec());
 
-            for number in numbers.iter() {
-                prop_assert!(*number < 64);
+            for number in numbers {
+                prop_assert!(number < 64);
             }
         }
     }

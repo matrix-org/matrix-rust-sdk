@@ -484,8 +484,11 @@ mod static_events {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
+    use matrix_sdk_test::async_test;
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     use std::{future, sync::Arc};
 
     use matrix_sdk_test::{EventBuilder, EventsJson};
@@ -497,7 +500,7 @@ mod test {
 
     use crate::{room, Client};
 
-    #[tokio::test]
+    #[async_test]
     async fn event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 

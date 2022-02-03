@@ -333,7 +333,7 @@ impl AppService {
         };
 
         let client =
-            Client::new_with_config(self.homeserver_url.clone(), config.appservice_mode())?;
+            Client::new_with_config(self.homeserver_url.clone(), config.appservice_mode()).await?;
 
         let session = Session {
             access_token: self.registration.as_token.clone(),
@@ -408,8 +408,19 @@ impl AppService {
     /// given mxid.
     ///
     /// See [GET /_matrix/app/v1/users/{userId}](https://matrix.org/docs/spec/application_service/r0.1.2#get-matrix-app-v1-users-userid).
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use matrix_sdk_appservice::AppService;
+    /// # fn run(appservice: AppService) {
+    /// appservice.register_user_query(Box::new(|appservice, req| Box::pin(async move {
+    ///     println!("Got request for {}", req.user_id);
+    ///     true
+    /// })));
+    /// # }
+    /// ```
     pub async fn register_user_query(
-        &mut self,
+        &self,
         handler: AppserviceFn<query_user::IncomingRequest, bool>,
     ) {
         *self.event_handler.users.lock().await = Some(handler);
@@ -419,8 +430,19 @@ impl AppService {
     /// given alias.
     ///
     /// See [GET /_matrix/app/v1/rooms/{roomAlias}](https://matrix.org/docs/spec/application_service/r0.1.2#get-matrix-app-v1-rooms-roomalias).
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use matrix_sdk_appservice::AppService;
+    /// # fn run(appservice: AppService) {
+    /// appservice.register_room_query(Box::new(|appservice, req| Box::pin(async move {
+    ///     println!("Got request for {}", req.room_alias);
+    ///     true
+    /// })));
+    /// # }
+    /// ```
     pub async fn register_room_query(
-        &mut self,
+        &self,
         handler: AppserviceFn<query_room::IncomingRequest, bool>,
     ) {
         *self.event_handler.rooms.lock().await = Some(handler);

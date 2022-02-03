@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[allow(unused_imports)]
 use std::{
     fmt::{self, Debug},
     path::Path,
@@ -127,10 +128,11 @@ impl ClientConfig {
     /// * `path` - The path where the stores should save data in. It is the
     /// callers responsibility to make sure that the path exists.
     ///
-    /// In the default configuration the client will open default
-    /// implementations for the crypto store and the state store. It will use
-    /// the given path to open the stores. If no path is provided no store will
-    /// be opened
+    /// In the default configuration, and if the corresponding features
+    /// (`sled_state_store` and `sled_cryptostore`) are enabled, the client will
+    /// open default implementations for the crypto store and the state store.
+    /// It will use the given path to open the stores. If no path is provided an
+    /// in-memory store will be opened.
     #[must_use]
     pub fn store_path(mut self, path: impl AsRef<Path>) -> Self {
         self.base_config = self.base_config.store_path(path);

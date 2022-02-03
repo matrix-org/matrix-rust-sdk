@@ -18,8 +18,8 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid};
-use ruma::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::{async_trait, locks::Mutex};
+use ruma::{DeviceId, RoomId, TransactionId, UserId};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -51,8 +51,8 @@ pub struct MemoryStore {
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
     identities: Arc<DashMap<Box<UserId>, ReadOnlyUserIdentities>>,
-    outgoing_key_requests: Arc<DashMap<Uuid, GossipRequest>>,
-    key_requests_by_info: Arc<DashMap<String, Uuid>>,
+    outgoing_key_requests: Arc<DashMap<Box<TransactionId>, GossipRequest>>,
+    key_requests_by_info: Arc<DashMap<String, Box<TransactionId>>>,
 }
 
 impl Default for MemoryStore {
@@ -77,26 +77,26 @@ impl MemoryStore {
         Self::default()
     }
 
-    pub(crate) async fn save_devices(&self, mut devices: Vec<ReadOnlyDevice>) {
-        for device in devices.drain(..) {
+    pub(crate) async fn save_devices(&self, devices: Vec<ReadOnlyDevice>) {
+        for device in devices {
             let _ = self.devices.add(device);
         }
     }
 
-    async fn delete_devices(&self, mut devices: Vec<ReadOnlyDevice>) {
-        for device in devices.drain(..) {
+    async fn delete_devices(&self, devices: Vec<ReadOnlyDevice>) {
+        for device in devices {
             let _ = self.devices.remove(device.user_id(), device.device_id());
         }
     }
 
-    async fn save_sessions(&self, mut sessions: Vec<Session>) {
-        for session in sessions.drain(..) {
+    async fn save_sessions(&self, sessions: Vec<Session>) {
+        for session in sessions {
             let _ = self.sessions.add(session.clone()).await;
         }
     }
 
-    async fn save_inbound_group_sessions(&self, mut sessions: Vec<InboundGroupSession>) {
-        for session in sessions.drain(..) {
+    async fn save_inbound_group_sessions(&self, sessions: Vec<InboundGroupSession>) {
+        for session in sessions {
             self.inbound_group_sessions.add(session);
         }
     }
@@ -117,7 +117,7 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_changes(&self, mut changes: Changes) -> Result<()> {
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.save_sessions(changes.sessions).await;
         self.save_inbound_group_sessions(changes.inbound_group_sessions).await;
 
@@ -125,7 +125,7 @@ impl CryptoStore for MemoryStore {
         self.save_devices(changes.devices.changed).await;
         self.delete_devices(changes.devices.deleted).await;
 
-        for identity in changes.identities.new.drain(..).chain(changes.identities.changed) {
+        for identity in changes.identities.new.into_iter().chain(changes.identities.changed) {
             let _ = self.identities.insert(identity.user_id().to_owned(), identity.clone());
         }
 
@@ -137,10 +137,10 @@ impl CryptoStore for MemoryStore {
         }
 
         for key_request in changes.key_requests {
-            let id = key_request.request_id;
+            let id = key_request.request_id.clone();
             let info_string = encode_key_info(&key_request.info);
 
-            self.outgoing_key_requests.insert(id, key_request);
+            self.outgoing_key_requests.insert(id.clone(), key_request);
             self.key_requests_by_info.insert(info_string, id);
         }
 
@@ -266,9 +266,9 @@ impl CryptoStore for MemoryStore {
 
     async fn get_outgoing_secret_requests(
         &self,
-        request_id: Uuid,
+        request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        Ok(self.outgoing_key_requests.get(&request_id).map(|r| r.clone()))
+        Ok(self.outgoing_key_requests.get(request_id).map(|r| r.clone()))
     }
 
     async fn get_secret_request_by_info(
@@ -280,7 +280,7 @@ impl CryptoStore for MemoryStore {
         Ok(self
             .key_requests_by_info
             .get(&key_info_string)
-            .and_then(|i| self.outgoing_key_requests.get(&i).map(|r| r.clone())))
+            .and_then(|i| self.outgoing_key_requests.get(&*i).map(|r| r.clone())))
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
@@ -292,8 +292,8 @@ impl CryptoStore for MemoryStore {
             .collect())
     }
 
-    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
-        self.outgoing_key_requests.remove(&request_id).and_then(|(_, i)| {
+    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
+        self.outgoing_key_requests.remove(request_id).and_then(|(_, i)| {
             let key_info_string = encode_key_info(&i.info);
             self.key_requests_by_info.remove(&key_info_string)
         });
@@ -308,6 +308,7 @@ impl CryptoStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
@@ -316,7 +317,7 @@ mod test {
         store::{memorystore::MemoryStore, Changes, CryptoStore},
     };
 
-    #[tokio::test]
+    #[async_test]
     async fn test_session_store() {
         let (account, session) = get_account_and_session().await;
         let store = MemoryStore::new();
@@ -334,7 +335,7 @@ mod test {
         assert_eq!(&session, loaded_session);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_group_session_store() {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
@@ -360,7 +361,7 @@ mod test {
         assert_eq!(inbound, loaded_session);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_device_store() {
         let device = get_device();
         let store = MemoryStore::new();
@@ -385,7 +386,7 @@ mod test {
         assert!(store.get_device(device.user_id(), device.device_id()).await.unwrap().is_none());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_tracked_users() {
         let device = get_device();
         let store = MemoryStore::new();
@@ -396,7 +397,7 @@ mod test {
         assert!(store.is_user_tracked(device.user_id()));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_message_hash() {
         let store = MemoryStore::new();
 

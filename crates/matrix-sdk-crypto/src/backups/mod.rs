@@ -28,10 +28,10 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::{locks::RwLock, uuid::Uuid};
+use matrix_sdk_common::locks::RwLock;
 use ruma::{
     api::client::r0::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, RoomId,
-    UserId,
+    TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -64,7 +64,7 @@ pub struct BackupMachine {
 
 #[derive(Debug, Clone)]
 struct PendingBackup {
-    request_id: Uuid,
+    request_id: &TransactionId,
     request: KeysBackupRequest,
     sessions: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
 }
@@ -259,7 +259,7 @@ impl BackupMachine {
 
     pub(crate) async fn mark_request_as_sent(
         &self,
-        request_id: Uuid,
+        request_id: &TransactionId,
     ) -> Result<(), CryptoStoreError> {
         let mut request = self.pending_backup.write().await;
 
@@ -325,7 +325,7 @@ impl BackupMachine {
                     );
 
                     let request = PendingBackup {
-                        request_id: Uuid::new_v4(),
+                        request_id: TransactionId::new(),
                         request: KeysBackupRequest { version, rooms: backup },
                         sessions: session_record,
                     };

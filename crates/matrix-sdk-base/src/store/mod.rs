@@ -20,6 +20,10 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(test)]
+#[macro_use]
+pub mod integration_tests;
+
 use dashmap::DashMap;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use ruma::{
@@ -35,8 +39,15 @@ use ruma::{
     serde::Raw,
     EventId, MxcUri, RoomId, UserId,
 };
+
+#[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
+mod store_key;
+
 #[cfg(feature = "sled_state_store")]
 use sled::Db;
+
+#[cfg(feature = "indexeddb_state_store")]
+mod indexeddb_store;
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
@@ -50,7 +61,9 @@ mod memory_store;
 #[cfg(feature = "sled_state_store")]
 mod sled_store;
 
-#[cfg(not(feature = "sled_state_store"))]
+#[cfg(feature = "indexeddb_state_store")]
+use self::indexeddb_store::IndexeddbStore;
+#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
 use self::memory_store::MemoryStore;
 #[cfg(feature = "sled_state_store")]
 use self::sled_store::SledStore;
@@ -62,6 +75,17 @@ pub enum StoreError {
     #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Sled(#[from] sled::Error),
+    /// An error happened in the underlying Indexed Database.
+    #[cfg(feature = "indexeddb_state_store")]
+    #[error("IndexDB error: {name} ({code}): {message}")]
+    Indexeddb {
+        /// DomException code
+        code: u16,
+        /// Specific name of the DomException
+        name: String,
+        /// Message given to the DomException
+        message: String,
+    },
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
@@ -79,10 +103,20 @@ pub enum StoreError {
     /// The store failed to encrypt or decrypt some data.
     #[error("Error encrypting or decrypting data from the store: {0}")]
     Encryption(String),
+    /// The store failed to encode or decode some data.
+    #[error("Error encoding or decoding data from the store: {0}")]
+    Codec(String),
     /// An error happened while running a tokio task.
     #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Task(#[from] tokio::task::JoinError),
+}
+
+#[cfg(feature = "indexeddb_state_store")]
+impl From<indexed_db_futures::web_sys::DomException> for StoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> StoreError {
+        StoreError::Indexeddb { name: frm.name(), message: frm.message(), code: frm.code() }
+    }
 }
 
 /// A `StateStore` specific result type.
@@ -313,6 +347,13 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()>;
+
+    /// Removes a room and all elements associated from the state store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The `RoomId` of the room to delete.
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()>;
 }
 
 /// A state store wrapper for the SDK.
@@ -326,6 +367,63 @@ pub struct Store {
     pub(crate) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<Box<RoomId>, Room>>,
     stripped_rooms: Arc<DashMap<Box<RoomId>, Room>>,
+}
+
+#[cfg(feature = "sled_state_store")]
+impl Store {
+    /// Open the default Sled store.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the store should reside in.
+    ///
+    /// * `passphrase` - A passphrase that should be used to encrypt the state
+    /// store.
+    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
+        let inner = if let Some(passphrase) = passphrase {
+            SledStore::open_with_passphrase(path, passphrase)?
+        } else {
+            SledStore::open_with_path(path)?
+        };
+
+        Ok((Self::new(Box::new(inner.clone())), inner.inner))
+    }
+
+    pub(crate) fn open_temporary() -> Result<(Self, Db)> {
+        let inner = SledStore::open()?;
+
+        Ok((Self::new(Box::new(inner.clone())), inner.inner))
+    }
+}
+
+#[cfg(feature = "indexeddb_state_store")]
+impl Store {
+    /// Open the default IndexedDB store.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the store should reside in.
+    ///
+    /// * `passphrase` - A passphrase that should be used to encrypt the state
+    /// store.
+    pub async fn open_default(name: String, passphrase: Option<&str>) -> Result<Self> {
+        let inner = if let Some(passphrase) = passphrase {
+            IndexeddbStore::open_with_passphrase(name, passphrase).await?
+        } else {
+            IndexeddbStore::open_with_name(name).await?
+        };
+
+        Ok(Self::new(Box::new(inner)))
+    }
+}
+
+#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
+impl Store {
+    pub(crate) fn open_memory_store() -> Self {
+        let inner = Box::new(MemoryStore::new());
+
+        Self::new(inner)
+    }
 }
 
 impl Store {
@@ -356,39 +454,6 @@ impl Store {
         *self.session.write().await = Some(session);
 
         Ok(())
-    }
-
-    #[cfg(not(feature = "sled_state_store"))]
-    pub(crate) fn open_memory_store() -> Self {
-        let inner = Box::new(MemoryStore::new());
-
-        Self::new(inner)
-    }
-
-    /// Open the default Sled store.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path where the store should reside in.
-    ///
-    /// * `passphrase` - A passphrase that should be used to encrypt the state
-    /// store.
-    #[cfg(feature = "sled_state_store")]
-    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
-        let inner = if let Some(passphrase) = passphrase {
-            SledStore::open_with_passphrase(path, passphrase)?
-        } else {
-            SledStore::open_with_path(path)?
-        };
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
-    }
-
-    #[cfg(feature = "sled_state_store")]
-    pub(crate) fn open_temporary() -> Result<(Self, Db)> {
-        let inner = SledStore::open()?;
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
     /// Get all the rooms this store knows about.

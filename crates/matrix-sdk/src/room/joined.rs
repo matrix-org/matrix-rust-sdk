@@ -2,12 +2,9 @@
 use std::sync::Arc;
 use std::{io::Read, ops::Deref};
 
+use matrix_sdk_common::instant::{Duration, Instant};
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
-use matrix_sdk_common::{
-    instant::{Duration, Instant},
-    uuid::Uuid,
-};
 use mime::{self, Mime};
 use ruma::{
     api::client::r0::{
@@ -21,24 +18,20 @@ use ruma::{
         receipt::create_receipt,
         redact::redact_event,
         state::send_state_event,
-        tag::{create_tag, delete_tag},
         typing::create_typing_event::{Request as TypingRequest, Typing},
     },
     assign,
-    events::{
-        room::message::RoomMessageEventContent, tag::TagInfo, MessageEventContent,
-        StateEventContent,
-    },
+    events::{room::message::RoomMessageEventContent, MessageEventContent, StateEventContent},
     receipt::ReceiptType,
     serde::Raw,
-    EventId, UserId,
+    EventId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::debug;
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
-use crate::{error::HttpResult, room::Common, BaseRoom, Client, HttpError, Result, RoomType};
+use crate::{error::HttpResult, room::Common, BaseRoom, Client, Result, RoomType};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -163,7 +156,7 @@ impl Joined {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
@@ -273,7 +266,7 @@ impl Joined {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
@@ -361,10 +354,9 @@ impl Joined {
     #[instrument]
     #[cfg(feature = "encryption")]
     async fn share_group_session(&self) -> Result<()> {
-        let mut requests =
-            self.client.base_client().share_group_session(self.inner.room_id()).await?;
+        let requests = self.client.base_client().share_group_session(self.inner.room_id()).await?;
 
-        for request in requests.drain(..) {
+        for request in requests {
             let response = self.client.send_to_device(&request).await?;
 
             self.client.mark_request_as_sent(&request.txn_id, &response).await?;
@@ -410,26 +402,23 @@ impl Joined {
     /// # use matrix_sdk::ruma::room_id;
     /// # use std::convert::TryFrom;
     /// # use serde::{Deserialize, Serialize};
-    /// use matrix_sdk::{
-    ///     uuid::Uuid,
-    ///     ruma::{
-    ///         events::{
-    ///             macros::EventContent,
-    ///             room::message::{RoomMessageEventContent, TextMessageEventContent},
-    ///         },
-    ///         uint, MilliSecondsSinceUnixEpoch,
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         macros::EventContent,
+    ///         room::message::{RoomMessageEventContent, TextMessageEventContent},
     ///     },
+    ///     uint, MilliSecondsSinceUnixEpoch, TransactionId,
     /// };
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     ///
     /// let content = RoomMessageEventContent::text_plain("Hello world");
-    /// let txn_id = Uuid::new_v4();
+    /// let txn_id = TransactionId::new();
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send(content, Some(txn_id)).await?;
+    ///     room.send(content, Some(&txn_id)).await?;
     /// }
     ///
     /// // Custom events work too:
@@ -449,10 +438,10 @@ impl Joined {
     ///         MilliSecondsSinceUnixEpoch(now.0 + uint!(30_000))
     ///     },
     /// };
-    /// let txn_id = Uuid::new_v4();
+    /// let txn_id = TransactionId::new();
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send(content, Some(txn_id)).await?;
+    ///     room.send(content, Some(&txn_id)).await?;
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
@@ -463,12 +452,12 @@ impl Joined {
     pub async fn send(
         &self,
         content: impl MessageEventContent,
-        txn_id: Option<Uuid>,
+        txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
-        let event_type = content.event_type().to_owned();
-        let content = serde_json::to_value(content)?;
+        let event_type = content.event_type();
+        let content = serde_json::to_value(&content)?;
 
-        self.send_raw(content, &event_type, txn_id).await
+        self.send_raw(content, event_type, txn_id).await
     }
 
     /// Send a room message to this room from a json `Value`.
@@ -511,7 +500,7 @@ impl Joined {
     /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// use serde_json::json;
     ///
@@ -532,9 +521,9 @@ impl Joined {
         &self,
         content: Value,
         event_type: &str,
-        txn_id: Option<Uuid>,
+        txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+        let txn_id: Box<TransactionId> = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
         #[cfg(not(feature = "encryption"))]
         let content = {
@@ -608,7 +597,7 @@ impl Joined {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
+    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent`
     /// held in its unsigned field as `transaction_id`. If not given one is
     /// created for the message.
     ///
@@ -622,7 +611,7 @@ impl Joined {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
     /// let mut image = File::open(path)?;
@@ -642,7 +631,7 @@ impl Joined {
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        txn_id: Option<Uuid>,
+        txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
         #[cfg(feature = "encryption")]
         let content = if self.is_encrypted() {
@@ -681,7 +670,7 @@ impl Joined {
     /// };
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
@@ -734,7 +723,7 @@ impl Joined {
     ///
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// let content = json!({
     ///     "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
@@ -778,7 +767,7 @@ impl Joined {
     ///
     /// * `reason` - The reason for the event being redacted.
     ///
-    /// * `txn_id` - A unique [`Uuid`] that can be attached to this event as
+    /// * `txn_id` - A unique ID that can be attached to this event as
     /// its transaction ID. If not given one is created for the message.
     ///
     /// # Example
@@ -786,7 +775,7 @@ impl Joined {
     /// ```no_run
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// use matrix_sdk::ruma::event_id;
     ///
@@ -801,60 +790,14 @@ impl Joined {
         &self,
         event_id: &EventId,
         reason: Option<&str>,
-        txn_id: Option<Uuid>,
+        txn_id: Option<Box<TransactionId>>,
     ) -> HttpResult<redact_event::Response> {
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+        let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request =
             assign!(redact_event::Request::new(self.inner.room_id(), event_id, &txn_id), {
                 reason
             });
 
-        self.client.send(request, None).await
-    }
-
-    /// Adds a tag to the room, or updates it if it already exists.
-    ///
-    /// Returns the [`create_tag::Response`] from the server.
-    ///
-    /// # Arguments
-    /// * `tag` - The tag to add or update.
-    ///
-    /// * `tag_info` - Information about the tag, generally containing the
-    ///   `order` parameter.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use ruma::events::tag::TagInfo;
-    /// # futures::executor::block_on(async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
-    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
-    /// use matrix_sdk::ruma::events::tag::TagInfo;
-    ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     let mut tag_info = TagInfo::new();
-    ///     tag_info.order = Some(0.9);
-    ///
-    ///     room.set_tag("u.work", tag_info ).await?;
-    /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
-    /// ```
-    pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> HttpResult<create_tag::Response> {
-        let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
-        let request = create_tag::Request::new(&user_id, self.inner.room_id(), tag, tag_info);
-        self.client.send(request, None).await
-    }
-
-    /// Removes a tag from the room.
-    ///
-    /// Returns the [`delete_tag::Response`] from the server.
-    ///
-    /// # Arguments
-    /// * `tag` - The tag to remove.
-    pub async fn remove_tag(&self, tag: &str) -> HttpResult<delete_tag::Response> {
-        let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
-        let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag);
         self.client.send(request, None).await
     }
 }

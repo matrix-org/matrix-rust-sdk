@@ -39,7 +39,7 @@ use ruma::{
         },
         AnyToDeviceEvent, OlmV1Keys,
     },
-    serde::{CanonicalJsonValue, Raw},
+    serde::{Base64, CanonicalJsonValue, Raw},
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -111,8 +111,13 @@ pub struct OlmMessageHash {
 
 impl OlmMessageHash {
     fn new(sender_key: &str, message_type: u8, ciphertext: &str) -> Self {
-        let sha = Sha256::new().chain(sender_key).chain(&[message_type]).chain(&ciphertext);
-        Self { sender_key: sender_key.to_owned(), hash: encode(sha.finalize().as_slice()) }
+        let sha = Sha256::new()
+            .chain_update(sender_key)
+            .chain_update(&[message_type])
+            .chain_update(&ciphertext)
+            .finalize();
+
+        Self { sender_key: sender_key.to_owned(), hash: encode(sha.as_slice()) }
     }
 }
 
@@ -625,7 +630,7 @@ impl ReadOnlyAccount {
             let max_keys = self.max_one_time_keys().await;
             let max_on_server = (max_keys as u64) / 2;
 
-            if count >= (max_on_server) {
+            if count >= max_on_server {
                 return Err(());
             }
 
@@ -763,7 +768,7 @@ impl ReadOnlyAccount {
         DeviceKeys::new(
             (*self.user_id).to_owned(),
             (*self.device_id).to_owned(),
-            Self::ALGORITHMS.iter().map(|a| (&**a).clone()).collect(),
+            Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
             BTreeMap::new(),
         )
@@ -862,11 +867,11 @@ impl ReadOnlyAccount {
 
     pub(crate) async fn signed_one_time_keys_helper(
         &self,
-    ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
+    ) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
-        for (key_id, key) in one_time_keys.curve25519().iter() {
+        for (key_id, key) in one_time_keys.curve25519() {
             let key_json = json!({
                 "key": key,
             });
@@ -883,7 +888,10 @@ impl ReadOnlyAccount {
             let mut signatures = BTreeMap::new();
             signatures.insert((*self.user_id).to_owned(), signature_map);
 
-            let signed_key = SignedKey::new(key.to_owned(), signatures);
+            let signed_key = SignedKey::new(
+                Base64::parse(key).expect("Couldn't base64-decode one-time key"),
+                signatures,
+            );
 
             one_time_key_map.insert(
                 DeviceKeyId::from_parts(
@@ -897,7 +905,7 @@ impl ReadOnlyAccount {
             );
         }
 
-        Ok(one_time_key_map)
+        one_time_key_map
     }
 
     /// Generate, sign and prepare one-time keys to be uploaded.
@@ -907,7 +915,7 @@ impl ReadOnlyAccount {
         &self,
     ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
         let _ = self.generate_one_time_keys().await?;
-        self.signed_one_time_keys_helper().await
+        Ok(self.signed_one_time_keys_helper().await)
     }
 
     /// Create a new session with another account given a one-time key.
@@ -929,7 +937,7 @@ impl ReadOnlyAccount {
             .inner
             .lock()
             .await
-            .create_outbound_session(their_identity_key, &their_one_time_key.key)?;
+            .create_outbound_session(their_identity_key, &their_one_time_key.key.encode())?;
 
         let now = Instant::now();
         let session_id = session.session_id();
@@ -1173,7 +1181,7 @@ mod test {
     use std::{collections::BTreeSet, ops::Deref};
 
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, identifiers::DeviceId, user_id, DeviceKeyId, UserId};
+    use ruma::{device_id, user_id, DeviceId, DeviceKeyId, UserId};
 
     use super::ReadOnlyAccount;
     use crate::error::OlmResult as Result;
@@ -1232,7 +1240,6 @@ mod test {
             fourth_one_time_keys.keys().map(Deref::deref).collect();
 
         assert_ne!(device_key_ids, fourth_device_key_ids);
-
         Ok(())
     }
 }

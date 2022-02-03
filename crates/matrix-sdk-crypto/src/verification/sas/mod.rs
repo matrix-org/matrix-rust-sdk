@@ -17,18 +17,17 @@ mod inner_sas;
 mod sas_state;
 
 use std::sync::{Arc, Mutex};
-#[cfg(test)]
-use std::time::Instant;
 
 use inner_sas::InnerSas;
-use matrix_sdk_common::uuid::Uuid;
+#[cfg(test)]
+use matrix_sdk_common::instant::Instant;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{cancel::CancelCode, ShortAuthenticationString},
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, RoomId, UserId,
+    DeviceId, EventId, RoomId, TransactionId, UserId,
 };
 use tracing::trace;
 
@@ -190,7 +189,7 @@ impl Sas {
         store: VerificationStore,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<String>,
+        transaction_id: Option<Box<TransactionId>>,
         we_started: bool,
         request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
@@ -336,7 +335,7 @@ impl Sas {
                 }
                 OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
                     room_id,
-                    txn_id: Uuid::new_v4(),
+                    txn_id: TransactionId::new(),
                     content: AnyMessageEventContent::KeyVerificationAccept(content),
                 }
                 .into(),
@@ -355,27 +354,29 @@ impl Sas {
     /// the server.
     pub async fn confirm(
         &self,
-    ) -> Result<
-        (Option<OutgoingVerificationRequest>, Option<SignatureUploadRequest>),
-        CryptoStoreError,
-    > {
-        let (content, done) = {
+    ) -> Result<(Vec<OutgoingVerificationRequest>, Option<SignatureUploadRequest>), CryptoStoreError>
+    {
+        let (contents, done) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
-            let (sas, content) = sas.confirm();
+            let (sas, contents) = sas.confirm();
 
             *guard = sas;
-            (content, guard.is_done())
+            (contents, guard.is_done())
         };
 
-        let mac_request = content.map(|c| match c {
-            OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
-            OutgoingContent::Room(r, c) => {
-                RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
-            }
-        });
+        let mac_requests = contents
+            .into_iter()
+            .map(|c| match c {
+                OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
+                OutgoingContent::Room(r, c) => {
+                    RoomMessageRequest { room_id: r, txn_id: TransactionId::new(), content: c }
+                        .into()
+                }
+            })
+            .collect::<Vec<_>>();
 
-        if mac_request.is_some() {
+        if !mac_requests.is_empty() {
             trace!(
                 user_id = self.other_user_id().as_str(),
                 device_id = self.other_device_id().as_str(),
@@ -385,12 +386,14 @@ impl Sas {
 
         if done {
             match self.mark_as_done().await? {
-                VerificationResult::Cancel(c) => Ok((self.cancel_with_code(c), None)),
-                VerificationResult::Ok => Ok((mac_request, None)),
-                VerificationResult::SignatureUpload(r) => Ok((mac_request, Some(r))),
+                VerificationResult::Cancel(c) => {
+                    Ok((self.cancel_with_code(c).into_iter().collect(), None))
+                }
+                VerificationResult::Ok => Ok((mac_requests, None)),
+                VerificationResult::SignatureUpload(r) => Ok((mac_requests, Some(r))),
             }
         } else {
-            Ok((mac_request, None))
+            Ok((mac_requests, None))
         }
     }
 
@@ -435,7 +438,7 @@ impl Sas {
         *guard = sas;
         content.map(|c| match c {
             OutgoingContent::Room(room_id, content) => {
-                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+                RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
             OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
         })
@@ -557,6 +560,7 @@ impl AcceptSettings {
 mod test {
     use std::{convert::TryFrom, sync::Arc};
 
+    use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::Sas;
@@ -586,7 +590,7 @@ mod test {
         device_id!("BOBDEVCIE")
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_wrapper_full() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
@@ -650,12 +654,16 @@ mod test {
         assert_eq!(alice.emoji().unwrap(), bob.emoji().unwrap());
         assert_eq!(alice.decimals().unwrap(), bob.decimals().unwrap());
 
-        let request = alice.confirm().await.unwrap().0.unwrap();
+        let mut requests = alice.confirm().await.unwrap().0;
+        assert!(requests.len() == 1);
+        let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap();
         bob.receive_any_event(alice.user_id(), &content.into());
 
-        let request = bob.confirm().await.unwrap().0.unwrap();
+        let mut requests = bob.confirm().await.unwrap().0;
+        assert!(requests.len() == 1);
+        let request = requests.pop().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = MacContent::try_from(&content).unwrap();
         alice.receive_any_event(bob.user_id(), &content.into());

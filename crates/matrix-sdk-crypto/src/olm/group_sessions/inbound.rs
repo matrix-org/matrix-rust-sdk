@@ -200,8 +200,8 @@ impl InboundGroupSession {
         PickledInboundGroupSession {
             pickle: InboundGroupSessionPickle::from(pickle),
             sender_key: self.sender_key.to_string(),
-            signing_key: (&*self.signing_keys).clone(),
-            room_id: (&*self.room_id).to_owned(),
+            signing_key: (*self.signing_keys).clone(),
+            room_id: (*self.room_id).to_owned(),
             forwarding_chains: self.forwarding_key_chain().to_vec(),
             imported: self.imported,
             backed_up: self.backed_up(),
@@ -232,7 +232,8 @@ impl InboundGroupSession {
         self.backed_up.store(false, SeqCst)
     }
 
-    #[cfg(feature = "backups_v1")]
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn mark_as_backed_up(&self) {
         self.backed_up.store(true, SeqCst)
     }
@@ -261,11 +262,11 @@ impl InboundGroupSession {
 
         ExportedRoomKey {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-            room_id: (&*self.room_id).to_owned(),
-            sender_key: (&*self.sender_key).to_owned(),
+            room_id: (*self.room_id).to_owned(),
+            sender_key: (*self.sender_key).to_owned(),
             session_id: self.session_id().to_owned(),
             forwarding_curve25519_key_chain: self.forwarding_key_chain().to_vec(),
-            sender_claimed_keys: (&*self.signing_keys).clone(),
+            sender_claimed_keys: (*self.signing_keys).clone(),
             session_key,
         }
     }

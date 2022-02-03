@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use std::sync::Arc;
-#[cfg(test)]
-use std::time::Instant;
 
+#[cfg(test)]
+use matrix_sdk_common::instant::Instant;
 use ruma::{
     events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
-    EventId, RoomId, UserId,
+    EventId, RoomId, TransactionId, UserId,
 };
 
 use super::{
@@ -57,7 +57,7 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<String>,
+        transaction_id: Option<Box<TransactionId>>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(
             account,
@@ -228,27 +228,27 @@ impl InnerSas {
         (InnerSas::Cancelled(sas), Some(content))
     }
 
-    pub fn confirm(self) -> (InnerSas, Option<OutgoingContent>) {
+    pub fn confirm(self) -> (InnerSas, Vec<OutgoingContent>) {
         match self {
             InnerSas::KeyReceived(s) => {
                 let sas = s.confirm();
                 let content = sas.as_content();
-                (InnerSas::Confirmed(sas), Some(content))
+                (InnerSas::Confirmed(sas), vec![content])
             }
             InnerSas::MacReceived(s) => {
                 if s.started_from_request {
                     let sas = s.confirm_and_wait_for_done();
-                    let content = sas.as_content();
+                    let contents = vec![sas.as_content(), sas.done_content()];
 
-                    (InnerSas::WaitingForDone(sas), Some(content))
+                    (InnerSas::WaitingForDone(sas), contents)
                 } else {
                     let sas = s.confirm();
                     let content = sas.as_content();
 
-                    (InnerSas::Done(sas), Some(content))
+                    (InnerSas::Done(sas), vec![content])
                 }
             }
-            _ => (self, None),
+            _ => (self, Vec::new()),
         }
     }
 
@@ -335,10 +335,7 @@ impl InnerSas {
             },
             AnyVerificationContent::Done(c) => match self {
                 InnerSas::WaitingForDone(s) => match s.into_done(sender, c) {
-                    Ok(s) => {
-                        let content = s.done_content();
-                        (InnerSas::Done(s), Some(content))
-                    }
+                    Ok(s) => (InnerSas::Done(s), None),
                     Err(s) => {
                         let content = s.as_content();
                         (InnerSas::Cancelled(s), Some(content))

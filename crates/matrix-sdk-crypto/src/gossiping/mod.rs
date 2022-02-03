@@ -18,7 +18,6 @@ use std::sync::Arc;
 
 use dashmap::{DashMap, DashSet};
 pub(crate) use machine::GossipMachine;
-use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     events::{
         room_key_request::{
@@ -32,7 +31,7 @@ use ruma::{
         AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, UserId,
+    DeviceId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -69,7 +68,7 @@ pub struct GossipRequest {
     /// The user we requested the secret from
     pub request_recipient: Box<UserId>,
     /// The unique id of the secret request.
-    pub request_id: Uuid,
+    pub request_id: Box<TransactionId>,
     /// The info of the requested secret.
     pub info: SecretInfo,
     /// Has the request been sent out.
@@ -83,6 +82,24 @@ pub enum SecretInfo {
     KeyRequest(RequestedKeyInfo),
     /// Info for the `m.secret.request` variant
     SecretRequest(SecretName),
+}
+
+impl SecretInfo {
+    #[allow(dead_code)]
+    /// Serialize `SecretInfo` into `String` for usage as database keys and
+    /// comparison
+    pub(crate) fn as_key(&self) -> String {
+        match &self {
+            SecretInfo::KeyRequest(ref info) => format!(
+                "keyRequest:{:}:{:}:{:}:{:}",
+                info.room_id.as_str(),
+                info.sender_key,
+                info.session_id,
+                &info.algorithm
+            ),
+            SecretInfo::SecretRequest(ref sname) => format!("secretName:{:}", sname),
+        }
+    }
 }
 
 impl From<RequestedKeyInfo> for SecretInfo {
@@ -102,7 +119,7 @@ impl GossipRequest {
     pub(crate) fn from_secret_name(own_user_id: Box<UserId>, secret_name: SecretName) -> Self {
         Self {
             request_recipient: own_user_id,
-            request_id: Uuid::new_v4(),
+            request_id: TransactionId::new(),
             info: secret_name.into(),
             sent_out: false,
         }
@@ -122,14 +139,14 @@ impl GossipRequest {
                     Action::Request,
                     Some(r.clone()),
                     own_device_id.to_owned(),
-                    self.request_id.to_string(),
+                    self.request_id.clone(),
                 ))
             }
             SecretInfo::SecretRequest(s) => {
                 AnyToDeviceEventContent::SecretRequest(SecretRequestEventContent::new(
                     RequestAction::Request(s.clone()),
                     own_device_id.to_owned(),
-                    self.request_id.to_string(),
+                    self.request_id.clone(),
                 ))
             }
         };
@@ -138,10 +155,10 @@ impl GossipRequest {
             &self.request_recipient,
             DeviceIdOrAllDevices::AllDevices,
             content,
-            self.request_id,
+            self.request_id.clone(),
         );
 
-        OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) }
+        OutgoingRequest { request_id: request.txn_id.clone(), request: Arc::new(request.into()) }
     }
 
     fn to_cancellation(&self, own_device_id: &DeviceId) -> OutgoingRequest {
@@ -151,14 +168,14 @@ impl GossipRequest {
                     Action::CancelRequest,
                     None,
                     own_device_id.to_owned(),
-                    self.request_id.to_string(),
+                    self.request_id.clone(),
                 ))
             }
             SecretInfo::SecretRequest(_) => {
                 AnyToDeviceEventContent::SecretRequest(SecretRequestEventContent::new(
                     RequestAction::RequestCancellation,
                     own_device_id.to_owned(),
-                    self.request_id.to_string(),
+                    self.request_id.clone(),
                 ))
             }
         };
@@ -169,7 +186,7 @@ impl GossipRequest {
             content,
         );
 
-        OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) }
+        OutgoingRequest { request_id: request.txn_id.clone(), request: Arc::new(request.into()) }
     }
 }
 
@@ -233,7 +250,7 @@ impl RequestEvent {
         }
     }
 
-    fn request_id(&self) -> &str {
+    fn request_id(&self) -> &TransactionId {
         match self {
             RequestEvent::KeyShare(e) => &e.content.request_id,
             RequestEvent::Secret(e) => &e.content.request_id,
@@ -245,11 +262,15 @@ impl RequestEvent {
 struct RequestInfo {
     sender: Box<UserId>,
     requesting_device_id: Box<DeviceId>,
-    request_id: String,
+    request_id: Box<TransactionId>,
 }
 
 impl RequestInfo {
-    fn new(sender: Box<UserId>, requesting_device_id: Box<DeviceId>, request_id: String) -> Self {
+    fn new(
+        sender: Box<UserId>,
+        requesting_device_id: Box<DeviceId>,
+        request_id: Box<TransactionId>,
+    ) -> Self {
         Self { sender, requesting_device_id, request_id }
     }
 }
@@ -260,7 +281,7 @@ impl RequestInfo {
 struct WaitQueue {
     requests_waiting_for_session: Arc<DashMap<RequestInfo, RequestEvent>>,
     #[allow(clippy::type_complexity)]
-    requests_ids_waiting: Arc<DashMap<(Box<UserId>, Box<DeviceId>), DashSet<String>>>,
+    requests_ids_waiting: Arc<DashMap<(Box<UserId>, Box<DeviceId>), DashSet<Box<TransactionId>>>>,
 }
 
 impl WaitQueue {

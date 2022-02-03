@@ -33,6 +33,7 @@ use ruma::{
         },
         error::{FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError},
     },
+    events::tag::InvalidUserTagName,
     identifiers::Error as IdentifierError,
 };
 use serde_json::Error as JsonError;
@@ -157,6 +158,10 @@ pub enum Error {
     #[cfg(feature = "qrcode")]
     #[error(transparent)]
     QrCodeScanError(#[from] ScanError),
+
+    /// An error encountered when trying to parse a user tag name.
+    #[error(transparent)]
+    UserTagName(#[from] InvalidUserTagName),
 }
 
 /// Error for the room key importing functionality.

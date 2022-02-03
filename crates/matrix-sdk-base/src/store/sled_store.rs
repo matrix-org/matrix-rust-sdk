@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod store_key;
-
 use std::{
     collections::BTreeSet,
     convert::{TryFrom, TryInto},
@@ -45,7 +43,7 @@ use tokio::task::spawn_blocking;
 use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
@@ -93,19 +91,37 @@ trait EncodeKey {
     fn encode(&self) -> Vec<u8>;
 }
 
-impl EncodeKey for &UserId {
+impl<T: EncodeKey> EncodeKey for &T {
+    fn encode(&self) -> Vec<u8> {
+        T::encode(self)
+    }
+}
+
+impl<T: EncodeKey> EncodeKey for Box<T> {
+    fn encode(&self) -> Vec<u8> {
+        T::encode(self)
+    }
+}
+
+impl EncodeKey for UserId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &RoomId {
+impl EncodeKey for RoomId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
 
-impl EncodeKey for &str {
+impl EncodeKey for String {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+}
+
+impl EncodeKey for str {
     fn encode(&self) -> Vec<u8> {
         [self.as_bytes(), &[ENCODE_SEPARATOR]].concat()
     }
@@ -425,7 +441,7 @@ impl SledStore {
 
                     for (event_type, event) in &changes.account_data {
                         account_data.insert(
-                            event_type.as_str().encode(),
+                            event_type.encode(),
                             self.serialize_event(&event)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -456,7 +472,7 @@ impl SledStore {
 
                     for (room_id, room_info) in &changes.room_infos {
                         rooms.insert(
-                            (&**room_id).encode(),
+                            room_id.encode(),
                             self.serialize_event(room_info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -464,7 +480,7 @@ impl SledStore {
 
                     for (sender, event) in &changes.presence {
                         presence.insert(
-                            (&**sender).encode(),
+                            sender.encode(),
                             self.serialize_event(&event)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -472,7 +488,7 @@ impl SledStore {
 
                     for (room_id, info) in &changes.invited_room_info {
                         striped_rooms.insert(
-                            (&**room_id).encode(),
+                            room_id.encode(),
                             self.serialize_event(&info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
@@ -846,6 +862,121 @@ impl SledStore {
 
         Ok(self.media.apply_batch(batch)?)
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        let room_key = room_id.encode();
+
+        let mut members_batch = sled::Batch::default();
+        for key in self.members.scan_prefix(room_key.as_slice()).keys() {
+            members_batch.remove(key?)
+        }
+
+        let mut profiles_batch = sled::Batch::default();
+        for key in self.profiles.scan_prefix(room_key.as_slice()).keys() {
+            profiles_batch.remove(key?)
+        }
+
+        let mut display_names_batch = sled::Batch::default();
+        for key in self.display_names.scan_prefix(room_key.as_slice()).keys() {
+            display_names_batch.remove(key?)
+        }
+
+        let mut joined_user_ids_batch = sled::Batch::default();
+        for key in self.joined_user_ids.scan_prefix(room_key.as_slice()).keys() {
+            joined_user_ids_batch.remove(key?)
+        }
+
+        let mut invited_user_ids_batch = sled::Batch::default();
+        for key in self.invited_user_ids.scan_prefix(room_key.as_slice()).keys() {
+            invited_user_ids_batch.remove(key?)
+        }
+
+        let mut room_state_batch = sled::Batch::default();
+        for key in self.room_state.scan_prefix(room_key.as_slice()).keys() {
+            room_state_batch.remove(key?)
+        }
+
+        let mut room_account_data_batch = sled::Batch::default();
+        for key in self.room_account_data.scan_prefix(room_key.as_slice()).keys() {
+            room_account_data_batch.remove(key?)
+        }
+
+        let mut stripped_members_batch = sled::Batch::default();
+        for key in self.stripped_members.scan_prefix(room_key.as_slice()).keys() {
+            stripped_members_batch.remove(key?)
+        }
+
+        let mut stripped_room_state_batch = sled::Batch::default();
+        for key in self.stripped_room_state.scan_prefix(room_key.as_slice()).keys() {
+            stripped_room_state_batch.remove(key?)
+        }
+
+        let mut room_user_receipts_batch = sled::Batch::default();
+        for key in self.room_user_receipts.scan_prefix(room_key.as_slice()).keys() {
+            room_user_receipts_batch.remove(key?)
+        }
+
+        let mut room_event_receipts_batch = sled::Batch::default();
+        for key in self.room_event_receipts.scan_prefix(room_key.as_slice()).keys() {
+            room_event_receipts_batch.remove(key?)
+        }
+
+        let ret: Result<(), TransactionError<SerializationError>> = (
+            &self.members,
+            &self.profiles,
+            &self.display_names,
+            &self.joined_user_ids,
+            &self.invited_user_ids,
+            &self.room_info,
+            &self.room_state,
+            &self.room_account_data,
+            &self.stripped_room_info,
+            &self.stripped_members,
+            &self.stripped_room_state,
+            &self.room_user_receipts,
+            &self.room_event_receipts,
+        )
+            .transaction(
+                |(
+                    members,
+                    profiles,
+                    display_names,
+                    joined,
+                    invited,
+                    rooms,
+                    state,
+                    room_account_data,
+                    stripped_rooms,
+                    stripped_members,
+                    stripped_state,
+                    room_user_receipts,
+                    room_event_receipts,
+                )| {
+                    rooms.remove(room_key.as_slice())?;
+                    stripped_rooms.remove(room_key.as_slice())?;
+
+                    members.apply_batch(&members_batch)?;
+                    profiles.apply_batch(&profiles_batch)?;
+                    display_names.apply_batch(&display_names_batch)?;
+                    joined.apply_batch(&joined_user_ids_batch)?;
+                    invited.apply_batch(&invited_user_ids_batch)?;
+                    state.apply_batch(&room_state_batch)?;
+                    room_account_data.apply_batch(&room_account_data_batch)?;
+                    stripped_members.apply_batch(&stripped_members_batch)?;
+                    stripped_state.apply_batch(&stripped_room_state_batch)?;
+                    room_user_receipts.apply_batch(&room_user_receipts_batch)?;
+                    room_event_receipts.apply_batch(&room_event_receipts_batch)?;
+
+                    Ok(())
+                },
+            );
+
+        ret?;
+
+        self.inner.flush_async().await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -987,258 +1118,20 @@ impl StateStore for SledStore {
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        self.remove_room(room_id).await
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_test::async_test;
-    use ruma::{
-        api::client::r0::media::get_content_thumbnail::Method,
-        event_id,
-        events::{
-            room::{
-                member::{MembershipState, RoomMemberEventContent},
-                power_levels::RoomPowerLevelsEventContent,
-            },
-            AnySyncStateEvent, EventType, Unsigned,
-        },
-        mxc_uri,
-        receipt::ReceiptType,
-        room_id,
-        serde::Raw,
-        uint, user_id, MilliSecondsSinceUnixEpoch, UserId,
-    };
-    use serde_json::json;
 
-    use super::{Result, SledStore, StateChanges};
-    use crate::{
-        deserialized_responses::MemberEvent,
-        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
-        StateStore,
-    };
+    use super::{Result, SledStore};
 
-    fn user_id() -> &'static UserId {
-        user_id!("@example:localhost")
+    async fn get_store() -> Result<SledStore> {
+        SledStore::open()
     }
 
-    fn power_level_event() -> Raw<AnySyncStateEvent> {
-        let content = RoomPowerLevelsEventContent::default();
-
-        let event = json!({
-            "event_id": "$h29iv0s8:example.com",
-            "content": content,
-            "sender": user_id(),
-            "type": "m.room.power_levels",
-            "origin_server_ts": 0u64,
-            "state_key": "",
-            "unsigned": Unsigned::default(),
-        });
-
-        serde_json::from_value(event).unwrap()
-    }
-
-    fn membership_event() -> MemberEvent {
-        MemberEvent {
-            event_id: event_id!("$h29iv0s8:example.com").to_owned(),
-            content: RoomMemberEventContent::new(MembershipState::Join),
-            sender: user_id().to_owned(),
-            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
-            state_key: user_id().to_owned(),
-            prev_content: None,
-            unsigned: Unsigned::default(),
-        }
-    }
-
-    #[async_test]
-    async fn test_member_saving() {
-        let store = SledStore::open().unwrap();
-        let room_id = room_id!("!test:localhost");
-        let user_id = user_id();
-
-        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
-        let mut changes = StateChanges::default();
-        changes
-            .members
-            .entry(room_id.to_owned())
-            .or_default()
-            .insert(user_id.to_owned(), membership_event());
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
-
-        let members = store.get_user_ids(room_id).await.unwrap();
-        assert!(!members.is_empty())
-    }
-
-    #[async_test]
-    async fn test_power_level_saving() {
-        let store = SledStore::open().unwrap();
-        let room_id = room_id!("!test:localhost");
-
-        let raw_event = power_level_event();
-        let event = raw_event.deserialize().unwrap();
-
-        assert!(store
-            .get_state_event(room_id, EventType::RoomPowerLevels, "")
-            .await
-            .unwrap()
-            .is_none());
-        let mut changes = StateChanges::default();
-        changes.add_state_event(room_id, event, raw_event);
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store
-            .get_state_event(room_id, EventType::RoomPowerLevels, "")
-            .await
-            .unwrap()
-            .is_some());
-    }
-
-    #[async_test]
-    async fn test_receipts_saving() {
-        let store = SledStore::open().unwrap();
-
-        let room_id = room_id!("!test:localhost");
-
-        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org").to_owned();
-        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org").to_owned();
-
-        let first_receipt_event = serde_json::from_value(json!({
-            first_event_id.clone(): {
-                "m.read": {
-                    user_id().to_owned(): {
-                        "ts": 1436451550453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
-
-        let second_receipt_event = serde_json::from_value(json!({
-            second_event_id.clone(): {
-                "m.read": {
-                    user_id().to_owned(): {
-                        "ts": 1436451551453u64
-                    }
-                }
-            }
-        }))
-        .unwrap();
-
-        assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
-            .await
-            .unwrap()
-            .is_none());
-        assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-        assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-
-        let mut changes = StateChanges::default();
-        changes.add_receipts(room_id, first_receipt_event);
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
-            .await
-            .unwrap()
-            .is_some(),);
-        assert_eq!(
-            store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-
-        let mut changes = StateChanges::default();
-        changes.add_receipts(room_id, second_receipt_event);
-
-        store.save_changes(&changes).await.unwrap();
-        assert!(store
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
-            .await
-            .unwrap()
-            .is_some());
-        assert!(store
-            .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
-            .await
-            .unwrap()
-            .is_empty());
-        assert_eq!(
-            store
-                .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
-    }
-
-    #[async_test]
-    async fn test_media_content() {
-        let store = SledStore::open().unwrap();
-
-        let uri = mxc_uri!("mxc://localhost/media");
-        let content: Vec<u8> = "somebinarydata".into();
-
-        let request_file =
-            MediaRequest { media_type: MediaType::Uri(uri.to_owned()), format: MediaFormat::File };
-
-        let request_thumbnail = MediaRequest {
-            media_type: MediaType::Uri(uri.to_owned()),
-            format: MediaFormat::Thumbnail(MediaThumbnailSize {
-                method: Method::Crop,
-                width: uint!(100),
-                height: uint!(100),
-            }),
-        };
-
-        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
-
-        store.add_media_content(&request_file, content.clone()).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
-
-        store.remove_media_content(&request_file).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-
-        store.add_media_content(&request_file, content.clone()).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
-
-        store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
-        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
-
-        store.remove_media_content_for_uri(uri).await.unwrap();
-        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
-    }
-
-    #[async_test]
-    async fn test_custom_storage() -> Result<()> {
-        let key = "my_key";
-        let value = &[0, 1, 2, 3];
-        let store = SledStore::open()?;
-
-        store.set_custom_value(key.as_bytes(), value.to_vec()).await?;
-
-        let read = store.get_custom_value(key.as_bytes()).await?;
-
-        assert_eq!(Some(value.as_ref()), read.as_deref());
-
-        Ok(())
-    }
+    statestore_integration_tests! { integration }
 }

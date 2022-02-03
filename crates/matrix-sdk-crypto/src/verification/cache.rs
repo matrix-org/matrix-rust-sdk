@@ -15,8 +15,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use matrix_sdk_common::uuid::Uuid;
-use ruma::{DeviceId, UserId};
+use ruma::{DeviceId, TransactionId, UserId};
 use tracing::trace;
 
 use super::{event_enums::OutgoingContent, Sas, Verification};
@@ -27,7 +26,7 @@ use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, To
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
     verification: Arc<DashMap<Box<UserId>, DashMap<String, Verification>>>,
-    outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
+    outgoing_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
 }
 
 impl VerificationCache {
@@ -119,12 +118,14 @@ impl VerificationCache {
 
     pub fn add_request(&self, request: OutgoingRequest) {
         trace!("Adding an outgoing verification request {:?}", request);
-        self.outgoing_requests.insert(request.request_id, request);
+        self.outgoing_requests.insert(request.request_id.clone(), request);
     }
 
     pub fn add_verification_request(&self, request: OutgoingVerificationRequest) {
-        let request =
-            OutgoingRequest { request_id: request.request_id(), request: Arc::new(request.into()) };
+        let request = OutgoingRequest {
+            request_id: request.request_id().to_owned(),
+            request: Arc::new(request.into()),
+        };
         self.add_request(request);
     }
 
@@ -137,21 +138,25 @@ impl VerificationCache {
         match content {
             OutgoingContent::ToDevice(c) => {
                 let request = ToDeviceRequest::new(recipient, recipient_device.to_owned(), c);
-                let request_id = request.txn_id;
+                let request_id = request.txn_id.clone();
 
-                let request = OutgoingRequest { request_id, request: Arc::new(request.into()) };
+                let request = OutgoingRequest {
+                    request_id: request_id.clone(),
+                    request: Arc::new(request.into()),
+                };
 
                 self.outgoing_requests.insert(request_id, request);
             }
 
             OutgoingContent::Room(r, c) => {
-                let request_id = Uuid::new_v4();
+                let request_id = TransactionId::new();
 
                 let request = OutgoingRequest {
                     request: Arc::new(
-                        RoomMessageRequest { room_id: r, txn_id: request_id, content: c }.into(),
+                        RoomMessageRequest { room_id: r, txn_id: request_id.clone(), content: c }
+                            .into(),
                     ),
-                    request_id,
+                    request_id: request_id.clone(),
                 };
 
                 self.outgoing_requests.insert(request_id, request);
@@ -159,7 +164,7 @@ impl VerificationCache {
         }
     }
 
-    pub fn mark_request_as_sent(&self, uuid: &Uuid) {
-        self.outgoing_requests.remove(uuid);
+    pub fn mark_request_as_sent(&self, txn_id: &TransactionId) {
+        self.outgoing_requests.remove(txn_id);
     }
 }

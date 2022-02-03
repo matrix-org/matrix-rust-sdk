@@ -23,7 +23,8 @@ async fn on_room_message(event: SyncRoomMessageEvent, room: Room) {
             println!("sending");
 
             // send our message to the room we found the "!party" command in
-            // the last parameter is an optional Uuid which we don't care about.
+            // the last parameter is an optional transaction id which we don't
+            // care about.
             room.send(content, None).await.unwrap();
 
             println!("message sent");
@@ -44,7 +45,7 @@ async fn login_and_sync(
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     // create a new Client with the given homeserver url and config
-    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new_with_config(homeserver_url, client_config).await.unwrap();
 
     client.login(&username, &password, None, Some("command bot")).await?;
 

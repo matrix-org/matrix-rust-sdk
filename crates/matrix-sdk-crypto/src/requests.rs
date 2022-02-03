@@ -14,7 +14,6 @@
 
 use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
-use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::{
         backup::{add_backup_keys::Response as KeysBackupResponse, RoomKeyBackup},
@@ -34,13 +33,12 @@ use ruma::{
     events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, EventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, RoomId, UserId,
+    DeviceId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
 /// Customized version of
-/// `ruma_client_api::r0::to_device::send_event_to_device::Request`,
-/// using a UUID for the transaction ID.
+/// `ruma_client_api::r0::to_device::send_event_to_device::Request`
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
@@ -48,7 +46,7 @@ pub struct ToDeviceRequest {
 
     /// A request identifier unique to the access token used to send the
     /// request.
-    pub txn_id: Uuid,
+    pub txn_id: Box<TransactionId>,
 
     /// A map of users to devices to a content for a message event to be
     /// sent to the user's device. Individual message events can be sent
@@ -77,14 +75,14 @@ impl ToDeviceRequest {
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
     ) -> Self {
-        Self::new_with_id(recipient, recipient_device, content, Uuid::new_v4())
+        Self::new_with_id(recipient, recipient_device, content, TransactionId::new())
     }
 
     pub(crate) fn new_for_recipients(
         recipient: &UserId,
         recipient_devices: Vec<Box<DeviceId>>,
         content: AnyToDeviceEventContent,
-        txn_id: Uuid,
+        txn_id: Box<TransactionId>,
     ) -> Self {
         if recipient_devices.is_empty() {
             Self::new(recipient, DeviceIdOrAllDevices::AllDevices, content)
@@ -108,7 +106,7 @@ impl ToDeviceRequest {
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
-        txn_id: Uuid,
+        txn_id: Box<TransactionId>,
     ) -> Self {
         let event_type = EventType::from(content.event_type());
         let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
@@ -117,11 +115,6 @@ impl ToDeviceRequest {
         let messages = iter::once((recipient.to_owned(), user_messages)).collect();
 
         ToDeviceRequest { event_type, txn_id, messages }
-    }
-
-    /// Gets the transaction ID as a string.
-    pub fn txn_id_string(&self) -> String {
-        self.txn_id.to_string()
     }
 
     /// Get the number of unique messages this request contains.
@@ -257,13 +250,13 @@ impl From<SignatureUploadRequest> for OutgoingRequests {
 
 impl From<OutgoingVerificationRequest> for OutgoingRequest {
     fn from(r: OutgoingVerificationRequest) -> Self {
-        Self { request_id: r.request_id(), request: Arc::new(r.into()) }
+        Self { request_id: r.request_id().to_owned(), request: Arc::new(r.into()) }
     }
 }
 
 impl From<SignatureUploadRequest> for OutgoingRequest {
     fn from(r: SignatureUploadRequest) -> Self {
-        Self { request_id: Uuid::new_v4(), request: Arc::new(r.into()) }
+        Self { request_id: TransactionId::new(), request: Arc::new(r.into()) }
     }
 }
 
@@ -340,14 +333,14 @@ impl<'a> From<&'a SignatureUploadResponse> for IncomingResponse<'a> {
 pub struct OutgoingRequest {
     /// The unique id of a request, needs to be passed when receiving a
     /// response.
-    pub(crate) request_id: Uuid,
+    pub(crate) request_id: Box<TransactionId>,
     /// The underlying outgoing request.
     pub(crate) request: Arc<OutgoingRequests>,
 }
 
 impl OutgoingRequest {
     /// Get the unique id of this request.
-    pub fn request_id(&self) -> &Uuid {
+    pub fn request_id(&self) -> &TransactionId {
         &self.request_id
     }
 
@@ -368,7 +361,7 @@ pub struct RoomMessageRequest {
     /// Clients should generate an ID unique across requests with the
     /// same access token; it will be used by the server to ensure
     /// idempotency of requests.
-    pub txn_id: Uuid,
+    pub txn_id: Box<TransactionId>,
 
     /// The event content to send.
     pub content: AnyMessageEventContent,
@@ -395,10 +388,10 @@ pub enum OutgoingVerificationRequest {
 
 impl OutgoingVerificationRequest {
     /// Get the unique id of this request.
-    pub fn request_id(&self) -> Uuid {
+    pub fn request_id(&self) -> &TransactionId {
         match self {
-            OutgoingVerificationRequest::ToDevice(t) => t.txn_id,
-            OutgoingVerificationRequest::InRoom(r) => r.txn_id,
+            OutgoingVerificationRequest::ToDevice(t) => &t.txn_id,
+            OutgoingVerificationRequest::InRoom(r) => &r.txn_id,
         }
     }
 }

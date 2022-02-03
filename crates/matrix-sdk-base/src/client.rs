@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[allow(unused_imports)]
 #[cfg(feature = "encryption")]
 use std::ops::Deref;
 use std::{
@@ -24,6 +25,8 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     deserialized_responses::{
         AmbiguityChanges, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Rooms,
@@ -31,9 +34,8 @@ use matrix_sdk_common::{
     },
     instant::Instant,
     locks::RwLock,
+    util::milli_seconds_since_unix_epoch,
 };
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError},
@@ -45,9 +47,9 @@ use ruma::{
     api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyMessageEventContent, AnySyncMessageEvent,
+        AnySyncMessageEvent, MessageEventContent,
     },
-    DeviceId,
+    DeviceId, TransactionId,
 };
 use ruma::{
     api::client::r0::{self as api, push::get_notifications::Notification},
@@ -58,7 +60,7 @@ use ruma::{
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, RoomId, UInt, UserId,
+    RoomId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 use zeroize::Zeroizing;
@@ -85,13 +87,13 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
+    #[allow(dead_code)]
+    store_path: Option<PathBuf>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
-    #[cfg(feature = "encryption")]
-    store_path: Arc<Option<PathBuf>>,
-    #[cfg(feature = "sled_cryptostore")]
+    #[allow(dead_code)]
     store_passphrase: Arc<Option<Zeroizing<String>>>,
 }
 
@@ -120,6 +122,8 @@ impl fmt::Debug for BaseClient {
 pub struct BaseClientConfig {
     #[cfg(feature = "encryption")]
     crypto_store: Option<Box<dyn CryptoStore>>,
+    #[cfg(feature = "indexeddb_state_store")]
+    name: String,
     store_path: Option<PathBuf>,
     passphrase: Option<Zeroizing<String>>,
 }
@@ -145,6 +149,18 @@ impl BaseClientConfig {
     #[must_use]
     pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
         self.crypto_store = Some(store);
+        self
+    }
+
+    /// Set the indexeddb database name for storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name where the stores should save data in. Indexeddb
+    ////           separates database through these nanmes
+    #[cfg(feature = "indexeddb_state_store")]
+    pub fn name(mut self, name: String) -> Self {
+        self.name = name;
         self
     }
 
@@ -180,23 +196,16 @@ impl BaseClientConfig {
     }
 }
 
+#[cfg(feature = "sled_state_store")]
 impl BaseClient {
-    /// Create a new default client.
-    pub fn new() -> Result<Self> {
-        BaseClient::new_with_config(BaseClientConfig::default())
-    }
-
     /// Create a new client.
     ///
     /// # Arguments
     ///
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        #[cfg_attr(
-            not(any(feature = "sled_state_store", feature = "sled_cryptostore")),
-            allow(unused_variables)
-        )]
+    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+        #[cfg_attr(not(feature = "sled_cryptostore"), allow(unused_variables))]
         let config = config;
 
         #[cfg(feature = "sled_state_store")]
@@ -210,6 +219,14 @@ impl BaseClient {
         } else {
             Store::open_temporary()?
         };
+
+        #[cfg(feature = "indexeddb_state_store")]
+        let store = Store::open_default(
+            config.name.clone(),
+            config.passphrase.as_deref().map(|p| p.as_str()),
+        )
+        .await?;
+
         #[cfg(not(feature = "sled_state_store"))]
         let stores = Store::open_memory_store();
 
@@ -241,18 +258,76 @@ impl BaseClient {
         Ok(BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
+            store_path: config.store_path,
             store,
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
             cryptostore: Mutex::new(crypto_store).into(),
-            #[cfg(feature = "encryption")]
-            store_path: config.store_path.into(),
-            #[cfg(feature = "sled_cryptostore")]
             store_passphrase: config.passphrase.into(),
         })
     }
+}
 
+#[cfg(feature = "indexeddb_state_store")]
+impl BaseClient {
+    /// Create a new client.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - An optional session if the user already has one from a
+    /// previous login call.
+    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+        let store = Store::open_default(
+            config.name.clone(),
+            config.passphrase.as_deref().map(|p| p.as_str()),
+        )
+        .await?;
+
+        Ok(BaseClient {
+            session: store.session.clone(),
+            sync_token: store.sync_token.clone(),
+            store_path: config.store_path,
+            store,
+            #[cfg(feature = "encryption")]
+            olm: Mutex::new(None).into(),
+            #[cfg(feature = "encryption")]
+            cryptostore: Mutex::new(config.crypto_store).into(),
+            store_passphrase: config.passphrase.into(),
+        })
+    }
+}
+
+#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
+impl BaseClient {
+    /// Create a new client.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - An optional session if the user already has one from a
+    /// previous login call.
+    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+        let store = Store::open_memory_store();
+
+        Ok(BaseClient {
+            session: store.session.clone(),
+            sync_token: store.sync_token.clone(),
+            store_path: config.store_path,
+            store,
+            #[cfg(feature = "encryption")]
+            olm: Mutex::new(None).into(),
+            #[cfg(feature = "encryption")]
+            cryptostore: Mutex::new(config.crypto_store).into(),
+            store_passphrase: config.passphrase.into(),
+        })
+    }
+}
+
+impl BaseClient {
+    /// Create a new default client.
+    pub async fn new() -> Result<Self> {
+        BaseClient::new_with_config(BaseClientConfig::default()).await
+    }
     /// The current client session containing our user id, device id and access
     /// token.
     pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
@@ -314,27 +389,29 @@ impl BaseClient {
                     .await
                     .map_err(OlmError::from)?,
                 );
-            } else if let Some(path) = self.store_path.as_ref() {
+            } else {
                 #[cfg(feature = "sled_cryptostore")]
                 {
-                    *olm = Some(
-                        OlmMachine::new_with_default_store(
-                            &session.user_id,
-                            &session.device_id,
-                            path,
-                            self.store_passphrase.as_deref().map(|p| p.as_str()),
-                        )
-                        .await
-                        .map_err(OlmError::from)?,
-                    );
+                    if let Some(path) = self.store_path.as_ref() {
+                        *olm = Some(
+                            OlmMachine::new_with_default_store(
+                                &session.user_id,
+                                &session.device_id,
+                                path,
+                                self.store_passphrase.as_deref().map(|p| p.as_str()),
+                            )
+                            .await
+                            .map_err(OlmError::from)?,
+                        );
+                    } else {
+                        *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+                    }
                 }
+
                 #[cfg(not(feature = "sled_cryptostore"))]
                 {
-                    let _ = path;
                     *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
                 }
-            } else {
-                *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
             }
         }
 
@@ -450,7 +527,7 @@ impl BaseClient {
                                     event.event.clone(),
                                     false,
                                     room_id.to_owned(),
-                                    MilliSecondsSinceUnixEpoch::now(),
+                                    milli_seconds_since_unix_epoch(),
                                 ),
                             );
                         }
@@ -583,9 +660,9 @@ impl BaseClient {
             }
         }
 
-        changes.members.insert((&*room_id).to_owned(), members);
-        changes.profiles.insert((&*room_id).to_owned(), profiles);
-        changes.state.insert((&*room_id).to_owned(), state_events);
+        changes.members.insert((*room_id).to_owned(), members);
+        changes.profiles.insert((*room_id).to_owned(), profiles);
+        changes.state.insert((*room_id).to_owned(), state_events);
 
         Ok(user_ids)
     }
@@ -1038,7 +1115,7 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     pub async fn mark_request_as_sent<'a>(
         &self,
-        request_id: &Uuid,
+        request_id: &TransactionId,
         response: impl Into<IncomingResponse<'a>>,
     ) -> Result<()> {
         let olm = self.olm.lock().await;
@@ -1056,7 +1133,7 @@ impl BaseClient {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> Result<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> Result<Option<(Box<TransactionId>, KeysClaimRequest)>> {
         let olm = self.olm.lock().await;
 
         match &*olm {
@@ -1111,12 +1188,12 @@ impl BaseClient {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl Into<AnyMessageEventContent>,
+        content: impl MessageEventContent,
     ) -> Result<RoomEncryptedEventContent> {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => Ok(o.encrypt(room_id, content.into()).await?),
+            Some(o) => Ok(o.encrypt(room_id, content).await?),
             None => panic!("Olm machine wasn't started"),
         }
     }
@@ -1160,8 +1237,8 @@ impl BaseClient {
     /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org").to_owned();
-    /// # let client = BaseClient::new().unwrap();
     /// # block_on(async {
+    /// # let client = BaseClient::new().await.unwrap();
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await;
     ///
     /// println!("{:?}", device);
@@ -1216,8 +1293,8 @@ impl BaseClient {
     /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
-    /// # let client = BaseClient::new().unwrap();
     /// # block_on(async {
+    /// # let client = BaseClient::new().await.unwrap();
     /// let devices = client.get_user_devices(&alice).await.unwrap();
     ///
     /// for device in devices.devices() {
