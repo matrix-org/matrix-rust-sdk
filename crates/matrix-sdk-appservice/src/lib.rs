@@ -333,7 +333,7 @@ impl AppService {
         };
 
         let client =
-            Client::new_with_config(self.homeserver_url.clone(), config.appservice_mode())?;
+            Client::new_with_config(self.homeserver_url.clone(), config.appservice_mode()).await?;
 
         let session = Session {
             access_token: self.registration.as_token.clone(),

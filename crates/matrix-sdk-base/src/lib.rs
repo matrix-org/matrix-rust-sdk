@@ -25,6 +25,15 @@
     unused_qualifications
 )]
 
+#[cfg(all(feature = "sled_state_store", feature = "indexeddb_state_store"))]
+compile_error!("sled_state_store and indexeddb_state_store are mutually exclusive and cannot be enabled together");
+
+#[cfg(all(feature = "indexeddb_state_store", not(target_arch = "wasm32")))]
+compile_error!("indexeddb_state_store only works for wasm32 target");
+
+#[cfg(all(feature = "sled_cryptostore", feature = "indexeddb_state_store"))]
+compile_error!("sled_cryptostore and indexeddb_state_store are mutually exclusive and cannot be enabled together");
+
 pub use matrix_sdk_common::*;
 
 pub use crate::{

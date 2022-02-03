@@ -52,7 +52,7 @@ impl SasVerification {
     /// # let user_id = user_id!("@alice:example");
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let sas = client
     ///     .get_verification(&user_id, flow_id)
     ///     .await
@@ -125,7 +125,7 @@ impl SasVerification {
     /// # let user_id = user_id!("@alice:example");
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let sas_verification = client
     ///     .get_verification(&user_id, flow_id)
     ///     .await

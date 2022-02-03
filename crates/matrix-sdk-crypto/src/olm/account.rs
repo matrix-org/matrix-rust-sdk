@@ -1240,7 +1240,6 @@ mod test {
             fourth_one_time_keys.keys().map(Deref::deref).collect();
 
         assert_ne!(device_key_ids, fourth_device_key_ids);
-
         Ok(())
     }
 }

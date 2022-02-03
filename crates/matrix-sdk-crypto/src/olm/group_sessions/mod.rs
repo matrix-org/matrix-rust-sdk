@@ -159,20 +159,18 @@ impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_arch = "wasm32")))]
 mod test {
-    use std::{
-        sync::Arc,
-        time::{Duration, Instant},
-    };
+    use std::{sync::Arc, time::Duration};
 
+    use matrix_sdk_common::instant::Instant;
+    use matrix_sdk_test::async_test;
     use ruma::{device_id, events::room::message::RoomMessageEventContent, room_id, user_id};
 
     use super::EncryptionSettings;
     use crate::{MegolmError, ReadOnlyAccount};
 
-    #[tokio::test]
-    #[cfg(target_os = "linux")]
+    #[async_test]
     async fn expiration() -> Result<(), MegolmError> {
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
@@ -202,6 +200,7 @@ mod test {
             .unwrap();
 
         assert!(!session.expired());
+        // FIXME: this might break on macosx and windows
         session.creation_time = Arc::new(Instant::now() - Duration::from_secs(60 * 60));
         assert!(session.expired());
 

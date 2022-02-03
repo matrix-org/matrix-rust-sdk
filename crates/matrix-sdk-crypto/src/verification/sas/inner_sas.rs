@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use std::sync::Arc;
-#[cfg(test)]
-use std::time::Instant;
 
+#[cfg(test)]
+use matrix_sdk_common::instant::Instant;
 use ruma::{
     events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
     EventId, RoomId, TransactionId, UserId,

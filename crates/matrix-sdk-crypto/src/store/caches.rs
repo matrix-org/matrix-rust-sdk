@@ -187,6 +187,7 @@ impl DeviceStore {
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
@@ -195,7 +196,7 @@ mod test {
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
 
-    #[tokio::test]
+    #[async_test]
     async fn test_session_store() {
         let (_, session) = get_account_and_session().await;
 
@@ -212,7 +213,7 @@ mod test {
         assert_eq!(&session, loaded_session);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_session_store_bulk_storing() {
         let (_, session) = get_account_and_session().await;
 
@@ -227,7 +228,7 @@ mod test {
         assert_eq!(&session, loaded_session);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_group_session_store() {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
@@ -255,7 +256,7 @@ mod test {
         assert_eq!(inbound, loaded_session);
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_device_store() {
         let device = get_device();
         let store = DeviceStore::new();

@@ -156,7 +156,7 @@ impl Joined {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
@@ -266,7 +266,7 @@ impl Joined {
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
@@ -412,7 +412,7 @@ impl Joined {
     /// };
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     ///
     /// let content = RoomMessageEventContent::text_plain("Hello world");
@@ -501,7 +501,7 @@ impl Joined {
     /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// use serde_json::json;
     ///
@@ -612,7 +612,7 @@ impl Joined {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
+    /// # let mut client = Client::new(homeserver).await?;
     /// # let room_id = room_id!("!test:localhost");
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
     /// let mut image = File::open(path)?;
@@ -671,7 +671,7 @@ impl Joined {
     /// };
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
@@ -724,7 +724,7 @@ impl Joined {
     ///
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// let content = json!({
     ///     "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
@@ -776,7 +776,7 @@ impl Joined {
     /// ```no_run
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// use matrix_sdk::ruma::event_id;
     ///

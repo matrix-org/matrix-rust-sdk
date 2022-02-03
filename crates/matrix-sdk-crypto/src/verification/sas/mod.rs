@@ -17,10 +17,10 @@ mod inner_sas;
 mod sas_state;
 
 use std::sync::{Arc, Mutex};
-#[cfg(test)]
-use std::time::Instant;
 
 use inner_sas::InnerSas;
+#[cfg(test)]
+use matrix_sdk_common::instant::Instant;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
@@ -560,6 +560,7 @@ impl AcceptSettings {
 mod test {
     use std::{convert::TryFrom, sync::Arc};
 
+    use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::Sas;
@@ -589,7 +590,7 @@ mod test {
         device_id!("BOBDEVCIE")
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_wrapper_full() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;

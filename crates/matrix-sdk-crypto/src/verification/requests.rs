@@ -19,7 +19,7 @@ use std::{
 
 #[cfg(feature = "qrcode")]
 use matrix_qrcode::QrVerificationData;
-use matrix_sdk_common::instant::Instant;
+use matrix_sdk_common::{instant::Instant, util::milli_seconds_since_unix_epoch};
 #[cfg(feature = "qrcode")]
 use ruma::DeviceKeyAlgorithm;
 use ruma::{
@@ -35,7 +35,7 @@ use ruma::{
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
+    DeviceId, RoomId, TransactionId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -161,7 +161,7 @@ impl VerificationRequest {
             self.account.device_id().into(),
             self.flow_id().as_str().into(),
             methods,
-            MilliSecondsSinceUnixEpoch::now(),
+            milli_seconds_since_unix_epoch(),
         );
 
         ToDeviceRequest::new_for_recipients(
@@ -1280,6 +1280,7 @@ struct Done {}
 
 #[cfg(test)]
 mod test {
+
     use std::convert::{TryFrom, TryInto};
 
     use matrix_sdk_test::async_test;

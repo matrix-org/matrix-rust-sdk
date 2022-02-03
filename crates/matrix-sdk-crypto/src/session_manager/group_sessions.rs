@@ -589,7 +589,7 @@ impl GroupSessionManager {
 mod test {
     use std::ops::Deref;
 
-    use matrix_sdk_test::response_from_file;
+    use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
             client::r0::keys::{claim_keys, get_keys},
@@ -638,7 +638,7 @@ mod test {
         machine
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn test_sharing() {
         let machine = machine().await;
         let room_id = room_id!("!test:localhost");

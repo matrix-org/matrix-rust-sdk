@@ -16,9 +16,10 @@ use std::{
     convert::{TryFrom, TryInto},
     matches,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
+use matrix_sdk_common::instant::Instant;
 use olm_rs::sas::OlmSas;
 use ruma::{
     events::{
@@ -1202,6 +1203,7 @@ impl SasState<Cancelled> {
 mod test {
     use std::convert::TryFrom;
 
+    use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
         events::key::verification::{
@@ -1265,12 +1267,12 @@ mod test {
         (alice_sas, bob_sas)
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn create_sas() {
         let (_, _) = get_sas_pair().await;
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_accept() {
         let (alice, bob) = get_sas_pair().await;
         let content = bob.as_content();
@@ -1279,7 +1281,7 @@ mod test {
         alice.into_accepted(bob.user_id(), &content).unwrap();
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_key_share() {
         let (alice, bob) = get_sas_pair().await;
 
@@ -1301,7 +1303,7 @@ mod test {
         assert_eq!(alice.get_emoji(), bob.get_emoji());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_full() {
         let (alice, bob) = get_sas_pair().await;
 
@@ -1342,7 +1344,7 @@ mod test {
         assert!(alice.verified_devices().contains(&alice.other_device()));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_invalid_commitment() {
         let (alice, bob) = get_sas_pair().await;
 
@@ -1371,7 +1373,7 @@ mod test {
             .expect_err("Didn't cancel on invalid commitment");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_invalid_sender() {
         let (alice, bob) = get_sas_pair().await;
 
@@ -1381,7 +1383,7 @@ mod test {
         alice.into_accepted(&sender, &content).expect_err("Didn't cancel on a invalid sender");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_unknown_sas_method() {
         let (alice, bob) = get_sas_pair().await;
 
@@ -1402,7 +1404,7 @@ mod test {
             .expect_err("Didn't cancel on an invalid SAS method");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_unknown_method() {
         let (alice, bob) = get_sas_pair().await;
 
@@ -1421,7 +1423,7 @@ mod test {
             .expect_err("Didn't cancel on an unknown SAS method");
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn sas_from_start_unknown_method() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;

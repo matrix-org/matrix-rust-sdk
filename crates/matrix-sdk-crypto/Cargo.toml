@@ -21,6 +21,7 @@ qrcode = ["matrix-qrcode"]
 backups_v1 = []
 sled_cryptostore = ["sled"]
 docsrs = ["sled_cryptostore"]
+indexeddb_cryptostore = ["indexed_db_futures", "wasm-bindgen"]
 
 [dependencies]
 aes = { version = "0.7.4", features = ["ctr"] }
@@ -46,32 +47,40 @@ thiserror = "1.0.25"
 tracing = "0.1.26"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
+## Feature indexeddb-state-store
+indexed_db_futures = { version = "0.2.0", optional = true }
+wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"], optional = true }
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"
 rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
 features = ["client-api-c", "rand", "unstable-pre-spec"]
 
 [dev-dependencies]
-criterion = { version = "0.3.4", features = [
-    "async",
-    "async_tokio",
-    "html_reports",
-] }
 futures = { version = "0.3.15", default-features = false, features = ["executor"] }
 http = "0.2.4"
 indoc = "1.0.3"
 matches = "0.1.8"
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+criterion = { version = "0.3.4", features = [
+    "async",
+    "async_tokio",
+    "html_reports",
+] }
 proptest = "1.0.0"
-serde_json = "1.0.64"
 tempfile = "3.2.0"
 tokio = { version = "1.7.1", default-features = false, features = [
     "rt-multi-thread",
     "macros",
 ] }
+lazy_static = "1.4"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 pprof = { version = "0.6.2", features = ["flamegraph", "criterion"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.24"
 
 [[bench]]
 name = "crypto_bench"

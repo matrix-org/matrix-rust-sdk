@@ -88,7 +88,7 @@ impl Device {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
@@ -136,7 +136,7 @@ impl Device {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
@@ -178,7 +178,7 @@ impl Device {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
@@ -242,7 +242,7 @@ impl Device {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
@@ -357,7 +357,7 @@ impl Device {
     /// # block_on(async {
     /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver)?;
+    /// # let client = Client::new(homeserver).await?;
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {

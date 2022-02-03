@@ -36,7 +36,7 @@ async fn login(
     password: &str,
 ) -> Result<(), matrix_sdk::Error> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::new(homeserver_url).unwrap();
+    let client = Client::new(homeserver_url).await.unwrap();
 
     client.register_event_handler(on_room_message).await;
 

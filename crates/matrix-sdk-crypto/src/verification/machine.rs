@@ -18,7 +18,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch};
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -190,7 +190,6 @@ impl VerificationMachine {
         self.verifications.get_sas(user_id, flow_id)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
         use ruma::{uint, UInt};
 
@@ -201,19 +200,10 @@ impl VerificationMachine {
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();
-        let now = MilliSecondsSinceUnixEpoch::now().as_secs();
+        let now = milli_seconds_since_unix_epoch().as_secs();
 
         !(now.saturating_sub(timestamp) > old_timestamp_threshold
             || timestamp.saturating_sub(now) > timestamp_threshold)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
-        // TODO the non-wasm method with the same name uses
-        // `MilliSecondsSinceUnixEpoch::now()` which internally uses
-        // `SystemTime::now()` this panics under WASM, thus we're returning here
-        // true for now.
-        true
     }
 
     fn queue_up_content(
@@ -527,14 +517,10 @@ impl VerificationMachine {
 
 #[cfg(test)]
 mod test {
+    use std::{convert::TryFrom, sync::Arc, time::Duration};
 
-    use std::{
-        convert::TryFrom,
-        sync::Arc,
-        time::{Duration, Instant},
-    };
-
-    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_common::{instant::Instant, locks::Mutex};
+    use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::{Sas, VerificationMachine};
@@ -601,8 +587,8 @@ mod test {
         (machine, bob_sas)
     }
 
-    #[test]
-    fn create() {
+    #[async_test]
+    async fn create() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
@@ -610,7 +596,7 @@ mod test {
         let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
@@ -660,8 +646,8 @@ mod test {
         assert!(bob.is_done());
     }
 
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
+    #[cfg(not(target_os = "macos"))]
+    #[async_test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
         let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();

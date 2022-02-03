@@ -40,6 +40,11 @@
 pub mod caches;
 mod memorystore;
 mod pickle_key;
+#[cfg(test)]
+#[macro_use]
+pub mod integration_tests;
+#[cfg(feature = "indexeddb_cryptostore")]
+pub(crate) mod indexeddb;
 #[cfg(feature = "sled_cryptostore")]
 pub(crate) mod sled;
 
@@ -52,6 +57,8 @@ use std::{
 };
 
 use base64::DecodeError;
+#[cfg(feature = "indexeddb_cryptostore")]
+use indexed_db_futures::web_sys::DomException;
 use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
@@ -65,6 +72,8 @@ use thiserror::Error;
 use tracing::{info, warn};
 use zeroize::Zeroize;
 
+#[cfg(feature = "indexeddb_cryptostore")]
+pub use self::indexeddb::IndexeddbStore;
 #[cfg(feature = "sled_cryptostore")]
 pub use self::sled::SledStore;
 use crate::{
@@ -534,6 +543,18 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     Database(#[from] sled::Error),
 
+    /// Error in the internal database
+    #[cfg(feature = "indexeddb_cryptostore")]
+    #[error("IndexedDB error: {name} ({code}): {message}")]
+    IndexedDatabase {
+        /// DomException code
+        code: u16,
+        /// Specific name of the DomException
+        name: String,
+        /// Message given to the DomException
+        message: String,
+    },
+
     /// An IO error occurred.
     #[error(transparent)]
     Io(#[from] IoError),
@@ -565,6 +586,17 @@ pub enum CryptoStoreError {
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]
     Serialization(#[from] SerdeError),
+}
+
+#[cfg(feature = "indexeddb_cryptostore")]
+impl From<DomException> for CryptoStoreError {
+    fn from(frm: DomException) -> CryptoStoreError {
+        CryptoStoreError::IndexedDatabase {
+            name: frm.name(),
+            message: frm.message(),
+            code: frm.code(),
+        }
+    }
 }
 
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic

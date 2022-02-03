@@ -41,8 +41,8 @@
 //! # use futures::executor::block_on;
 //! # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
 //! # let homeserver = Url::parse("http://example.com").unwrap();
-//! # let client = Client::new(homeserver).unwrap();
 //! # block_on(async {
+//! # let client = Client::new(homeserver).await.unwrap();
 //! let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
 //!
 //! if let Some(device) = device {
@@ -67,8 +67,8 @@
 //! # use futures::executor::block_on;
 //! # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
 //! # let homeserver = Url::parse("http://example.com").unwrap();
-//! # let client = Client::new(homeserver).unwrap();
 //! # block_on(async {
+//! # let client = Client::new(homeserver).await.unwrap();
 //! let user = client.get_user_identity(&alice).await?;
 //!
 //! if let Some(user) = user {

@@ -25,6 +25,9 @@ getrandom = { version = "0.2.4", features = ["js"] }
 [dependencies.matrix-sdk]
 path = "../.."
 default-features = false
-features = ["native-tls", "encryption"]
+features = ["native-tls", "encryption", "indexeddb_stores"]
 
 [workspace]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.2"

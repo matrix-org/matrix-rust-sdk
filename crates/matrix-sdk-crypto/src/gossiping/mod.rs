@@ -84,6 +84,24 @@ pub enum SecretInfo {
     SecretRequest(SecretName),
 }
 
+impl SecretInfo {
+    #[allow(dead_code)]
+    /// Serialize `SecretInfo` into `String` for usage as database keys and
+    /// comparison
+    pub(crate) fn as_key(&self) -> String {
+        match &self {
+            SecretInfo::KeyRequest(ref info) => format!(
+                "keyRequest:{:}:{:}:{:}:{:}",
+                info.room_id.as_str(),
+                info.sender_key,
+                info.session_id,
+                &info.algorithm
+            ),
+            SecretInfo::SecretRequest(ref sname) => format!("secretName:{:}", sname),
+        }
+    }
+}
+
 impl From<RequestedKeyInfo> for SecretInfo {
     fn from(i: RequestedKeyInfo) -> Self {
         Self::KeyRequest(i)
