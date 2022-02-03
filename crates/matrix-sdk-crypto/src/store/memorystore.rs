@@ -77,26 +77,26 @@ impl MemoryStore {
         Self::default()
     }
 
-    pub(crate) async fn save_devices(&self, mut devices: Vec<ReadOnlyDevice>) {
-        for device in devices.drain(..) {
+    pub(crate) async fn save_devices(&self, devices: Vec<ReadOnlyDevice>) {
+        for device in devices {
             let _ = self.devices.add(device);
         }
     }
 
-    async fn delete_devices(&self, mut devices: Vec<ReadOnlyDevice>) {
-        for device in devices.drain(..) {
+    async fn delete_devices(&self, devices: Vec<ReadOnlyDevice>) {
+        for device in devices {
             let _ = self.devices.remove(device.user_id(), device.device_id());
         }
     }
 
-    async fn save_sessions(&self, mut sessions: Vec<Session>) {
-        for session in sessions.drain(..) {
+    async fn save_sessions(&self, sessions: Vec<Session>) {
+        for session in sessions {
             let _ = self.sessions.add(session.clone()).await;
         }
     }
 
-    async fn save_inbound_group_sessions(&self, mut sessions: Vec<InboundGroupSession>) {
-        for session in sessions.drain(..) {
+    async fn save_inbound_group_sessions(&self, sessions: Vec<InboundGroupSession>) {
+        for session in sessions {
             self.inbound_group_sessions.add(session);
         }
     }
@@ -117,7 +117,7 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_changes(&self, mut changes: Changes) -> Result<()> {
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
         self.save_sessions(changes.sessions).await;
         self.save_inbound_group_sessions(changes.inbound_group_sessions).await;
 
@@ -125,7 +125,7 @@ impl CryptoStore for MemoryStore {
         self.save_devices(changes.devices.changed).await;
         self.delete_devices(changes.devices.deleted).await;
 
-        for identity in changes.identities.new.drain(..).chain(changes.identities.changed) {
+        for identity in changes.identities.new.into_iter().chain(changes.identities.changed) {
             let _ = self.identities.insert(identity.user_id().to_owned(), identity.clone());
         }
 

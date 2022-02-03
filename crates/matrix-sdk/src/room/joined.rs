@@ -354,10 +354,9 @@ impl Joined {
     #[instrument]
     #[cfg(feature = "encryption")]
     async fn share_group_session(&self) -> Result<()> {
-        let mut requests =
-            self.client.base_client().share_group_session(self.inner.room_id()).await?;
+        let requests = self.client.base_client().share_group_session(self.inner.room_id()).await?;
 
-        for request in requests.drain(..) {
+        for request in requests {
             let response = self.client.send_to_device(&request).await?;
 
             self.client.mark_request_as_sent(&request.txn_id, &response).await?;
