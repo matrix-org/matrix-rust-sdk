@@ -1,10 +1,14 @@
 use std::{ops::Deref, sync::Arc};
 
-use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
+use futures_core::stream::Stream;
+use matrix_sdk_base::{
+    deserialized_responses::{MembersResponse, RoomEvent, SyncRoomEvent, TimelineSlice},
+    TimelineStreamError,
+};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::r0::{
-        filter::RoomEventFilter,
+        filter::{LazyLoadOptions, RoomEventFilter},
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events::{self, Direction},
         room::get_room_event,
@@ -192,6 +196,109 @@ impl Common {
         }
 
         Ok(response)
+    }
+
+    /// Get a stream for the timeline of this `Room`
+    ///
+    /// The first stream is forward in time and second stream is backward in
+    /// time. If the `Store` used implements message caching and the
+    /// timeline is cached no request to the server is made.
+    ///
+    /// The streams make sure that no duplicated events are returned. If the
+    /// event graph changed on the server existing streams will keep the
+    /// previous event order. Streams created later will use the new event
+    /// graph, and therefore will create a new local cache.
+    ///
+    /// The forward stream will only return `None` when a gapped sync was
+    /// performed. In this case also the backward stream should be dropped,
+    /// to make the best use of the message cache.
+    ///
+    /// The backward stream returns `None` once the first event of the room was
+    /// reached. The backward stream may also return an Error when a request
+    /// to the server failed. If the error is persistent new streams need to
+    /// be created.
+    ///
+    /// With the encryption feature, messages are decrypted if possible. If
+    /// decryption fails for an individual message, that message is returned
+    /// undecrypted.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     room_id,
+    /// # };
+    /// # use url::Url;
+    ///
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    ///
+    /// let mut client = Client::new(homeserver).await?;
+    /// let room = client
+    ///    .get_joined_room(room_id!("!roomid:example.com"))?;
+    /// let (backward_stream, forward_stream) = room.timeline().await?;
+    /// tokio::spawn(async move {
+    ///     while let Some(item) = backward_stream.next() {
+    ///         match item {
+    ///             Ok(event) => println!("{:?}", event),
+    ///             Err(_) => prinln!("Some error occurred!"),
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// while let Some(event) = forward_stream.next().await {
+    ///     println!("{:?}", event);
+    /// }
+    ///
+    /// # });
+    /// ```
+    pub async fn timeline(
+        &self,
+    ) -> Result<(impl Stream<Item = SyncRoomEvent>, impl Stream<Item = Result<SyncRoomEvent>>)>
+    {
+        let (forward_store, backward_store) = self.inner.timeline().await?;
+
+        let room = self.to_owned();
+        let backward = async_stream::stream! {
+            for await item in backward_store {
+                match item {
+                    Ok(event) => yield Ok(event),
+                    Err(TimelineStreamError::EndCache { fetch_more_token }) => if let Err(error) = room.request_messages(&fetch_more_token).await {
+                        yield Err(error);
+                    },
+                    Err(TimelineStreamError::Store(error)) => yield Err(error.into()),
+                }
+            }
+        };
+
+        Ok((forward_store, backward))
+    }
+
+    async fn request_messages(&self, token: &str) -> Result<()> {
+        let filter = assign!(RoomEventFilter::default(), {
+            lazy_load_options: LazyLoadOptions::Enabled { include_redundant_members: false },
+        });
+        let options = assign!(MessagesOptions::backward(token), {
+            limit: uint!(10),
+            filter,
+        });
+        let messages = self.messages(options).await?;
+
+        let timeline = TimelineSlice::new(
+            messages.chunk.into_iter().map(SyncRoomEvent::from).collect(),
+            messages.start,
+            messages.end,
+            false,
+            false,
+        );
+
+        self.inner.add_timeline_slice(&timeline).await;
+        self.client.base_client().receive_messages(self.room_id(), timeline).await?;
+
+        Ok(())
     }
 
     /// Fetch the event with the given `EventId` in this room.

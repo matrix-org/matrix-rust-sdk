@@ -18,6 +18,7 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
+use futures_core::stream::BoxStream;
 use lru::LruCache;
 #[allow(unused_imports)]
 use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
@@ -38,7 +39,7 @@ use tracing::info;
 
 use super::{Result, RoomInfo, StateChanges, StateStore};
 use crate::{
-    deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
 };
 
@@ -607,6 +608,14 @@ impl StateStore for MemoryStore {
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         self.remove_room(room_id).await
+    }
+
+    async fn room_timeline(
+        &self,
+        _room_id: &RoomId,
+    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+        // The `MemoryStore` doesn't cache any events
+        Ok(None)
     }
 }
 

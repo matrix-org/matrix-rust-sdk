@@ -14,6 +14,7 @@
 
 use std::collections::BTreeSet;
 
+use futures_core::stream::BoxStream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{async_trait, SafeEncode};
 use ruma::{
@@ -33,7 +34,7 @@ use wasm_bindgen::JsValue;
 use self::store_key::{EncryptedEvent, StoreKey};
 use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
 };
 
@@ -979,6 +980,14 @@ impl StateStore for IndexeddbStore {
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         self.remove_room(room_id).await
+    }
+
+    async fn room_timeline(
+        &self,
+        _room_id: &RoomId,
+    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+        // TODO: we need to implement storing the timeline first
+        Ok(None)
     }
 }
 
