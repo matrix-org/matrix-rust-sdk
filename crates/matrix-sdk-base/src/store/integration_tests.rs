@@ -230,6 +230,46 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                async fn test_populate_store() -> Result<()> {
+                    let room_id = room_id();
+                    let user_id = user_id();
+                    let inner_store = get_store().await?;
+
+                    let store = populated_store(Box::new(inner_store)).await?;
+
+                    assert!(store.get_sync_token().await?.is_some());
+                    assert!(store.get_presence_event(user_id).await?.is_some());
+                    assert_eq!(store.get_room_infos().await?.len(), 1);
+                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
+                    assert!(store.get_account_data_event(EventType::PushRules).await?.is_some());
+
+                    assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_some());
+                    assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await?.len(), 1);
+                    assert!(store.get_profile(room_id, user_id).await?.is_some());
+                    assert!(store.get_member_event(room_id, user_id).await?.is_some());
+                    assert_eq!(store.get_user_ids(room_id).await?.len(), 2);
+                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 1);
+                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1);
+                    assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2);
+                    assert!(store
+                        .get_room_account_data_event(room_id, EventType::Tag)
+                        .await?
+                        .is_some());
+                    assert!(store
+                        .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
+                        .await?
+                        .is_some());
+                    assert_eq!(
+                        store
+                            .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
+                            .await?
+                            .len(),
+                        1
+                    );
+                    Ok(())
+                }
+
+                #[async_test]
                 async fn test_member_saving() {
                     let store = get_store().await.unwrap();
                     let room_id = room_id!("!test_member_saving:localhost");
