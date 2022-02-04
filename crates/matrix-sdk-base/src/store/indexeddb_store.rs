@@ -261,8 +261,8 @@ impl IndexeddbStore {
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
         Ok(self
             .inner
-            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::SESSION)?
+            .transaction_on_one_with_mode(KEYS::SYNC_TOKEN, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::SYNC_TOKEN)?
             .get(&JsValue::from_str(KEYS::SYNC_TOKEN))?
             .await?
             .map(|f| self.deserialize_event(f))
