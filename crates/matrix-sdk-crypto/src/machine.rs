@@ -1094,10 +1094,8 @@ impl OlmMachine {
         event: &SyncRoomEncryptedEvent,
         content: &MegolmV1AesSha2Content,
     ) -> MegolmResult<RoomEvent> {
-        if let Some(session) = self
-            .store
-            .get_inbound_group_session(room_id, &content.sender_key, &content.session_id)
-            .await?
+        if let Some(session) =
+            self.store.get_inbound_group_session(room_id, &content.session_id).await?
         {
             // TODO check the message index.
             let (decrypted_event, _) = session.decrypt(event).await?;
@@ -1988,14 +1986,8 @@ pub(crate) mod test {
             panic!("expected RoomKeyEvent found {:?}", event);
         }
 
-        let session = bob
-            .store
-            .get_inbound_group_session(
-                room_id,
-                alice.account.identity_keys().curve25519(),
-                alice_session.session_id(),
-            )
-            .await;
+        let session =
+            bob.store.get_inbound_group_session(room_id, alice_session.session_id()).await;
 
         assert!(session.unwrap().is_some());
     }

@@ -75,7 +75,7 @@ impl SessionStore {
 /// In-memory store that holds inbound group sessions.
 pub struct GroupSessionStore {
     #[allow(clippy::type_complexity)]
-    entries: Arc<DashMap<Box<RoomId>, HashMap<String, HashMap<String, InboundGroupSession>>>>,
+    entries: Arc<DashMap<Box<RoomId>, HashMap<String, InboundGroupSession>>>,
 }
 
 impl GroupSessionStore {
@@ -92,8 +92,6 @@ impl GroupSessionStore {
         self.entries
             .entry((*session.room_id).to_owned())
             .or_insert_with(HashMap::new)
-            .entry(session.sender_key.to_string())
-            .or_insert_with(HashMap::new)
             .insert(session.session_id().to_owned(), session)
             .is_none()
     }
@@ -102,18 +100,13 @@ impl GroupSessionStore {
     pub fn get_all(&self) -> Vec<InboundGroupSession> {
         self.entries
             .iter()
-            .flat_map(|d| {
-                d.value()
-                    .values()
-                    .flat_map(|t| t.values().cloned().collect::<Vec<InboundGroupSession>>())
-                    .collect::<Vec<InboundGroupSession>>()
-            })
+            .flat_map(|d| d.value().values().cloned().collect::<Vec<InboundGroupSession>>())
             .collect()
     }
 
     /// Get the number of `InboundGroupSession`s we have.
     pub fn count(&self) -> usize {
-        self.entries.iter().map(|d| d.value().values().map(|t| t.len()).sum::<usize>()).sum()
+        self.entries.iter().map(|d| d.value().len()).sum()
     }
 
     /// Get a inbound group session from our store.
@@ -124,15 +117,8 @@ impl GroupSessionStore {
     /// * `sender_key` - The sender key that sent us the session.
     ///
     /// * `session_id` - The unique id of the session.
-    pub fn get(
-        &self,
-        room_id: &RoomId,
-        sender_key: &str,
-        session_id: &str,
-    ) -> Option<InboundGroupSession> {
-        self.entries
-            .get(room_id)
-            .and_then(|m| m.get(sender_key).and_then(|m| m.get(session_id).cloned()))
+    pub fn get(&self, room_id: &RoomId, session_id: &str) -> Option<InboundGroupSession> {
+        self.entries.get(room_id).and_then(|m| m.get(session_id).cloned())
     }
 }
 
@@ -252,7 +238,7 @@ mod test {
         let store = GroupSessionStore::new();
         store.add(inbound.clone());
 
-        let loaded_session = store.get(room_id, "test_key", outbound.session_id()).unwrap();
+        let loaded_session = store.get(room_id, outbound.session_id()).unwrap();
         assert_eq!(inbound, loaded_session);
     }
 

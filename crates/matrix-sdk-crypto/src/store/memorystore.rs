@@ -154,10 +154,9 @@ impl CryptoStore for MemoryStore {
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        Ok(self.inbound_group_sessions.get(room_id, sender_key, session_id))
+        Ok(self.inbound_group_sessions.get(room_id, session_id))
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
@@ -353,11 +352,8 @@ mod test {
         let store = MemoryStore::new();
         let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;
 
-        let loaded_session = store
-            .get_inbound_group_session(room_id, "test_key", outbound.session_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let loaded_session =
+            store.get_inbound_group_session(room_id, outbound.session_id()).await.unwrap().unwrap();
         assert_eq!(inbound, loaded_session);
     }
 

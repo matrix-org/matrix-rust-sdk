@@ -512,9 +512,8 @@ impl SledStore {
 
         for session in changes.inbound_group_sessions {
             let room_id = session.room_id();
-            let sender_key = session.sender_key();
             let session_id = session.session_id();
-            let key = (room_id.as_str(), sender_key, session_id).encode();
+            let key = (room_id.as_str(), session_id).encode();
             let pickle = session.pickle(self.get_pickle_mode()).await;
 
             inbound_session_changes.insert(key, pickle);
@@ -778,10 +777,9 @@ impl CryptoStore for SledStore {
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = (room_id.as_str(), sender_key, session_id).encode();
+        let key = (room_id.as_str(), session_id).encode();
         let pickle = self.inbound_group_sessions.get(&key)?.map(|p| serde_json::from_slice(&p));
 
         if let Some(pickle) = pickle {

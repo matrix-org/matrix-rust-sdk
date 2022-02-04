@@ -338,14 +338,8 @@ impl GossipMachine {
             }
         };
 
-        let session = self
-            .store
-            .get_inbound_group_session(
-                &key_info.room_id,
-                &key_info.sender_key,
-                &key_info.session_id,
-            )
-            .await?;
+        let session =
+            self.store.get_inbound_group_session(&key_info.room_id, &key_info.session_id).await?;
 
         let session = if let Some(s) = session {
             s
@@ -858,11 +852,7 @@ impl GossipMachine {
                 Ok(session) => {
                     let old_session = self
                         .store
-                        .get_inbound_group_session(
-                            session.room_id(),
-                            &session.sender_key,
-                            session.session_id(),
-                        )
+                        .get_inbound_group_session(session.room_id(), session.session_id())
                         .await?;
 
                     let session_id = session.session_id().to_owned();
@@ -1156,18 +1146,12 @@ mod test {
 
         let mut event = ToDeviceEvent { sender: alice_id().to_owned(), content };
 
-        assert!(
-            machine
-                .store
-                .get_inbound_group_session(
-                    session.room_id(),
-                    &session.sender_key,
-                    session.session_id(),
-                )
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(machine
+            .store
+            .get_inbound_group_session(session.room_id(), session.session_id(),)
+            .await
+            .unwrap()
+            .is_none());
 
         let (_, first_session) =
             machine.receive_forwarded_room_key(&session.sender_key, &mut event).await.unwrap();
@@ -1440,11 +1424,7 @@ mod test {
         // Check that alice doesn't have the session.
         assert!(alice_machine
             .store
-            .get_inbound_group_session(
-                room_id(),
-                bob_account.identity_keys().curve25519(),
-                group_session.session_id()
-            )
+            .get_inbound_group_session(room_id(), group_session.session_id())
             .await
             .unwrap()
             .is_none());
@@ -1464,7 +1444,7 @@ mod test {
         // Check that alice now does have the session.
         let session = alice_machine
             .store
-            .get_inbound_group_session(room_id(), &decrypted.sender_key, group_session.session_id())
+            .get_inbound_group_session(room_id(), group_session.session_id())
             .await
             .unwrap()
             .unwrap();
@@ -1664,11 +1644,7 @@ mod test {
         // Check that alice doesn't have the session.
         assert!(alice_machine
             .store
-            .get_inbound_group_session(
-                room_id(),
-                bob_account.identity_keys().curve25519(),
-                group_session.session_id()
-            )
+            .get_inbound_group_session(room_id(), group_session.session_id())
             .await
             .unwrap()
             .is_none());
@@ -1688,7 +1664,7 @@ mod test {
         // Check that alice now does have the session.
         let session = alice_machine
             .store
-            .get_inbound_group_session(room_id(), &decrypted.sender_key, group_session.session_id())
+            .get_inbound_group_session(room_id(), group_session.session_id())
             .await
             .unwrap()
             .unwrap();
