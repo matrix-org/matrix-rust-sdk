@@ -486,7 +486,7 @@ impl SledStore {
                         )?;
                     }
 
-                    for (room_id, info) in &changes.invited_room_info {
+                    for (room_id, info) in &changes.stripped_room_info {
                         striped_rooms.insert(
                             room_id.encode(),
                             self.serialize_event(&info)

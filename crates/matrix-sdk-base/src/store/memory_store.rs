@@ -211,7 +211,7 @@ impl MemoryStore {
             self.presence.insert(sender.clone(), event.clone());
         }
 
-        for (room_id, info) in &changes.invited_room_info {
+        for (room_id, info) in &changes.stripped_room_info {
             self.stripped_room_info.insert(room_id.clone(), info.clone());
         }
 

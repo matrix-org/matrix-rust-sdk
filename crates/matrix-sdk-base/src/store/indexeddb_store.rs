@@ -283,7 +283,7 @@ impl IndexeddbStore {
             (!changes.receipts.is_empty(), KEYS::ROOM_EVENT_RECEIPTS),
             (!changes.stripped_state.is_empty(), KEYS::STRIPPED_ROOM_STATE),
             (!changes.stripped_members.is_empty(), KEYS::STRIPPED_MEMBERS),
-            (!changes.invited_room_info.is_empty(), KEYS::STRIPPED_ROOM_INFO),
+            (!changes.stripped_room_info.is_empty(), KEYS::STRIPPED_ROOM_INFO),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -369,9 +369,9 @@ impl IndexeddbStore {
             }
         }
 
-        if !changes.invited_room_info.is_empty() {
+        if !changes.stripped_room_info.is_empty() {
             let store = tx.object_store(KEYS::STRIPPED_ROOM_INFO)?;
-            for (room_id, info) in &changes.invited_room_info {
+            for (room_id, info) in &changes.stripped_room_info {
                 store.put_key_val(&room_id.encode(), &self.serialize_event(&info)?)?;
             }
         }
