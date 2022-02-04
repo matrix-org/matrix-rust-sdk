@@ -789,7 +789,7 @@ impl Client {
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<room::Invited> {
         self.store()
-            .get_rooms()
+            .get_stripped_rooms()
             .into_iter()
             .filter_map(|room| room::Invited::new(self.clone(), room))
             .collect()
@@ -3376,6 +3376,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
+        assert_eq!(client.rooms().len(), 1);
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         assert_eq!("tutorial".to_string(), room.display_name().await.unwrap());
@@ -3389,6 +3390,7 @@ pub(crate) mod test {
 
         let _response = client.sync_once(SyncSettings::new()).await.unwrap();
 
+        assert_eq!(client.rooms().len(), 1);
         let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
 
         assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());

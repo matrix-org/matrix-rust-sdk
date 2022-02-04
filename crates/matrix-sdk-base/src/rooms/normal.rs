@@ -503,10 +503,6 @@ impl RoomInfo {
         self.room_type = RoomType::Left;
     }
 
-    pub(crate) fn mark_as_invited(&mut self) {
-        self.room_type = RoomType::Invited;
-    }
-
     pub(crate) fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }

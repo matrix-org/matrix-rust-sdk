@@ -565,25 +565,22 @@ impl BaseClient {
             (BTreeMap::new(), BTreeMap::new()),
             |(mut members, mut state_events), raw_event| {
                 match raw_event.deserialize() {
-                    Ok(e) => {
-
-                        if let AnyStrippedStateEvent::RoomMember(member) = e {
-                            match StrippedMemberEvent::try_from(member) {
-                                Ok(m) => {
-                                    members.insert(m.state_key.clone(), m);
-                                }
-                                Err(e) => warn!(
-                                    "Stripped member event in room {} has an invalid state key {:?}",
-                                    room_info.room_id, e
-                                ),
+                    Ok(AnyStrippedStateEvent::RoomMember(member)) =>
+                        match StrippedMemberEvent::try_from(member) {
+                            Ok(m) => {
+                                members.insert(m.state_key.clone(), m);
                             }
-                        } else {
-                            room_info.handle_state_event(&e.content());
-                            state_events
-                                .entry(e.content().event_type().to_owned())
-                                .or_insert_with(BTreeMap::new)
-                                .insert(e.state_key().to_owned(), raw_event.clone());
+                            Err(e) => warn!(
+                                "Stripped member event in room {} has an invalid state key {:?}",
+                                room_info.room_id, e
+                            ),
                         }
+                    Ok(e) => {
+                        room_info.handle_state_event(&e.content());
+                        state_events
+                            .entry(e.content().event_type().to_owned())
+                            .or_insert_with(BTreeMap::new)
+                            .insert(e.state_key().to_owned(), raw_event.clone());
                     }
                     Err(err) => {
                         warn!(
@@ -900,13 +897,6 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in rooms.invite {
-            {
-                let room = self.store.get_or_create_room(&room_id, RoomType::Invited).await;
-                let mut room_info = room.clone_info();
-                room_info.mark_as_invited();
-                changes.add_room(room_info);
-            }
-
             let room = self.store.get_or_create_stripped_room(&room_id).await;
             let mut room_info = room.clone_info();
 
@@ -964,6 +954,11 @@ impl BaseClient {
     async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
+                room.update_summary(room_info.clone())
+            }
+        }
+        for (room_id, room_info) in &changes.stripped_room_infos {
+            if let Some(room) = self.store.get_stripped_room(room_id) {
                 room.update_summary(room_info.clone())
             }
         }
