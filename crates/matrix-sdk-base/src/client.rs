@@ -565,7 +565,7 @@ impl BaseClient {
             (BTreeMap::new(), BTreeMap::new()),
             |(mut members, mut state_events), raw_event| {
                 match raw_event.deserialize() {
-                    Ok(AnyStrippedStateEvent::RoomMember(member)) =>
+                    Ok(AnyStrippedStateEvent::RoomMember(member)) => {
                         match StrippedMemberEvent::try_from(member) {
                             Ok(m) => {
                                 members.insert(m.state_key.clone(), m);
@@ -575,6 +575,7 @@ impl BaseClient {
                                 room_info.room_id, e
                             ),
                         }
+                    }
                     Ok(e) => {
                         room_info.handle_state_event(&e.content());
                         state_events
