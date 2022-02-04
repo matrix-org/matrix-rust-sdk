@@ -623,13 +623,15 @@ impl IndexeddbStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<Box<UserId>>> {
-        self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::DISPLAY_NAMES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::DISPLAY_NAMES)?
             .get(&(room_id, display_name).encode())?
             .await?
-            .map(|f| self.deserialize_event::<BTreeSet<Box<UserId>>>(f).map_err::<StoreError, _>(|e| e.into()))
+            .map(|f| {
+                self.deserialize_event::<BTreeSet<Box<UserId>>>(f)
+                    .map_err::<StoreError, _>(|e| e.into())
+            })
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
