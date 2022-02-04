@@ -571,7 +571,7 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.room_infos.insert(room.room_id.as_ref().to_owned(), room);
+        self.invited_room_info.insert(room.room_id.as_ref().to_owned(), room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.

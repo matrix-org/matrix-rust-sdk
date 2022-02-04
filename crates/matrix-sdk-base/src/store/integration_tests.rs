@@ -184,7 +184,7 @@ macro_rules! statestore_integration_tests {
                             )]),
                         )]),
                     );
-                    changes.invited_room_info.insert(stripped_room_id.to_owned(), stripped_room.clone());
+
                     changes.add_stripped_room(stripped_room);
 
                     let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
@@ -423,6 +423,19 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                async fn test_persist_invited_room() -> Result<()> {
+                    let stripped_room_id = stripped_room_id();
+                    let inner_store = get_store().await?;
+                    let store = populated_store(Box::new(inner_store)).await?;
+
+                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
+                    assert!(store.get_stripped_room(stripped_room_id).is_some());
+
+                    // populate rooom
+                    Ok(())
+                }
+
+                #[async_test]
                 async fn test_room_removal() -> Result<()>  {
                     let room_id = room_id();
                     let user_id = user_id();
@@ -431,11 +444,9 @@ macro_rules! statestore_integration_tests {
 
                     let store = populated_store(Box::new(inner_store)).await?;
 
-                    // We assume the store was correctly populated like the test above.
-
                     store.remove_room(room_id).await?;
 
-                    assert_eq!(store.get_room_infos().await?.len(), 1);
+                    assert_eq!(store.get_room_infos().await?.len(), 0);
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
 
                     assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_none());
