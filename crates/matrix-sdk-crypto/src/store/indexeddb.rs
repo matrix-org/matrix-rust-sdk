@@ -286,9 +286,8 @@ impl IndexeddbStore {
 
             for session in changes.inbound_group_sessions {
                 let room_id = session.room_id();
-                let sender_key = session.sender_key();
                 let session_id = session.session_id();
-                let key = (room_id, sender_key, session_id).encode();
+                let key = (room_id, session_id).encode();
                 let pickle = session.pickle(self.get_pickle_mode()).await;
 
                 sessions.put_key_val(&key, &JsValue::from_serde(&pickle)?)?;
@@ -560,10 +559,9 @@ impl CryptoStore for IndexeddbStore {
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = (room_id, sender_key, session_id).encode();
+        let key = (room_id, session_id).encode();
         if let Some(pickle) = self
             .inner
             .transaction_on_one_with_mode(
