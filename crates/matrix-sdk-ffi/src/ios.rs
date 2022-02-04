@@ -241,7 +241,7 @@ pub fn guest_client(base_path: String, homeurl: String) -> Result<Arc<Client>> {
     let mut guest_registration = register::Request::new();
     guest_registration.kind = register::RegistrationKind::Guest;
     RUNTIME.block_on(async move {
-        let client = MatrixClient::new_with_config(homeserver, config)?;
+        let client = MatrixClient::new_with_config(homeserver, config).await?;
         let register = client.register(guest_registration).await?;
         let session = Session {
             access_token: register.access_token.expect("no access token given"),
@@ -261,7 +261,7 @@ pub fn login_with_token(base_path: String, restore_token: String) -> Result<Arc<
     let config = new_client_config(base_path, session.user_id.to_string())?;
     // First we need to log in.
     RUNTIME.block_on(async move {
-        let client = MatrixClient::new_with_config(homeserver, config)?;
+        let client = MatrixClient::new_with_config(homeserver, config).await?;
         client.restore_login(session).await?;
         let c = Client::new(client, ClientStateBuilder::default().is_guest(is_guest).build()?);
         c.start_sync();
