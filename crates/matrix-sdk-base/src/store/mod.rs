@@ -543,7 +543,8 @@ pub struct StateChanges {
         BTreeMap<Box<RoomId>, BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>>,
     /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.
     pub stripped_members: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, StrippedMemberEvent>>,
-    /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or while knocking)
+    /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
+    /// while knocking)
     pub stripped_room_info: BTreeMap<Box<RoomId>, RoomInfo>,
 
     /// A map from room id to a map of a display name and a set of user ids that
