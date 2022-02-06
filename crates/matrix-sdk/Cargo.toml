@@ -37,7 +37,7 @@ socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
 appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper"]
 image_proc = ["image"]
-image_rayon = ["image/jpeg_rayon"]
+image_rayon = ["image_proc", "image/jpeg_rayon"]
 
 docsrs = [
     "encryption",
