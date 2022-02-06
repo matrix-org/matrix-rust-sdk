@@ -1,6 +1,6 @@
 use std::io::Read;
 #[cfg(feature = "image_proc")]
-use std::io::{BufRead, Seek};
+use std::io::{BufRead, Cursor, Seek};
 
 #[cfg(feature = "image_proc")]
 use image::GenericImageView;
@@ -221,7 +221,7 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
     reader: &mut R,
     size: Option<(u32, u32)>,
 ) -> Result<(Vec<u8>, BaseThumbnailInfo), ImageError> {
-    let image_format = image_format_from_mime_type(content_type);
+    let image_format = image::ImageFormat::from_mime_type(content_type);
     if image_format.is_none() {
         return Err(ImageError::FormatNotSupported);
     }
@@ -243,7 +243,7 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
     let (thumbnail_width, thumbnail_height) = thumbnail.dimensions();
 
     let mut data: Vec<u8> = vec![];
-    thumbnail.write_to(&mut data, image_format)?;
+    thumbnail.write_to(&mut Cursor::new(&mut data), image_format)?;
     let data_size = data.len() as u32;
 
     Ok((
@@ -254,32 +254,4 @@ pub fn generate_image_thumbnail<R: BufRead + Seek>(
             size: Some(data_size.into()),
         },
     ))
-}
-
-// FIXME: Replace this method by ImageFormat::from_mime_type after "image"
-// crate's next release.
-/// Return the image format specified by a MIME type.
-#[cfg(feature = "image_proc")]
-fn image_format_from_mime_type<M>(mime_type: M) -> Option<image::ImageFormat>
-where
-    M: AsRef<str>,
-{
-    match mime_type.as_ref() {
-        "image/avif" => Some(image::ImageFormat::Avif),
-        "image/jpeg" => Some(image::ImageFormat::Jpeg),
-        "image/png" => Some(image::ImageFormat::Png),
-        "image/gif" => Some(image::ImageFormat::Gif),
-        "image/webp" => Some(image::ImageFormat::WebP),
-        "image/tiff" => Some(image::ImageFormat::Tiff),
-        "image/x-targa" | "image/x-tga" => Some(image::ImageFormat::Tga),
-        "image/vnd-ms.dds" => Some(image::ImageFormat::Dds),
-        "image/bmp" => Some(image::ImageFormat::Bmp),
-        "image/x-icon" => Some(image::ImageFormat::Ico),
-        "image/vnd.radiance" => Some(image::ImageFormat::Hdr),
-        "image/x-portable-bitmap"
-        | "image/x-portable-graymap"
-        | "image/x-portable-pixmap"
-        | "image/x-portable-anymap" => Some(image::ImageFormat::Pnm),
-        _ => None,
-    }
 }

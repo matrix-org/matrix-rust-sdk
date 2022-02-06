@@ -742,7 +742,7 @@ impl Joined {
         reader: &mut R,
         info: Option<AttachmentInfo>,
         thumbnail_size: Option<(u32, u32)>,
-        txn_id: Option<Uuid>,
+        txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::Response> {
         let mut reader = BufReader::new(reader);
 
