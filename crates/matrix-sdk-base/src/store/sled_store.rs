@@ -197,7 +197,7 @@ pub struct SledStore {
     room_info: Tree,
     room_state: Tree,
     room_account_data: Tree,
-    stripped_room_info: Tree,
+    stripped_room_infos: Tree,
     stripped_room_state: Tree,
     stripped_members: Tree,
     presence: Tree,
@@ -233,7 +233,7 @@ impl SledStore {
         let presence = db.open_tree("presence")?;
         let room_account_data = db.open_tree("room_account_data")?;
 
-        let stripped_room_info = db.open_tree("stripped_room_info")?;
+        let stripped_room_infos = db.open_tree("stripped_room_infos")?;
         let stripped_members = db.open_tree("stripped_members")?;
         let stripped_room_state = db.open_tree("stripped_room_state")?;
 
@@ -259,7 +259,7 @@ impl SledStore {
             presence,
             room_state,
             room_info,
-            stripped_room_info,
+            stripped_room_infos,
             stripped_members,
             stripped_room_state,
             room_user_receipts,
@@ -365,7 +365,7 @@ impl SledStore {
             &self.room_state,
             &self.room_account_data,
             &self.presence,
-            &self.stripped_room_info,
+            &self.stripped_room_infos,
             &self.stripped_members,
             &self.stripped_room_state,
         )
@@ -486,7 +486,7 @@ impl SledStore {
                         )?;
                     }
 
-                    for (room_id, info) in &changes.invited_room_info {
+                    for (room_id, info) in &changes.stripped_room_infos {
                         striped_rooms.insert(
                             room_id.encode(),
                             self.serialize_event(&info)
@@ -718,7 +718,7 @@ impl SledStore {
         let db = self.clone();
         spawn_blocking(move || {
             stream::iter(
-                db.stripped_room_info
+                db.stripped_room_infos
                     .iter()
                     .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
             )
@@ -930,7 +930,7 @@ impl SledStore {
             &self.room_info,
             &self.room_state,
             &self.room_account_data,
-            &self.stripped_room_info,
+            &self.stripped_room_infos,
             &self.stripped_members,
             &self.stripped_room_state,
             &self.room_user_receipts,

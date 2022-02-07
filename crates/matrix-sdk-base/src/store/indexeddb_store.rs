@@ -70,7 +70,7 @@ mod KEYS {
     pub const PRESENCE: &'static str = "presence";
     pub const ROOM_ACCOUNT_DATA: &'static str = "room_account_data";
 
-    pub const STRIPPED_ROOM_INFO: &'static str = "stripped_room_info";
+    pub const STRIPPED_ROOM_INFOS: &'static str = "stripped_room_infos";
     pub const STRIPPED_MEMBERS: &'static str = "stripped_members";
     pub const STRIPPED_ROOM_STATE: &'static str = "stripped_room_state";
 
@@ -137,7 +137,7 @@ impl IndexeddbStore {
                 db.create_object_store(KEYS::PRESENCE)?;
                 db.create_object_store(KEYS::ROOM_ACCOUNT_DATA)?;
 
-                db.create_object_store(KEYS::STRIPPED_ROOM_INFO)?;
+                db.create_object_store(KEYS::STRIPPED_ROOM_INFOS)?;
                 db.create_object_store(KEYS::STRIPPED_MEMBERS)?;
                 db.create_object_store(KEYS::STRIPPED_ROOM_STATE)?;
 
@@ -261,8 +261,8 @@ impl IndexeddbStore {
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
         Ok(self
             .inner
-            .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::SESSION)?
+            .transaction_on_one_with_mode(KEYS::SYNC_TOKEN, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::SYNC_TOKEN)?
             .get(&JsValue::from_str(KEYS::SYNC_TOKEN))?
             .await?
             .map(|f| self.deserialize_event(f))
@@ -283,7 +283,7 @@ impl IndexeddbStore {
             (!changes.receipts.is_empty(), KEYS::ROOM_EVENT_RECEIPTS),
             (!changes.stripped_state.is_empty(), KEYS::STRIPPED_ROOM_STATE),
             (!changes.stripped_members.is_empty(), KEYS::STRIPPED_MEMBERS),
-            (!changes.invited_room_info.is_empty(), KEYS::STRIPPED_ROOM_INFO),
+            (!changes.stripped_room_infos.is_empty(), KEYS::STRIPPED_ROOM_INFOS),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -369,9 +369,9 @@ impl IndexeddbStore {
             }
         }
 
-        if !changes.invited_room_info.is_empty() {
-            let store = tx.object_store(KEYS::STRIPPED_ROOM_INFO)?;
-            for (room_id, info) in &changes.invited_room_info {
+        if !changes.stripped_room_infos.is_empty() {
+            let store = tx.object_store(KEYS::STRIPPED_ROOM_INFOS)?;
+            for (room_id, info) in &changes.stripped_room_infos {
                 store.put_key_val(&room_id.encode(), &self.serialize_event(&info)?)?;
             }
         }
@@ -607,8 +607,8 @@ impl IndexeddbStore {
     pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
         let entries = self
             .inner
-            .transaction_on_one_with_mode(KEYS::STRIPPED_ROOM_INFO, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::STRIPPED_ROOM_INFO)?
+            .transaction_on_one_with_mode(KEYS::STRIPPED_ROOM_INFOS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::STRIPPED_ROOM_INFOS)?
             .get_all()?
             .await?
             .iter()
@@ -623,16 +623,16 @@ impl IndexeddbStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<Box<UserId>>> {
-        let range = (room_id, display_name).encode_to_range().map_err(|e| StoreError::Codec(e))?;
-        Ok(self
-            .inner
-            .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::JOINED_USER_IDS)?
-            .get_all_with_key(&range)?
+        self.inner
+            .transaction_on_one_with_mode(KEYS::DISPLAY_NAMES, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::DISPLAY_NAMES)?
+            .get(&(room_id, display_name).encode())?
             .await?
-            .iter()
-            .filter_map(|f| self.deserialize_event::<Box<UserId>>(f).ok())
-            .collect::<BTreeSet<_>>())
+            .map(|f| {
+                self.deserialize_event::<BTreeSet<Box<UserId>>>(f)
+                    .map_err::<StoreError, _>(|e| e.into())
+            })
+            .unwrap_or_else(|| Ok(Default::default()))
     }
 
     pub async fn get_account_data_event(
@@ -658,7 +658,7 @@ impl IndexeddbStore {
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
-            .get(&JsValue::from_str(&format!("{}:{}", room_id.as_str(), event_type)))?
+            .get(&(room_id.as_str(), event_type.as_str()).encode())?
             .await?
             .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
             .transpose()?)
@@ -794,7 +794,7 @@ impl IndexeddbStore {
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        let direct_stores = [KEYS::ROOM_INFOS, KEYS::STRIPPED_ROOM_INFO];
+        let direct_stores = [KEYS::ROOM_INFOS, KEYS::STRIPPED_ROOM_INFOS];
 
         let prefixed_stores = [
             KEYS::MEMBERS,
