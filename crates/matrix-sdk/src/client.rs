@@ -1623,7 +1623,7 @@ impl Client {
     pub async fn upload(
         &self,
         content_type: &Mime,
-        reader: &mut impl Read,
+        reader: &mut (impl Read + ?Sized),
     ) -> Result<create_content::Response> {
         let mut data = Vec::new();
         reader.read_to_end(&mut data)?;
@@ -2460,8 +2460,8 @@ pub(crate) mod test {
     use super::{Client, Session, Url};
     use crate::{
         attachment::{
-            AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo, Thumbnail,
-            NONE_THUMBNAIL,
+            AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
+            Thumbnail,
         },
         config::{ClientConfig, RequestConfig, SyncSettings},
         HttpError, RoomMember,
@@ -3279,7 +3279,7 @@ pub(crate) mod test {
         let mut media = Cursor::new("Hello world");
 
         let response = room
-            .send_attachment("image", &mime::IMAGE_JPEG, &mut media, None, NONE_THUMBNAIL, None)
+            .send_attachment("image", &mime::IMAGE_JPEG, &mut media, AttachmentConfig::new())
             .await
             .unwrap();
 
@@ -3328,24 +3328,15 @@ pub(crate) mod test {
 
         let mut media = Cursor::new("Hello world");
 
-        let info = AttachmentInfo::Image(BaseImageInfo {
+        let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
             height: Some(uint!(600)),
             width: Some(uint!(800)),
             size: None,
             blurhash: None,
-        });
+        }));
 
-        let response = room
-            .send_attachment(
-                "image",
-                &mime::IMAGE_JPEG,
-                &mut media,
-                Some(info),
-                NONE_THUMBNAIL,
-                None,
-            )
-            .await
-            .unwrap();
+        let response =
+            room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
 
         upload_mock.assert();
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
@@ -3393,24 +3384,15 @@ pub(crate) mod test {
 
         let mut media = Cursor::new("Hello world");
 
-        let info = AttachmentInfo::Video(BaseVideoInfo {
+        let config = AttachmentConfig::new().info(AttachmentInfo::Video(BaseVideoInfo {
             height: Some(uint!(600)),
             width: Some(uint!(800)),
             duration: Some(uint!(3600)),
             size: None,
             blurhash: None,
-        });
+        }));
 
-        let response = room
-            .send_attachment(
-                "image",
-                &mime::IMAGE_JPEG,
-                &mut media,
-                Some(info),
-                NONE_THUMBNAIL,
-                None,
-            )
-            .await;
+        let response = room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await;
 
         assert!(response.is_err())
     }
@@ -3465,15 +3447,9 @@ pub(crate) mod test {
 
         let mut media = Cursor::new("Hello world");
 
-        let info = AttachmentInfo::Image(BaseImageInfo {
-            height: Some(uint!(600)),
-            width: Some(uint!(800)),
-            size: None,
-            blurhash: None,
-        });
-
         let mut thumbnail_reader = Cursor::new("Thumbnail");
-        let thumbnail = Thumbnail {
+
+        let config = AttachmentConfig::with_thumbnail(Thumbnail {
             reader: &mut thumbnail_reader,
             content_type: &mime::IMAGE_JPEG,
             info: Some(BaseThumbnailInfo {
@@ -3481,19 +3457,16 @@ pub(crate) mod test {
                 width: Some(uint!(480)),
                 size: Some(uint!(3600)),
             }),
-        };
+        })
+        .info(AttachmentInfo::Image(BaseImageInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            size: None,
+            blurhash: None,
+        }));
 
-        let response = room
-            .send_attachment(
-                "image",
-                &mime::IMAGE_JPEG,
-                &mut media,
-                Some(info),
-                Some(thumbnail),
-                None,
-            )
-            .await
-            .unwrap();
+        let response =
+            room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
 
         upload_mock.assert();
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)

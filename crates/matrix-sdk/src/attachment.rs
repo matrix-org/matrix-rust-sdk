@@ -10,7 +10,7 @@ use ruma::{
         message::{AudioInfo, FileInfo, VideoInfo},
         ImageInfo, ThumbnailInfo,
     },
-    UInt,
+    TransactionId, UInt,
 };
 
 #[cfg(feature = "image_proc")]
@@ -157,8 +157,114 @@ pub struct Thumbnail<'a, R: Read> {
     pub info: Option<BaseThumbnailInfo>,
 }
 
-/// Typed `None` for an `<Option<Thumbnail>>`.
-pub const NONE_THUMBNAIL: Option<Thumbnail<&[u8]>> = None;
+impl Thumbnail<'static, &'static [u8]> {
+    /// Typed `None` for an `<Option<Thumbnail>>`.
+    pub const NONE: Option<Thumbnail<'static, &'static [u8]>> = None;
+}
+
+/// Configuration for sending an attachment.
+#[derive(Debug)]
+pub struct AttachmentConfig<'a, R: Read> {
+    pub(crate) txn_id: Option<&'a TransactionId>,
+    pub(crate) info: Option<AttachmentInfo>,
+    pub(crate) thumbnail: Option<Thumbnail<'a, R>>,
+    #[cfg(feature = "image_proc")]
+    pub(crate) generate_thumbnail: bool,
+    #[cfg(feature = "image_proc")]
+    pub(crate) thumbnail_size: Option<(u32, u32)>,
+}
+
+impl AttachmentConfig<'static, &'static [u8]> {
+    /// Create a new default `AttachmentConfig` without providing a thumbnail.
+    ///
+    /// To provide a thumbnail use [`with_thumbnail()`].
+    pub fn new() -> Self {
+        Self {
+            txn_id: Default::default(),
+            info: Default::default(),
+            thumbnail: None,
+            #[cfg(feature = "image_proc")]
+            generate_thumbnail: Default::default(),
+            #[cfg(feature = "image_proc")]
+            thumbnail_size: Default::default(),
+        }
+    }
+
+    /// Generate the thumbnail to send for this media.
+    ///
+    /// Uses [`attachment::generate_image_thumbnail()`].
+    ///
+    /// Thumbnails can only be generated for supported image attachments. For
+    /// more information, see the [image](https://github.com/image-rs/image)
+    /// crate.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - The size of the thumbnail in pixels as a `(width, height)`
+    /// tuple. If set to `None`, defaults to `(800, 600)`.
+    #[cfg(feature = "image_proc")]
+    #[must_use]
+    pub fn generate_thumbnail(mut self, size: Option<(u32, u32)>) -> Self {
+        self.generate_thumbnail = true;
+        self.thumbnail_size = size;
+        self
+    }
+}
+
+impl Default for AttachmentConfig<'static, &'static [u8]> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a, R: Read> AttachmentConfig<'a, R> {
+    /// Create a new default `AttachmentConfig` with `thumbnail`.
+    ///
+    /// # Arguments
+    ///
+    /// * `thumbnail` - The thumbnail of the media. If the `content_type` does
+    /// not support it (eg audio clips), it is ignored.
+    ///
+    /// To generate automatically a thumbnail from an image, use
+    /// [`new()`] and
+    /// [`generate_thumbnail()`].
+    pub fn with_thumbnail(thumbnail: Thumbnail<'a, R>) -> Self {
+        Self {
+            txn_id: Default::default(),
+            info: Default::default(),
+            thumbnail: Some(thumbnail),
+            #[cfg(feature = "image_proc")]
+            generate_thumbnail: Default::default(),
+            #[cfg(feature = "image_proc")]
+            thumbnail_size: Default::default(),
+        }
+    }
+
+    /// Set the transaction ID to send.
+    ///
+    /// # Arguments
+    ///
+    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent` held
+    /// in its unsigned field as `transaction_id`. If not given, one is created
+    /// for the message.
+    #[must_use]
+    pub fn txn_id(mut self, txn_id: &'a TransactionId) -> Self {
+        self.txn_id = Some(txn_id);
+        self
+    }
+
+    /// Set the media metadata to send.
+    ///
+    /// # Arguments
+    ///
+    /// * `info` - The metadata of the media. If the `AttachmentInfo` type
+    /// doesn't match the `content_type`, it is ignored.
+    #[must_use]
+    pub fn info(mut self, info: AttachmentInfo) -> Self {
+        self.info = Some(info);
+        self
+    }
+}
 
 /// Generate a thumbnail for an image.
 ///
@@ -178,14 +284,18 @@ pub const NONE_THUMBNAIL: Option<Thumbnail<&[u8]>> = None;
 /// # Examples
 ///
 /// ```no_run
-/// # use std::{path::PathBuf, fs::File, io::{BufReader, Read, Seek}};
-/// # use matrix_sdk::{Client, attachment::{Thumbnail, generate_image_thumbnail}, ruma::room_id};
+/// # use std::{path::PathBuf, fs::File, io::{BufReader, Cursor, Read, Seek}};
+/// # use matrix_sdk::{
+/// #     Client,
+/// #     attachment::{AttachmentConfig, Thumbnail, generate_image_thumbnail},
+/// #     ruma::room_id
+/// # };
 /// # use url::Url;
 /// # use mime;
 /// # use futures::executor::block_on;
 /// # block_on(async {
 /// # let homeserver = Url::parse("http://localhost:8080")?;
-/// # let mut client = Client::new(homeserver)?;
+/// # let mut client = Client::new(homeserver).await?;
 /// # let room_id = room_id!("!test:localhost");
 /// let path = PathBuf::from("/home/example/my-cat.jpg");
 /// let mut image = BufReader::new(File::open(path)?);
@@ -195,11 +305,12 @@ pub const NONE_THUMBNAIL: Option<Thumbnail<&[u8]>> = None;
 ///     &mut image,
 ///     None
 /// )?;
-/// let thumbnail = Thumbnail {
-///     reader: &mut thumbnail_data.as_slice(),
+/// let mut cursor = Cursor::new(thumbnail_data);
+/// let config = AttachmentConfig::with_thumbnail(Thumbnail {
+///     reader: &mut cursor,
 ///     content_type: &mime::IMAGE_JPEG,
 ///     info: Some(thumbnail_info),
-/// };
+/// });
 ///
 /// image.rewind()?;
 ///
@@ -208,9 +319,7 @@ pub const NONE_THUMBNAIL: Option<Thumbnail<&[u8]>> = None;
 ///         "My favorite cat",
 ///         &mime::IMAGE_JPEG,
 ///         &mut image,
-///         None,
-///         Some(thumbnail),
-///         None,
+///         config,
 ///     ).await?;
 /// }
 /// # Result::<_, matrix_sdk::Error>::Ok(()) });

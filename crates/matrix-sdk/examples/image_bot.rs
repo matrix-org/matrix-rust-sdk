@@ -9,7 +9,7 @@ use std::{
 
 use matrix_sdk::{
     self,
-    attachment::Thumbnail,
+    attachment::AttachmentConfig,
     config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
@@ -39,9 +39,8 @@ async fn on_room_message(event: SyncRoomMessageEvent, room: Room, image: Arc<Mut
         if msg_body.contains("!image") {
             println!("sending image");
             let mut image = image.lock().await;
-            let none_thumbnail: Option<Thumbnail<&[u8]>> = None;
 
-            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, None, none_thumbnail, None)
+            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, AttachmentConfig::new())
                 .await
                 .unwrap();
 

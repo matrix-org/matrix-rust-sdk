@@ -1,8 +1,11 @@
 #[cfg(feature = "image_proc")]
-use std::io::{BufReader, Seek};
+use std::io::Cursor;
 #[cfg(feature = "encryption")]
 use std::sync::Arc;
-use std::{io::Read, ops::Deref};
+use std::{
+    io::{BufReader, Read, Seek},
+    ops::Deref,
+};
 
 use matrix_sdk_common::instant::{Duration, Instant};
 #[cfg(feature = "encryption")]
@@ -34,9 +37,9 @@ use tracing::debug;
 use tracing::instrument;
 
 #[cfg(feature = "image_proc")]
-use crate::attachment::generate_image_thumbnail;
+use crate::{attachment::generate_image_thumbnail, error::ImageError};
 use crate::{
-    attachment::{AttachmentInfo, Thumbnail},
+    attachment::{AttachmentConfig, Thumbnail},
     error::HttpResult,
     room::Common,
     BaseRoom, Client, Result, RoomType,
@@ -606,21 +609,13 @@ impl Joined {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// * `info` - The metadata of the media. If the
-    /// `AttachmentInfo` type doesn't match the `content_type`, it is ignored.
-    ///
-    /// * `thumbnail` - The thumbnail of the media. If the `content_type` does
-    /// not support it (eg audio clips), it is ignored.
-    ///
-    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
+    /// * `config` - Metadata and configuration for the attachment.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, ruma::room_id, attachment::NONE_THUMBNAIL};
+    /// # use matrix_sdk::{Client, ruma::room_id, attachment::AttachmentConfig};
     /// # use url::Url;
     /// # use mime;
     /// # use futures::executor::block_on;
@@ -636,54 +631,82 @@ impl Joined {
     ///         "My favorite cat",
     ///         &mime::IMAGE_JPEG,
     ///         &mut image,
-    ///         None,
-    ///         NONE_THUMBNAIL,
-    ///         None,
+    ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn send_attachment<R: Read, T: Read>(
+    pub async fn send_attachment<'a, R: Read + Seek, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        info: Option<AttachmentInfo>,
-        thumbnail: Option<Thumbnail<'_, T>>,
-        txn_id: Option<&TransactionId>,
+        config: AttachmentConfig<'a, T>,
     ) -> Result<send_message_event::Response> {
-        #[cfg(feature = "encryption")]
-        let content = if self.is_encrypted() {
-            self.client
-                .prepare_encrypted_attachment_message(body, content_type, reader, info, thumbnail)
-                .await?
+        let reader = &mut BufReader::new(reader);
+
+        #[cfg(feature = "image_proc")]
+        let mut cursor;
+
+        if config.thumbnail.is_some() {
+            self.prepare_and_send_attachment(body, content_type, reader, config).await
         } else {
-            self.client
-                .prepare_attachment_message(body, content_type, reader, info, thumbnail)
-                .await?
-        };
+            #[cfg(not(feature = "image_proc"))]
+            let thumbnail = Thumbnail::NONE;
 
-        #[cfg(not(feature = "encryption"))]
-        let content = self
-            .client
-            .prepare_attachment_message(body, content_type, reader, info, thumbnail)
-            .await?;
+            #[cfg(feature = "image_proc")]
+            let thumbnail = if config.generate_thumbnail {
+                match generate_image_thumbnail(content_type, reader, config.thumbnail_size) {
+                    Ok((thumbnail_data, thumbnail_info)) => {
+                        reader.rewind()?;
 
-        self.send(RoomMessageEventContent::new(content), txn_id).await
+                        cursor = Cursor::new(thumbnail_data);
+                        Some(Thumbnail {
+                            reader: &mut cursor,
+                            content_type: &mime::IMAGE_JPEG,
+                            info: Some(thumbnail_info),
+                        })
+                    }
+                    Err(error)
+                        if matches!(
+                            error,
+                            ImageError::ThumbnailBiggerThanOriginal
+                                | ImageError::FormatNotSupported
+                        ) =>
+                    {
+                        reader.rewind()?;
+                        None
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            } else {
+                None
+            };
+
+            let config = AttachmentConfig {
+                txn_id: config.txn_id,
+                info: config.info,
+                thumbnail,
+                #[cfg(feature = "image_proc")]
+                generate_thumbnail: false,
+                #[cfg(feature = "image_proc")]
+                thumbnail_size: None,
+            };
+
+            self.prepare_and_send_attachment(body, content_type, reader, config).await
+        }
     }
 
-    /// Send an attachment with a generated thumbnail to this room.
+    /// Prepare and send an attachment to this room.
+    ///
+    /// This will upload the given data that the reader produces using the
+    /// [`upload()`](#method.upload) method and post an event to the given room.
+    /// If the room is encrypted and the encryption feature is enabled the
+    /// upload will be encrypted.
     ///
     /// This is a convenience method that calls the
-    /// [`attachment::generate_image_thumbnail()`] and afterwards the
-    /// [`send_attachment()`](#method.send_attachment).
-    ///
-    /// Thumbnails can only be generated for supported image attachments. For
-    /// more information, see the [image](https://github.com/image-rs/image)
-    /// crate.
-    ///
-    /// If the thumbnail generation fails, this will return an
-    /// [`ImageError`](../enum.ImageError.html).
+    /// [`Client::upload()`](#Client::method.upload) and afterwards the
+    /// [`send()`](#method.send).
     ///
     /// # Arguments
     /// * `body` - A textual representation of the media that is going to be
@@ -695,66 +718,44 @@ impl Joined {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// * `info` - The metadata of the media. If the
-    /// `AttachmentInfo` type doesn't match the `content_type`, it is ignored.
-    ///
-    /// * `thumbnail_size` - The size of the thumbnail in pixels as a
-    /// `(width, height)` tuple. If set to `None`, defaults to `(800, 600)`.
-    ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, ruma::room_id};
-    /// # use url::Url;
-    /// # use mime;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver)?;
-    /// # let room_id = room_id!("!test:localhost");
-    /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path)?;
-    ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send_attachment_with_generated_thumbnail(
-    ///         "My favorite cat",
-    ///         &mime::IMAGE_JPEG,
-    ///         &mut image,
-    ///         None,
-    ///         None,
-    ///         None,
-    ///     ).await?;
-    /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
-    /// ```
-    /// [`attachment::generate_image_thumbnail()`]:
-    /// ../attachment/fn.generate_image_thumbnail.html
-    #[cfg(feature = "image_proc")]
-    pub async fn send_attachment_with_generated_thumbnail<R: Read + Seek>(
+    /// * `config` - Metadata and configuration for the attachment.
+    async fn prepare_and_send_attachment<'a, R: Read, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        info: Option<AttachmentInfo>,
-        thumbnail_size: Option<(u32, u32)>,
-        txn_id: Option<&TransactionId>,
+        config: AttachmentConfig<'a, T>,
     ) -> Result<send_message_event::Response> {
-        let mut reader = BufReader::new(reader);
-
-        let (thumbnail_data, thumbnail_info) =
-            generate_image_thumbnail(content_type, &mut reader, thumbnail_size)?;
-        let thumbnail = Thumbnail {
-            reader: &mut thumbnail_data.as_slice(),
-            content_type: &mime::IMAGE_JPEG,
-            info: Some(thumbnail_info),
+        #[cfg(feature = "encryption")]
+        let content = if self.is_encrypted() {
+            self.client
+                .prepare_encrypted_attachment_message(
+                    body,
+                    content_type,
+                    reader,
+                    config.info,
+                    config.thumbnail,
+                )
+                .await?
+        } else {
+            self.client
+                .prepare_attachment_message(
+                    body,
+                    content_type,
+                    reader,
+                    config.info,
+                    config.thumbnail,
+                )
+                .await?
         };
-        reader.rewind()?;
-        self.send_attachment(body, content_type, &mut reader, info, Some(thumbnail), txn_id).await
+
+        #[cfg(not(feature = "encryption"))]
+        let content = self
+            .client
+            .prepare_attachment_message(body, content_type, reader, config.info, config.thumbnail)
+            .await?;
+
+        self.send(RoomMessageEventContent::new(content), config.txn_id).await
     }
 
     /// Send a room state event to the homeserver.
