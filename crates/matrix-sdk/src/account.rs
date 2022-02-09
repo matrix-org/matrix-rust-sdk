@@ -158,6 +158,8 @@ impl Account {
     /// This is a convenience method for calling [`Client::upload()`],
     /// followed by [`set_avatar_url()`](#method.set_avatar_url).
     ///
+    /// Returns the MXC url of the uploaded avatar.
+    ///
     /// # Example
     /// ```no_run
     /// # use std::{path::Path, fs::File, io::Read};
@@ -173,9 +175,13 @@ impl Account {
     /// client.account().upload_avatar(&mime::IMAGE_JPEG, &mut image).await.expect("Can't set avatar");
     /// # })
     /// ```
-    pub async fn upload_avatar<R: Read>(&self, content_type: &Mime, reader: &mut R) -> Result<()> {
+    pub async fn upload_avatar<R: Read>(
+        &self,
+        content_type: &Mime,
+        reader: &mut R,
+    ) -> Result<Box<MxcUri>> {
         let upload_response = self.client.upload(content_type, reader).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
-        Ok(())
+        Ok(upload_response.content_uri)
     }
 }
