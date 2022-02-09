@@ -46,6 +46,7 @@ pub use reqwest;
 #[doc(no_inline)]
 pub use ruma;
 
+mod account;
 mod client;
 pub mod config;
 mod error;
@@ -59,6 +60,7 @@ mod sync;
 #[cfg(feature = "encryption")]
 pub mod encryption;
 
+pub use account::Account;
 pub use client::{Client, LoopCtrl};
 pub use error::{Error, HttpError, HttpResult, Result};
 pub use http_client::HttpSend;
