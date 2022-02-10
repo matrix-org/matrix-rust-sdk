@@ -3,10 +3,20 @@ use std::io::Read;
 use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaType};
 use mime::Mime;
 use ruma::{
-    api::client::r0::profile::{
-        get_avatar_url, get_display_name, set_avatar_url, set_display_name,
+    api::client::r0::{
+        account::{
+            add_3pid, change_password, deactivate, delete_3pid, get_3pids,
+            request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
+            ThirdPartyIdRemovalStatus,
+        },
+        profile::{
+            get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
+        },
+        uiaa::AuthData,
     },
-    MxcUri,
+    assign,
+    thirdparty::{Medium, ThirdPartyIdentifier},
+    ClientSecret, MxcUri, SessionId, UInt,
 };
 
 use crate::{config::RequestConfig, Client, Error, Result};
@@ -183,5 +193,436 @@ impl Account {
         let upload_response = self.client.upload(content_type, reader).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
         Ok(upload_response.content_uri)
+    }
+
+    /// Get the profile of the account.
+    ///
+    /// Allows to get both the display name and avatar url in a single call.
+    ///
+    /// Returns a `(display_name, avatar_url)` tuple.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
+    ///
+    /// if let (Some(name), Some(avatar_url)) = client.account().get_profile().await? {
+    ///     println!("You are '{}' with avatar '{}'", name, avatar_url);
+    /// }
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// ```
+    pub async fn get_profile(&self) -> Result<(Option<String>, Option<Box<MxcUri>>)> {
+        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = get_profile::Request::new(&user_id);
+        let response = self.client.send(request, None).await?;
+        Ok((response.displayname, response.avatar_url))
+    }
+
+    /// Change the password of the account.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_password` - The new password to set.
+    ///
+    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    /// API][uiaa]. The first request needs to set this to `None` and will
+    /// always fail with an [`UiaaResponse`]. The response will contain
+    /// information for the interactive auth and the same request needs to be
+    /// made but this time with some `auth_data` provided.
+    ///
+    /// # Returns
+    ///
+    /// This method might return a [`WeakPassword`] error if the new password is
+    /// considered insecure by the homeserver, with details about the strength
+    /// requirements in the error's message.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::{
+    /// #         account::change_password::{Request as ChangePasswordRequest},
+    /// #         uiaa::{AuthData, Dummy},
+    /// #     },
+    /// #     assign,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
+    ///
+    /// client.account().change_password(
+    ///     "myverysecretpassword",
+    ///     Some(AuthData::Dummy(Dummy::new())),
+    /// ).await?;
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// ```
+    /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
+    /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
+    /// [`WeakPassword`]: ruma::api::client::error::ErrorKind::WeakPassword
+    pub async fn change_password(
+        &self,
+        new_password: &str,
+        auth_data: Option<AuthData<'_>>,
+    ) -> Result<()> {
+        let request = assign!(change_password::Request::new(new_password), {
+            auth: auth_data,
+        });
+        self.client.send(request, None).await?;
+        Ok(())
+    }
+
+    /// Deactivate this account definitively.
+    ///
+    /// # Arguments
+    ///
+    /// * `id_server` - The identity server from which to unbind the user’s
+    /// [Third Party Identifiers][3pid].
+    ///
+    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    /// API][uiaa]. The first request needs to set this to `None` and will
+    /// always fail with an [`UiaaResponse`]. The response will contain
+    /// information for the interactive auth and the same request needs to be
+    /// made but this time with some `auth_data` provided.
+    ///
+    /// # Returns
+    ///
+    /// * [`Success`] if the 3PIDs were also unbound from the identity server.
+    ///
+    /// * [`NoSupport`] if the 3PIDs were not unbound from the identity server.
+    /// This can also mean that no 3PIDs were bound to an identity server in
+    /// the first place.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::{
+    /// #         account::change_password::{Request as ChangePasswordRequest},
+    /// #         uiaa::{AuthData, Dummy},
+    /// #     },
+    /// #     assign,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let account = client.account();
+    ///
+    /// let response = account.deactivate(None, None).await;
+    ///
+    /// // Proceed with UIAA.
+    ///
+    /// });
+    /// ```
+    /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
+    /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
+    /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
+    /// [`Success`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::Success
+    /// [`NoSupport`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::NoSupport
+    pub async fn deactivate(
+        &self,
+        id_server: Option<&str>,
+        auth_data: Option<AuthData<'_>>,
+    ) -> Result<ThirdPartyIdRemovalStatus> {
+        let request = assign!(deactivate::Request::new(), {
+            id_server,
+            auth: auth_data,
+        });
+        let response = self.client.send(request, None).await?;
+        Ok(response.id_server_unbind_result)
+    }
+
+    /// Get the registered [Third Party Identifiers][3pid] on the homeserver of
+    /// the account.
+    ///
+    /// These 3PIDs may be used by the homeserver to authenticate the user
+    /// during sensitive operations.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
+    ///
+    /// let threepids = client.account().get_3pids().await?;
+    ///
+    /// for threepid in threepids {
+    ///     println!("Found 3PID '{}' of type '{}'", threepid.address, threepid.medium);
+    /// }
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// ```
+    /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
+    pub async fn get_3pids(&self) -> Result<Vec<ThirdPartyIdentifier>> {
+        let request = get_3pids::Request::new();
+        let response = self.client.send(request, None).await?;
+        Ok(response.threepids)
+    }
+
+    /// Request a token to validate an email address as a [Third Party
+    /// Identifier][3pid].
+    ///
+    /// This is the first step in registering an email address as 3PID. Next,
+    /// call [`add_3pid`] with the same `client_secret` and the returned `sid`.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_secret` - A client-generated secret string used to protect
+    /// this session.
+    ///
+    /// * `email` - The email address to validate.
+    ///
+    /// * `send_attempt` - The attempt number. This number needs to be
+    /// incremented if you want to request another token for the same
+    /// validation.
+    ///
+    /// # Returns
+    ///
+    /// An `(sid, submit_url)` tuple.
+    ///
+    /// * `sid` - The session ID to be used in following requests for this 3PID.
+    ///
+    /// * `submit_url` - If present, the user will submit the token to the
+    /// client, that must send it to this URL. If not, the client will not be
+    /// involved in the token submission.
+    ///
+    /// This method might return a [`ThreepidInUse`] if the email address is
+    /// already registered for this account or another, or a [`ThreepidDenied`]
+    /// error if it is denied.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::ruma::{ClientSecret, uint};
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let account = client.account();
+    /// # let secret = ClientSecret::parse("secret").unwrap();
+    ///
+    /// let (sid, submit_url) = account.request_3pid_email_token(
+    ///     &secret,
+    ///     "john@matrix.org",
+    ///     uint!(0),
+    /// ).await?;
+    ///
+    /// // Wait for the user to confirm that the token was submitted or prompt
+    /// // the user for the token and send it to submit_url.
+    ///
+    /// let response = account.add_3pid(&secret, &sid, None).await;
+    ///
+    /// // Proceed with UIAA.
+    ///
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// ```
+    /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
+    /// [`ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
+    /// [`ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
+    pub async fn request_3pid_email_token(
+        &self,
+        client_secret: &ClientSecret,
+        email: &str,
+        send_attempt: UInt,
+    ) -> Result<(Box<SessionId>, Option<String>)> {
+        let request = request_3pid_management_token_via_email::Request::new(
+            client_secret,
+            email,
+            send_attempt,
+        );
+        let response = self.client.send(request, None).await?;
+        Ok((response.sid, response.submit_url))
+    }
+
+    /// Request a token to validate a phone number as a [Third Party
+    /// Identifier][3pid].
+    ///
+    /// This is the first step in registering a phone number as 3PID. Next,
+    /// call [`add_3pid`] with the same `client_secret` and the returned `sid`.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_secret` - A client-generated secret string used to protect
+    /// this session.
+    ///
+    /// * `country` - The two-letter uppercase ISO-3166-1 alpha-2 country code
+    /// that the number in phone_number should be parsed as if it were dialled
+    /// from.
+    ///
+    /// * `phone_number` - The phone number to validate.
+    ///
+    /// * `send_attempt` - The attempt number. This number needs to be
+    /// incremented if you want to request another token for the same
+    /// validation.
+    ///
+    /// # Returns
+    ///
+    /// An `(sid, submit_url)` tuple.
+    ///
+    /// * `sid` - The session ID to be used in following requests for this 3PID.
+    ///
+    /// * `submit_url` - If present, the user will submit the token to the
+    /// client, that must send it to this URL. If not, the client will not be
+    /// involved in the token submission.
+    ///
+    /// This method might return a [`ThreepidInUse`] if the phone number is
+    /// already registered for this account or another, or a [`ThreepidDenied`]
+    /// error if it is denied.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::ruma::{ClientSecret, uint};
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let account = client.account();
+    /// # let secret = ClientSecret::parse("secret").unwrap();
+    ///
+    /// let (sid, submit_url) = account.request_3pid_msisdn_token(
+    ///     &secret,
+    ///     "FR",
+    ///     "0123456789",
+    ///     uint!(0),
+    /// ).await?;
+    ///
+    /// // Wait for the user to confirm that the token was submitted or prompt
+    /// // the user for the token and send it to submit_url.
+    ///
+    /// let response = account.add_3pid(&secret, &sid, None).await;
+    ///
+    /// // Proceed with UIAA.
+    ///
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// ```
+    /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
+    /// [`ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
+    /// [`ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
+    pub async fn request_3pid_msisdn_token(
+        &self,
+        client_secret: &ClientSecret,
+        country: &str,
+        phone_number: &str,
+        send_attempt: UInt,
+    ) -> Result<(Box<SessionId>, Option<String>)> {
+        let request = request_3pid_management_token_via_msisdn::Request::new(
+            client_secret,
+            country,
+            phone_number,
+            send_attempt,
+        );
+        let response = self.client.send(request, None).await?;
+        Ok((response.sid, response.submit_url))
+    }
+
+    /// Add a [Third Party Identifier][3pid] on the homeserver for this
+    /// account.
+    ///
+    /// This 3PID may be used by the homeserver to authenticate the user
+    /// during sensitive operations. To register it against an identity server,
+    /// use [`bind_3pid`].
+    ///
+    /// This method should be called after [`request_3pid_email_token`] or
+    /// [`request_3pid_msisdn_token`] to complete the 3PID registration.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_secret` - The same client secret used in
+    /// [`request_3pid_email_token`] or [`request_3pid_msisdn_token`].
+    ///
+    /// * `sid` - The session ID returned in
+    /// [`request_3pid_email_token`] or [`request_3pid_msisdn_token`].
+    ///
+    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    /// API][uiaa]. The first request needs to set this to `None` and will
+    /// always fail with an [`UiaaResponse`]. The response will contain
+    /// information for the interactive auth and the same request needs to be
+    /// made but this time with some `auth_data` provided.
+    ///
+    /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
+    /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
+    /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
+    pub async fn add_3pid(
+        &self,
+        client_secret: &ClientSecret,
+        sid: &SessionId,
+        auth_data: Option<AuthData<'_>>,
+    ) -> Result<()> {
+        let request = assign!(add_3pid::Request::new(client_secret, sid), {
+            auth: auth_data,
+        });
+        self.client.send(request, None).await?;
+        Ok(())
+    }
+
+    /// Delete a [Third Party Identifier][3pid] from the homeserver for this
+    /// account.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The 3PID being removed.
+    ///
+    /// * `medium` - The type of the 3PID.
+    ///
+    /// * `id_server` - The identity server to unbind from. If not provided, the
+    /// homeserver should unbind the 3PID from the identity server it was bound
+    /// to with [`bind_3pid`].
+    ///
+    /// # Returns
+    ///
+    /// * [`Success`] if the 3PID was also unbound from the identity server.
+    ///
+    /// * [`NoSupport`] if the 3PID was not unbound from the identity server.
+    /// This can also mean that the 3PID was not bound to an identity server in
+    /// the first place.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::ruma::thirdparty::Medium;
+    /// # use matrix_sdk::ruma::api::client::r0::account::ThirdPartyIdRemovalStatus;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let account = client.account();
+    ///
+    /// match account.delete_3pid("paul@matrix.org", Medium::Email, None).await? {
+    ///     ThirdPartyIdRemovalStatus::Success => println!("3PID unbound from the Identity Server"),
+    ///     _ => println!("Could not unbind 3PID from the Identity Server"),
+    /// }
+    ///
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// ```
+    /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
+    /// [`Success`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::Success
+    /// [`NoSupport`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::NoSupport
+    pub async fn delete_3pid(
+        &self,
+        address: &str,
+        medium: Medium,
+        id_server: Option<&str>,
+    ) -> Result<ThirdPartyIdRemovalStatus> {
+        let request = assign!(delete_3pid::Request::new(medium, address), {
+            id_server: id_server,
+        });
+        let response = self.client.send(request, None).await?;
+        Ok(response.id_server_unbind_result)
     }
 }
