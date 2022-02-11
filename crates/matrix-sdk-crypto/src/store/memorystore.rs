@@ -340,7 +340,7 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await.unwrap();
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
         let inbound = InboundGroupSession::new(
             "test_key",
             "test_key",

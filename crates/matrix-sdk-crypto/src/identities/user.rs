@@ -33,11 +33,12 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 use tracing::error;
+use vodozemac::Ed25519PublicKey;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::SignatureError,
-    olm::Utility,
+    olm::VerifyJson,
     store::{Changes, IdentityChanges},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
@@ -487,11 +488,11 @@ impl MasterPubkey {
             return Err(SignatureError::UserIdMismatch);
         }
 
-        let utility = Utility::new();
-        utility.verify_json(
+        let key = Ed25519PublicKey::from_base64(key)?;
+
+        key.verify_json(
             &self.0.user_id,
             key_id,
-            key,
             &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
         )
     }
@@ -534,11 +535,10 @@ impl UserSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        let utility = Utility::new();
-        utility.verify_json(
+        let key = Ed25519PublicKey::from_base64(key)?;
+        key.verify_json(
             &self.0.user_id,
             key_id.as_str().try_into()?,
-            key,
             &mut to_value(&*master_key.0).map_err(|_| SignatureError::NotAnObject)?,
         )
     }
@@ -570,9 +570,8 @@ impl SelfSigningPubkey {
 
         let mut device = to_value(device_keys)?;
 
-        let utility = Utility::new();
-
-        utility.verify_json(&self.0.user_id, key_id.as_str().try_into()?, key, &mut device)
+        let key = Ed25519PublicKey::from_base64(key)?;
+        key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, &mut device)
     }
 
     /// Check if the given device is signed by this self signing key.

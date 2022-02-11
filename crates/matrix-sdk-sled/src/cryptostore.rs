@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    convert::{TryFrom, TryInto},
+    convert::TryInto,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -32,12 +32,12 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_crypto::{
     olm::{
-        InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
+        IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, Session,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, IdentityKeys,
-        PickleKey, PicklingMode, RecoveryKey, Result, RoomKeyCounts,
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
+        RoomKeyCounts,
     },
     GossipRequest, LocalTrust, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
@@ -53,6 +53,7 @@ use super::OpenStoreError;
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
+#[cfg(feature = "backups_v1")]
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
 const DATABASE_VERSION: u8 = 3;
 
@@ -175,7 +176,6 @@ pub struct SledStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
     path: Option<PathBuf>,
     inner: Db,
-    pickle_key: Arc<PickleKey>,
 
     session_cache: SessionStore,
     tracked_users_cache: Arc<DashSet<Box<UserId>>>,
@@ -362,7 +362,7 @@ impl SledStore {
                 .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
             {
                 let pickle = serde_json::from_slice(&pickle)?;
-                let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
+                let account = ReadOnlyAccount::from_pickle(pickle)?;
 
                 self.devices
                     .remove((account.user_id().as_str(), account.device_id.as_str()).encode())
@@ -384,7 +384,7 @@ impl SledStore {
     fn open_helper(
         db: Db,
         path: Option<PathBuf>,
-        passphrase: Option<&str>,
+        _passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
@@ -406,18 +406,10 @@ impl SledStore {
 
         let session_cache = SessionStore::new();
 
-        let pickle_key = if let Some(passphrase) = passphrase {
-            Self::get_or_create_pickle_key(passphrase, &db)?
-        } else {
-            PickleKey::try_from(DEFAULT_PICKLE.as_bytes().to_vec())
-                .expect("Can't create default pickle key")
-        };
-
         let database = Self {
             account_info: RwLock::new(None).into(),
             path,
             inner: db,
-            pickle_key: pickle_key.into(),
             account,
             private_identity,
             sessions,
@@ -438,34 +430,6 @@ impl SledStore {
         database.upgrade()?;
 
         Ok(database)
-    }
-
-    fn get_or_create_pickle_key(passphrase: &str, database: &Db) -> Result<PickleKey> {
-        let key = if let Some(key) = database
-            .get("pickle_key".encode())
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
-            .map(|v| serde_json::from_slice(&v))
-        {
-            PickleKey::from_encrypted(passphrase, key?)
-                .map_err(|_| CryptoStoreError::UnpicklingError)?
-        } else {
-            let key = PickleKey::new();
-            let encrypted = key.encrypt(passphrase);
-            database
-                .insert("pickle_key".encode(), serde_json::to_vec(&encrypted)?)
-                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-            key
-        };
-
-        Ok(key)
-    }
-
-    fn get_pickle_mode(&self) -> PicklingMode {
-        self.pickle_key.pickle_mode()
-    }
-
-    fn get_pickle_key(&self) -> &[u8] {
-        self.pickle_key.key()
     }
 
     async fn load_tracked_users(&self) -> Result<()> {
@@ -496,31 +460,23 @@ impl SledStore {
             .map(|p| serde_json::from_slice(&p).map_err(CryptoStoreError::Serialization))
             .transpose()?
             .map(|p| {
-                OutboundGroupSession::from_pickle(
+                Ok(OutboundGroupSession::from_pickle(
                     account_info.device_id,
                     account_info.identity_keys,
                     p,
-                    self.get_pickle_mode(),
-                )
-                .map_err(CryptoStoreError::OlmGroupSession)
+                )?)
             })
             .transpose()
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let account_pickle = if let Some(a) = changes.account {
-            Some(a.pickle(self.get_pickle_mode()).await)
-        } else {
-            None
-        };
+        let account_pickle =
+            if let Some(a) = changes.account { Some(a.pickle().await) } else { None };
 
-        let private_identity_pickle = if let Some(i) = changes.private_identity {
-            Some(i.pickle(self.get_pickle_key()).await?)
-        } else {
-            None
-        };
+        let private_identity_pickle =
+            if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
 
-        let recovery_key_pickle = changes.recovery_key.map(|r| r.pickle(self.get_pickle_key()));
+        let recovery_key_pickle = changes.recovery_key;
 
         let device_changes = changes.devices;
         let mut session_changes = HashMap::new();
@@ -529,7 +485,7 @@ impl SledStore {
             let sender_key = session.sender_key();
             let session_id = session.session_id();
 
-            let pickle = session.pickle(self.get_pickle_mode()).await;
+            let pickle = session.pickle().await;
             let key = (sender_key, session_id).encode();
 
             self.session_cache.add(session).await;
@@ -543,7 +499,7 @@ impl SledStore {
             let sender_key = session.sender_key();
             let session_id = session.session_id();
             let key = (room_id.as_str(), sender_key, session_id).encode();
-            let pickle = session.pickle(self.get_pickle_mode()).await;
+            let pickle = session.pickle().await;
 
             inbound_session_changes.insert(key, pickle);
         }
@@ -552,7 +508,7 @@ impl SledStore {
 
         for session in changes.outbound_group_sessions {
             let room_id = session.room_id();
-            let pickle = session.pickle(self.get_pickle_mode()).await;
+            let pickle = session.pickle().await;
 
             outbound_session_changes.insert(room_id.to_owned(), pickle);
         }
@@ -735,8 +691,7 @@ impl CryptoStore for SledStore {
             let pickle = serde_json::from_slice(&pickle)?;
 
             self.load_tracked_users().await?;
-
-            let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
+            let account = ReadOnlyAccount::from_pickle(pickle)?;
 
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -774,7 +729,7 @@ impl CryptoStore for SledStore {
         {
             let pickle = serde_json::from_slice(&i)?;
             Ok(Some(
-                PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
+                PrivateCrossSigningIdentity::from_pickle(pickle)
                     .await
                     .map_err(|_| CryptoStoreError::UnpicklingError)?,
             ))
@@ -799,14 +754,12 @@ impl CryptoStore for SledStore {
                         .map_err(CryptoStoreError::Serialization)
                 })
                 .map(|p| {
-                    Session::from_pickle(
+                    Ok(Session::from_pickle(
                         account_info.user_id.clone(),
                         account_info.device_id.clone(),
                         account_info.identity_keys.clone(),
                         p?,
-                        self.get_pickle_mode(),
-                    )
-                    .map_err(CryptoStoreError::SessionUnpickling)
+                    ))
                 })
                 .collect();
 
@@ -830,7 +783,7 @@ impl CryptoStore for SledStore {
             .map(|p| serde_json::from_slice(&p));
 
         if let Some(pickle) = pickle {
-            Ok(Some(InboundGroupSession::from_pickle(pickle?, self.get_pickle_mode())?))
+            Ok(Some(InboundGroupSession::from_pickle(pickle?)?))
         } else {
             Ok(None)
         }
@@ -846,10 +799,7 @@ impl CryptoStore for SledStore {
             })
             .collect();
 
-        Ok(pickles?
-            .into_iter()
-            .filter_map(|p| InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok())
-            .collect())
+        Ok(pickles?.into_iter().filter_map(|p| InboundGroupSession::from_pickle(p).ok()).collect())
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
@@ -882,10 +832,7 @@ impl CryptoStore for SledStore {
             .filter_map(|p: Result<PickledInboundGroupSession, CryptoStoreError>| match p {
                 Ok(p) => {
                     if !p.backed_up {
-                        Some(
-                            InboundGroupSession::from_pickle(p, self.get_pickle_mode())
-                                .map_err(CryptoStoreError::from),
-                        )
+                        Some(InboundGroupSession::from_pickle(p).map_err(CryptoStoreError::from))
                     } else {
                         None
                     }
@@ -1082,11 +1029,6 @@ impl CryptoStore for SledStore {
                     .get("recovery_key_v1".encode())
                     .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
                     .map(|p| serde_json::from_slice(&p))
-                    .transpose()?
-                    .map(|p| {
-                        RecoveryKey::from_pickle(p, self.get_pickle_key())
-                            .map_err(|_| CryptoStoreError::UnpicklingError)
-                    })
                     .transpose()?
             };
 

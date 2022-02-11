@@ -57,9 +57,9 @@ use crate::{
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
-        Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, GroupSessionKey,
-        IdentityKeys, InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity,
-        ReadOnlyAccount, SessionType,
+        Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, IdentityKeys,
+        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
+        SessionKey, SessionType,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -227,13 +227,16 @@ impl OlmMachine {
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
-                debug!(ed25519_key = a.identity_keys().ed25519(), "Restored an Olm account");
+                debug!(
+                    ed25519_key = a.identity_keys().ed25519.to_base64().as_str(),
+                    "Restored an Olm account"
+                );
                 a
             }
             None => {
                 let account = ReadOnlyAccount::new(&user_id, &device_id);
                 debug!(
-                    ed25519_key = account.identity_keys().ed25519(),
+                    ed25519_key = account.identity_keys().ed25519.to_base64().as_str(),
                     "Created a new Olm account"
                 );
                 store.save_account(account.clone()).await?;
@@ -294,7 +297,7 @@ impl OlmMachine {
     }
 
     /// Get the public parts of our Olm identity keys.
-    pub fn identity_keys(&self) -> &IdentityKeys {
+    pub fn identity_keys(&self) -> IdentityKeys {
         self.account.identity_keys()
     }
 
@@ -575,7 +578,7 @@ impl OlmMachine {
     ) -> OlmResult<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
         match event.content.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
+                let session_key = SessionKey(mem::take(&mut event.content.session_key));
 
                 match InboundGroupSession::new(
                     sender_key,
@@ -1485,7 +1488,10 @@ impl OlmMachine {
         let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key);
         let signature = identity.sign(message).await?;
 
-        signatures.entry(self.user_id().to_owned()).or_default().insert(device_key_id, signature);
+        signatures
+            .entry(self.user_id().to_owned())
+            .or_default()
+            .insert(device_key_id, signature.to_base64());
 
         Ok(())
     }
@@ -1556,11 +1562,12 @@ pub(crate) mod test {
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     };
     use serde_json::json;
+    use vodozemac::Ed25519PublicKey;
 
     use super::testing::response_from_file;
     use crate::{
         machine::OlmMachine,
-        olm::Utility,
+        olm::VerifyJson,
         verification::test::{outgoing_request_to_event, request_to_event},
         EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
@@ -1735,13 +1742,11 @@ pub(crate) mod test {
 
         let mut device_keys = machine.account.device_keys().await;
         let identity_keys = machine.account.identity_keys();
-        let ed25519_key = identity_keys.ed25519();
+        let ed25519_key = identity_keys.ed25519;
 
-        let utility = Utility::new();
-        let ret = utility.verify_json(
+        let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            ed25519_key,
             &mut json!(&mut device_keys),
         );
         assert!(ret.is_ok());
@@ -1770,35 +1775,33 @@ pub(crate) mod test {
 
         let mut device_keys = machine.account.device_keys().await;
 
-        let utility = Utility::new();
-        let ret = utility.verify_json(
+        let key = Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap();
+
+        let ret = key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            "fake_key",
             &mut json!(&mut device_keys),
         );
         assert!(ret.is_err());
     }
 
     #[async_test]
-    async fn test_one_time_key_signing() {
+    async fn one_time_key_signing() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(49);
 
         let mut one_time_keys = machine.account.signed_one_time_keys().await.unwrap();
-        let identity_keys = machine.account.identity_keys();
-        let ed25519_key = identity_keys.ed25519();
+        let ed25519_key = machine.account.identity_keys().ed25519;
 
         let mut one_time_key = one_time_keys.values_mut().next().unwrap();
 
-        let utility = Utility::new();
-        let ret = utility.verify_json(
-            &machine.user_id,
-            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            ed25519_key,
-            &mut json!(&mut one_time_key),
-        );
-        assert!(ret.is_ok());
+        ed25519_key
+            .verify_json(
+                &machine.user_id,
+                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
+                &mut json!(&mut one_time_key),
+            )
+            .expect("One-time key has been signed successfully");
     }
 
     #[async_test]
@@ -1806,26 +1809,21 @@ pub(crate) mod test {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(0);
 
-        let identity_keys = machine.account.identity_keys();
-        let ed25519_key = identity_keys.ed25519();
+        let ed25519_key = machine.account.identity_keys().ed25519;
 
         let mut request =
             machine.keys_for_upload().await.expect("Can't prepare initial key upload");
 
-        let utility = Utility::new();
-        let ret = utility.verify_json(
+        let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            ed25519_key,
             &mut json!(&mut request.one_time_keys.values_mut().next()),
         );
         assert!(ret.is_ok());
 
-        let utility = Utility::new();
-        let ret = utility.verify_json(
+        let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            ed25519_key,
             &mut json!(&mut request.device_keys.unwrap()),
         );
         assert!(ret.is_ok());
@@ -1894,7 +1892,7 @@ pub(crate) mod test {
 
         let session = alice_machine
             .store
-            .get_sessions(bob_machine.account.identity_keys().curve25519())
+            .get_sessions(&bob_machine.account.identity_keys().curve25519.to_base64())
             .await
             .unwrap()
             .unwrap();
@@ -1965,7 +1963,7 @@ pub(crate) mod test {
             .store
             .get_inbound_group_session(
                 room_id,
-                alice.account.identity_keys().curve25519(),
+                &alice.account.identity_keys().curve25519.to_base64(),
                 alice_session.session_id(),
             )
             .await;
@@ -2047,7 +2045,7 @@ pub(crate) mod test {
 
         let user_id = machine.user_id().to_owned();
         let device_id = machine.device_id().to_owned();
-        let ed25519_key = machine.identity_keys().ed25519().to_owned();
+        let ed25519_key = machine.identity_keys().ed25519;
 
         machine.receive_keys_upload_response(&keys_upload_response()).await.unwrap();
 
@@ -2064,7 +2062,7 @@ pub(crate) mod test {
 
         assert_eq!(&user_id, machine.user_id());
         assert_eq!(&*device_id, machine.device_id());
-        assert_eq!(ed25519_key, machine.identity_keys().ed25519());
+        assert_eq!(ed25519_key, machine.identity_keys().ed25519);
     }
 
     #[async_test]

@@ -25,13 +25,6 @@ use std::{
 
 use dashmap::DashMap;
 use matrix_sdk_common::{instant::Instant, locks::Mutex};
-pub use olm_rs::{
-    account::IdentityKeys,
-    outbound_group_session::OlmOutboundGroupSession,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
-use olm_rs::{errors::OlmGroupSessionError, PicklingMode};
 use ruma::{
     events::{
         room::{
@@ -49,11 +42,13 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{debug, error, info};
-
-use super::{
-    super::{deserialize_instant, serialize_instant},
-    GroupSessionKey,
+pub use vodozemac::{
+    megolm::{GroupSession, GroupSessionPickle, MegolmMessage, SessionKey},
+    olm::IdentityKeys,
+    PickleError,
 };
+
+use super::super::{deserialize_instant, serialize_instant};
 use crate::{Device, ToDeviceRequest};
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
@@ -117,7 +112,7 @@ impl EncryptionSettings {
 /// messages.
 #[derive(Clone)]
 pub struct OutboundGroupSession {
-    inner: Arc<Mutex<OlmOutboundGroupSession>>,
+    inner: Arc<Mutex<GroupSession>>,
     device_id: Arc<DeviceId>,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
@@ -170,8 +165,8 @@ impl OutboundGroupSession {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> Self {
-        let session = OlmOutboundGroupSession::new();
-        let session_id = session.session_id();
+        let session = GroupSession::new();
+        let session_id = session.session_id().to_owned();
 
         OutboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
@@ -256,8 +251,8 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
-    pub(crate) async fn encrypt_helper(&self, plaintext: String) -> String {
-        let session = self.inner.lock().await;
+    pub(crate) async fn encrypt_helper(&self, plaintext: String) -> MegolmMessage {
+        let mut session = self.inner.lock().await;
         self.message_count.fetch_add(1, Ordering::SeqCst);
         session.encrypt(&plaintext)
     }
@@ -296,8 +291,8 @@ impl OutboundGroupSession {
         let ciphertext = self.encrypt_helper(plaintext).await;
 
         let encrypted_content = MegolmV1AesSha2ContentInit {
-            ciphertext,
-            sender_key: self.account_identity_keys.curve25519().to_owned(),
+            ciphertext: ciphertext.to_base64(),
+            sender_key: self.account_identity_keys.curve25519.to_base64(),
             session_id: self.session_id().to_owned(),
             device_id: (*self.device_id).to_owned(),
         }
@@ -345,9 +340,9 @@ impl OutboundGroupSession {
     /// Get the session key of this session.
     ///
     /// A session key can be used to to create an `InboundGroupSession`.
-    pub async fn session_key(&self) -> GroupSessionKey {
+    pub async fn session_key(&self) -> SessionKey {
         let session = self.inner.lock().await;
-        GroupSessionKey(session.session_key())
+        session.session_key()
     }
 
     /// Get the room id of the room this session belongs to.
@@ -366,7 +361,7 @@ impl OutboundGroupSession {
     /// message index that will be used for the next encrypted message.
     pub async fn message_index(&self) -> u32 {
         let session = self.inner.lock().await;
-        session.session_message_index()
+        session.message_index()
     }
 
     pub(crate) async fn as_content(&self) -> AnyToDeviceEventContent {
@@ -481,10 +476,9 @@ impl OutboundGroupSession {
         device_id: Arc<DeviceId>,
         identity_keys: Arc<IdentityKeys>,
         pickle: PickledOutboundGroupSession,
-        pickling_mode: PicklingMode,
-    ) -> Result<Self, OlmGroupSessionError> {
-        let inner = OlmOutboundGroupSession::unpickle(pickle.pickle.0, pickling_mode)?;
-        let session_id = inner.session_id();
+    ) -> Result<Self, PickleError> {
+        let inner: GroupSession = pickle.pickle.into();
+        let session_id = inner.session_id().to_owned();
 
         Ok(Self {
             inner: Arc::new(Mutex::new(inner)),
@@ -516,9 +510,8 @@ impl OutboundGroupSession {
     /// * `pickle_mode` - The mode that should be used to pickle the group
     ///   session,
     /// either an unencrypted mode or an encrypted using passphrase.
-    pub async fn pickle(&self, pickling_mode: PicklingMode) -> PickledOutboundGroupSession {
-        let pickle: OutboundGroupSessionPickle =
-            self.inner.lock().await.pickle(pickling_mode).into();
+    pub async fn pickle(&self) -> PickledOutboundGroupSession {
+        let pickle = self.inner.lock().await.pickle();
 
         PickledOutboundGroupSession {
             pickle,
@@ -572,10 +565,11 @@ impl std::fmt::Debug for OutboundGroupSession {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an InboundGroupSession.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledOutboundGroupSession {
     /// The pickle string holding the OutboundGroupSession.
-    pub pickle: OutboundGroupSessionPickle,
+    pub pickle: GroupSessionPickle,
     /// The settings this session adheres to.
     pub settings: Arc<EncryptionSettings>,
     /// The room id this session is used for.

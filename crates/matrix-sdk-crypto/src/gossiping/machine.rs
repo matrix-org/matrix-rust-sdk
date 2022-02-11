@@ -934,7 +934,7 @@ impl GossipMachine {
 
 #[cfg(test)]
 mod test {
-    use std::{convert::TryInto, sync::Arc};
+    use std::sync::Arc;
 
     use dashmap::DashMap;
     use matches::assert_matches;
@@ -1056,8 +1056,7 @@ mod test {
         let machine = get_machine().await;
         let account = account();
 
-        let (_, session) =
-            account.create_group_session_pair_with_defaults(room_id()).await.unwrap();
+        let (_, session) = account.create_group_session_pair_with_defaults(room_id()).await;
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         let (cancel, request) = machine
@@ -1088,8 +1087,7 @@ mod test {
         alice_device.set_trust_state(LocalTrust::Verified);
         machine.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (_, session) =
-            account.create_group_session_pair_with_defaults(room_id()).await.unwrap();
+        let (_, session) = account.create_group_session_pair_with_defaults(room_id()).await;
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         machine
@@ -1133,8 +1131,7 @@ mod test {
         alice_device.set_trust_state(LocalTrust::Verified);
         machine.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (_, session) =
-            account.create_group_session_pair_with_defaults(room_id()).await.unwrap();
+        let (_, session) = account.create_group_session_pair_with_defaults(room_id()).await;
         machine
             .create_outgoing_key_request(
                 session.room_id(),
@@ -1228,8 +1225,7 @@ mod test {
         let own_device =
             machine.store.get_device(alice_id(), alice2_device_id()).await.unwrap().unwrap();
 
-        let (outbound, inbound) =
-            account.create_group_session_pair_with_defaults(room_id()).await.unwrap();
+        let (outbound, inbound) = account.create_group_session_pair_with_defaults(room_id()).await;
 
         // We don't share keys with untrusted devices.
         assert_matches!(
@@ -1287,7 +1283,7 @@ mod test {
         assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
 
         let (other_outbound, other_inbound) =
-            account.create_group_session_pair_with_defaults(room_id()).await.unwrap();
+            account.create_group_session_pair_with_defaults(room_id()).await;
 
         // But we don't share some other session that doesn't match our outbound
         // session.
@@ -1365,7 +1361,7 @@ mod test {
         bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         let (group_session, inbound_group_session) =
-            bob_account.create_group_session_pair_with_defaults(room_id()).await.unwrap();
+            bob_account.create_group_session_pair_with_defaults(room_id()).await;
 
         bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
 
@@ -1373,7 +1369,7 @@ mod test {
         alice_machine
             .create_outgoing_key_request(
                 room_id(),
-                bob_account.identity_keys.curve25519(),
+                &bob_account.identity_keys.curve25519.to_base64(),
                 group_session.session_id(),
             )
             .await
@@ -1442,7 +1438,7 @@ mod test {
             .store
             .get_inbound_group_session(
                 room_id(),
-                bob_account.identity_keys().curve25519(),
+                &bob_account.identity_keys().curve25519.to_base64(),
                 group_session.session_id()
             )
             .await
@@ -1569,7 +1565,7 @@ mod test {
         bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         let (group_session, inbound_group_session) =
-            bob_account.create_group_session_pair_with_defaults(room_id()).await.unwrap();
+            bob_account.create_group_session_pair_with_defaults(room_id()).await;
 
         bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
 
@@ -1577,7 +1573,7 @@ mod test {
         alice_machine
             .create_outgoing_key_request(
                 room_id(),
-                bob_account.identity_keys.curve25519(),
+                &bob_account.identity_keys.curve25519.to_base64(),
                 group_session.session_id(),
             )
             .await
@@ -1666,7 +1662,7 @@ mod test {
             .store
             .get_inbound_group_session(
                 room_id(),
-                bob_account.identity_keys().curve25519(),
+                &bob_account.identity_keys().curve25519.to_base64(),
                 group_session.session_id()
             )
             .await

@@ -14,21 +14,12 @@
 
 use std::convert::TryInto;
 
-use olm_rs::utility::OlmUtility;
 use ruma::{serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
 use serde_json::Value;
 
 use crate::error::SignatureError;
 
-pub(crate) struct Utility {
-    inner: OlmUtility,
-}
-
-impl Utility {
-    pub fn new() -> Self {
-        Self { inner: OlmUtility::new() }
-    }
-
+pub trait VerifyJson {
     /// Verify a signed JSON object.
     ///
     /// The object must have a signatures key associated  with an object of the
@@ -43,15 +34,20 @@ impl Utility {
     ///
     /// * `key_id` - The id of the key that signed the JSON object.
     ///
-    /// * `signing_key` - The public ed25519 key which was used to sign the JSON
-    ///   object.
-    ///
     /// * `json` - The JSON object that should be verified.
-    pub(crate) fn verify_json(
+    fn verify_json(
         &self,
         user_id: &UserId,
         key_id: &DeviceKeyId,
-        signing_key: &str,
+        json: &mut Value,
+    ) -> Result<(), SignatureError>;
+}
+
+impl VerifyJson for vodozemac::Ed25519PublicKey {
+    fn verify_json(
+        &self,
+        user_id: &UserId,
+        key_id: &DeviceKeyId,
         json: &mut Value,
     ) -> Result<(), SignatureError> {
         if key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
@@ -75,11 +71,11 @@ impl Utility {
             signature.get(key_id.to_string()).ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
 
-        let ret =
-            match self.inner.ed25519_verify(signing_key, &canonical_json, signature.to_owned()) {
-                Ok(_) => Ok(()),
-                Err(_) => Err(SignatureError::VerificationError),
-            };
+        let signature = vodozemac::Ed25519Signature::from_base64(signature)?;
+
+        let ret = self
+            .verify(canonical_json.as_bytes(), &signature)
+            .map_err(SignatureError::VerificationError);
 
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
 
@@ -97,8 +93,9 @@ impl Utility {
 mod test {
     use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
+    use vodozemac::Ed25519PublicKey;
 
-    use super::Utility;
+    use super::VerifyJson;
 
     #[test]
     fn signature_test() {
@@ -125,13 +122,13 @@ mod test {
 
         let signing_key = "n469gw7zm+KW+JsFIJKnFVvCKU14HwQyocggcCIQgZY";
 
-        let utility = Utility::new();
+        let signing_key = Ed25519PublicKey::from_base64(signing_key)
+            .expect("The signing key wasn't proper base64");
 
-        utility
+        signing_key
             .verify_json(
                 user_id!("@example:localhost"),
                 &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("GBEWHQOYGS")),
-                signing_key,
                 &mut device_keys,
             )
             .expect("Can't verify device keys");

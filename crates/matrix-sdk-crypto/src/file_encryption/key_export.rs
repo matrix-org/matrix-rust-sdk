@@ -319,7 +319,10 @@ mod test {
         let encrypted = encrypt_key_export(&export, "1234", 1).unwrap();
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
-        assert_eq!(export, decrypted);
+        for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
+            assert_eq!(exported.session_key.as_str(), decrypted.session_key.as_str());
+        }
+
         assert_eq!(
             machine.import_keys(decrypted, false, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
@@ -346,7 +349,9 @@ mod test {
             )]),
         );
 
-        assert_eq!(machine.import_keys(export.clone(), false, |_, _| {}).await?, keys,);
+        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys,);
+
+        let export = vec![session.export_at_index(10).await];
         assert_eq!(
             machine.import_keys(export, false, |_, _| {}).await?,
             RoomKeyImportResult::new(0, 1, BTreeMap::new())

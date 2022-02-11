@@ -5,7 +5,6 @@ macro_rules! cryptostore_integration_tests {
     $(
         mod $name {
             use super::get_store;
-            use std::collections::BTreeMap;
 
             use matrix_sdk_test::async_test;
             use matrix_sdk_common::ruma::{
@@ -18,8 +17,7 @@ macro_rules! cryptostore_integration_tests {
                 SecretInfo,
                 testing::{get_device, get_other_identity, get_own_identity},
                 olm::{
-                    OlmOutboundGroupSession,
-                    GroupSessionKey, InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
+                    InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
                     ReadOnlyAccount, Session,
                 },
                 store::{CryptoStore, GossipRequest, Changes, DeviceChanges, IdentityChanges},
@@ -58,12 +56,10 @@ macro_rules! cryptostore_integration_tests {
                 let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
 
                 bob.generate_one_time_keys_helper(1).await;
-                let one_time_key =
-                    Base64::parse(bob.one_time_keys().await.curve25519().values().next().unwrap()).unwrap();
-                let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
-                let sender_key = bob.identity_keys().curve25519().to_owned();
+                let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
+                let sender_key = bob.identity_keys().curve25519;
                 let session =
-                    alice.create_outbound_session_helper(&sender_key, &one_time_key).await.unwrap();
+                    alice.create_outbound_session_helper(sender_key, one_time_key, false).await;
 
                 (alice, session)
             }
@@ -180,8 +176,7 @@ macro_rules! cryptostore_integration_tests {
                 assert!(store.get_outbound_group_sessions(&room_id).await.unwrap().is_none());
 
                 let (session, _) = account.create_group_session_pair_with_defaults(&room_id)
-                    .await
-                    .expect("Can't create session");
+                    .await;
 
                 let changes =
                     Changes { outbound_group_sessions: vec![session.clone()], ..Default::default() };
@@ -205,16 +200,8 @@ macro_rules! cryptostore_integration_tests {
             async fn save_inbound_group_session() {
                 let (account, store) = get_loaded_store("save_inbound_group_session".to_owned()).await;
 
-                let identity_keys = account.identity_keys();
-                let outbound_session = OlmOutboundGroupSession::new();
-                let session = InboundGroupSession::new(
-                    identity_keys.curve25519(),
-                    identity_keys.ed25519(),
-                    &room_id!("!test:localhost"),
-                    GroupSessionKey(outbound_session.session_key()),
-                    None,
-                )
-                .expect("Can't create session");
+                let room_id = &room_id!("!test:localhost");
+                let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
                 let changes = Changes { inbound_group_sessions: vec![session], ..Default::default() };
 
@@ -225,16 +212,8 @@ macro_rules! cryptostore_integration_tests {
             async fn save_inbound_group_session_for_backup() {
                 let (account, store) = get_loaded_store("save_inbound_group_session_for_backup".to_owned()).await;
 
-                let identity_keys = account.identity_keys();
-                let outbound_session = OlmOutboundGroupSession::new();
-                let session = InboundGroupSession::new(
-                    identity_keys.curve25519(),
-                    identity_keys.ed25519(),
-                    &room_id!("!test:localhost"),
-                    GroupSessionKey(outbound_session.session_key()),
-                    None,
-                )
-                .expect("Can't create session");
+                let room_id = &room_id!("!test:localhost");
+                let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
                 let changes = Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
 
@@ -260,16 +239,8 @@ macro_rules! cryptostore_integration_tests {
                 let (account, store) = get_loaded_store("reset_inbound_group_session_for_backup".to_owned()).await;
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 0);
 
-                let identity_keys = account.identity_keys();
-                let outbound_session = OlmOutboundGroupSession::new();
-                let session = InboundGroupSession::new(
-                    identity_keys.curve25519(),
-                    identity_keys.ed25519(),
-                    &room_id!("!test:localhost"),
-                    GroupSessionKey(outbound_session.session_key()),
-                    None,
-                )
-                .expect("Can't create session");
+                let room_id = &room_id!("!test:localhost");
+                let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
                 session.mark_as_backed_up();
 
@@ -296,16 +267,8 @@ macro_rules! cryptostore_integration_tests {
                 let (account, store) = get_loaded_store(dir.clone()).await;
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
 
-                let identity_keys = account.identity_keys();
-                let outbound_session = OlmOutboundGroupSession::new();
-                let session = InboundGroupSession::new(
-                    identity_keys.curve25519(),
-                    identity_keys.ed25519(),
-                    &room_id!("!test:localhost"),
-                    GroupSessionKey(outbound_session.session_key()),
-                    None,
-                )
-                .expect("Can't create session");
+                let room_id = &room_id!("!test:localhost");
+                let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
                 let mut export = session.export().await;
 

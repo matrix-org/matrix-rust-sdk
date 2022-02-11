@@ -508,7 +508,7 @@ impl Encryption {
     /// Get the public ed25519 key of our own device. This is usually what is
     /// called the fingerprint of the device.
     pub async fn ed25519_key(&self) -> Option<String> {
-        self.client.olm_machine().await.map(|o| o.identity_keys().ed25519().to_owned())
+        self.client.olm_machine().await.map(|o| o.identity_keys().ed25519.to_base64())
     }
 
     /// Get the status of the private cross signing keys.

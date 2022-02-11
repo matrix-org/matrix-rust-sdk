@@ -470,7 +470,7 @@ impl QrVerification {
 
         let inner: QrVerificationData = SelfVerificationNoMasterKey::new(
             flow_id.as_str().to_owned(),
-            store.account.identity_keys().ed25519().to_owned(),
+            store.account.identity_keys().ed25519.to_base64(),
             own_master_key,
             secret,
         )
@@ -556,9 +556,9 @@ impl QrVerification {
             }
             QrVerificationData::SelfVerification(_) => {
                 check_master_key(qr_code.first_key(), &other_identity)?;
-                if qr_code.second_key() != store.account.identity_keys().ed25519() {
+                if qr_code.second_key() != store.account.identity_keys().ed25519.to_base64() {
                     return Err(ScanError::KeyMismatch {
-                        expected: store.account.identity_keys().ed25519().to_owned(),
+                        expected: store.account.identity_keys().ed25519.to_base64(),
                         found: qr_code.second_key().to_owned(),
                     });
                 }
@@ -832,7 +832,7 @@ mod test {
         let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
         let flow_id = FlowId::ToDevice("test_transaction".into());
 
-        let device_key = account.identity_keys().ed25519().to_owned();
+        let device_key = account.identity_keys.ed25519.to_base64();
         let master_key = private_identity.master_public_key().await.unwrap();
         let master_key = master_key.get_first_key().unwrap().to_owned();
 

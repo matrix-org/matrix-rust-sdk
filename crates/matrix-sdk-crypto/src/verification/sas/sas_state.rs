@@ -20,7 +20,6 @@ use std::{
 };
 
 use matrix_sdk_common::instant::Instant;
-use olm_rs::sas::OlmSas;
 use ruma::{
     events::{
         key::verification::{
@@ -44,6 +43,10 @@ use ruma::{
     DeviceId, EventId, RoomId, TransactionId, UserId,
 };
 use tracing::info;
+use vodozemac::{
+    sas::{EstablishedSas, Sas},
+    Curve25519PublicKey,
+};
 
 use super::{
     helpers::{
@@ -59,7 +62,7 @@ use crate::{
             AcceptContent, DoneContent, KeyContent, MacContent, OwnedAcceptContent,
             OwnedStartContent, StartContent,
         },
-        Cancelled, Done, FlowId,
+        Cancelled, FlowId,
     },
     Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
@@ -193,8 +196,11 @@ impl Default for AcceptedProtocols {
 /// and the specific state.
 #[derive(Clone)]
 pub struct SasState<S: Clone> {
-    /// The Olm SAS struct.
-    inner: Arc<Mutex<OlmSas>>,
+    /// The SAS struct.
+    inner: Arc<Mutex<Option<Sas>>>,
+
+    /// The public key we generated for this SAS flow.
+    our_public_key: Curve25519PublicKey,
 
     /// Struct holding the identities that are doing the SAS dance.
     ids: SasIds,
@@ -268,7 +274,7 @@ pub struct WeAccepted {
 /// From now on we can show the short auth string to the user.
 #[derive(Clone, Debug)]
 pub struct KeyReceived {
-    their_pubkey: Base64,
+    sas: Arc<Mutex<EstablishedSas>>,
     we_started: bool,
     pub accepted_protocols: Arc<AcceptedProtocols>,
 }
@@ -278,6 +284,7 @@ pub struct KeyReceived {
 /// other side.
 #[derive(Clone, Debug)]
 pub struct Confirmed {
+    sas: Arc<Mutex<EstablishedSas>>,
     pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
@@ -286,8 +293,8 @@ pub struct Confirmed {
 /// matches.
 #[derive(Clone, Debug)]
 pub struct MacReceived {
+    sas: Arc<Mutex<EstablishedSas>>,
     we_started: bool,
-    their_pubkey: Base64,
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
     pub accepted_protocols: Arc<AcceptedProtocols>,
@@ -298,6 +305,19 @@ pub struct MacReceived {
 /// verification. This state waits for such a message.
 #[derive(Clone, Debug)]
 pub struct WaitingForDone {
+    sas: Arc<Mutex<EstablishedSas>>,
+    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
+}
+
+/// The verification state indicating that the verification finished
+/// successfully.
+///
+/// We can now mark the device in our verified devices list as verified and sign
+/// the master keys in the verified devices list.
+#[derive(Clone, Debug)]
+pub struct Done {
+    sas: Arc<Mutex<EstablishedSas>>,
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
@@ -322,6 +342,7 @@ impl<S: Clone> SasState<S> {
     pub fn cancel(self, cancelled_by_us: bool, cancel_code: CancelCode) -> SasState<Cancelled> {
         SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             ids: self.ids,
             creation_time: self.creation_time,
             last_event_time: self.last_event_time,
@@ -422,8 +443,12 @@ impl SasState<Created> {
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
     ) -> SasState<Created> {
+        let sas = Sas::new();
+        let our_public_key = sas.public_key();
+
         SasState {
-            inner: Arc::new(Mutex::new(OlmSas::new())),
+            inner: Arc::new(Mutex::new(Some(sas))),
+            our_public_key,
             ids: SasIds { account, other_device, other_identity, own_identity },
             verification_flow_id: flow_id.into(),
 
@@ -477,6 +502,7 @@ impl SasState<Created> {
 
             Ok(SasState {
                 inner: self.inner,
+                our_public_key: self.our_public_key,
                 ids: self.ids,
                 verification_flow_id: self.verification_flow_id,
                 creation_time: self.creation_time,
@@ -519,8 +545,12 @@ impl SasState<Started> {
     ) -> Result<SasState<Started>, SasState<Cancelled>> {
         let flow_id = Arc::new(flow_id);
 
+        let sas = Sas::new();
+        let our_public_key = sas.public_key();
+
         let canceled = || SasState {
-            inner: Arc::new(Mutex::new(OlmSas::new())),
+            inner: Arc::new(Mutex::new(None)),
+            our_public_key,
 
             creation_time: Arc::new(Instant::now()),
             last_event_time: Arc::new(Instant::now()),
@@ -538,20 +568,19 @@ impl SasState<Started> {
         };
 
         if let StartMethod::SasV1(method_content) = content.method() {
-            let sas = OlmSas::new();
-
-            let pubkey =
-                Base64::parse(sas.public_key()).expect("Couldn't base64-decode public key");
-            let commitment = calculate_commitment(&pubkey, content);
+            let commitment = calculate_commitment(our_public_key, content);
 
             info!(
                 "Calculated commitment for pubkey {} and content {:?} {}",
-                pubkey, content, commitment
+                our_public_key.to_base64(),
+                content,
+                commitment
             );
 
             if let Ok(accepted_protocols) = AcceptedProtocols::try_from(method_content) {
                 Ok(SasState {
-                    inner: Arc::new(Mutex::new(sas)),
+                    inner: Arc::new(Mutex::new(Some(sas))),
+                    our_public_key,
 
                     ids: SasIds { account, other_device, other_identity, own_identity },
 
@@ -585,6 +614,7 @@ impl SasState<Started> {
 
         SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
@@ -645,6 +675,7 @@ impl SasState<Started> {
 
             Ok(SasState {
                 inner: self.inner,
+                our_public_key: self.our_public_key,
                 ids: self.ids,
                 verification_flow_id: self.verification_flow_id,
                 creation_time: self.creation_time,
@@ -721,27 +752,33 @@ impl SasState<WeAccepted> {
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
-        let their_pubkey = content.public_key().to_owned();
+        let their_public_key = Curve25519PublicKey::from_slice(content.public_key().as_bytes())
+            .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
 
-        self.inner
-            .lock()
-            .unwrap()
-            .set_their_public_key(their_pubkey.encode())
-            .expect("Can't set public key");
+        let sas = self.inner.lock().unwrap().take();
 
-        Ok(SasState {
-            inner: self.inner,
-            ids: self.ids,
-            verification_flow_id: self.verification_flow_id,
-            creation_time: self.creation_time,
-            last_event_time: Instant::now().into(),
-            started_from_request: self.started_from_request,
-            state: Arc::new(KeyReceived {
-                we_started: self.state.we_started,
-                their_pubkey,
-                accepted_protocols: self.state.accepted_protocols.clone(),
-            }),
-        })
+        if let Some(sas) = sas {
+            let established = sas
+                .diffie_hellman(their_public_key)
+                .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
+
+            Ok(SasState {
+                inner: self.inner,
+                our_public_key: self.our_public_key,
+                ids: self.ids,
+                verification_flow_id: self.verification_flow_id,
+                creation_time: self.creation_time,
+                last_event_time: Instant::now().into(),
+                started_from_request: self.started_from_request,
+                state: Arc::new(KeyReceived {
+                    sas: Mutex::new(established).into(),
+                    we_started: self.state.we_started,
+                    accepted_protocols: self.state.accepted_protocols.clone(),
+                }),
+            })
+        } else {
+            Err(self.cancel(true, CancelCode::UnexpectedMessage))
+        }
     }
 }
 
@@ -761,35 +798,39 @@ impl SasState<Accepted> {
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
-        let commitment = calculate_commitment(
-            content.public_key(),
-            &self.state.start_content.as_start_content(),
-        );
+        let their_public_key = Curve25519PublicKey::from_slice(content.public_key().as_bytes())
+            .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
+
+        let commitment =
+            calculate_commitment(their_public_key, &self.state.start_content.as_start_content());
 
         if self.state.commitment != commitment {
             Err(self.cancel(true, CancelCode::InvalidMessage))
         } else {
-            let their_pubkey = content.public_key().to_owned();
+            let sas = self.inner.lock().unwrap().take();
 
-            self.inner
-                .lock()
-                .unwrap()
-                .set_their_public_key(their_pubkey.encode())
-                .expect("Can't set public key");
+            if let Some(sas) = sas {
+                let established = sas
+                    .diffie_hellman(their_public_key)
+                    .map_err(|_| self.clone().cancel(true, "Invalid public key".into()))?;
 
-            Ok(SasState {
-                inner: self.inner,
-                ids: self.ids,
-                verification_flow_id: self.verification_flow_id,
-                creation_time: self.creation_time,
-                last_event_time: Instant::now().into(),
-                started_from_request: self.started_from_request,
-                state: Arc::new(KeyReceived {
-                    their_pubkey,
-                    we_started: true,
-                    accepted_protocols: self.state.accepted_protocols.clone(),
-                }),
-            })
+                Ok(SasState {
+                    inner: self.inner,
+                    our_public_key: self.our_public_key,
+                    ids: self.ids,
+                    verification_flow_id: self.verification_flow_id,
+                    creation_time: self.creation_time,
+                    last_event_time: Instant::now().into(),
+                    started_from_request: self.started_from_request,
+                    state: Arc::new(KeyReceived {
+                        sas: Mutex::new(established).into(),
+                        we_started: true,
+                        accepted_protocols: self.state.accepted_protocols.clone(),
+                    }),
+                })
+            } else {
+                Err(self.cancel(true, CancelCode::UnexpectedMessage))
+            }
         }
     }
 
@@ -801,16 +842,14 @@ impl SasState<Accepted> {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
                 ToDeviceKeyVerificationKeyEventContent::new(
                     s.clone(),
-                    Base64::parse(self.inner.lock().unwrap().public_key())
-                        .expect("Couldn't base64-decode public key"),
+                    Base64::new(self.our_public_key.to_vec()),
                 ),
             )
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
                 AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
-                    Base64::parse(self.inner.lock().unwrap().public_key())
-                        .expect("Couldn't base64-decode public key"),
+                    Base64::new(self.our_public_key.to_vec()),
                     Relation::new(e.clone()),
                 )),
             )
@@ -829,16 +868,14 @@ impl SasState<KeyReceived> {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationKey(
                 ToDeviceKeyVerificationKeyEventContent::new(
                     s.clone(),
-                    Base64::parse(self.inner.lock().unwrap().public_key())
-                        .expect("Couldn't base64-decode public key"),
+                    Base64::new(self.our_public_key.to_vec()),
                 ),
             )
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
                 AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
-                    Base64::parse(self.inner.lock().unwrap().public_key())
-                        .expect("Couldn't base64-decode public key"),
+                    Base64::new(self.our_public_key.to_vec()),
                     Relation::new(e.clone()),
                 )),
             )
@@ -852,9 +889,8 @@ impl SasState<KeyReceived> {
     /// second element the English description of the emoji.
     pub fn get_emoji(&self) -> [Emoji; 7] {
         get_emoji(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -866,9 +902,8 @@ impl SasState<KeyReceived> {
     /// numbers can be converted to a unique emoji defined by the spec.
     pub fn get_emoji_index(&self) -> [u8; 7] {
         get_emoji_index(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -880,9 +915,8 @@ impl SasState<KeyReceived> {
     /// the short auth string.
     pub fn get_decimal(&self) -> (u16, u16, u16) {
         get_decimal(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -903,7 +937,7 @@ impl SasState<KeyReceived> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
             self.verification_flow_id.as_str(),
             sender,
@@ -913,14 +947,15 @@ impl SasState<KeyReceived> {
 
         Ok(SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
             last_event_time: Instant::now().into(),
             ids: self.ids,
             started_from_request: self.started_from_request,
             state: Arc::new(MacReceived {
+                sas: self.state.sas.clone(),
                 we_started: self.state.we_started,
-                their_pubkey: self.state.their_pubkey.clone(),
                 verified_devices: devices.into(),
                 verified_master_keys: master_keys.into(),
                 accepted_protocols: self.state.accepted_protocols.clone(),
@@ -935,12 +970,14 @@ impl SasState<KeyReceived> {
     pub fn confirm(self) -> SasState<Confirmed> {
         SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             started_from_request: self.started_from_request,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
             last_event_time: self.last_event_time,
             ids: self.ids,
             state: Arc::new(Confirmed {
+                sas: self.state.sas.clone(),
                 accepted_protocols: self.state.accepted_protocols.clone(),
             }),
         }
@@ -963,7 +1000,7 @@ impl SasState<Confirmed> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
             self.verification_flow_id.as_str(),
             sender,
@@ -973,6 +1010,7 @@ impl SasState<Confirmed> {
 
         Ok(SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             creation_time: self.creation_time,
             last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
@@ -980,6 +1018,7 @@ impl SasState<Confirmed> {
             ids: self.ids,
 
             state: Arc::new(Done {
+                sas: self.state.sas.clone(),
                 verified_devices: devices.into(),
                 verified_master_keys: master_keys.into(),
             }),
@@ -1003,7 +1042,7 @@ impl SasState<Confirmed> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
             self.verification_flow_id.as_str(),
             sender,
@@ -1013,6 +1052,7 @@ impl SasState<Confirmed> {
 
         Ok(SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             creation_time: self.creation_time,
             last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
@@ -1020,6 +1060,7 @@ impl SasState<Confirmed> {
             ids: self.ids,
 
             state: Arc::new(WaitingForDone {
+                sas: self.state.sas.clone(),
                 verified_devices: devices.into(),
                 verified_master_keys: master_keys.into(),
             }),
@@ -1030,7 +1071,7 @@ impl SasState<Confirmed> {
     ///
     /// The content needs to be automatically sent to the other side.
     pub fn as_content(&self) -> OutgoingContent {
-        get_mac_content(&self.inner.lock().unwrap(), &self.ids, &self.verification_flow_id)
+        get_mac_content(&self.state.sas.lock().unwrap(), &self.ids, &self.verification_flow_id)
     }
 }
 
@@ -1042,12 +1083,14 @@ impl SasState<MacReceived> {
     pub fn confirm(self) -> SasState<Done> {
         SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
             started_from_request: self.started_from_request,
             last_event_time: self.last_event_time,
             ids: self.ids,
             state: Arc::new(Done {
+                sas: self.state.sas.clone(),
                 verified_devices: self.state.verified_devices.clone(),
                 verified_master_keys: self.state.verified_master_keys.clone(),
             }),
@@ -1063,12 +1106,14 @@ impl SasState<MacReceived> {
     pub fn confirm_and_wait_for_done(self) -> SasState<WaitingForDone> {
         SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
             started_from_request: self.started_from_request,
             last_event_time: self.last_event_time,
             ids: self.ids,
             state: Arc::new(WaitingForDone {
+                sas: self.state.sas.clone(),
                 verified_devices: self.state.verified_devices.clone(),
                 verified_master_keys: self.state.verified_master_keys.clone(),
             }),
@@ -1081,9 +1126,8 @@ impl SasState<MacReceived> {
     /// second element the English description of the emoji.
     pub fn get_emoji(&self) -> [Emoji; 7] {
         get_emoji(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -1095,9 +1139,8 @@ impl SasState<MacReceived> {
     /// numbers can be converted to a unique emoji defined by the spec.
     pub fn get_emoji_index(&self) -> [u8; 7] {
         get_emoji_index(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -1109,9 +1152,8 @@ impl SasState<MacReceived> {
     /// the short auth string.
     pub fn get_decimal(&self) -> (u16, u16, u16) {
         get_decimal(
-            &self.inner.lock().unwrap(),
+            &self.state.sas.lock().unwrap(),
             &self.ids,
-            &self.state.their_pubkey.encode(),
             self.verification_flow_id.as_str(),
             self.state.we_started,
         )
@@ -1124,7 +1166,7 @@ impl SasState<WaitingForDone> {
     /// The content needs to be automatically sent to the other side if it
     /// wasn't already sent.
     pub fn as_content(&self) -> OutgoingContent {
-        get_mac_content(&self.inner.lock().unwrap(), &self.ids, &self.verification_flow_id)
+        get_mac_content(&self.state.sas.lock().unwrap(), &self.ids, &self.verification_flow_id)
     }
 
     pub fn done_content(&self) -> OutgoingContent {
@@ -1159,6 +1201,7 @@ impl SasState<WaitingForDone> {
 
         Ok(SasState {
             inner: self.inner,
+            our_public_key: self.our_public_key,
             creation_time: self.creation_time,
             last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
@@ -1166,6 +1209,7 @@ impl SasState<WaitingForDone> {
             ids: self.ids,
 
             state: Arc::new(Done {
+                sas: self.state.sas.clone(),
                 verified_devices: self.state.verified_devices.clone(),
                 verified_master_keys: self.state.verified_master_keys.clone(),
             }),
@@ -1179,7 +1223,7 @@ impl SasState<Done> {
     /// The content needs to be automatically sent to the other side if it
     /// wasn't already sent.
     pub fn as_content(&self) -> OutgoingContent {
-        get_mac_content(&self.inner.lock().unwrap(), &self.ids, &self.verification_flow_id)
+        get_mac_content(&self.state.sas.lock().unwrap(), &self.ids, &self.verification_flow_id)
     }
 
     /// Get the list of verified devices.
