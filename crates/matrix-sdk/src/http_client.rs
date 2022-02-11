@@ -142,7 +142,7 @@ impl HttpClient {
             if let Some(session) = read_guard.as_ref() {
                 SendAccessToken::Always(session.access_token.as_str())
             } else {
-                return Err(HttpError::ForcedAuthenticationWithoutAccessToken);
+                SendAccessToken::None
             }
         } else {
             match Request::METADATA.authentication {
