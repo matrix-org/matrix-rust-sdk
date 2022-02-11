@@ -233,7 +233,7 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await.unwrap();
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());

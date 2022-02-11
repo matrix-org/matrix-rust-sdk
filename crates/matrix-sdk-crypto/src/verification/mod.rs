@@ -239,14 +239,15 @@ impl From<QrVerification> for Verification {
 ///
 /// We can now mark the device in our verified devices list as verified and sign
 /// the master keys in the verified devices list.
+#[cfg(feature = "qrcode")]
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
+#[cfg(feature = "qrcode")]
 impl Done {
-    #[cfg(feature = "qrcode")]
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(

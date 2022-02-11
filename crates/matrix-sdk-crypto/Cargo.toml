@@ -18,7 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = []
 qrcode = ["matrix-qrcode"]
-backups_v1 = []
+backups_v1 = ["olm-rs", "bs58"]
 docsrs = []
 
 # Testing helpers for implementations based upon this
@@ -29,7 +29,7 @@ aes = { version = "0.7.4", features = ["ctr"] }
 aes-gcm = "0.9.2"
 atomic = "0.5.0"
 base64 = "0.13.0"
-bs58 = "0.4.0"
+bs58 = { version = "0.4.0", optional = true }
 byteorder = "1.4.3"
 dashmap = "5.1.0"
 futures-util = { version = "0.3.15", default-features = false, features = ["alloc"] }
@@ -37,7 +37,7 @@ getrandom = "0.2.3"
 hmac = "0.12.0"
 matrix-qrcode = { version = "0.2.0", path = "../matrix-qrcode", optional = true }
 matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
-olm-rs = { version = "2.1", features = ["serde"] }
+olm-rs = { version = "2.1", features = ["serde"], optional = true }
 pbkdf2 = { version = "0.10.0", default-features = false }
 rand = "0.8.4"
 serde = { version = "1.0.126", features = ["derive", "rc"] }
@@ -51,12 +51,23 @@ anyhow = "1"
 # feature = testing only
 http = { version = "0.2.4", optional = true}
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac"
+rev = "b6e30ba43742e27f2c996f19f071a6c78e3b30ce"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac"
+rev = "b6e30ba43742e27f2c996f19f071a6c78e3b30ce"
+features = ["js"]
+
 [dependencies.ruma]
 version = "0.5.0"
 features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"]
 
 [dev-dependencies]
-futures = { version = "0.3.15", default-features = false, features = ["executor"] }
+futures = { version = "0.3.15", default-features = false, features = [
+    "executor",
+] }
 http = "0.2.4"
 indoc = "1.0.3"
 matches = "0.1.8"

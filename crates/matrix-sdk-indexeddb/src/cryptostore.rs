@@ -14,7 +14,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
     sync::{Arc, RwLock},
 };
 
@@ -28,12 +27,11 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_crypto::{
     olm::{
-        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        Session,
+        IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
+        PrivateCrossSigningIdentity, Session,
     },
     store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError,
-        EncryptedPickleKey, IdentityKeys, PickleKey, PicklingMode, RoomKeyCounts,
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, RoomKeyCounts,
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
@@ -62,6 +60,7 @@ mod KEYS {
     pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
 
     // KEYS
+    #[allow(dead_code)]
     pub const PICKLE_KEY: &str = "pickle_key";
     pub const ACCOUNT: &str = "account";
     pub const PRIVATE_IDENTITY: &str = "private_identity";
@@ -72,7 +71,6 @@ pub struct IndexeddbStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
     name: String,
     pub(crate) inner: IdbDatabase,
-    pickle_key: Arc<PickleKey>,
 
     session_cache: SessionStore,
     tracked_users_cache: Arc<DashSet<Box<UserId>>>,
@@ -124,10 +122,6 @@ impl From<IndexeddbStoreError> for CryptoStoreError {
 
 type Result<A, E = IndexeddbStoreError> = std::result::Result<A, E>;
 
-/// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
-/// panic once we try to pickle a Signing object.
-const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
-
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
     user_id: Arc<UserId>,
@@ -136,13 +130,8 @@ pub struct AccountInfo {
 }
 
 impl IndexeddbStore {
-    async fn open_helper(prefix: String, pickle_key: Option<PickleKey>) -> Result<Self> {
+    async fn open_helper(prefix: String) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto", prefix);
-
-        let pickle_key = pickle_key.unwrap_or_else(|| {
-            PickleKey::try_from(DEFAULT_PICKLE.as_bytes().to_vec())
-                .expect("Default Pickle always works. qed")
-        });
 
         // Open my_db v1
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
@@ -174,7 +163,6 @@ impl IndexeddbStore {
         Ok(Self {
             name,
             session_cache,
-            pickle_key: pickle_key.into(),
             inner: db,
             account_info: RwLock::new(None).into(),
             tracked_users_cache: DashSet::new().into(),
@@ -184,11 +172,11 @@ impl IndexeddbStore {
 
     /// Open a new IndexeddbStore with default name and no passphrase
     pub async fn open() -> Result<Self> {
-        IndexeddbStore::open_helper("crypto".to_owned(), None).await
+        IndexeddbStore::open_helper("crypto".to_owned()).await
     }
 
     /// Open a new IndexeddbStore with given name and passphrase
-    pub async fn open_with_passphrase(prefix: String, passphrase: &str) -> Result<Self> {
+    pub async fn open_with_passphrase(prefix: String, _passphrase: &str) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto-meta", prefix);
 
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
@@ -202,51 +190,18 @@ impl IndexeddbStore {
             Ok(())
         }));
 
-        let db: IdbDatabase = db_req.into_future().await?;
+        let _: IdbDatabase = db_req.into_future().await?;
 
-        let tx: IdbTransaction<'_> =
-            db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readwrite)?;
-        let ob = tx.object_store("matrix-sdk-crypto")?;
-
-        let store_key: Option<EncryptedPickleKey> = ob
-            .get(&JsValue::from_str(KEYS::PICKLE_KEY))?
-            .await?
-            .map(|k| k.into_serde())
-            .transpose()?;
-
-        let pickle_key = match store_key {
-            Some(key) => PickleKey::from_encrypted(passphrase, key)
-                .map_err(|_| CryptoStoreError::UnpicklingError)?,
-            None => {
-                let key = PickleKey::new();
-                let encrypted = key.encrypt(passphrase);
-                ob.put_key_val(
-                    &JsValue::from_str(KEYS::PICKLE_KEY),
-                    &JsValue::from_serde(&encrypted)?,
-                )?;
-                tx.await.into_result()?;
-                key
-            }
-        };
-
-        IndexeddbStore::open_helper(prefix, Some(pickle_key)).await
+        IndexeddbStore::open_helper(prefix).await
     }
 
     /// Open a new IndexeddbStore with given name and no passphrase
     pub async fn open_with_name(name: String) -> Result<Self> {
-        IndexeddbStore::open_helper(name, None).await
+        IndexeddbStore::open_helper(name).await
     }
 
     fn get_account_info(&self) -> Option<AccountInfo> {
         self.account_info.read().unwrap().clone()
-    }
-
-    fn get_pickle_mode(&self) -> PicklingMode {
-        self.pickle_key.pickle_mode()
-    }
-
-    fn get_pickle_key(&self) -> &[u8] {
-        self.pickle_key.key()
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
@@ -287,17 +242,11 @@ impl IndexeddbStore {
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
-        let account_pickle = if let Some(a) = changes.account {
-            Some(a.pickle(self.get_pickle_mode()).await)
-        } else {
-            None
-        };
+        let account_pickle =
+            if let Some(a) = changes.account { Some(a.pickle().await) } else { None };
 
-        let private_identity_pickle = if let Some(i) = changes.private_identity {
-            Some(i.pickle(self.get_pickle_key()).await?)
-        } else {
-            None
-        };
+        let private_identity_pickle =
+            if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
 
         if let Some(a) = &account_pickle {
             tx.object_store(KEYS::CORE)?
@@ -318,7 +267,7 @@ impl IndexeddbStore {
                 let sender_key = session.sender_key();
                 let session_id = session.session_id();
 
-                let pickle = session.pickle(self.get_pickle_mode()).await;
+                let pickle = session.pickle().await;
                 let key = (sender_key, session_id).encode();
 
                 sessions.put_key_val(&key, &JsValue::from_serde(&pickle)?)?;
@@ -333,7 +282,7 @@ impl IndexeddbStore {
                 let sender_key = session.sender_key();
                 let session_id = session.session_id();
                 let key = (room_id, sender_key, session_id).encode();
-                let pickle = session.pickle(self.get_pickle_mode()).await;
+                let pickle = session.pickle().await;
 
                 sessions.put_key_val(&key, &JsValue::from_serde(&pickle)?)?;
             }
@@ -344,7 +293,7 @@ impl IndexeddbStore {
 
             for session in changes.outbound_group_sessions {
                 let room_id = session.room_id();
-                let pickle = session.pickle(self.get_pickle_mode()).await;
+                let pickle = session.pickle().await;
                 sessions.put_key_val(&room_id.encode(), &JsValue::from_serde(&pickle)?)?;
             }
         }
@@ -462,9 +411,8 @@ impl IndexeddbStore {
                     account_info.device_id,
                     account_info.identity_keys,
                     value.into_serde()?,
-                    self.get_pickle_mode(),
                 )
-                .map_err(CryptoStoreError::OlmGroupSession)?,
+                .map_err(CryptoStoreError::from)?,
             ))
         } else {
             Ok(None)
@@ -504,9 +452,8 @@ impl IndexeddbStore {
         {
             self.load_tracked_users().await?;
 
-            let account =
-                ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())
-                    .map_err(CryptoStoreError::OlmAccount)?;
+            let account = ReadOnlyAccount::from_pickle(pickle.into_serde()?)
+                .map_err(CryptoStoreError::from)?;
 
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -531,12 +478,9 @@ impl IndexeddbStore {
             .await?
         {
             Ok(Some(
-                PrivateCrossSigningIdentity::from_pickle(
-                    pickle.into_serde()?,
-                    self.get_pickle_key(),
-                )
-                .await
-                .map_err(|_| CryptoStoreError::UnpicklingError)?,
+                PrivateCrossSigningIdentity::from_pickle(pickle.into_serde()?)
+                    .await
+                    .map_err(|_| CryptoStoreError::UnpicklingError)?,
             ))
         } else {
             Ok(None)
@@ -561,14 +505,12 @@ impl IndexeddbStore {
                 .await?
                 .iter()
                 .filter_map(|f| match f.into_serde() {
-                    Ok(p) => Session::from_pickle(
+                    Ok(p) => Some(Session::from_pickle(
                         account_info.user_id.clone(),
                         account_info.device_id.clone(),
                         account_info.identity_keys.clone(),
                         p,
-                        self.get_pickle_mode(),
-                    )
-                    .ok(),
+                    )),
                     _ => None,
                 })
                 .collect::<Vec<Session>>();
@@ -597,8 +539,8 @@ impl IndexeddbStore {
             .await?
         {
             Ok(Some(
-                InboundGroupSession::from_pickle(pickle.into_serde()?, self.get_pickle_mode())
-                    .map_err(CryptoStoreError::OlmGroupSession)?,
+                InboundGroupSession::from_pickle(pickle.into_serde()?)
+                    .map_err(CryptoStoreError::from)?,
             ))
         } else {
             Ok(None)
@@ -617,7 +559,7 @@ impl IndexeddbStore {
             .await?
             .iter()
             .filter_map(|i| i.into_serde().ok())
-            .filter_map(|p| InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok())
+            .filter_map(|p| InboundGroupSession::from_pickle(p).ok())
             .collect())
     }
 

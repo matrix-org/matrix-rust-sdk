@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
 use ruma::{identifiers::Error as IdentifierError, DeviceId, RoomId, UserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -34,13 +33,13 @@ pub enum OlmError {
     #[error(transparent)]
     JsonError(#[from] SerdeError),
 
-    /// The underlying Olm session operation returned an error.
-    #[error("can't finish Olm Session operation {0}")]
-    OlmSession(#[from] OlmSessionError),
+    /// The event could not have been decrypted.
+    #[error(transparent)]
+    Decryption(#[from] vodozemac::olm::DecryptionError),
 
-    /// The underlying group session operation returned an error.
-    #[error("can't finish Olm Session operation {0}")]
-    OlmGroupSession(#[from] OlmGroupSessionError),
+    /// The received room key couldn't be converted into a valid Megolm session.
+    #[error(transparent)]
+    SessionCreation(#[from] vodozemac::megolm::SessionCreationError),
 
     /// The storage layer returned an error.
     #[error("failed to read or write to the crypto store {0}")]
@@ -82,13 +81,17 @@ pub enum MegolmError {
     #[error("decryption failed because the room key is missing")]
     MissingRoomKey,
 
-    /// The underlying group session operation returned an error.
-    #[error("can't finish Olm group session operation {0}")]
-    OlmGroupSession(#[from] OlmGroupSessionError),
+    /// The encrypted megolm message couldn't be decoded.
+    #[error(transparent)]
+    Decode(#[from] vodozemac::DecodeError),
 
     /// The room where a group session should be shared is not encrypted.
     #[error("The room where a group session should be shared is not encrypted")]
     EncryptionNotEnabled,
+
+    /// The event could not have been decrypted.
+    #[error(transparent)]
+    Decryption(#[from] vodozemac::megolm::DecryptionError),
 
     /// The storage layer returned an error.
     #[error(transparent)]
@@ -137,16 +140,6 @@ pub enum EventError {
     MismatchedRoom(Box<RoomId>, Option<Box<RoomId>>),
 }
 
-#[derive(Error, Debug)]
-pub enum SessionUnpicklingError {
-    /// The underlying Olm session operation returned an error.
-    #[error("can't finish Olm Session operation {0}")]
-    OlmSession(#[from] OlmSessionError),
-    /// The Session timestamp was invalid.
-    #[error("can't load session timestamps")]
-    SessionTimestampError,
-}
-
 /// Error type describin different errors that happen when we check or create
 /// signatures for a Matrix JSON object.
 #[derive(Error, Debug)]
@@ -179,8 +172,12 @@ pub enum SignatureError {
     NoSignatureFound,
 
     /// The signature couldn't be verified.
-    #[error("the signature didn't match the provided key")]
-    VerificationError,
+    #[error(transparent)]
+    VerificationError(#[from] vodozemac::SignatureError),
+
+    /// The public key isn't a valid ed25519 key.
+    #[error(transparent)]
+    InvalidKey(#[from] vodozemac::KeyError),
 
     /// The signed object couldn't be deserialized.
     #[error(transparent)]
@@ -211,8 +208,8 @@ pub enum SessionCreationError {
         a curve25519 key"
     )]
     DeviceMissingCurveKey(Box<UserId>, Box<DeviceId>),
-    #[error("Error creating new Olm session for {0} {1}: {2:?}")]
-    OlmError(Box<UserId>, Box<DeviceId>, OlmSessionError),
     #[error("Error deserializing the one-time key: {0}")]
     InvalidJson(#[from] serde_json::Error),
+    #[error("The given curve25519 key is not a valid key")]
+    InvalidCurveKey(#[from] vodozemac::KeyError),
 }

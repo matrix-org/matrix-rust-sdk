@@ -37,12 +37,13 @@ use ruma::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tracing::warn;
+use vodozemac::Ed25519PublicKey;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
-    olm::{InboundGroupSession, Session, Utility},
+    olm::{InboundGroupSession, Session, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
     OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
@@ -534,15 +535,14 @@ impl ReadOnlyDevice {
     }
 
     pub(crate) fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
-        let signing_key =
+        let key =
             self.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(SignatureError::MissingSigningKey)?;
 
-        let utility = Utility::new();
+        let key = Ed25519PublicKey::from_base64(key)?;
 
-        utility.verify_json(
+        key.verify_json(
             self.user_id(),
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            signing_key,
             json,
         )
     }

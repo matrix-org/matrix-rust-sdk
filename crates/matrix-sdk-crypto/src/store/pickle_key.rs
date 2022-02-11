@@ -20,7 +20,6 @@ use aes_gcm::{
 };
 use getrandom::getrandom;
 use hmac::Hmac;
-use olm_rs::PicklingMode;
 use pbkdf2::pbkdf2;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -109,11 +108,6 @@ impl PickleKey {
         let mut key = Zeroizing::from(vec![0u8; KEY_SIZE]);
         pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), salt, rounds, &mut *key);
         key
-    }
-
-    /// Get a `PicklingMode` version of this pickle key.
-    pub fn pickle_mode(&self) -> PicklingMode {
-        PicklingMode::Encrypted { key: self.aes256_key.clone() }
     }
 
     /// Get the raw AES256 key.

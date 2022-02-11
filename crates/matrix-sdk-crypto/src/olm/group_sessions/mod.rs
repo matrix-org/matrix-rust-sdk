@@ -21,34 +21,22 @@ use ruma::{
     DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
 };
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
 
 mod inbound;
 mod outbound;
 
-pub use inbound::{InboundGroupSession, InboundGroupSessionPickle, PickledInboundGroupSession};
+pub use inbound::{InboundGroupSession, PickledInboundGroupSession};
 pub(crate) use outbound::ShareState;
 pub use outbound::{
-    EncryptionSettings, OlmOutboundGroupSession, OutboundGroupSession, PickledOutboundGroupSession,
-    ShareInfo,
+    EncryptionSettings, GroupSession, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
-
-/// The private session key of a group session.
-/// Can be used to create a new inbound group session.
-#[derive(Clone, Debug, Serialize, Deserialize, Zeroize)]
-#[zeroize(drop)]
-pub struct GroupSessionKey(pub String);
-
-/// The exported version of an private session key of a group session.
-/// Can be used to create a new inbound group session.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Zeroize)]
-#[zeroize(drop)]
-pub struct ExportedGroupSessionKey(pub String);
+pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 
 /// An exported version of an `InboundGroupSession`
 ///
 /// This can be used to share the `InboundGroupSession` in an exported file.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct ExportedRoomKey {
     /// The encryption algorithm that the session uses.
     pub algorithm: EventEncryptionAlgorithm,
@@ -63,7 +51,7 @@ pub struct ExportedRoomKey {
     pub session_id: String,
 
     /// The key for the session.
-    pub session_key: ExportedGroupSessionKey,
+    pub session_key: ExportedSessionKey,
 
     /// The Ed25519 key of the device which initiated the session originally.
     #[serde(default)]
@@ -78,7 +66,8 @@ pub struct ExportedRoomKey {
 /// A backed up version of an `InboundGroupSession`
 ///
 /// This can be used to backup the `InboundGroupSession` to the server.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct BackedUpRoomKey {
     /// The encryption algorithm that the session uses.
     pub algorithm: EventEncryptionAlgorithm,
@@ -87,7 +76,7 @@ pub struct BackedUpRoomKey {
     pub sender_key: String,
 
     /// The key for the session.
-    pub session_key: ExportedGroupSessionKey,
+    pub session_key: ExportedSessionKey,
 
     /// The Ed25519 key of the device which initiated the session originally.
     pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
@@ -156,7 +145,7 @@ impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
             forwarding_curve25519_key_chain: forwarded_key.forwarding_curve25519_key_chain,
             sender_claimed_keys,
             sender_key: forwarded_key.sender_key,
-            session_key: ExportedGroupSessionKey(forwarded_key.session_key),
+            session_key: ExportedSessionKey(forwarded_key.session_key),
         }
     }
 }

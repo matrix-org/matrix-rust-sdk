@@ -14,7 +14,6 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
-use olm_rs::sas::OlmSas;
 use ruma::{
     events::{
         key::verification::{
@@ -29,6 +28,7 @@ use ruma::{
 };
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
+use vodozemac::{sas::EstablishedSas, Curve25519PublicKey};
 
 use super::{FlowId, OutgoingContent};
 use crate::{
@@ -55,13 +55,13 @@ pub struct SasIds {
 ///
 /// * `content` - The `m.key.verification.start` event content that started the
 /// interactive verification process.
-pub fn calculate_commitment(public_key: &Base64, content: &StartContent<'_>) -> Base64 {
+pub fn calculate_commitment(public_key: Curve25519PublicKey, content: &StartContent<'_>) -> Base64 {
     let content = content.canonical_json();
     let content_string = content.to_string();
 
     Base64::new(
         Sha256::new()
-            .chain_update(public_key.encode())
+            .chain_update(public_key.to_base64())
             .chain_update(&content_string)
             .finalize()
             .as_slice()
@@ -185,7 +185,7 @@ fn extra_mac_info_receive(ids: &SasIds, flow_id: &str) -> String {
 /// * `event` - The m.key.verification.mac event that was sent to us by
 /// the other side.
 pub fn receive_mac_event(
-    sas: &OlmSas,
+    sas: &EstablishedSas,
     ids: &SasIds,
     flow_id: &str,
     sender: &UserId,
@@ -206,8 +206,7 @@ pub fn receive_mac_event(
     keys.sort_unstable();
 
     let keys = Base64::parse(
-        sas.calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
-            .expect("Can't calculate SAS MAC"),
+        sas.calculate_mac_invalid_base64(&keys.join(","), &format!("{}KEY_IDS", &info)),
     )
     .expect("Can't base64-decode SAS MAC");
 
@@ -230,8 +229,7 @@ pub fn receive_mac_event(
 
         if let Some(key) = ids.other_device.keys().get(&key_id) {
             let calculated_mac = Base64::parse(
-                sas.calculate_mac(key, &format!("{}{}", info, key_id))
-                    .expect("Can't calculate SAS MAC"),
+                sas.calculate_mac_invalid_base64(key, &format!("{}{}", info, key_id)),
             )
             .expect("Can't base64-decode SAS MAC");
 
@@ -246,8 +244,7 @@ pub fn receive_mac_event(
                 // TODO we should check that the master key signs the device,
                 // this way we know the master key also trusts the device
                 let calculated_mac = Base64::parse(
-                    sas.calculate_mac(key, &format!("{}{}", info, key_id))
-                        .expect("Can't calculate SAS MAC"),
+                    sas.calculate_mac_invalid_base64(key, &format!("{}{}", info, key_id)),
                 )
                 .expect("Can't base64-decode SAS MAC");
 
@@ -305,20 +302,17 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 /// # Panics
 ///
 /// This will panic if the public key of the other side wasn't set.
-pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> OutgoingContent {
+pub fn get_mac_content(sas: &EstablishedSas, ids: &SasIds, flow_id: &FlowId) -> OutgoingContent {
     let mut mac: BTreeMap<String, Base64> = BTreeMap::new();
 
     let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
-    let key = ids.account.identity_keys().ed25519();
+    let key = ids.account.identity_keys().ed25519.to_base64();
     let info = extra_mac_info_send(ids, flow_id.as_str());
 
     mac.insert(
         key_id.to_string(),
-        Base64::parse(
-            sas.calculate_mac(key, &format!("{}{}", info, key_id))
-                .expect("Can't calculate SAS MAC"),
-        )
-        .expect("Can't base64-decode SAS MAC"),
+        Base64::parse(sas.calculate_mac_invalid_base64(&key, &format!("{}{}", info, key_id)))
+            .expect("Can't base64-decode SAS MAC"),
     );
 
     if let Some(own_identity) = &ids.own_identity {
@@ -327,8 +321,7 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
                 let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, &key);
 
                 let calculated_mac = Base64::parse(
-                    sas.calculate_mac(key, &format!("{}{}", info, &key_id))
-                        .expect("Can't calculate SAS Master key MAC"),
+                    sas.calculate_mac_invalid_base64(key, &format!("{}{}", info, &key_id)),
                 )
                 .expect("Can't base64-decode SAS Master key MAC");
 
@@ -343,8 +336,7 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
     keys.sort_unstable();
 
     let keys = Base64::parse(
-        sas.calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
-            .expect("Can't calculate SAS MAC"),
+        sas.calculate_mac_invalid_base64(&keys.join(","), &format!("{}KEY_IDS", &info)),
     )
     .expect("Can't base64-decode SAS MAC");
 
@@ -377,14 +369,19 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
 /// * `we_started` - Flag signaling if the SAS process was started on our side.
 fn extra_info_sas(
     ids: &SasIds,
-    own_pubkey: &str,
-    their_pubkey: &str,
+    own_pubkey: Curve25519PublicKey,
+    their_pubkey: Curve25519PublicKey,
     flow_id: &str,
     we_started: bool,
 ) -> String {
-    let our_info = format!("{}|{}|{}", ids.account.user_id(), ids.account.device_id(), own_pubkey);
-    let their_info =
-        format!("{}|{}|{}", ids.other_device.user_id(), ids.other_device.device_id(), their_pubkey);
+    let our_info =
+        format!("{}|{}|{}", ids.account.user_id(), ids.account.device_id(), own_pubkey.to_base64());
+    let their_info = format!(
+        "{}|{}|{}",
+        ids.other_device.user_id(),
+        ids.other_device.device_id(),
+        their_pubkey.to_base64()
+    );
 
     let (first_info, second_info) =
         if we_started { (our_info, their_info) } else { (their_info, our_info) };
@@ -421,20 +418,30 @@ fn extra_info_sas(
 ///
 /// This will panic if the public key of the other side wasn't set.
 pub fn get_emoji(
-    sas: &OlmSas,
+    sas: &EstablishedSas,
     ids: &SasIds,
-    their_pubkey: &str,
     flow_id: &str,
     we_started: bool,
 ) -> [Emoji; 7] {
-    let bytes = sas
-        .generate_bytes(
-            &extra_info_sas(ids, &sas.public_key(), their_pubkey, flow_id, we_started),
-            6,
-        )
-        .expect("Can't generate bytes");
+    let bytes = sas.bytes(&extra_info_sas(
+        ids,
+        sas.our_public_key(),
+        sas.their_public_key(),
+        flow_id,
+        we_started,
+    ));
 
-    bytes_to_emoji(bytes)
+    let indices = bytes.emoji_indices();
+
+    [
+        emoji_from_index(indices[0]),
+        emoji_from_index(indices[1]),
+        emoji_from_index(indices[2]),
+        emoji_from_index(indices[3]),
+        emoji_from_index(indices[4]),
+        emoji_from_index(indices[5]),
+        emoji_from_index(indices[6]),
+    ]
 }
 
 /// Get the index of the emoji of the short authentication string.
@@ -458,59 +465,20 @@ pub fn get_emoji(
 ///
 /// This will panic if the public key of the other side wasn't set.
 pub fn get_emoji_index(
-    sas: &OlmSas,
+    sas: &EstablishedSas,
     ids: &SasIds,
-    their_pubkey: &str,
     flow_id: &str,
     we_started: bool,
 ) -> [u8; 7] {
-    let bytes = sas
-        .generate_bytes(
-            &extra_info_sas(ids, &sas.public_key(), their_pubkey, flow_id, we_started),
-            6,
-        )
-        .expect("Can't generate bytes");
+    let bytes = sas.bytes(&extra_info_sas(
+        ids,
+        sas.our_public_key(),
+        sas.their_public_key(),
+        flow_id,
+        we_started,
+    ));
 
-    bytes_to_emoji_index(bytes)
-}
-
-fn bytes_to_emoji_index(bytes: Vec<u8>) -> [u8; 7] {
-    let bytes: Vec<u64> = bytes.iter().map(|b| *b as u64).collect();
-    // Join the 6 bytes into one 64 bit unsigned int. This u64 will contain 48
-    // bits from our 6 bytes.
-    let mut num: u64 = bytes[0] << 40;
-    num += bytes[1] << 32;
-    num += bytes[2] << 24;
-    num += bytes[3] << 16;
-    num += bytes[4] << 8;
-    num += bytes[5];
-
-    // Take the top 42 bits of our 48 bits from the u64 and convert each 6 bits
-    // into a 6 bit number.
-    [
-        ((num >> 42) & 63) as u8,
-        ((num >> 36) & 63) as u8,
-        ((num >> 30) & 63) as u8,
-        ((num >> 24) & 63) as u8,
-        ((num >> 18) & 63) as u8,
-        ((num >> 12) & 63) as u8,
-        ((num >> 6) & 63) as u8,
-    ]
-}
-
-fn bytes_to_emoji(bytes: Vec<u8>) -> [Emoji; 7] {
-    let numbers = bytes_to_emoji_index(bytes);
-
-    // Convert the 6 bit number into a emoji/description tuple.
-    [
-        emoji_from_index(numbers[0]),
-        emoji_from_index(numbers[1]),
-        emoji_from_index(numbers[2]),
-        emoji_from_index(numbers[3]),
-        emoji_from_index(numbers[4]),
-        emoji_from_index(numbers[5]),
-        emoji_from_index(numbers[6]),
-    ]
+    bytes.emoji_indices()
 }
 
 /// Get the decimal version of the short authentication string.
@@ -533,53 +501,40 @@ fn bytes_to_emoji(bytes: Vec<u8>) -> [Emoji; 7] {
 ///
 /// This will panic if the public key of the other side wasn't set.
 pub fn get_decimal(
-    sas: &OlmSas,
+    sas: &EstablishedSas,
     ids: &SasIds,
-    their_pubkey: &str,
     flow_id: &str,
     we_started: bool,
 ) -> (u16, u16, u16) {
-    let bytes = sas
-        .generate_bytes(
-            &extra_info_sas(ids, &sas.public_key(), their_pubkey, flow_id, we_started),
-            5,
-        )
-        .expect("Can't generate bytes");
+    let bytes = sas.bytes(&extra_info_sas(
+        ids,
+        sas.our_public_key(),
+        sas.their_public_key(),
+        flow_id,
+        we_started,
+    ));
 
-    bytes_to_decimal(bytes)
-}
-
-fn bytes_to_decimal(bytes: Vec<u8>) -> (u16, u16, u16) {
-    let bytes: Vec<u16> = bytes.into_iter().map(|b| b as u16).collect();
-
-    // This bitwise operation is taken from the [spec]
-    // [spec]: https://matrix.org/docs/spec/client_server/latest#sas-method-decimal
-    let first = bytes[0] << 5 | bytes[1] >> 3;
-    let second = (bytes[1] & 0x7) << 10 | bytes[2] << 2 | bytes[3] >> 6;
-    let third = (bytes[3] & 0x3F) << 7 | bytes[4] >> 1;
-
-    (first + 1000, second + 1000, third + 1000)
+    bytes.decimals()
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use proptest::prelude::*;
     use ruma::{
         events::key::verification::start::ToDeviceKeyVerificationStartEventContent, serde::Base64,
     };
     use serde_json::json;
+    use vodozemac::Curve25519PublicKey;
 
-    use super::{
-        bytes_to_decimal, bytes_to_emoji, bytes_to_emoji_index, calculate_commitment,
-        emoji_from_index,
-    };
-    use crate::{verification::event_enums::StartContent, Emoji};
+    use super::calculate_commitment;
+    use crate::verification::event_enums::StartContent;
 
     #[test]
     fn commitment_calculation() {
         let commitment = Base64::parse("CCQmB4JCdB0FW21FdAnHj/Hu8+W9+Nb0vgwPEnZZQ4g").unwrap();
 
-        let public_key = Base64::parse("Q/NmNFEUS1fS+YeEmiZkjjblKTitrKOAk7cPEumcMlg").unwrap();
+        let public_key =
+            Curve25519PublicKey::from_base64("Q/NmNFEUS1fS+YeEmiZkjjblKTitrKOAk7cPEumcMlg")
+                .unwrap();
         let content = json!({
             "from_device":"XOWLHHFSWM",
             "transaction_id":"bYxBsirjUJO9osar6ST4i2M2NjrYLA7l",
@@ -593,56 +548,8 @@ mod test {
         let content: ToDeviceKeyVerificationStartEventContent =
             serde_json::from_value(content).unwrap();
         let content = StartContent::from(&content);
-        let calculated_commitment = calculate_commitment(&public_key, &content);
+        let calculated_commitment = calculate_commitment(public_key, &content);
 
         assert_eq!(commitment, calculated_commitment);
-    }
-
-    #[test]
-    fn emoji_generation() {
-        let bytes = vec![0, 0, 0, 0, 0, 0];
-        let index: Vec<Emoji> =
-            vec![0, 0, 0, 0, 0, 0, 0].into_iter().map(emoji_from_index).collect();
-        assert_eq!(bytes_to_emoji(bytes), index.as_ref());
-
-        let bytes = vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
-
-        let index: Vec<Emoji> =
-            vec![63, 63, 63, 63, 63, 63, 63].into_iter().map(emoji_from_index).collect();
-        assert_eq!(bytes_to_emoji(bytes), index.as_ref());
-    }
-
-    #[test]
-    fn decimal_generation() {
-        let bytes = vec![0, 0, 0, 0, 0];
-        let result = bytes_to_decimal(bytes);
-
-        assert_eq!(result, (1000, 1000, 1000));
-
-        let bytes = vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
-        let result = bytes_to_decimal(bytes);
-        assert_eq!(result, (9191, 9191, 9191));
-    }
-
-    proptest! {
-        #[test]
-        fn proptest_emoji(bytes in prop::array::uniform6(0u8..)) {
-            let numbers = bytes_to_emoji_index(bytes.to_vec());
-
-            for number in numbers {
-                prop_assert!(number < 64);
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn proptest_decimals(bytes in prop::array::uniform5(0u8..)) {
-            let (first, second, third) = bytes_to_decimal(bytes.to_vec());
-
-            prop_assert!((1000..=9191).contains(&first));
-            prop_assert!((1000..=9191).contains(&second));
-            prop_assert!((1000..=9191).contains(&third));
-        }
     }
 }
