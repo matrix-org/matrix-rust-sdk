@@ -165,13 +165,13 @@ mod handlers {
     use super::*;
 
     pub async fn user(
-        _user_id: String,
+        user_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
     ) -> Result<impl warp::Reply, Rejection> {
         if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
-            let request =
-                query_user::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+            let request = query_user::IncomingRequest::try_from_http_request(request, &[user_id])
+                .map_err(Error::from)?;
             return if user_exists(appservice.clone(), request).await {
                 Ok(warp::reply::json(&String::from("{}")))
             } else {
@@ -182,13 +182,13 @@ mod handlers {
     }
 
     pub async fn room(
-        _room_id: String,
+        room_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
     ) -> Result<impl warp::Reply, Rejection> {
         if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
-            let request =
-                query_room::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+            let request = query_room::IncomingRequest::try_from_http_request(request, &[room_id])
+                .map_err(Error::from)?;
             return if room_exists(appservice.clone(), request).await {
                 Ok(warp::reply::json(&String::from("{}")))
             } else {
@@ -199,12 +199,13 @@ mod handlers {
     }
 
     pub async fn transaction(
-        _txn_id: String,
+        txn_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
     ) -> Result<impl warp::Reply, Rejection> {
         let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
-            ruma::api::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+            ruma::api::IncomingRequest::try_from_http_request(request, &[txn_id])
+                .map_err(Error::from)?;
 
         let client = appservice.get_cached_client(None)?;
         client.receive_transaction(incoming_transaction).await.map_err(Error::from)?;
