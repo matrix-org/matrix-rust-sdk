@@ -499,14 +499,13 @@ impl Client {
     /// ```no_run
     /// # use std::{convert::TryFrom, collections::BTreeMap};
     /// # use matrix_sdk::{
-    /// #     ruma::{api::client::r0::uiaa, assign, UserId},
+    /// #     ruma::{api::client::r0::uiaa, assign},
     /// #     Client,
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
     /// # block_on(async {
-    /// # let user_id = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// if let Err(e) = client.bootstrap_cross_signing(None).await {
