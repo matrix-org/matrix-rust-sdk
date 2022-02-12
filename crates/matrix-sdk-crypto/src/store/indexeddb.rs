@@ -386,7 +386,7 @@ impl IndexeddbStore {
                 Some(Ok(false)) => false,
                 _ => true,
             };
-            let user = match user_id.as_string().map(|u| Box::<UserId>::try_from(u)) {
+            let user = match user_id.as_string().map(|u| UserId::parse(u)) {
                 Some(Ok(user)) => user,
                 _ => continue,
             };

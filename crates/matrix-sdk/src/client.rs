@@ -231,7 +231,7 @@ impl Client {
     /// use matrix_sdk::{Client, ruma::UserId};
     ///
     /// // First let's try to construct an user id, presumably from user input.
-    /// let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// let alice = UserId::parse("@alice:example.org")?;
     ///
     /// // Now let's try to discover the homeserver and create a client object.
     /// let client = Client::new_from_user_id(&alice).await?;
@@ -2367,13 +2367,7 @@ pub(crate) mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use std::{
-        collections::BTreeMap,
-        convert::{TryFrom, TryInto},
-        io::Cursor,
-        str::FromStr,
-        time::Duration,
-    };
+    use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
     use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
@@ -2447,7 +2441,7 @@ pub(crate) mod test {
     async fn successful_discovery() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = Box::<UserId>::try_from("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
 
         let _m_well_known = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2469,7 +2463,7 @@ pub(crate) mod test {
     async fn discovery_broken_server() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = Box::<UserId>::try_from("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
 
         let _m = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
