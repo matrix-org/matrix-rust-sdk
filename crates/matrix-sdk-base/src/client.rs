@@ -1286,12 +1286,12 @@ impl BaseClient {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_base::BaseClient;
-    /// # use ruma::UserId;
+    /// # use ruma::user_id;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # block_on(async {
     /// # let client = BaseClient::new().await.unwrap();
-    /// let devices = client.get_user_devices(&alice).await.unwrap();
+    /// let devices = client.get_user_devices(alice).await.unwrap();
     ///
     /// for device in devices.devices() {
     ///     println!("{:?}", device);

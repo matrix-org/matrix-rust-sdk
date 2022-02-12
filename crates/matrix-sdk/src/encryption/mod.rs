@@ -367,14 +367,14 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::{device_id, UserId}};
+    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// if let Some(device) = client.get_device(&alice, device_id!("DEVICEID")).await? {
+    /// if let Some(device) = client.get_device(alice, device_id!("DEVICEID")).await? {
     ///     println!("{:?}", device.verified());
     ///
     ///     if !device.verified() {
@@ -407,14 +407,14 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let devices = client.get_user_devices(&alice).await?;
+    /// let devices = client.get_user_devices(alice).await?;
     ///
     /// for device in devices.devices() {
     ///     println!("{:?}", device);
@@ -446,14 +446,14 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     println!("{:?}", user.verified());

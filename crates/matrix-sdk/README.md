@@ -28,13 +28,13 @@ This is demonstrated in the example below.
 use std::convert::TryFrom;
 use matrix_sdk::{
     Client, config::SyncSettings, Result,
-    ruma::{UserId, events::room::message::SyncRoomMessageEvent},
+    ruma::{user_id, events::room::message::SyncRoomMessageEvent},
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let alice = Box::<UserId>::try_from("@alice:example.org")?;
-    let client = Client::new_from_user_id(&alice).await?;
+    let alice = user_id!("@alice:example.org");
+    let client = Client::new_from_user_id(alice).await?;
 
     // First we need to log in.
     client.login(alice, "password", None, None).await?;
