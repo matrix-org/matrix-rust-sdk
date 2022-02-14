@@ -55,6 +55,7 @@ use ruma::{
                 sync::sync_events,
                 uiaa::{AuthData, UserIdentifier},
             },
+            session::sso_login_with_provider::v3 as sso_login_with_provider,
             unversioned::{discover_homeserver, get_supported_versions},
         },
         error::FromHttpResponseError,
@@ -863,12 +864,23 @@ impl Client {
     /// * `redirect_url` - The URL that will receive a `loginToken` after a
     ///   successful SSO login.
     ///
+    /// * `idp_id` - The optional ID of the identity provider to login with.
+    ///
     /// [`login_with_token`]: #method.login_with_token
-    pub async fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
+    pub async fn get_sso_login_url(
+        &self,
+        redirect_url: &str,
+        idp_id: Option<&str>,
+    ) -> Result<String> {
         let homeserver = self.homeserver().await;
 
-        let request = sso_login::Request::new(redirect_url)
-            .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None);
+        let request = if let Some(id) = idp_id {
+            sso_login_with_provider::Request::new(id, redirect_url)
+                .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None)
+        } else {
+            sso_login::Request::new(redirect_url)
+                .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None)
+        };
 
         match request {
             Ok(req) => Ok(req.uri().to_string()),
@@ -996,6 +1008,8 @@ impl Client {
     ///   associated with the device_id. Only necessary the first time you login
     ///   with this device_id. It can be changed later.
     ///
+    /// * `idp_id` - The optional ID of the identity provider to login with.
+    ///
     /// # Example
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -1014,7 +1028,8 @@ impl Client {
     ///         None,
     ///         None,
     ///         None,
-    ///         Some("My app")
+    ///         Some("My app"),
+    ///         None,
     ///     )
     ///     .await
     ///     .unwrap();
@@ -1035,6 +1050,7 @@ impl Client {
         server_response: Option<&str>,
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
+        idp_id: Option<&str>,
     ) -> Result<login::Response>
     where
         C: Future<Output = Result<()>>,
@@ -1127,7 +1143,7 @@ impl Client {
 
         tokio::spawn(server);
 
-        let sso_url = self.get_sso_login_url(redirect_url.as_str()).await?;
+        let sso_url = self.get_sso_login_url(redirect_url.as_str(), idp_id).await?;
 
         match use_sso_login_url(sso_url).await {
             Ok(t) => t,
@@ -1187,7 +1203,7 @@ impl Client {
     /// # let login_token = "token";
     /// # block_on(async {
     /// let client = Client::new(homeserver).await.unwrap();
-    /// let sso_url = client.get_sso_login_url(redirect_url);
+    /// let sso_url = client.get_sso_login_url(redirect_url, None);
     ///
     /// // Let the user authenticate at the SSO URL
     /// // Receive the loginToken param at redirect_url
@@ -2619,7 +2635,10 @@ pub(crate) mod test {
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
-
+        let idp = crate::client::get_login_types::IdentityProvider::new(
+            "some-id".to_string(),
+            "idp-name".to_string(),
+        );
         client
             .login_with_sso(
                 |sso_url| async move {
@@ -2639,6 +2658,7 @@ pub(crate) mod test {
                 None,
                 None,
                 None,
+                Some(&idp.id),
             )
             .await
             .unwrap();
@@ -2667,7 +2687,7 @@ pub(crate) mod test {
             .any(|flow| matches!(flow, LoginType::Sso(_)));
         assert!(can_sso);
 
-        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030").await;
+        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030", None).await;
         assert!(sso_url.is_ok());
 
         let _m = mock("POST", "/_matrix/client/r0/login")
