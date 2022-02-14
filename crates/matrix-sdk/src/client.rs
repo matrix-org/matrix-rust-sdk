@@ -2303,6 +2303,7 @@ pub(crate) mod test {
     use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
     use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
+    use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
     use ruma::{
@@ -3807,5 +3808,146 @@ pub(crate) mod test {
             .unwrap();
 
         matches::assert_matches!(encryption_event, AnySyncStateEvent::RoomEncryption(_));
+    }
+
+    #[async_test]
+    async fn room_timeline() {
+        let client = logged_in_client().await;
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .with_body(test_json::SYNC.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+
+        let _ = client.sync_once(sync_settings).await.unwrap();
+        sync.assert();
+        drop(sync);
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let (forward_stream, backward_stream) = room.timeline().await.unwrap();
+
+        let sync_2 = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::MORE_SYNC.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let sync_3 = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::MORE_SYNC_2.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let mocked_messages = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
+                    .to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_1.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let mocked_messages_2 = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
+                    .to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_2.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_string()));
+        let sync_settings = SyncSettings::new()
+            .timeout(Duration::from_millis(3000))
+            .token("s526_47314_0_7_1_1_1_11444_1");
+        let _ = client.sync_once(sync_settings).await.unwrap();
+        sync_2.assert();
+        let sync_settings = SyncSettings::new()
+            .timeout(Duration::from_millis(3000))
+            .token("s526_47314_0_7_1_1_1_11444_2");
+        let _ = client.sync_once(sync_settings).await.unwrap();
+        sync_3.assert();
+
+        let expected_events = vec![
+            "$152037280074GZeOm:localhost",
+            "$editevid:localhost",
+            "$151957878228ssqrJ:localhost",
+            "$15275046980maRLj:localhost",
+            "$15275047031IXQRi:localhost",
+            "$098237280074GZeOm:localhost",
+            "$152037280074GZeOm2:localhost",
+            "$editevid2:localhost",
+            "$151957878228ssqrJ2:localhost",
+            "$15275046980maRLj2:localhost",
+            "$15275047031IXQRi2:localhost",
+            "$098237280074GZeOm2:localhost",
+        ];
+
+        use futures_util::StreamExt;
+        let forward_events =
+            forward_stream.take(expected_events.len()).collect::<Vec<SyncRoomEvent>>().await;
+
+        assert!(forward_events.into_iter().zip(expected_events.iter()).all(|(a, b)| &a
+            .event_id()
+            .unwrap()
+            .as_str()
+            == b));
+
+        let expected_events = vec![
+            "$152037280074GZeOm2:localhost",
+            "$editevid2:localhost",
+            "$151957878228ssqrJ2:localhost",
+            "$15275046980maRLj2:localhost",
+            "$15275047031IXQRi2:localhost",
+            "$098237280074GZeOm2:localhost",
+            "$152037280074GZeOm:localhost",
+            "$editevid:localhost",
+            "$151957878228ssqrJ:localhost",
+            "$15275046980maRLj:localhost",
+            "$15275047031IXQRi:localhost",
+            "$098237280074GZeOm:localhost",
+            "$1444812213350496Caaaf:example.com",
+            "$1444812213350496Cbbbf:example.com",
+            "$1444812213350496Ccccf:example.com",
+            "$1444812213350496Caaak:example.com",
+            "$1444812213350496Cbbbk:example.com",
+            "$1444812213350496Cccck:example.com",
+        ];
+
+        let join_handle = tokio::spawn(async move {
+            let backward_events = backward_stream
+                .take(expected_events.len())
+                .collect::<Vec<crate::Result<SyncRoomEvent>>>()
+                .await;
+
+            assert!(backward_events.into_iter().zip(expected_events.iter()).all(|(a, b)| &a
+                .unwrap()
+                .event_id()
+                .unwrap()
+                .as_str()
+                == b));
+        });
+
+        join_handle.await.unwrap();
+
+        mocked_messages.assert();
+        mocked_messages_2.assert();
     }
 }
