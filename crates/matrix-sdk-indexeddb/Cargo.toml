@@ -15,3 +15,8 @@ indexed_db_futures = { version = "0.2.0" }
 wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"] }
 serde = { version = "1.0.126" }
 serde_json = "1.0.64"
+
+[dev-dependencies]
+matrix-sdk-base = {  path = "../matrix-sdk-base", features = ["testing"] }
+matrix-sdk-test = { path = "../matrix-sdk-test" }
+wasm-bindgen-test = "0.3.24"

@@ -24,6 +24,7 @@ use std::{
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
+#[macro_export]
 pub mod integration_tests;
 
 use dashmap::DashMap;
@@ -403,7 +404,8 @@ impl Store {
 }
 
 impl Store {
-    fn new(inner: Box<dyn StateStore>) -> Self {
+    /// Create a new store, wrappning the given `StateStore`
+    pub fn new(inner: Box<dyn StateStore>) -> Self {
         Self {
             inner: inner.into(),
             session: Default::default(),
@@ -413,7 +415,8 @@ impl Store {
         }
     }
 
-    pub(crate) async fn restore_session(&self, session: Session) -> Result<()> {
+    #[cfg(feature = "testing")]
+    pub async fn restore_session(&self, session: Session) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
@@ -459,7 +462,8 @@ impl Store {
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 
-    pub(crate) async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
+    #[cfg(any(test, feature = "testing"))]
+    pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let session = self.session.read().await;
         let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
 
@@ -469,7 +473,8 @@ impl Store {
             .clone()
     }
 
-    pub(crate) async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+    #[cfg(any(test, feature = "testing"))]
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
         if room_type == RoomType::Invited {
             return self.get_or_create_stripped_room(room_id).await;
         }

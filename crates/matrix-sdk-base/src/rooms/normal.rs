@@ -369,11 +369,13 @@ impl Room {
         Ok(inner.base_info.calculate_room_name(joined, invited, members))
     }
 
-    pub(crate) fn clone_info(&self) -> RoomInfo {
+    #[cfg(any(cfg, feature = "testing"))]
+    pub fn clone_info(&self) -> RoomInfo {
         (*self.inner.read().unwrap()).clone()
     }
 
-    pub(crate) fn update_summary(&self, summary: RoomInfo) {
+    #[cfg(any(cfg, feature = "testing"))]
+    pub fn update_summary(&self, summary: RoomInfo) {
         let mut inner = self.inner.write().unwrap();
         *inner = summary;
     }
@@ -495,23 +497,23 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
-    pub(crate) fn mark_as_joined(&mut self) {
+    pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
 
-    pub(crate) fn mark_as_left(&mut self) {
+    pub fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
     }
 
-    pub(crate) fn mark_members_synced(&mut self) {
+    pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
 
-    pub(crate) fn mark_members_missing(&mut self) {
+    pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
 
-    pub(crate) fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
+    pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_string());
             true
@@ -520,22 +522,22 @@ impl RoomInfo {
         }
     }
 
-    pub(crate) fn is_encrypted(&self) -> bool {
+    pub fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
     }
 
-    pub(crate) fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
+    pub fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
         self.base_info.handle_state_event(event)
     }
 
-    pub(crate) fn update_notification_count(
+    pub fn update_notification_count(
         &mut self,
         notification_counts: UnreadNotificationsCount,
     ) {
         self.notification_counts = notification_counts;
     }
 
-    pub(crate) fn update_summary(&mut self, summary: &RumaSummary) -> bool {
+    pub fn update_summary(&mut self, summary: &RumaSummary) -> bool {
         let mut changed = false;
 
         if !summary.is_empty() {

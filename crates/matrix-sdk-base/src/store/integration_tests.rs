@@ -1,11 +1,12 @@
-#[allow(unused_macros)]
+#[allow(unused_macros, unused_extern_crates)]
 
+#[macro_export]
 macro_rules! statestore_integration_tests {
     ($($name:ident)*) => {
         $(
             mod $name {
                 use matrix_sdk_test::{async_test, test_json};
-                use ruma::{
+                use matrix_sdk_common::ruma::{
                     api::client::r0::media::get_content_thumbnail::Method,
                     device_id, event_id,
                     events::{
@@ -28,7 +29,7 @@ macro_rules! statestore_integration_tests {
 
                 use std::collections::{BTreeMap, BTreeSet};
 
-                use crate::{
+                use $crate::{
                     RoomType, Session,
                     deserialized_responses::{MemberEvent, StrippedMemberEvent},
                     media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},

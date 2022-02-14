@@ -1013,6 +1013,7 @@ mod test {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use super::{IndexeddbStore, Result};
+    use matrix_sdk_base::statestore_integration_tests;
 
     async fn get_store() -> Result<IndexeddbStore> {
         IndexeddbStore::open().await
