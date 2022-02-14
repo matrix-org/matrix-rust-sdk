@@ -10,6 +10,7 @@
 
 pub use async_trait::async_trait;
 pub use instant;
+pub use ruma;
 
 pub mod deserialized_responses;
 pub mod executor;

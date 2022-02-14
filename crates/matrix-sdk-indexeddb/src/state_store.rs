@@ -15,27 +15,32 @@
 use std::collections::BTreeSet;
 
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{async_trait, SafeEncode};
-use ruma::{
-    events::{
-        presence::PresenceEvent,
-        receipt::Receipt,
-        room::member::{MembershipState, RoomMemberEventContent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
-    },
-    receipt::ReceiptType,
-    serde::Raw,
-    EventId, MxcUri, RoomId, UserId,
+use matrix_sdk_common::{async_trait, SafeEncode,
+    ruma::{
+        events::{
+            presence::PresenceEvent,
+            receipt::Receipt,
+            room::member::{MembershipState, RoomMemberEventContent},
+            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
+        },
+        receipt::ReceiptType,
+        serde::Raw,
+        EventId, MxcUri, RoomId, UserId,
+    }
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 
-use self::store_key::{EncryptedEvent, StoreKey};
-use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
-use crate::{
+use matrix_sdk_base::{
+    store::{
+        store_key::{self, EncryptedEvent, StoreKey},
+        Result as StoreResult, StateChanges, StateStore, StoreError
+    },
+    RoomInfo,
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
 };
+use anyhow::anyhow;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
@@ -49,11 +54,41 @@ pub enum SerializationError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Encryption(#[from] store_key::Error),
+    #[error("DomException {name} ({code}): {message}")]
+    DomException {
+        name: String,
+        message: String,
+        code: u16,
+    },
+    #[error(transparent)]
+    StoreError(#[from] StoreError),
+}
+
+impl From<indexed_db_futures::web_sys::DomException> for SerializationError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> SerializationError {
+        SerializationError::DomException { name: frm.name(), message: frm.message(), code: frm.code() }
+    }
+}
+
+impl From<SerializationError> for StoreError {
+    fn from(e: SerializationError) -> Self {
+        match e {
+            SerializationError::Json(e) => StoreError::Json(e),
+            SerializationError::StoreError(e) => e,
+            SerializationError::Encryption(e) => match e {
+                store_key::Error::Random(e) => StoreError::Encryption(e.to_string()),
+                store_key::Error::Serialization(e) => StoreError::Json(e),
+                store_key::Error::Encryption(e) => StoreError::Encryption(e),
+            },
+            _ => {
+                StoreError::Backend(anyhow!(e))
+            }
+        }
+    }
 }
 
 #[allow(non_snake_case)]
 mod KEYS {
-
     // STORES
 
     pub const SESSION: &'static str = "session";
@@ -88,18 +123,6 @@ mod KEYS {
     pub const SYNC_TOKEN: &'static str = "sync_token";
 }
 
-impl From<SerializationError> for StoreError {
-    fn from(e: SerializationError) -> Self {
-        match e {
-            SerializationError::Json(e) => StoreError::Json(e),
-            SerializationError::Encryption(e) => match e {
-                store_key::Error::Random(e) => StoreError::Encryption(e.to_string()),
-                store_key::Error::Serialization(e) => StoreError::Json(e),
-                store_key::Error::Encryption(e) => StoreError::Encryption(e),
-            },
-        }
-    }
-}
 
 pub struct IndexeddbStore {
     name: String,
@@ -112,6 +135,8 @@ impl std::fmt::Debug for IndexeddbStore {
         f.debug_struct("IndexeddbStore").field("name", &self.name).finish()
     }
 }
+
+type Result<A, E = SerializationError> = std::result::Result<A, E>; 
 
 impl IndexeddbStore {
     async fn open_helper(name: String, store_key: Option<StoreKey>) -> Result<Self> {
@@ -190,12 +215,12 @@ impl IndexeddbStore {
             if let DatabaseType::Encrypted(k) = key {
                 StoreKey::import(passphrase, k).map_err(|_| StoreError::StoreLocked)?
             } else {
-                return Err(StoreError::UnencryptedStore);
+                return Err(StoreError::UnencryptedStore.into());
             }
         } else {
-            let key = StoreKey::new().map_err::<StoreError, _>(|e| e.into())?;
+            let key = StoreKey::new().map_err::<SerializationError, _>(|e| e.into())?;
             let encrypted_key = DatabaseType::Encrypted(
-                key.export(passphrase).map_err::<StoreError, _>(|e| e.into())?,
+                key.export(passphrase).map_err::<SerializationError, _>(|e| e.into())?,
             );
             ob.put_key_val(
                 &JsValue::from_str(KEYS::STORE_KEY),
@@ -213,7 +238,7 @@ impl IndexeddbStore {
         IndexeddbStore::open_helper(name, None).await
     }
 
-    fn serialize_event(&self, event: &impl Serialize) -> Result<JsValue, SerializationError> {
+    fn serialize_event(&self, event: &impl Serialize) -> std::result::Result<JsValue, SerializationError> {
         Ok(match self.store_key {
             Some(ref key) => JsValue::from_serde(&key.encrypt(event)?)?,
             None => JsValue::from_serde(event)?,
@@ -223,7 +248,7 @@ impl IndexeddbStore {
     fn deserialize_event<T: for<'b> Deserialize<'b>>(
         &self,
         event: JsValue,
-    ) -> Result<T, SerializationError> {
+    ) -> std::result::Result<T, SerializationError> {
         match self.store_key {
             Some(ref key) => {
                 let encrypted: EncryptedEvent = event.into_serde()?;
@@ -468,7 +493,7 @@ impl IndexeddbStore {
             }
         }
 
-        tx.await.into_result().map_err::<StoreError, _>(|e| e.into())
+        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
@@ -630,7 +655,7 @@ impl IndexeddbStore {
             .await?
             .map(|f| {
                 self.deserialize_event::<BTreeSet<Box<UserId>>>(f)
-                    .map_err::<StoreError, _>(|e| e.into())
+                    .map_err::<SerializationError, _>(|e| e.into())
             })
             .unwrap_or_else(|| Ok(Default::default()))
     }
@@ -645,7 +670,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ACCOUNT_DATA)?
             .get(&JsValue::from_str(event_type.as_str()))?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e.into()))
             .transpose()?)
     }
 
@@ -660,7 +685,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
             .get(&(room_id.as_str(), event_type.as_str()).encode())?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<StoreError, _>(|e| e.into()))
+            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e.into()))
             .transpose()?)
     }
 
@@ -704,7 +729,7 @@ impl IndexeddbStore {
                 Box::<UserId>::try_from(&k_str[prefix_len..])
                     .map_err(|e| StoreError::Codec(format!("{:?}", e)))?
             } else {
-                return Err(StoreError::Codec(format!("{:?}", k)));
+                return Err(StoreError::Codec(format!("{:?}", k)).into());
             };
             let r = self
                 .deserialize_event::<Receipt>(res)
@@ -766,7 +791,7 @@ impl IndexeddbStore {
 
         tx.object_store(KEYS::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
 
-        tx.await.into_result().map_err::<StoreError, _>(|e| e.into())?;
+        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())?;
         Ok(prev)
     }
 
@@ -833,30 +858,30 @@ impl IndexeddbStore {
                 store.delete(&key)?;
             }
         }
-        tx.await.into_result().map_err::<StoreError, _>(|e| e.into())
+        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())
     }
 }
 
 #[async_trait(?Send)]
 impl StateStore for IndexeddbStore {
-    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.save_filter(filter_name, filter_id).await
+    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
+        self.save_filter(filter_name, filter_id).await.map_err(|e| e.into())
     }
 
-    async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        self.save_changes(changes).await
+    async fn save_changes(&self, changes: &StateChanges) -> StoreResult<()> {
+        self.save_changes(changes).await.map_err(|e| e.into())
     }
 
-    async fn get_filter(&self, filter_id: &str) -> Result<Option<String>> {
-        self.get_filter(filter_id).await
+    async fn get_filter(&self, filter_id: &str) -> StoreResult<Option<String>> {
+        self.get_filter(filter_id).await.map_err(|e| e.into())
     }
 
-    async fn get_sync_token(&self) -> Result<Option<String>> {
-        self.get_sync_token().await
+    async fn get_sync_token(&self) -> StoreResult<Option<String>> {
+        self.get_sync_token().await.map_err(|e| e.into())
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        self.get_presence_event(user_id).await
+    async fn get_presence_event(&self, user_id: &UserId) -> StoreResult<Option<Raw<PresenceEvent>>> {
+        self.get_presence_event(user_id).await.map_err(|e| e.into())
     }
 
     async fn get_state_event(
@@ -864,75 +889,75 @@ impl StateStore for IndexeddbStore {
         room_id: &RoomId,
         event_type: EventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        self.get_state_event(room_id, event_type, state_key).await
+    ) -> StoreResult<Option<Raw<AnySyncStateEvent>>> {
+        self.get_state_event(room_id, event_type, state_key).await.map_err(|e| e.into())
     }
 
     async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: EventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        self.get_state_events(room_id, event_type).await
+    ) -> StoreResult<Vec<Raw<AnySyncStateEvent>>> {
+        self.get_state_events(room_id, event_type).await.map_err(|e| e.into())
     }
 
     async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<RoomMemberEventContent>> {
-        self.get_profile(room_id, user_id).await
+    ) -> StoreResult<Option<RoomMemberEventContent>> {
+        self.get_profile(room_id, user_id).await.map_err(|e| e.into())
     }
 
     async fn get_member_event(
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
-        self.get_member_event(room_id, state_key).await
+    ) -> StoreResult<Option<MemberEvent>> {
+        self.get_member_event(room_id, state_key).await.map_err(|e| e.into())
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        self.get_user_ids_stream(room_id).await
+    async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+        self.get_user_ids_stream(room_id).await.map_err(|e| e.into())
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        self.get_invited_user_ids(room_id).await
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+        self.get_invited_user_ids(room_id).await.map_err(|e| e.into())
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        self.get_joined_user_ids(room_id).await
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+        self.get_joined_user_ids(room_id).await.map_err(|e| e.into())
     }
 
-    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        self.get_room_infos().await
+    async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
+        self.get_room_infos().await.map_err(|e| e.into())
     }
 
-    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
-        self.get_stripped_room_infos().await
+    async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
+        self.get_stripped_room_infos().await.map_err(|e| e.into())
     }
 
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<Box<UserId>>> {
-        self.get_users_with_display_name(room_id, display_name).await
+    ) -> StoreResult<BTreeSet<Box<UserId>>> {
+        self.get_users_with_display_name(room_id, display_name).await.map_err(|e| e.into())
     }
 
     async fn get_account_data_event(
         &self,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        self.get_account_data_event(event_type).await
+    ) -> StoreResult<Option<Raw<AnyGlobalAccountDataEvent>>> {
+        self.get_account_data_event(event_type).await.map_err(|e| e.into())
     }
 
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
-        self.get_room_account_data_event(room_id, event_type).await
+    ) -> StoreResult<Option<Raw<AnyRoomAccountDataEvent>>> {
+        self.get_room_account_data_event(room_id, event_type).await.map_err(|e| e.into())
     }
 
     async fn get_user_room_receipt_event(
@@ -940,8 +965,8 @@ impl StateStore for IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>> {
-        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
+    ) -> StoreResult<Option<(Box<EventId>, Receipt)>> {
+        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await.map_err(|e| e.into())
     }
 
     async fn get_event_room_receipt_events(
@@ -949,36 +974,36 @@ impl StateStore for IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await.map_err(|e| e.into())
     }
 
-    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        self.get_custom_value(key).await
+    async fn get_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {
+        self.get_custom_value(key).await.map_err(|e| e.into())
     }
 
-    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        self.set_custom_value(key, value).await
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> StoreResult<Option<Vec<u8>>> {
+        self.set_custom_value(key, value).await.map_err(|e| e.into())
     }
 
-    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.add_media_content(request, data).await
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> StoreResult<()> {
+        self.add_media_content(request, data).await.map_err(|e| e.into())
     }
 
-    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        self.get_media_content(request).await
+    async fn get_media_content(&self, request: &MediaRequest) -> StoreResult<Option<Vec<u8>>> {
+        self.get_media_content(request).await.map_err(|e| e.into())
     }
 
-    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.remove_media_content(request).await
+    async fn remove_media_content(&self, request: &MediaRequest) -> StoreResult<()> {
+        self.remove_media_content(request).await.map_err(|e| e.into())
     }
 
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        self.remove_media_content_for_uri(uri).await
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> StoreResult<()> {
+        self.remove_media_content_for_uri(uri).await.map_err(|e| e.into())
     }
 
-    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        self.remove_room(room_id).await
+    async fn remove_room(&self, room_id: &RoomId) -> StoreResult<()> {
+        self.remove_room(room_id).await.map_err(|e| e.into())
     }
 }
 

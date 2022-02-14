@@ -15,9 +15,9 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![warn(missing_docs)]
 #![deny(
     missing_debug_implementations,
-    missing_docs,
     trivial_casts,
     trivial_numeric_casts,
     unused_extern_crates,
@@ -46,7 +46,7 @@ mod error;
 pub mod media;
 mod rooms;
 mod session;
-mod store;
+pub mod store;
 
 pub use client::{BaseClient, BaseClientConfig};
 #[cfg(feature = "encryption")]

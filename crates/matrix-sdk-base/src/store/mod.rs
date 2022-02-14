@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Implementing the state store
+
 #[cfg(feature = "sled_state_store")]
 use std::path::Path;
 use std::{
@@ -20,7 +22,7 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
 
@@ -40,14 +42,10 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 
-#[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
-mod store_key;
+pub mod store_key;
 
 #[cfg(feature = "sled_state_store")]
 use sled::Db;
-
-#[cfg(feature = "indexeddb_state_store")]
-mod indexeddb_store;
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
@@ -61,8 +59,6 @@ mod memory_store;
 #[cfg(feature = "sled_state_store")]
 mod sled_store;
 
-#[cfg(feature = "indexeddb_state_store")]
-use self::indexeddb_store::IndexeddbStore;
 #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
 use self::memory_store::MemoryStore;
 #[cfg(feature = "sled_state_store")]
@@ -71,21 +67,9 @@ use self::sled_store::SledStore;
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    /// An error happened in the underlying sled database.
-    #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
-    Sled(#[from] sled::Error),
-    /// An error happened in the underlying Indexed Database.
-    #[cfg(feature = "indexeddb_state_store")]
-    #[error("IndexDB error: {name} ({code}): {message}")]
-    Indexeddb {
-        /// DomException code
-        code: u16,
-        /// Specific name of the DomException
-        name: String,
-        /// Message given to the DomException
-        message: String,
-    },
+    /// An error happened in the underlying sled database.
+    Backend(#[from] anyhow::Error),
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
@@ -111,14 +95,6 @@ pub enum StoreError {
     #[error(transparent)]
     Task(#[from] tokio::task::JoinError),
 }
-
-#[cfg(feature = "indexeddb_state_store")]
-impl From<indexed_db_futures::web_sys::DomException> for StoreError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> StoreError {
-        StoreError::Indexeddb { name: frm.name(), message: frm.message(), code: frm.code() }
-    }
-}
-
 /// A `StateStore` specific result type.
 pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 
