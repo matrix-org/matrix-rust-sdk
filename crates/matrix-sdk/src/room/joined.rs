@@ -636,12 +636,12 @@ impl Joined {
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn send_attachment<'a, R: Read + Seek, T: Read>(
+    pub async fn send_attachment<R: Read + Seek, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        config: AttachmentConfig<'a, T>,
+        config: AttachmentConfig<'_, T>,
     ) -> Result<send_message_event::Response> {
         let reader = &mut BufReader::new(reader);
 
@@ -715,12 +715,12 @@ impl Joined {
     /// media.
     ///
     /// * `config` - Metadata and configuration for the attachment.
-    async fn prepare_and_send_attachment<'a, R: Read, T: Read>(
+    async fn prepare_and_send_attachment<R: Read, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        config: AttachmentConfig<'a, T>,
+        config: AttachmentConfig<'_, T>,
     ) -> Result<send_message_event::Response> {
         #[cfg(feature = "encryption")]
         let content = if self.is_encrypted() {
