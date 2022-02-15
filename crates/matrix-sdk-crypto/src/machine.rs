@@ -464,13 +464,15 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
     async fn should_upload_keys(&self) -> bool {
         self.account.should_upload_keys().await
     }
 
     /// Get the underlying Olm account of the machine.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
     pub(crate) fn account(&self) -> &ReadOnlyAccount {
         &self.account
     }
@@ -1548,13 +1550,24 @@ impl OlmMachine {
         &self.backup_machine
     }
 }
+#[cfg(any(feature = "testing", test))]
+pub(crate) mod testing {
+    #![allow(dead_code)]
+    use http::Response;
+    use serde_json;
+
+    pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
+        Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
+    }
+
+
+}
 
 #[cfg(test)]
 pub(crate) mod test {
 
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
-    use http::Response;
     use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -1580,6 +1593,7 @@ pub(crate) mod test {
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     };
     use serde_json::json;
+    use super::testing::response_from_file;
 
     use crate::{
         machine::OlmMachine,
@@ -1601,10 +1615,6 @@ pub(crate) mod test {
 
     fn user_id() -> &'static UserId {
         user_id!("@bob:example.com")
-    }
-
-    pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
-        Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
     }
 
     fn keys_upload_response() -> upload_keys::Response {

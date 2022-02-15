@@ -1,5 +1,5 @@
 #[allow(unused_macros)]
-
+#[macro_export]
 macro_rules! cryptostore_integration_tests {
     ($($name:ident)*) => {
     $(
@@ -8,20 +8,17 @@ macro_rules! cryptostore_integration_tests {
             use std::collections::BTreeMap;
 
             use matrix_sdk_test::async_test;
-            use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-            use ruma::{
+            use matrix_sdk_common::ruma::{
                 encryption::SignedKey, events::room_key_request::RequestedKeyInfo,
                 serde::Base64, user_id, TransactionId, DeviceId, EventEncryptionAlgorithm, UserId,
                 room_id, device_id,
             };
 
-            use crate::{
-                gossiping::SecretInfo,
-                identities::{
-                    device::test::get_device,
-                    user::test::{get_other_identity, get_own_identity},
-                },
+            use $crate::{
+                SecretInfo,
+                testing::{get_device, get_other_identity, get_own_identity},
                 olm::{
+                    OlmOutboundGroupSession,
                     GroupSessionKey, InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
                     ReadOnlyAccount, Session,
                 },

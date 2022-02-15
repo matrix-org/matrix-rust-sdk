@@ -935,23 +935,16 @@ impl ReadOnlyOwnUserIdentity {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test {
-    use std::{convert::TryFrom, sync::Arc};
-
-    use matrix_sdk_common::locks::Mutex;
-    use matrix_sdk_test::async_test;
+#[cfg(any(test, feature = "testing"))]
+pub(crate) mod testing {
+    #![allow(dead_code)]
     use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
 
-    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity};
+    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
     use crate::{
         identities::{
-            manager::test::{other_key_query, own_key_query},
-            Device, ReadOnlyDevice,
+            manager::testing::{other_key_query, own_key_query}, ReadOnlyDevice,
         },
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::MemoryStore,
-        verification::VerificationMachine,
     };
 
     fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
@@ -974,11 +967,11 @@ pub(crate) mod test {
             .unwrap()
     }
 
-    pub(crate) fn get_own_identity() -> ReadOnlyOwnUserIdentity {
+    pub fn get_own_identity() -> ReadOnlyOwnUserIdentity {
         own_identity(&own_key_query())
     }
 
-    pub(crate) fn get_other_identity() -> ReadOnlyUserIdentity {
+    pub fn get_other_identity() -> ReadOnlyUserIdentity {
         let user_id = user_id!("@example2:localhost");
         let response = other_key_query();
 
@@ -987,6 +980,28 @@ pub(crate) mod test {
 
         ReadOnlyUserIdentity::new(master_key.into(), self_signing.into()).unwrap()
     }
+}
+
+
+#[cfg(test)]
+pub(crate) mod test {
+    use std::{convert::TryFrom, sync::Arc};
+
+    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_test::async_test;
+    use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
+
+    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity};
+    use crate::{
+        identities::{
+            manager::test::{other_key_query, own_key_query},
+            Device, ReadOnlyDevice,
+        },
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        store::MemoryStore,
+        verification::VerificationMachine,
+    };
+    use super::testing::{get_other_identity, get_own_identity};
 
     #[test]
     fn own_identity_create() {

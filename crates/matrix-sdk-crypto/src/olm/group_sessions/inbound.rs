@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![warn(missing_docs)]
+
 use std::{
     collections::BTreeMap,
     convert::TryFrom,
@@ -62,11 +64,11 @@ use crate::error::{EventError, MegolmResult};
 pub struct InboundGroupSession {
     inner: Arc<Mutex<OlmInboundGroupSession>>,
     history_visibility: Arc<Option<HistoryVisibility>>,
-    pub(crate) session_id: Arc<str>,
+    pub session_id: Arc<str>,
     first_known_index: u32,
-    pub(crate) sender_key: Arc<str>,
-    pub(crate) signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
-    pub(crate) room_id: Arc<RoomId>,
+    pub sender_key: Arc<str>,
+    pub signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
+    pub room_id: Arc<RoomId>,
     forwarding_chains: Arc<Vec<String>>,
     imported: bool,
     backed_up: Arc<AtomicBool>,
@@ -89,7 +91,7 @@ impl InboundGroupSession {
     ///
     /// * `session_key` - The private session key that is used to decrypt
     /// messages.
-    pub(crate) fn new(
+    pub fn new(
         sender_key: &str,
         signing_key: &str,
         room_id: &RoomId,
@@ -159,7 +161,7 @@ impl InboundGroupSession {
     ///
     /// * `content` - A forwarded room key content that contains the session key
     /// to create the `InboundGroupSession`.
-    pub(crate) fn from_forwarded_key(
+    pub fn from_forwarded_key(
         sender_key: &str,
         content: &mut ToDeviceForwardedRoomKeyEventContent,
     ) -> Result<Self, OlmGroupSessionError> {
@@ -228,13 +230,13 @@ impl InboundGroupSession {
     }
 
     /// Reset the backup state of the inbound group session.
-    pub(crate) fn reset_backup_state(&self) {
+    pub fn reset_backup_state(&self) {
         self.backed_up.store(false, SeqCst)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub(crate) fn mark_as_backed_up(&self) {
+    pub fn mark_as_backed_up(&self) {
         self.backed_up.store(true, SeqCst)
     }
 
@@ -327,7 +329,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `message` - The message that should be decrypted.
-    pub(crate) async fn decrypt_helper(
+    pub async fn decrypt_helper(
         &self,
         message: String,
     ) -> Result<(String, u32), OlmGroupSessionError> {
@@ -335,7 +337,7 @@ impl InboundGroupSession {
     }
 
     #[cfg(feature = "backups_v1")]
-    pub(crate) async fn to_backup(&self) -> BackedUpRoomKey {
+    pub async fn to_backup(&self) -> BackedUpRoomKey {
         self.export().await.into()
     }
 
@@ -344,7 +346,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `event` - The event that should be decrypted.
-    pub(crate) async fn decrypt(
+    pub async fn decrypt(
         &self,
         event: &SyncRoomEncryptedEvent,
     ) -> MegolmResult<(Raw<AnyRoomEvent>, u32)> {

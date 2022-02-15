@@ -537,51 +537,30 @@ impl IdentityManager {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test {
-    use std::sync::Arc;
-
-    use matrix_sdk_common::locks::Mutex;
-    use matrix_sdk_test::async_test;
+#[cfg(any(test, feature = "testing"))]
+pub(crate) mod testing {
+    #![allow(dead_code)]
     use ruma::{
         api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
         device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
 
-    use crate::{
-        identities::IdentityManager,
-        machine::test::response_from_file,
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{CryptoStore, MemoryStore, Store},
-        verification::VerificationMachine,
-    };
+    use crate::machine::testing::response_from_file;
 
-    fn user_id() -> &'static UserId {
+    pub fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
-    fn other_user_id() -> &'static UserId {
+    pub fn other_user_id() -> &'static UserId {
         user_id!("@example2:localhost")
     }
 
-    fn device_id() -> &'static DeviceId {
+    pub fn device_id() -> &'static DeviceId {
         device_id!("WSKKLTJZCL")
     }
 
-    fn manager() -> IdentityManager {
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id().to_owned())));
-        let user_id = Arc::from(user_id());
-        let account = ReadOnlyAccount::new(&user_id, device_id());
-        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
-        let verification = VerificationMachine::new(account, identity.clone(), store);
-        let store =
-            Store::new(user_id.clone(), identity, Arc::new(MemoryStore::new()), verification);
-        IdentityManager::new(user_id, device_id().into(), store)
-    }
-
-    pub(crate) fn other_key_query() -> KeyQueryResponse {
+    pub fn other_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
                 "@example2:localhost": {
@@ -640,7 +619,7 @@ pub(crate) mod test {
             .expect("Can't parse the keys upload response")
     }
 
-    pub(crate) fn own_key_query() -> KeyQueryResponse {
+    pub fn own_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
           "device_keys": {
             "@example:localhost": {
@@ -740,6 +719,29 @@ pub(crate) mod test {
         KeyQueryResponse::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use std::sync::Arc;
+
+    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
+        DeviceId, UserId,
+    };
+    use serde_json::json;
+
+    use crate::{
+        identities::IdentityManager,
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        store::{CryptoStore, MemoryStore, Store},
+        verification::VerificationMachine,
+    };
+    use super::testing::{
+        user_id, other_user_id, device_id, other_key_query, own_key_query,
+    };
 
     #[async_test]
     async fn test_manager_creation() {

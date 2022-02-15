@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["state_key"] }
+matrix-sdk-crypto = { path = "../matrix-sdk-crypto" }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 thiserror = "1.0.25"
 anyhow = "1"
@@ -15,8 +16,10 @@ indexed_db_futures = { version = "0.2.0" }
 wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"] }
 serde = { version = "1.0.126" }
 serde_json = "1.0.64"
+dashmap = "4.0.2"
 
 [dev-dependencies]
 matrix-sdk-base = {  path = "../matrix-sdk-base", features = ["testing"] }
+matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../matrix-sdk-test" }
 wasm-bindgen-test = "0.3.24"

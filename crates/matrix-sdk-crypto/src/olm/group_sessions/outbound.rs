@@ -28,10 +28,11 @@ use matrix_sdk_common::{instant::Instant, locks::Mutex};
 pub use olm_rs::{
     account::IdentityKeys,
     session::{OlmMessage, PreKeyMessage},
+    outbound_group_session::OlmOutboundGroupSession,
     utility::OlmUtility,
 };
 use olm_rs::{
-    errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
+    errors::OlmGroupSessionError, PicklingMode,
 };
 use ruma::{
     events::{

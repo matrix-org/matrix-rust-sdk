@@ -188,7 +188,7 @@ pub enum SignatureError {
 }
 
 #[derive(Error, Debug)]
-pub(crate) enum SessionCreationError {
+pub enum SessionCreationError {
     #[error(
         "Failed to create a new Olm session for {0} {1}, the requested \
         one-time key isn't a signed curve key"
