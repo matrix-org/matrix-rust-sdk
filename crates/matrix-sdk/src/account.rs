@@ -23,7 +23,6 @@ use ruma::{
         account::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
             request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
-            ThirdPartyIdRemovalStatus,
         },
         profile::{
             get_avatar_url, get_display_name, get_profile, set_avatar_url, set_display_name,
@@ -31,7 +30,7 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    thirdparty::{Medium, ThirdPartyIdentifier},
+    thirdparty::Medium,
     ClientSecret, MxcUri, SessionId, UInt,
 };
 
@@ -215,8 +214,6 @@ impl Account {
     ///
     /// Allows to get both the display name and avatar URL in a single call.
     ///
-    /// Returns a `(display_name, avatar_url)` tuple.
-    ///
     /// # Example
     /// ```no_run
     /// # use futures::executor::block_on;
@@ -225,16 +222,19 @@ impl Account {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// if let (Some(name), Some(avatar_url)) = client.account().get_profile().await? {
-    ///     println!("You are '{}' with avatar '{}'", name, avatar_url);
+    /// if let profile = client.account().get_profile().await? {
+    ///     println!(
+    ///         "You are '{:?}' with avatar '{:?}'",
+    ///         profile.displayname,
+    ///         profile.avatar_url
+    ///     );
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn get_profile(&self) -> Result<(Option<String>, Option<Box<MxcUri>>)> {
+    pub async fn get_profile(&self) -> Result<get_profile::Response> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_profile::Request::new(&user_id);
-        let response = self.client.send(request, None).await?;
-        Ok((response.displayname, response.avatar_url))
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Change the password of the account.
@@ -284,12 +284,11 @@ impl Account {
         &self,
         new_password: &str,
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<()> {
+    ) -> Result<change_password::Response> {
         let request = assign!(change_password::Request::new(new_password), {
             auth: auth_data,
         });
-        self.client.send(request, None).await?;
-        Ok(())
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Deactivate this account definitively.
@@ -304,15 +303,6 @@ impl Account {
     /// always fail with an [`UiaaResponse`]. The response will contain
     /// information for the interactive auth and the same request needs to be
     /// made but this time with some `auth_data` provided.
-    ///
-    /// # Returns
-    ///
-    /// * [`ThirdPartyIdRemovalStatus::Success`] if the 3PIDs were also unbound
-    /// from the identity server.
-    ///
-    /// * [`ThirdPartyIdRemovalStatus::NoSupport`] if the 3PIDs were not unbound
-    /// from the identity server. This can also mean that no 3PIDs were bound to
-    /// an identity server in the first place.
     ///
     /// # Example
     /// ```no_run
@@ -344,13 +334,12 @@ impl Account {
         &self,
         id_server: Option<&str>,
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<ThirdPartyIdRemovalStatus> {
+    ) -> Result<deactivate::Response> {
         let request = assign!(deactivate::Request::new(), {
             id_server,
             auth: auth_data,
         });
-        let response = self.client.send(request, None).await?;
-        Ok(response.id_server_unbind_result)
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Get the registered [Third Party Identifiers][3pid] on the homeserver of
@@ -367,7 +356,7 @@ impl Account {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let threepids = client.account().get_3pids().await?;
+    /// let threepids = client.account().get_3pids().await?.threepids;
     ///
     /// for threepid in threepids {
     ///     println!("Found 3PID '{}' of type '{}'", threepid.address, threepid.medium);
@@ -375,10 +364,9 @@ impl Account {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    pub async fn get_3pids(&self) -> Result<Vec<ThirdPartyIdentifier>> {
+    pub async fn get_3pids(&self) -> Result<get_3pids::Response> {
         let request = get_3pids::Request::new();
-        let response = self.client.send(request, None).await?;
-        Ok(response.threepids)
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Request a token to validate an email address as a [Third Party
@@ -401,13 +389,12 @@ impl Account {
     ///
     /// # Returns
     ///
-    /// An `(sid, submit_url)` tuple.
+    /// * `sid` - The session ID to be used in following requests for
+    /// this 3PID.
     ///
-    /// * `sid` - The session ID to be used in following requests for this 3PID.
-    ///
-    /// * `submit_url` - If present, the user will submit the token to the
-    /// client, that must send it to this URL. If not, the client will not be
-    /// involved in the token submission.
+    /// * `submit_url` - If present, the user will submit the token to
+    /// the client, that must send it to this URL. If not, the client will not
+    /// be involved in the token submission.
     ///
     /// This method might return an [`ErrorKind::ThreepidInUse`] error if the
     /// email address is already registered for this account or another, or an
@@ -424,7 +411,7 @@ impl Account {
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
     /// # let secret = ClientSecret::parse("secret")?;
-    /// let (sid, submit_url) = account.request_3pid_email_token(
+    /// let token_response = account.request_3pid_email_token(
     ///     &secret,
     ///     "john@matrix.org",
     ///     uint!(0),
@@ -433,7 +420,11 @@ impl Account {
     /// // Wait for the user to confirm that the token was submitted or prompt
     /// // the user for the token and send it to submit_url.
     ///
-    /// let response = account.add_3pid(&secret, &sid, None).await;
+    /// let uiaa_response = account.add_3pid(
+    ///     &secret,
+    ///     &token_response.sid,
+    ///     None
+    /// ).await;
     ///
     /// // Proceed with UIAA.
     ///
@@ -447,14 +438,13 @@ impl Account {
         client_secret: &ClientSecret,
         email: &str,
         send_attempt: UInt,
-    ) -> Result<(Box<SessionId>, Option<String>)> {
+    ) -> Result<request_3pid_management_token_via_email::Response> {
         let request = request_3pid_management_token_via_email::Request::new(
             client_secret,
             email,
             send_attempt,
         );
-        let response = self.client.send(request, None).await?;
-        Ok((response.sid, response.submit_url))
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Request a token to validate a phone number as a [Third Party
@@ -481,8 +471,6 @@ impl Account {
     ///
     /// # Returns
     ///
-    /// An `(sid, submit_url)` tuple.
-    ///
     /// * `sid` - The session ID to be used in following requests for this 3PID.
     ///
     /// * `submit_url` - If present, the user will submit the token to the
@@ -504,7 +492,7 @@ impl Account {
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
     /// # let secret = ClientSecret::parse("secret")?;
-    /// let (sid, submit_url) = account.request_3pid_msisdn_token(
+    /// let token_response = account.request_3pid_msisdn_token(
     ///     &secret,
     ///     "FR",
     ///     "0123456789",
@@ -514,7 +502,11 @@ impl Account {
     /// // Wait for the user to confirm that the token was submitted or prompt
     /// // the user for the token and send it to submit_url.
     ///
-    /// let response = account.add_3pid(&secret, &sid, None).await;
+    /// let uiaa_response = account.add_3pid(
+    ///     &secret,
+    ///     &token_response.sid,
+    ///     None
+    /// ).await;
     ///
     /// // Proceed with UIAA.
     ///
@@ -529,15 +521,14 @@ impl Account {
         country: &str,
         phone_number: &str,
         send_attempt: UInt,
-    ) -> Result<(Box<SessionId>, Option<String>)> {
+    ) -> Result<request_3pid_management_token_via_msisdn::Response> {
         let request = request_3pid_management_token_via_msisdn::Request::new(
             client_secret,
             country,
             phone_number,
             send_attempt,
         );
-        let response = self.client.send(request, None).await?;
-        Ok((response.sid, response.submit_url))
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Add a [Third Party Identifier][3pid] on the homeserver for this
@@ -574,12 +565,11 @@ impl Account {
         client_secret: &ClientSecret,
         sid: &SessionId,
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<()> {
+    ) -> Result<add_3pid::Response> {
         let request = assign!(add_3pid::Request::new(client_secret, sid), {
             auth: auth_data,
         });
-        self.client.send(request, None).await?;
-        Ok(())
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Delete a [Third Party Identifier][3pid] from the homeserver for this
@@ -615,12 +605,16 @@ impl Account {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
-    /// match account.delete_3pid("paul@matrix.org", Medium::Email, None).await? {
-    ///     ThirdPartyIdRemovalStatus::Success => {
-    ///         println!("3PID unbound from the Identity Server");
+    /// match account
+    ///         .delete_3pid("paul@matrix.org", Medium::Email, None)
+    ///         .await?
+    ///         .id_server_unbind_result
+    ///     {
+    ///         ThirdPartyIdRemovalStatus::Success => {
+    ///             println!("3PID unbound from the Identity Server");
+    ///         }
+    ///         _ => println!("Could not unbind 3PID from the Identity Server"),
     ///     }
-    ///     _ => println!("Could not unbind 3PID from the Identity Server"),
-    /// }
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
@@ -632,11 +626,10 @@ impl Account {
         address: &str,
         medium: Medium,
         id_server: Option<&str>,
-    ) -> Result<ThirdPartyIdRemovalStatus> {
+    ) -> Result<delete_3pid::Response> {
         let request = assign!(delete_3pid::Request::new(medium, address), {
             id_server: id_server,
         });
-        let response = self.client.send(request, None).await?;
-        Ok(response.id_server_unbind_result)
+        Ok(self.client.send(request, None).await?)
     }
 }
