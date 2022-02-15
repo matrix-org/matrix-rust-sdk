@@ -523,7 +523,7 @@ pub struct MessagesOptions<'a> {
     pub limit: UInt,
 
     /// A [`RoomEventFilter`] to filter returned events with.
-    pub filter: Option<RoomEventFilter<'a>>,
+    pub filter: RoomEventFilter<'a>,
 }
 
 impl<'a> MessagesOptions<'a> {
@@ -531,7 +531,7 @@ impl<'a> MessagesOptions<'a> {
     ///
     /// All other parameters will be defaulted.
     pub fn new(from: &'a str, dir: Direction) -> Self {
-        Self { from, to: None, dir, limit: uint!(10), filter: None }
+        Self { from, to: None, dir, limit: uint!(10), filter: RoomEventFilter::default() }
     }
 
     /// Creates `MessagesOptions` with the given start token, and `dir` set to

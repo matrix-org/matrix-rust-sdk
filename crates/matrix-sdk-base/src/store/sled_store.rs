@@ -14,7 +14,7 @@
 
 use std::{
     collections::BTreeSet,
-    convert::{TryFrom, TryInto},
+    convert::TryInto,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -660,7 +660,7 @@ impl SledStore {
 
             let user_id = iter.next().expect("User ids weren't properly encoded");
 
-            Ok(Box::<UserId>::try_from(String::from_utf8_lossy(user_id).to_string())?)
+            Ok(UserId::parse(String::from_utf8_lossy(user_id).to_string())?)
         };
 
         let members = self.members.clone();
@@ -679,7 +679,7 @@ impl SledStore {
         let key = room_id.encode();
         spawn_blocking(move || {
             stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
-                Box::<UserId>::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                UserId::parse(String::from_utf8_lossy(&u?.1).to_string())
                     .map_err(StoreError::Identifier)
             }))
         })
@@ -695,7 +695,7 @@ impl SledStore {
         let key = room_id.encode();
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
-                Box::<UserId>::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                UserId::parse(String::from_utf8_lossy(&u?.1).to_string())
                     .map_err(StoreError::Identifier)
             }))
         })

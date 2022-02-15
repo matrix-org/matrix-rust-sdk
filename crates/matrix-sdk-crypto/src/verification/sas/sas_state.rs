@@ -1379,8 +1379,8 @@ mod test {
 
         let content = bob.as_content();
         let content = AcceptContent::from(&content);
-        let sender = Box::<UserId>::try_from("@malory:example.org").unwrap();
-        alice.into_accepted(&sender, &content).expect_err("Didn't cancel on a invalid sender");
+        let sender = user_id!("@malory:example.org");
+        alice.into_accepted(sender, &content).expect_err("Didn't cancel on a invalid sender");
     }
 
     #[async_test]
