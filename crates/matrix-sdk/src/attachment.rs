@@ -177,7 +177,7 @@ pub struct AttachmentConfig<'a, R: Read> {
 impl AttachmentConfig<'static, &'static [u8]> {
     /// Create a new default `AttachmentConfig` without providing a thumbnail.
     ///
-    /// To provide a thumbnail use [`with_thumbnail()`].
+    /// To provide a thumbnail use [`AttachmentConfig::with_thumbnail()`].
     pub fn new() -> Self {
         Self {
             txn_id: Default::default(),
@@ -192,7 +192,7 @@ impl AttachmentConfig<'static, &'static [u8]> {
 
     /// Generate the thumbnail to send for this media.
     ///
-    /// Uses [`attachment::generate_image_thumbnail()`].
+    /// Uses [`generate_image_thumbnail()`].
     ///
     /// Thumbnails can only be generated for supported image attachments. For
     /// more information, see the [image](https://github.com/image-rs/image)
@@ -218,7 +218,7 @@ impl Default for AttachmentConfig<'static, &'static [u8]> {
 }
 
 impl<'a, R: Read> AttachmentConfig<'a, R> {
-    /// Create a new default `AttachmentConfig` with `thumbnail`.
+    /// Create a new default `AttachmentConfig` with a `thumbnail`.
     ///
     /// # Arguments
     ///
@@ -226,8 +226,8 @@ impl<'a, R: Read> AttachmentConfig<'a, R> {
     /// not support it (eg audio clips), it is ignored.
     ///
     /// To generate automatically a thumbnail from an image, use
-    /// [`new()`] and
-    /// [`generate_thumbnail()`].
+    /// [`AttachmentConfig::new()`] and
+    /// [`AttachmentConfig::generate_thumbnail()`].
     pub fn with_thumbnail(thumbnail: Thumbnail<'a, R>) -> Self {
         Self {
             txn_id: Default::default(),
