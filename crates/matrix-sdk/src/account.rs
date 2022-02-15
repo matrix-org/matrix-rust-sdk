@@ -1,3 +1,19 @@
+// Copyright 2020 Damir Jelić
+// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2022 Kévin Commaille
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::io::Read;
 
 use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaType};
@@ -42,16 +58,16 @@ impl Account {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
     /// let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
+    /// let client = Client::new(homeserver).await?;
+    /// client.login(user, "password", None, None).await?;
     ///
-    /// if let Some(name) = client.account().get_display_name().await.unwrap() {
+    /// if let Some(name) = client.account().get_display_name().await? {
     ///     println!("Logged in as user '{}' with display name '{}'", user, name);
     /// }
-    /// # })
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -67,14 +83,14 @@ impl Account {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
     /// let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
+    /// let client = Client::new(homeserver).await?;
+    /// client.login(user, "password", None, None).await?;
     ///
-    /// client.account().set_display_name(Some("Alice")).await.expect("Failed setting display name");
-    /// # })
+    /// client.account().set_display_name(Some("Alice")).await?;
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -83,23 +99,23 @@ impl Account {
         Ok(())
     }
 
-    /// Get the MXC avatar url of the account, if set.
+    /// Get the MXC URI of the account's avatar, if set.
     ///
     /// # Example
     /// ```no_run
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
     /// # let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
+    /// let client = Client::new(homeserver).await?;
+    /// client.login(user, "password", None, None).await?;
     ///
-    /// if let Some(url) = client.account().get_avatar_url().await.unwrap() {
+    /// if let Some(url) = client.account().get_avatar_url().await? {
     ///     println!("Your avatar's mxc url is {}", url);
     /// }
-    /// # })
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<Box<MxcUri>>> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -111,7 +127,7 @@ impl Account {
         Ok(response.avatar_url)
     }
 
-    /// Set the MXC avatar url of the account.
+    /// Set the MXC URI of the account's avatar.
     ///
     /// The avatar is unset if `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
@@ -139,16 +155,16 @@ impl Account {
     /// # use matrix_sdk::ruma::room_id;
     /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
     /// # let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
+    /// let client = Client::new(homeserver).await?;
+    /// client.login(user, "password", None, None).await?;
     ///
-    /// if let Some(avatar) = client.account().get_avatar(MediaFormat::File).await.unwrap() {
+    /// if let Some(avatar) = client.account().get_avatar(MediaFormat::File).await? {
     ///     std::fs::write("avatar.png", avatar);
     /// }
-    /// # })
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn get_avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.get_avatar_url().await? {
@@ -162,13 +178,13 @@ impl Account {
     /// Upload and set the account's avatar.
     ///
     /// This will upload the data produced by the reader to the homeserver's
-    /// content repository, and set the user's avatar to the MXC url for the
+    /// content repository, and set the user's avatar to the MXC URI for the
     /// uploaded file.
     ///
     /// This is a convenience method for calling [`Client::upload()`],
-    /// followed by [`set_avatar_url()`](#method.set_avatar_url).
+    /// followed by [`Account::set_avatar_url()`].
     ///
-    /// Returns the MXC url of the uploaded avatar.
+    /// Returns the MXC URI of the uploaded avatar.
     ///
     /// # Example
     /// ```no_run
@@ -177,13 +193,13 @@ impl Account {
     /// # use matrix_sdk::Client;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// let path = Path::new("/home/example/selfie.jpg");
-    /// let mut image = File::open(&path).unwrap();
+    /// let mut image = File::open(&path)?;
     ///
-    /// client.account().upload_avatar(&mime::IMAGE_JPEG, &mut image).await.expect("Can't set avatar");
-    /// # })
+    /// client.account().upload_avatar(&mime::IMAGE_JPEG, &mut image).await?;
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     pub async fn upload_avatar<R: Read>(
         &self,
@@ -197,7 +213,7 @@ impl Account {
 
     /// Get the profile of the account.
     ///
-    /// Allows to get both the display name and avatar url in a single call.
+    /// Allows to get both the display name and avatar URL in a single call.
     ///
     /// Returns a `(display_name, avatar_url)` tuple.
     ///
@@ -206,11 +222,9 @@ impl Account {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
-    ///
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// if let (Some(name), Some(avatar_url)) = client.account().get_profile().await? {
     ///     println!("You are '{}' with avatar '{}'", name, avatar_url);
     /// }
@@ -237,9 +251,9 @@ impl Account {
     ///
     /// # Returns
     ///
-    /// This method might return a [`WeakPassword`] error if the new password is
-    /// considered insecure by the homeserver, with details about the strength
-    /// requirements in the error's message.
+    /// This method might return an [`ErrorKind::WeakPassword`] error if the new
+    /// password is considered insecure by the homeserver, with details about
+    /// the strength requirements in the error's message.
     ///
     /// # Example
     /// ```no_run
@@ -255,9 +269,8 @@ impl Account {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
-    ///
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// client.account().change_password(
     ///     "myverysecretpassword",
     ///     Some(AuthData::Dummy(Dummy::new())),
@@ -266,7 +279,7 @@ impl Account {
     /// ```
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
     /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
-    /// [`WeakPassword`]: ruma::api::client::error::ErrorKind::WeakPassword
+    /// [`ErrorKind::WeakPassword`]: ruma::api::client::error::ErrorKind::WeakPassword
     pub async fn change_password(
         &self,
         new_password: &str,
@@ -294,11 +307,12 @@ impl Account {
     ///
     /// # Returns
     ///
-    /// * [`Success`] if the 3PIDs were also unbound from the identity server.
+    /// * [`ThirdPartyIdRemovalStatus::Success`] if the 3PIDs were also unbound
+    /// from the identity server.
     ///
-    /// * [`NoSupport`] if the 3PIDs were not unbound from the identity server.
-    /// This can also mean that no 3PIDs were bound to an identity server in
-    /// the first place.
+    /// * [`ThirdPartyIdRemovalStatus::NoSupport`] if the 3PIDs were not unbound
+    /// from the identity server. This can also mean that no 3PIDs were bound to
+    /// an identity server in the first place.
     ///
     /// # Example
     /// ```no_run
@@ -314,21 +328,18 @@ impl Account {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
-    ///
     /// let response = account.deactivate(None, None).await;
     ///
     /// // Proceed with UIAA.
     ///
-    /// });
+    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
     /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
-    /// [`Success`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::Success
-    /// [`NoSupport`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::NoSupport
     pub async fn deactivate(
         &self,
         id_server: Option<&str>,
@@ -354,9 +365,8 @@ impl Account {
     /// # use matrix_sdk::Client;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
-    ///
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// let threepids = client.account().get_3pids().await?;
     ///
     /// for threepid in threepids {
@@ -375,7 +385,8 @@ impl Account {
     /// Identifier][3pid].
     ///
     /// This is the first step in registering an email address as 3PID. Next,
-    /// call [`add_3pid`] with the same `client_secret` and the returned `sid`.
+    /// call [`Account::add_3pid()`] with the same `client_secret` and the
+    /// returned `sid`.
     ///
     /// # Arguments
     ///
@@ -398,9 +409,9 @@ impl Account {
     /// client, that must send it to this URL. If not, the client will not be
     /// involved in the token submission.
     ///
-    /// This method might return a [`ThreepidInUse`] if the email address is
-    /// already registered for this account or another, or a [`ThreepidDenied`]
-    /// error if it is denied.
+    /// This method might return an [`ErrorKind::ThreepidInUse`] error if the
+    /// email address is already registered for this account or another, or an
+    /// [`ErrorKind::ThreepidDenied`] error if it is denied.
     ///
     /// # Example
     /// ```no_run
@@ -409,11 +420,10 @@ impl Account {
     /// # use matrix_sdk::ruma::{ClientSecret, uint};
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
-    /// # let secret = ClientSecret::parse("secret").unwrap();
-    ///
+    /// # let secret = ClientSecret::parse("secret")?;
     /// let (sid, submit_url) = account.request_3pid_email_token(
     ///     &secret,
     ///     "john@matrix.org",
@@ -430,8 +440,8 @@ impl Account {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    /// [`ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
-    /// [`ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
+    /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
+    /// [`ErrorKind::ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
     pub async fn request_3pid_email_token(
         &self,
         client_secret: &ClientSecret,
@@ -451,7 +461,8 @@ impl Account {
     /// Identifier][3pid].
     ///
     /// This is the first step in registering a phone number as 3PID. Next,
-    /// call [`add_3pid`] with the same `client_secret` and the returned `sid`.
+    /// call [`Account::add_3pid()`] with the same `client_secret` and the
+    /// returned `sid`.
     ///
     /// # Arguments
     ///
@@ -478,9 +489,9 @@ impl Account {
     /// client, that must send it to this URL. If not, the client will not be
     /// involved in the token submission.
     ///
-    /// This method might return a [`ThreepidInUse`] if the phone number is
-    /// already registered for this account or another, or a [`ThreepidDenied`]
-    /// error if it is denied.
+    /// This method might return an [`ErrorKind::ThreepidInUse`] error if the
+    /// phone number is already registered for this account or another, or an
+    /// [`ErrorKind::ThreepidDenied`] error if it is denied.
     ///
     /// # Example
     /// ```no_run
@@ -489,11 +500,10 @@ impl Account {
     /// # use matrix_sdk::ruma::{ClientSecret, uint};
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
-    /// # let secret = ClientSecret::parse("secret").unwrap();
-    ///
+    /// # let secret = ClientSecret::parse("secret")?;
     /// let (sid, submit_url) = account.request_3pid_msisdn_token(
     ///     &secret,
     ///     "FR",
@@ -511,8 +521,8 @@ impl Account {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    /// [`ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
-    /// [`ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
+    /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
+    /// [`ErrorKind::ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
     pub async fn request_3pid_msisdn_token(
         &self,
         client_secret: &ClientSecret,
@@ -534,19 +544,21 @@ impl Account {
     /// account.
     ///
     /// This 3PID may be used by the homeserver to authenticate the user
-    /// during sensitive operations. To register it against an identity server,
-    /// use [`bind_3pid`].
+    /// during sensitive operations.
     ///
-    /// This method should be called after [`request_3pid_email_token`] or
-    /// [`request_3pid_msisdn_token`] to complete the 3PID registration.
+    /// This method should be called after
+    /// [`Account::request_3pid_email_token()`] or
+    /// [`Account::request_3pid_msisdn_token()`] to complete the 3PID
     ///
     /// # Arguments
     ///
     /// * `client_secret` - The same client secret used in
-    /// [`request_3pid_email_token`] or [`request_3pid_msisdn_token`].
+    /// [`Account::request_3pid_email_token()`] or
+    /// [`Account::request_3pid_msisdn_token()`].
     ///
     /// * `sid` - The session ID returned in
-    /// [`request_3pid_email_token`] or [`request_3pid_msisdn_token`].
+    /// [`Account::request_3pid_email_token()`] or
+    /// [`Account::request_3pid_msisdn_token()`].
     ///
     /// * `auth_data` - This request uses the [User-Interactive Authentication
     /// API][uiaa]. The first request needs to set this to `None` and will
@@ -581,15 +593,16 @@ impl Account {
     ///
     /// * `id_server` - The identity server to unbind from. If not provided, the
     /// homeserver should unbind the 3PID from the identity server it was bound
-    /// to with [`bind_3pid`].
+    /// to previously.
     ///
     /// # Returns
     ///
-    /// * [`Success`] if the 3PID was also unbound from the identity server.
+    /// * [`ThirdPartyIdRemovalStatus::Success`] if the 3PID was also unbound
+    /// from the identity server.
     ///
-    /// * [`NoSupport`] if the 3PID was not unbound from the identity server.
-    /// This can also mean that the 3PID was not bound to an identity server in
-    /// the first place.
+    /// * [`ThirdPartyIdRemovalStatus::NoSupport`] if the 3PID was not unbound
+    /// from the identity server. This can also mean that the 3PID was not bound
+    /// to an identity server in the first place.
     ///
     /// # Example
     /// ```no_run
@@ -599,20 +612,21 @@ impl Account {
     /// # use matrix_sdk::ruma::api::client::r0::account::ThirdPartyIdRemovalStatus;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
-    ///
     /// match account.delete_3pid("paul@matrix.org", Medium::Email, None).await? {
-    ///     ThirdPartyIdRemovalStatus::Success => println!("3PID unbound from the Identity Server"),
+    ///     ThirdPartyIdRemovalStatus::Success => {
+    ///         println!("3PID unbound from the Identity Server");
+    ///     }
     ///     _ => println!("Could not unbind 3PID from the Identity Server"),
     /// }
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    /// [`Success`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::Success
-    /// [`NoSupport`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::NoSupport
+    /// [`ThirdPartyIdRemovalStatus::Success`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::Success
+    /// [`ThirdPartyIdRemovalStatus::NoSupport`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::NoSupport
     pub async fn delete_3pid(
         &self,
         address: &str,
