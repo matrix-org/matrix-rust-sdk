@@ -667,13 +667,9 @@ impl Joined {
                             info: Some(thumbnail_info),
                         })
                     }
-                    Err(error)
-                        if matches!(
-                            error,
-                            ImageError::ThumbnailBiggerThanOriginal
-                                | ImageError::FormatNotSupported
-                        ) =>
-                    {
+                    Err(
+                        ImageError::ThumbnailBiggerThanOriginal | ImageError::FormatNotSupported,
+                    ) => {
                         reader.rewind()?;
                         None
                     }
