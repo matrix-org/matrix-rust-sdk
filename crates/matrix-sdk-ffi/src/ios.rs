@@ -133,7 +133,7 @@ impl Client {
     pub fn start_sync(&self) {
         let client = self.client.clone();
         let state = self.state.clone();
-        RUNTIME.spawn(async move {
+        RUNTIME.block_on(async move {
             client.sync_with_callback(matrix_sdk::config::SyncSettings::new(), |_response| async {
                 if !state.read().has_first_synced {
                     state.write().has_first_synced = true
@@ -250,7 +250,6 @@ pub fn guest_client(base_path: String, homeurl: String) -> Result<Arc<Client>> {
         };
         client.restore_login(session).await?;
         let c = Client::new(client, ClientStateBuilder::default().is_guest(true).build()?);
-        c.start_sync();
         Ok(Arc::new(c))
     })
 }
@@ -264,7 +263,6 @@ pub fn login_with_token(base_path: String, restore_token: String) -> Result<Arc<
         let client = MatrixClient::new_with_config(homeserver, config).await?;
         client.restore_login(session).await?;
         let c = Client::new(client, ClientStateBuilder::default().is_guest(is_guest).build()?);
-        c.start_sync();
         Ok(Arc::new(c))
     })
 }
@@ -278,7 +276,6 @@ pub fn login_new_client(base_path: String, username: String, password: String) -
         let client = MatrixClient::new_from_user_id_with_config(&user, config).await?;
         client.login(user, &password, None, None).await?;
         let c = Client::new(client, ClientStateBuilder::default().is_guest(false).build()?);
-        c.start_sync();
         Ok(Arc::new(c))
     })
 }
