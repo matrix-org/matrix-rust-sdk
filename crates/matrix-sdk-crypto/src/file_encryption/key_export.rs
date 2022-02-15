@@ -19,9 +19,9 @@ use aes::{
     Aes256, Aes256Ctr,
 };
 use byteorder::{BigEndian, ReadBytesExt};
-use getrandom::getrandom;
 use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2;
+use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
 use thiserror::Error;
@@ -152,8 +152,10 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
     let mut iv = [0u8; IV_SIZE];
     let mut derived_keys = [0u8; KEY_SIZE * 2];
 
-    getrandom(&mut salt).expect("Can't generate randomness");
-    getrandom(&mut iv).expect("Can't generate randomness");
+    let mut rng = thread_rng();
+
+    rng.fill_bytes(&mut salt);
+    rng.fill_bytes(&mut iv);
 
     let mut iv = u128::from_be_bytes(iv);
     iv &= !(1 << 63);

@@ -22,7 +22,7 @@ use aes::{
     Aes256, Aes256Ctr,
 };
 use base64::DecodeError;
-use getrandom::getrandom;
+use rand::{thread_rng, RngCore};
 use ruma::{
     events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit},
     serde::Base64,
@@ -218,10 +218,12 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
         let mut key = Zeroizing::new([0u8; KEY_SIZE]);
         let mut iv = Zeroizing::new([0u8; IV_SIZE]);
 
-        getrandom(&mut *key).expect("Can't generate randomness");
+        let mut rng = thread_rng();
+
+        rng.fill_bytes(&mut *key);
         // Only populate the first 8 bytes with randomness, the rest is 0
         // initialized for the counter.
-        getrandom(&mut iv[0..8]).expect("Can't generate randomness");
+        rng.fill_bytes(&mut iv[0..8]);
 
         let web_key = JsonWebKey::from(JsonWebKeyInit {
             kty: "oct".to_owned(),

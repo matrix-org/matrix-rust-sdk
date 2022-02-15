@@ -18,9 +18,9 @@ use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
     Aes256Gcm, Error as DecryptionError,
 };
-use getrandom::getrandom;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
+use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
@@ -81,7 +81,8 @@ pub struct PickleKey {
 impl Default for PickleKey {
     fn default() -> Self {
         let mut key = vec![0u8; KEY_SIZE];
-        getrandom(&mut key).expect("Can't generate new pickle key");
+        let mut rng = thread_rng();
+        rng.fill_bytes(&mut key);
 
         Self { aes256_key: key }
     }
@@ -122,15 +123,17 @@ impl PickleKey {
     /// * `passphrase` - The passphrase that should be used to encrypt the
     /// pickle key.
     pub fn encrypt(&self, passphrase: &str) -> EncryptedPickleKey {
+        let mut rng = thread_rng();
         let mut salt = vec![0u8; KDF_SALT_SIZE];
-        getrandom(&mut salt).expect("Can't generate new random pickle key");
+
+        rng.fill_bytes(&mut salt);
 
         let key = PickleKey::expand_key(passphrase, &salt, KDF_ROUNDS);
         let key = GenericArray::from_slice(key.as_ref());
         let cipher = Aes256Gcm::new(key);
 
         let mut nonce = vec![0u8; NONCE_SIZE];
-        getrandom(&mut nonce).expect("Can't generate new random nonce for the pickle key");
+        rng.fill_bytes(&mut nonce);
 
         let ciphertext = cipher
             .encrypt(GenericArray::from_slice(nonce.as_ref()), self.aes256_key.as_slice())
