@@ -64,6 +64,8 @@ The following crate feature flags are available:
 | `anyhow`           |   No    | Better logging for event handlers that return `anyhow::Result` |
 | `encryption`       |   Yes   | End-to-end encryption support                                  |
 | `eyre`             |   No    | Better logging for event handlers that return `eyre::Result`   |
+| `image_proc`       |   No    | Enables image processing to generate thumbnails                |
+| `image_rayon`      |   No    | Enables faster image processing                                |
 | `markdown`         |   No    | Support to send Markdown-formatted messages                    |
 | `qrcode`           |   Yes   | QR code verification support                                   |
 | `sled_cryptostore` |   Yes   | Persistent storage for E2EE related data                       |
