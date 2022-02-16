@@ -43,6 +43,7 @@ use ruma::{
         client::{
             r0::{
                 account::{register, whoami},
+                capabilities::{get_capabilities, Capabilities},
                 device::{delete_devices, get_devices},
                 directory::{get_public_rooms, get_public_rooms_filtered},
                 filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
@@ -345,6 +346,33 @@ impl Client {
             Some(RequestConfig::new().disable_retry()),
         )
         .await
+    }
+
+    /// Get the capabilities of the homeserver.
+    ///
+    /// This method should be used to check what features are supported by the
+    /// homeserver.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let capabilities = client.get_capabilities().await?;
+    ///
+    /// if capabilities.change_password.enabled {
+    ///     // Change password
+    /// }
+    ///
+    /// # Result::<_, anyhow::Error>::Ok(()) });
+    /// ```
+    pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
+        let res = self.send(get_capabilities::Request::new(), None).await?;
+        Ok(res.capabilities)
     }
 
     /// Process a [transaction] received from the homeserver
