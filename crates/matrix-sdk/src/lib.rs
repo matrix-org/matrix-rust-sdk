@@ -49,6 +49,7 @@ pub use reqwest;
 #[doc(no_inline)]
 pub use ruma;
 
+mod account;
 /// Types and traits for attachments.
 pub mod attachment;
 mod client;
@@ -64,6 +65,7 @@ mod sync;
 #[cfg(feature = "encryption")]
 pub mod encryption;
 
+pub use account::Account;
 pub use client::{Client, LoopCtrl};
 #[cfg(feature = "image_proc")]
 pub use error::ImageError;
