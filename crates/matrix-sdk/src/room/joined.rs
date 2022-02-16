@@ -1,6 +1,11 @@
+#[cfg(feature = "image_proc")]
+use std::io::Cursor;
 #[cfg(feature = "encryption")]
 use std::sync::Arc;
-use std::{io::Read, ops::Deref};
+use std::{
+    io::{BufReader, Read, Seek},
+    ops::Deref,
+};
 
 use matrix_sdk_common::instant::{Duration, Instant};
 #[cfg(feature = "encryption")]
@@ -31,7 +36,14 @@ use tracing::debug;
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
-use crate::{error::HttpResult, room::Common, BaseRoom, Client, Result, RoomType};
+#[cfg(feature = "image_proc")]
+use crate::{attachment::generate_image_thumbnail, error::ImageError};
+use crate::{
+    attachment::{AttachmentConfig, Thumbnail},
+    error::HttpResult,
+    room::Common,
+    BaseRoom, Client, Result, RoomType,
+};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -597,15 +609,13 @@ impl Joined {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
+    /// * `config` - Metadata and configuration for the attachment.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, ruma::room_id};
+    /// # use matrix_sdk::{Client, ruma::room_id, attachment::AttachmentConfig};
     /// # use url::Url;
     /// # use mime;
     /// # use futures::executor::block_on;
@@ -621,29 +631,127 @@ impl Joined {
     ///         "My favorite cat",
     ///         &mime::IMAGE_JPEG,
     ///         &mut image,
-    ///         None,
+    ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn send_attachment<R: Read>(
+    pub async fn send_attachment<R: Read + Seek, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        txn_id: Option<&TransactionId>,
+        config: AttachmentConfig<'_, T>,
+    ) -> Result<send_message_event::Response> {
+        let reader = &mut BufReader::new(reader);
+
+        #[cfg(feature = "image_proc")]
+        let mut cursor;
+
+        if config.thumbnail.is_some() {
+            self.prepare_and_send_attachment(body, content_type, reader, config).await
+        } else {
+            #[cfg(not(feature = "image_proc"))]
+            let thumbnail = Thumbnail::NONE;
+
+            #[cfg(feature = "image_proc")]
+            let thumbnail = if config.generate_thumbnail {
+                match generate_image_thumbnail(content_type, reader, config.thumbnail_size) {
+                    Ok((thumbnail_data, thumbnail_info)) => {
+                        reader.rewind()?;
+
+                        cursor = Cursor::new(thumbnail_data);
+                        Some(Thumbnail {
+                            reader: &mut cursor,
+                            content_type: &mime::IMAGE_JPEG,
+                            info: Some(thumbnail_info),
+                        })
+                    }
+                    Err(
+                        ImageError::ThumbnailBiggerThanOriginal | ImageError::FormatNotSupported,
+                    ) => {
+                        reader.rewind()?;
+                        None
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            } else {
+                None
+            };
+
+            let config = AttachmentConfig {
+                txn_id: config.txn_id,
+                info: config.info,
+                thumbnail,
+                #[cfg(feature = "image_proc")]
+                generate_thumbnail: false,
+                #[cfg(feature = "image_proc")]
+                thumbnail_size: None,
+            };
+
+            self.prepare_and_send_attachment(body, content_type, reader, config).await
+        }
+    }
+
+    /// Prepare and send an attachment to this room.
+    ///
+    /// This will upload the given data that the reader produces using the
+    /// [`upload()`](#method.upload) method and post an event to the given room.
+    /// If the room is encrypted and the encryption feature is enabled the
+    /// upload will be encrypted.
+    ///
+    /// This is a convenience method that calls the
+    /// [`Client::upload()`](#Client::method.upload) and afterwards the
+    /// [`send()`](#method.send).
+    ///
+    /// # Arguments
+    /// * `body` - A textual representation of the media that is going to be
+    /// uploaded. Usually the file name.
+    ///
+    /// * `content_type` - The type of the media, this will be used as the
+    /// content-type header.
+    ///
+    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
+    /// media.
+    ///
+    /// * `config` - Metadata and configuration for the attachment.
+    async fn prepare_and_send_attachment<R: Read, T: Read>(
+        &self,
+        body: &str,
+        content_type: &Mime,
+        reader: &mut R,
+        config: AttachmentConfig<'_, T>,
     ) -> Result<send_message_event::Response> {
         #[cfg(feature = "encryption")]
         let content = if self.is_encrypted() {
-            self.client.prepare_encrypted_attachment_message(body, content_type, reader).await?
+            self.client
+                .prepare_encrypted_attachment_message(
+                    body,
+                    content_type,
+                    reader,
+                    config.info,
+                    config.thumbnail,
+                )
+                .await?
         } else {
-            self.client.prepare_attachment_message(body, content_type, reader).await?
+            self.client
+                .prepare_attachment_message(
+                    body,
+                    content_type,
+                    reader,
+                    config.info,
+                    config.thumbnail,
+                )
+                .await?
         };
 
         #[cfg(not(feature = "encryption"))]
-        let content = self.client.prepare_attachment_message(body, content_type, reader).await?;
+        let content = self
+            .client
+            .prepare_attachment_message(body, content_type, reader, config.info, config.thumbnail)
+            .await?;
 
-        self.send(RoomMessageEventContent::new(content), txn_id).await
+        self.send(RoomMessageEventContent::new(content), config.txn_id).await
     }
 
     /// Send a room state event to the homeserver.
