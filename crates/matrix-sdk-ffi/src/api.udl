@@ -19,8 +19,12 @@ interface Room {
     sequence<u8> avatar();
 };
 
+callback interface ClientDelegate {
+    void did_receive_sync_update();
+};
+
 interface Client {
-    void start_sync();
+    void start_sync(ClientDelegate delegate);
     [Throws=ClientError]
     string restore_token();
     boolean is_guest();

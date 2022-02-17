@@ -121,6 +121,10 @@ impl std::ops::Deref for Client {
     }
 }
 
+pub trait ClientDelegate: Sync + Send {
+    fn did_receive_sync_update(&self);
+}
+
 impl Client {
 
     fn new(client: MatrixClient, state: ClientState) -> Self {
@@ -130,11 +134,14 @@ impl Client {
         }
     }
 
-    pub fn start_sync(&self) {
+    pub fn start_sync(&self, delegate: Box<dyn ClientDelegate>) {
         let client = self.client.clone();
         let state = self.state.clone();
-        RUNTIME.block_on(async move {
+        RUNTIME.spawn(async move {
             client.sync_with_callback(matrix_sdk::config::SyncSettings::new(), |_response| async {
+
+                delegate.did_receive_sync_update();
+
                 if !state.read().has_first_synced {
                     state.write().has_first_synced = true
                 }
@@ -145,6 +152,7 @@ impl Client {
                 } else if !state.read().is_syncing {
                     state.write().is_syncing = true;
                 }
+
                 return LoopCtrl::Continue
             }).await;
         });
