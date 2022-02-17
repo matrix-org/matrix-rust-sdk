@@ -248,7 +248,7 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
         let user_agent = config
             .user_agent
             .clone()
-            .unwrap_or_else(|| format!("matrix-rust-sdk {}", crate::VERSION));
+            .unwrap_or_else(|| "matrix-rust-sdk".to_owned());
 
         http_client.user_agent(user_agent).timeout(config.request_config.timeout)
     };
