@@ -234,7 +234,6 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
     #[cfg(not(target_arch = "wasm32"))]
     let http_client = {
-        use http::HeaderValue;
 
         let http_client = if config.disable_ssl_verification {
             http_client.danger_accept_invalid_certs(true)
@@ -247,17 +246,11 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
             None => http_client,
         };
 
-        let mut headers = reqwest::header::HeaderMap::new();
+        let user_agent = config.user_agent.clone().unwrap_or_else(||
+            format!("matrix-rust-sdk {}", crate::VERSION)
+        );
 
-        let user_agent = match &config.user_agent {
-            Some(a) => a.clone(),
-            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION))
-                .expect("Can't construct the version header"),
-        };
-
-        headers.insert(reqwest::header::USER_AGENT, user_agent);
-
-        http_client.default_headers(headers).timeout(config.request_config.timeout)
+        http_client.user_agent(user_agent).timeout(config.request_config.timeout)
     };
 
     #[cfg(target_arch = "wasm32")]

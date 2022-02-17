@@ -19,7 +19,7 @@ use std::{
     sync::Arc,
 };
 
-use http::{header::InvalidHeaderValue, HeaderValue};
+use http::header::InvalidHeaderValue;
 use matrix_sdk_base::BaseClientConfig;
 
 use crate::{config::RequestConfig, HttpSend, Result};
@@ -44,7 +44,7 @@ use crate::{config::RequestConfig, HttpSend, Result};
 pub struct ClientConfig {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) proxy: Option<reqwest::Proxy>,
-    pub(crate) user_agent: Option<HeaderValue>,
+    pub(crate) user_agent: Option<String>,
     pub(crate) disable_ssl_verification: bool,
     pub(crate) base_config: BaseClientConfig,
     pub(crate) request_config: RequestConfig,
@@ -108,7 +108,7 @@ impl ClientConfig {
 
     /// Set a custom HTTP user agent for the client.
     pub fn user_agent(mut self, user_agent: &str) -> Result<Self, InvalidHeaderValue> {
-        self.user_agent = Some(HeaderValue::from_str(user_agent)?);
+        self.user_agent = Some(user_agent.to_owned());
         Ok(self)
     }
 
