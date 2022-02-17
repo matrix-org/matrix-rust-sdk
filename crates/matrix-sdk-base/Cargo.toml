@@ -71,7 +71,7 @@ matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 atty = "0.2.14"
-clap = "3.0.13"
+clap = "3.1.0"
 rustyline = "9.0.0"
 rustyline-derive = "0.6.0"
 syntect = "4.5.0"
