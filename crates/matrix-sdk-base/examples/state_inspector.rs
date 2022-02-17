@@ -3,7 +3,7 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use atty::Stream;
 #[cfg(not(target_arch = "wasm32"))]
-use clap::{Command as Argparse, Arg, ArgMatches};
+use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
 use matrix_sdk_base::{RoomInfo, Store};
 use ruma::{events::EventType, RoomId, UserId};
