@@ -19,11 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 encryption = ["matrix-sdk-crypto"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
-sled_state_store = [
-    "sled",
-    "tokio",
-    "state_key",
-]
+sled_state_store = [ ]
 sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
 
 indexeddb_state_store = ["state_key"]
@@ -54,14 +50,10 @@ rand = { version = "0.8.4", optional = true }
 serde = { version = "1.0.126", features = ["rc"] }
 serde_json = "1.0.64"
 sha2 = { version = "0.10.1", optional = true }
-sled = { version = "0.34.6", optional = true }
 thiserror = "1.0.25"
 tracing = "0.1.26"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 anyhow = "1"
-
-## Feature sled_state_store
-tokio = { version = "1.7.1", optional = true, default-features = false, features = ["sync", "fs"] }
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"

@@ -57,13 +57,9 @@ use crate::{
 
 pub(crate) mod ambiguity_map;
 mod memory_store;
-#[cfg(feature = "sled_state_store")]
-mod sled_store;
 
 #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
 use self::memory_store::MemoryStore;
-#[cfg(feature = "sled_state_store")]
-use self::sled_store::SledStore;
 
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
@@ -91,10 +87,6 @@ pub enum StoreError {
     /// The store failed to encode or decode some data.
     #[error("Error encoding or decoding data from the store: {0}")]
     Codec(String),
-    /// An error happened while running a tokio task.
-    #[cfg(feature = "sled_state_store")]
-    #[error(transparent)]
-    Task(#[from] tokio::task::JoinError),
 }
 /// A `StateStore` specific result type.
 pub type Result<T, E = StoreError> = std::result::Result<T, E>;

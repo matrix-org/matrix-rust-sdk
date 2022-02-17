@@ -36,7 +36,7 @@ macro_rules! statestore_integration_tests {
                     store::{
                         Store,
                         StateStore,
-                        Result,
+                        Result as StoreResult,
                         StateChanges
                     }
                 };
@@ -64,7 +64,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 /// Populate the given `StateStore`.
-                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> Result<Store> {
+                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> StoreResult<Store> {
                     let mut changes = StateChanges::default();
                     let store = Store::new(inner);
 
@@ -231,7 +231,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_populate_store() -> Result<()> {
+                async fn test_populate_store() -> StoreResult<()> {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
@@ -449,7 +449,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_custom_storage() -> Result<()> {
+                async fn test_custom_storage() -> StoreResult<()> {
                     let key = "my_key";
                     let value = &[0, 1, 2, 3];
                     let store = get_store().await?;
@@ -464,7 +464,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_persist_invited_room() -> Result<()> {
+                async fn test_persist_invited_room() -> StoreResult<()> {
                     let stripped_room_id = stripped_room_id();
                     let inner_store = get_store().await?;
                     let store = populated_store(Box::new(inner_store)).await?;
@@ -477,7 +477,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_room_removal() -> Result<()>  {
+                async fn test_room_removal() -> StoreResult<()>  {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
