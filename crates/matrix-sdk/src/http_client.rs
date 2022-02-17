@@ -234,7 +234,6 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
     #[cfg(not(target_arch = "wasm32"))]
     let http_client = {
-
         let http_client = if config.disable_ssl_verification {
             http_client.danger_accept_invalid_certs(true)
         } else {
@@ -246,9 +245,10 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
             None => http_client,
         };
 
-        let user_agent = config.user_agent.clone().unwrap_or_else(||
-            format!("matrix-rust-sdk {}", crate::VERSION)
-        );
+        let user_agent = config
+            .user_agent
+            .clone()
+            .unwrap_or_else(|| format!("matrix-rust-sdk {}", crate::VERSION));
 
         http_client.user_agent(user_agent).timeout(config.request_config.timeout)
     };
