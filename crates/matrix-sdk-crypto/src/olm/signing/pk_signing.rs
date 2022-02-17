@@ -159,7 +159,7 @@ impl MasterSigning {
         self.inner.sign(message).await.0
     }
 
-    pub async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
+    pub async fn sign_subkey(&self, subkey: &mut CrossSigningKey) {
         let subkey_without_signatures = json!({
             "user_id": subkey.user_id.clone(),
             "keys": subkey.keys.clone(),
