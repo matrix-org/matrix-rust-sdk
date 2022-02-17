@@ -94,6 +94,10 @@ impl Room {
         return self.room.room_id().to_string()
     }
 
+    pub fn name(&self) -> Option<String> {
+        return self.room.name()
+    }
+
     pub fn display_name(&self) -> Result<String> {
         let r = self.room.clone();
         RUNTIME.block_on(async move {
@@ -101,11 +105,35 @@ impl Room {
         })
     }
 
+    pub fn topic(&self) -> Option<String> {
+        return self.room.topic()
+    }
+
     pub fn avatar(&self) -> Result<Vec<u8>> {
         let r = self.room.clone();
         RUNTIME.block_on(async move {
             Ok(r.avatar(MediaFormat::File).await?.expect("No avatar"))
         })
+    }
+
+    pub fn avatar_url(&self) -> Option<String> {
+        return self.room.avatar_url().map(|m| m.to_string())
+    }
+
+    pub fn is_direct(&self) -> bool {
+        return self.room.is_direct()
+    }
+
+    pub fn is_public(&self) -> bool {
+        return self.room.is_public()
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        return self.room.is_encrypted()
+    }
+
+    pub fn is_space(&self) -> bool {
+        return self.room.is_space()
     }
 }
 

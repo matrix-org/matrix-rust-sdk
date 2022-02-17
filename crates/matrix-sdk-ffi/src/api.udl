@@ -14,10 +14,28 @@ interface ClientError {
 
 interface Room {
     string identifier();
+    
     [Throws=ClientError]
     string display_name();
+    
     [Throws=ClientError]
     sequence<u8> avatar();
+
+    string? avatar_url();
+
+    boolean is_direct();
+
+    boolean is_public();
+
+    boolean is_space();
+
+    boolean is_encrypted();
+
+    string? name();
+
+    string? topic();
+
+
 };
 
 callback interface ClientDelegate {
