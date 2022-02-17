@@ -283,6 +283,7 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use crate::{
+    attachment::{AttachmentInfo, Thumbnail},
     encryption::{
         identities::{Device, UserDevices},
         verification::{SasVerification, Verification, VerificationRequest},
@@ -367,14 +368,14 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::{device_id, UserId}};
+    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// if let Some(device) = client.get_device(&alice, device_id!("DEVICEID")).await? {
+    /// if let Some(device) = client.get_device(alice, device_id!("DEVICEID")).await? {
     ///     println!("{:?}", device.verified());
     ///
     ///     if !device.verified() {
@@ -407,14 +408,14 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let devices = client.get_user_devices(&alice).await?;
+    /// let devices = client.get_user_devices(alice).await?;
     ///
     /// for device in devices.devices() {
     ///     println!("{:?}", device);
@@ -446,14 +447,14 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     println!("{:?}", user.verified());
@@ -499,14 +500,13 @@ impl Client {
     /// ```no_run
     /// # use std::{convert::TryFrom, collections::BTreeMap};
     /// # use matrix_sdk::{
-    /// #     ruma::{api::client::r0::uiaa, assign, UserId},
+    /// #     ruma::{api::client::r0::uiaa, assign},
     /// #     Client,
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
     /// # block_on(async {
-    /// # let user_id = Box::<UserId>::try_from("@alice:example.org")?;
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// if let Err(e) = client.bootstrap_cross_signing(None).await {
@@ -730,14 +730,45 @@ impl Client {
     }
 
     /// Encrypt and upload the file to be read from `reader` and construct an
-    /// attachment message with `body` and the specified `content_type`.
+    /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
     #[cfg(feature = "encryption")]
-    pub(crate) async fn prepare_encrypted_attachment_message<R: Read>(
+    pub(crate) async fn prepare_encrypted_attachment_message<R: Read, T: Read>(
         &self,
         body: &str,
         content_type: &mime::Mime,
         reader: &mut R,
+        info: Option<AttachmentInfo>,
+        thumbnail: Option<Thumbnail<'_, T>>,
     ) -> Result<ruma::events::room::message::MessageType> {
+        let (thumbnail_file, thumbnail_info) =
+            if let Some(thumbnail) = thumbnail {
+                let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
+
+                let response = self.upload(thumbnail.content_type, &mut reader).await?;
+
+                let file: ruma::events::room::EncryptedFile = {
+                    let keys = reader.finish();
+                    ruma::events::room::EncryptedFileInit {
+                        url: response.content_uri,
+                        key: keys.web_key,
+                        iv: keys.iv,
+                        hashes: keys.hashes,
+                        v: keys.version,
+                    }
+                    .into()
+                };
+
+                use ruma::events::room::ThumbnailInfo;
+                let thumbnail_info = assign!(
+                    thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
+                    { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
+                );
+
+                (Some(Box::new(file)), Some(Box::new(thumbnail_info)))
+            } else {
+                (None, None)
+            };
+
         let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
 
         let response = self.upload(content_type, &mut reader).await?;
@@ -754,18 +785,66 @@ impl Client {
             .into()
         };
 
-        use ruma::events::room::message;
+        use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                message::MessageType::Image(message::ImageMessageEventContent::encrypted(body.to_owned(), file))
+                let info = assign!(
+                    info.map(room::ImageInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                        thumbnail_file,
+                        thumbnail_info
+                    }
+                );
+                let content = assign!(
+                    message::ImageMessageEventContent::encrypted(body.to_owned(), file),
+                    { info: Some(Box::new(info)) }
+                );
+                message::MessageType::Image(content)
             }
             mime::AUDIO => {
-                message::MessageType::Audio(message::AudioMessageEventContent::encrypted(body.to_owned(), file))
+                let info = assign!(
+                    info.map(message::AudioInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                    }
+                );
+                let content = assign!(
+                    message::AudioMessageEventContent::encrypted(body.to_owned(), file),
+                    { info: Some(Box::new(info)) }
+                );
+                message::MessageType::Audio(content)
             }
             mime::VIDEO => {
-                message::MessageType::Video(message::VideoMessageEventContent::encrypted(body.to_owned(), file))
+                let info = assign!(
+                    info.map(message::VideoInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                        thumbnail_file,
+                        thumbnail_info
+                    }
+                );
+                let content = assign!(
+                    message::VideoMessageEventContent::encrypted(body.to_owned(), file),
+                    { info: Some(Box::new(info)) }
+                );
+                message::MessageType::Video(content)
             }
-            _ => message::MessageType::File(message::FileMessageEventContent::encrypted(body.to_owned(), file)),
+            _ => {
+                let info = assign!(
+                    info.map(message::FileInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                        thumbnail_file,
+                        thumbnail_info
+                    }
+                );
+                let content = assign!(
+                    message::FileMessageEventContent::encrypted(body.to_owned(), file),
+                    { info: Some(Box::new(info)) }
+                );
+                message::MessageType::File(content)
+            }
         })
     }
 

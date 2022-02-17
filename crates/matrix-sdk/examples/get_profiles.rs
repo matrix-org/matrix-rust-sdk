@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, env, process::exit};
+use std::{env, process::exit};
 
 use matrix_sdk::{
     ruma::{api::client::r0::profile, MxcUri, UserId},
@@ -62,7 +62,7 @@ async fn main() -> Result<(), matrix_sdk::Error> {
 
     let client = login(homeserver_url, &username, &password).await?;
 
-    let user_id = Box::<UserId>::try_from(username).expect("Couldn't parse the MXID");
+    let user_id = UserId::parse(username).expect("Couldn't parse the MXID");
     let profile = get_profile(client, &user_id).await?;
     println!("{:#?}", profile);
     Ok(())

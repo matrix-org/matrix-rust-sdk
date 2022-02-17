@@ -36,13 +36,16 @@ rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
 appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper"]
+image_proc = ["image"]
+image_rayon = ["image_proc", "image/jpeg_rayon"]
 
 docsrs = [
     "encryption",
     "sled_cryptostore",
     "sled_state_store",
     "sso_login",
-    "qrcode"
+    "qrcode",
+    "image_proc",
 ]
 
 [dependencies]
@@ -66,6 +69,26 @@ url = "2.2.2"
 zeroize = "1.3.0"
 async-stream = "0.3.2"
 
+[dependencies.image]
+version = "0.24.0"
+default-features = false
+features = [
+    "gif",
+    "jpeg",
+    "ico",
+    "png",
+    "pnm",
+    "tga",
+    "tiff",
+    "webp",
+    "bmp",
+    "hdr",
+    "dxt",
+    "dds",
+    "farbfeld",
+]
+optional = true
+
 [dependencies.matrix-sdk-base]
 version = "0.4.0"
 path = "../matrix-sdk-base"
@@ -77,8 +100,8 @@ default_features = false
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"
-rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
-features = ["client-api-c", "compat", "rand", "unstable-pre-spec"]
+rev = "b9f32bc6327542d382d4eb42ec43623495c50e66"
+features = ["client-api-c", "compat", "rand", "unstable-msc2448"]
 
 [dependencies.tokio-stream]
 version = "0.1.6"

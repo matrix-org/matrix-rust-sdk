@@ -222,24 +222,24 @@ impl Inspector {
     async fn run(&self, matches: ArgMatches) {
         match matches.subcommand() {
             Some(("get-profiles", args)) => {
-                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = RoomId::parse(args.value_of("room-id").unwrap()).unwrap();
 
                 self.get_profiles(room_id).await;
             }
 
             Some(("get-members", args)) => {
-                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = RoomId::parse(args.value_of("room-id").unwrap()).unwrap();
 
                 self.get_members(room_id).await;
             }
             Some(("list-rooms", _)) => self.list_rooms().await,
             Some(("get-display-names", args)) => {
-                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = RoomId::parse(args.value_of("room-id").unwrap()).unwrap();
                 let display_name = args.value_of("display-name").unwrap().to_string();
                 self.get_display_name_owners(room_id, display_name).await;
             }
             Some(("get-state", args)) => {
-                let room_id = Box::<RoomId>::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let room_id = RoomId::parse(args.value_of("room-id").unwrap()).unwrap();
                 let event_type = EventType::try_from(args.value_of("event-type").unwrap()).unwrap();
                 self.get_state(room_id, event_type).await;
             }
@@ -285,27 +285,19 @@ impl Inspector {
         vec![
             Argparse::new("list-rooms"),
             Argparse::new("get-members").arg(Arg::new("room-id").required(true).validator(|r| {
-                Box::<RoomId>::try_from(r)
-                    .map(|_| ())
-                    .map_err(|_| "Invalid room id given".to_owned())
+                RoomId::parse(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
             })),
             Argparse::new("get-profiles").arg(Arg::new("room-id").required(true).validator(|r| {
-                Box::<RoomId>::try_from(r)
-                    .map(|_| ())
-                    .map_err(|_| "Invalid room id given".to_owned())
+                RoomId::parse(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
             })),
             Argparse::new("get-display-names")
                 .arg(Arg::new("room-id").required(true).validator(|r| {
-                    Box::<RoomId>::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
+                    RoomId::parse(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::new("display-name").required(true)),
             Argparse::new("get-state")
                 .arg(Arg::new("room-id").required(true).validator(|r| {
-                    Box::<RoomId>::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
+                    RoomId::parse(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::new("event-type").required(true).validator(|e| {
                     EventType::try_from(e).map(|_| ()).map_err(|_| "Invalid event type".to_string())

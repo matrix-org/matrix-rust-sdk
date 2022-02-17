@@ -38,8 +38,8 @@ warp = { version = "0.3.1", optional = true, default-features = false }
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"
-rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
-features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
+rev = "b9f32bc6327542d382d4eb42ec43623495c50e66"
+features = ["client-api-c", "appservice-api-s"]
 
 [dev-dependencies]
 matrix-sdk-test = { version = "0.4", path = "../matrix-sdk-test", features = ["appservice"] }

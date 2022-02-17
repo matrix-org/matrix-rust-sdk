@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, env};
+use std::env;
 
 use matrix_sdk_appservice::{
     matrix_sdk::{
@@ -21,7 +21,7 @@ pub async fn handle_room_member(
     if !appservice.user_id_is_in_namespace(&event.state_key)? {
         trace!("not an appservice user: {}", event.state_key);
     } else if let MembershipState::Invite = event.content.membership {
-        let user_id = Box::<UserId>::try_from(event.state_key.as_str())?;
+        let user_id = UserId::parse(event.state_key.as_str())?;
         appservice.register_virtual_user(user_id.localpart()).await?;
 
         let client = appservice.virtual_user_client(user_id.localpart()).await?;

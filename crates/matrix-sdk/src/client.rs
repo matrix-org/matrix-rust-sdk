@@ -43,12 +43,12 @@ use ruma::{
         client::{
             r0::{
                 account::{register, whoami},
+                capabilities::{get_capabilities, Capabilities},
                 device::{delete_devices, get_devices},
                 directory::{get_public_rooms, get_public_rooms_filtered},
                 filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
                 media::{create_content, get_content, get_content_thumbnail},
                 membership::{join_room_by_id, join_room_by_id_or_alias},
-                profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
                 push::get_notifications::Notification,
                 room::create_room,
                 session::{get_login_types, login, sso_login},
@@ -69,11 +69,12 @@ use tracing::{error, info, instrument, warn};
 use url::Url;
 
 use crate::{
+    attachment::{AttachmentInfo, Thumbnail},
     config::{ClientConfig, RequestConfig},
     error::{HttpError, HttpResult},
     event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
     http_client::{client_with_config, HttpClient},
-    room, Error, Result,
+    room, Account, Error, Result,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -231,7 +232,7 @@ impl Client {
     /// use matrix_sdk::{Client, ruma::UserId};
     ///
     /// // First let's try to construct an user id, presumably from user input.
-    /// let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// let alice = UserId::parse("@alice:example.org")?;
     ///
     /// // Now let's try to discover the homeserver and create a client object.
     /// let client = Client::new_from_user_id(&alice).await?;
@@ -346,6 +347,33 @@ impl Client {
         .await
     }
 
+    /// Get the capabilities of the homeserver.
+    ///
+    /// This method should be used to check what features are supported by the
+    /// homeserver.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let capabilities = client.get_capabilities().await?;
+    ///
+    /// if capabilities.change_password.enabled {
+    ///     // Change password
+    /// }
+    ///
+    /// # Result::<_, anyhow::Error>::Ok(()) });
+    /// ```
+    pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
+        let res = self.send(get_capabilities::Request::new(), None).await?;
+        Ok(res.capabilities)
+    }
+
     /// Process a [transaction] received from the homeserver
     ///
     /// # Arguments
@@ -398,161 +426,14 @@ impl Client {
         self.inner.base_client.session().read().await.clone()
     }
 
-    /// Fetches the display name of the owner of the client.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::Client;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
-    /// let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
-    ///
-    /// if let Some(name) = client.display_name().await.unwrap() {
-    ///     println!("Logged in as user '{}' with display name '{}'", user, name);
-    /// }
-    /// # })
-    /// ```
-    pub async fn display_name(&self) -> Result<Option<String>> {
-        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_display_name::Request::new(&user_id);
-        let response = self.send(request, None).await?;
-        Ok(response.displayname)
-    }
-
-    /// Sets the display name of the owner of the client.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::Client;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
-    /// let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
-    ///
-    /// client.set_display_name(Some("Alice")).await.expect("Failed setting display name");
-    /// # })
-    /// ```
-    pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
-        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = set_display_name::Request::new(&user_id, name);
-        self.send(request, None).await?;
-        Ok(())
-    }
-
-    /// Gets the mxc avatar url of the owner of the client, if set.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::Client;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
-    /// # let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
-    ///
-    /// if let Some(url) = client.avatar_url().await.unwrap() {
-    ///     println!("Your avatar's mxc url is {}", url);
-    /// }
-    /// # })
-    /// ```
-    pub async fn avatar_url(&self) -> Result<Option<Box<MxcUri>>> {
-        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_avatar_url::Request::new(&user_id);
-
-        let config = Some(RequestConfig::new().force_auth());
-
-        let response = self.send(request, config).await?;
-        Ok(response.avatar_url)
-    }
-
-    /// Gets the avatar of the owner of the client, if set.
-    ///
-    /// Returns the avatar.
-    /// If a thumbnail is requested no guarantee on the size of the image is
-    /// given.
-    ///
-    /// # Arguments
-    ///
-    /// * `format` - The desired format of the avatar.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::ruma::room_id;
-    /// # use matrix_sdk::media::MediaFormat;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # block_on(async {
-    /// # let user = "example";
-    /// let client = Client::new(homeserver).await.unwrap();
-    /// client.login(user, "password", None, None).await.unwrap();
-    ///
-    /// if let Some(avatar) = client.avatar(MediaFormat::File).await.unwrap() {
-    ///     std::fs::write("avatar.png", avatar);
-    /// }
-    /// # })
-    /// ```
-    pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
-        if let Some(url) = self.avatar_url().await? {
-            let request = MediaRequest { media_type: MediaType::Uri(url), format };
-            Ok(Some(self.get_media_content(&request, true).await?))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Get a reference to the store.
     pub fn store(&self) -> &Store {
         self.inner.base_client.store()
     }
 
-    /// Sets the mxc avatar url of the client's owner. The avatar gets unset if
-    /// `url` is `None`.
-    pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
-        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = set_avatar_url::Request::new(&user_id, url);
-        self.send(request, None).await?;
-        Ok(())
-    }
-
-    /// Upload and set the owning client's avatar.
-    ///
-    /// The will upload the data produced by the reader to the homeserver's
-    /// content repository, and set the user's avatar to the mxc url for the
-    /// uploaded file.
-    ///
-    /// This is a convenience method for calling [`upload()`](#method.upload),
-    /// followed by [`set_avatar_url()`](#method.set_avatar_url).
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use std::{path::Path, fs::File, io::Read};
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::Client;
-    /// # use url::Url;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let client = Client::new(homeserver).await.unwrap();
-    /// let path = Path::new("/home/example/selfie.jpg");
-    /// let mut image = File::open(&path).unwrap();
-    ///
-    /// client.upload_avatar(&mime::IMAGE_JPEG, &mut image).await.expect("Can't set avatar");
-    /// # })
-    /// ```
-    pub async fn upload_avatar<R: Read>(&self, content_type: &Mime, reader: &mut R) -> Result<()> {
-        let upload_response = self.upload(content_type, reader).await?;
-        self.set_avatar_url(Some(&upload_response.content_uri)).await?;
-        Ok(())
+    /// Get the account of the current owner of the client.
+    pub fn account(&self) -> Account {
+        Account::new(self.clone())
     }
 
     /// Register a handler for a specific event type.
@@ -1622,7 +1503,7 @@ impl Client {
     pub async fn upload(
         &self,
         content_type: &Mime,
-        reader: &mut impl Read,
+        reader: &mut (impl Read + ?Sized),
     ) -> Result<create_content::Response> {
         let mut data = Vec::new();
         reader.read_to_end(&mut data)?;
@@ -2321,42 +2202,94 @@ impl Client {
     }
 
     /// Upload the file to be read from `reader` and construct an attachment
-    /// message with `body` and the specified `content_type`.
-    pub(crate) async fn prepare_attachment_message<R: Read>(
+    /// message with `body`, `content_type`, `info` and `thumbnail`.
+    pub(crate) async fn prepare_attachment_message<R: Read, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
+        info: Option<AttachmentInfo>,
+        thumbnail: Option<Thumbnail<'_, T>>,
     ) -> Result<ruma::events::room::message::MessageType> {
+        let (thumbnail_url, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+            let response = self.upload(thumbnail.content_type, thumbnail.reader).await?;
+            let url = response.content_uri;
+
+            use ruma::events::room::ThumbnailInfo;
+            let thumbnail_info = assign!(
+                thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
+                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
+            );
+
+            (Some(url), Some(Box::new(thumbnail_info)))
+        } else {
+            (None, None)
+        };
+
         let response = self.upload(content_type, reader).await?;
 
         let url = response.content_uri;
 
-        use ruma::events::room::message;
+        use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                // TODO create a thumbnail using the image crate?.
+                let info = assign!(
+                    info.map(room::ImageInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                        thumbnail_url,
+                        thumbnail_info
+                    }
+                );
                 message::MessageType::Image(message::ImageMessageEventContent::plain(
                     body.to_owned(),
                     url,
-                    None,
+                    Some(Box::new(info)),
                 ))
             }
-            mime::AUDIO => message::MessageType::Audio(message::AudioMessageEventContent::plain(
-                body.to_owned(),
-                url,
-                None,
-            )),
-            mime::VIDEO => message::MessageType::Video(message::VideoMessageEventContent::plain(
-                body.to_owned(),
-                url,
-                None,
-            )),
-            _ => message::MessageType::File(message::FileMessageEventContent::plain(
-                body.to_owned(),
-                url,
-                None,
-            )),
+            mime::AUDIO => {
+                let info = assign!(
+                    info.map(message::AudioInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                    }
+                );
+                message::MessageType::Audio(message::AudioMessageEventContent::plain(
+                    body.to_owned(),
+                    url,
+                    Some(Box::new(info)),
+                ))
+            }
+            mime::VIDEO => {
+                let info = assign!(
+                    info.map(message::VideoInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                        thumbnail_url,
+                        thumbnail_info
+                    }
+                );
+                message::MessageType::Video(message::VideoMessageEventContent::plain(
+                    body.to_owned(),
+                    url,
+                    Some(Box::new(info)),
+                ))
+            }
+            _ => {
+                let info = assign!(
+                    info.map(message::FileInfo::from).unwrap_or_default(),
+                    {
+                        mimetype: Some(content_type.as_ref().to_owned()),
+                        thumbnail_url,
+                        thumbnail_info
+                    }
+                );
+                message::MessageType::File(message::FileMessageEventContent::plain(
+                    body.to_owned(),
+                    url,
+                    Some(Box::new(info)),
+                ))
+            }
         })
     }
 }
@@ -2367,13 +2300,7 @@ pub(crate) mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use std::{
-        collections::BTreeMap,
-        convert::{TryFrom, TryInto},
-        io::Cursor,
-        str::FromStr,
-        time::Duration,
-    };
+    use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
     use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
@@ -2412,6 +2339,10 @@ pub(crate) mod test {
 
     use super::{Client, Session, Url};
     use crate::{
+        attachment::{
+            AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
+            Thumbnail,
+        },
         config::{ClientConfig, RequestConfig, SyncSettings},
         HttpError, RoomMember,
     };
@@ -2447,7 +2378,7 @@ pub(crate) mod test {
     async fn successful_discovery() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = Box::<UserId>::try_from("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
 
         let _m_well_known = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2469,7 +2400,7 @@ pub(crate) mod test {
     async fn discovery_broken_server() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = Box::<UserId>::try_from("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
 
         let _m = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -3194,6 +3125,11 @@ pub(crate) mod test {
         let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
+            .match_body(Matcher::PartialJson(json!({
+                "info": {
+                    "mimetype": "image/jpeg"
+                }
+            })))
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
@@ -3222,9 +3158,197 @@ pub(crate) mod test {
 
         let mut media = Cursor::new("Hello world");
 
-        let response =
-            room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, None).await.unwrap();
+        let response = room
+            .send_attachment("image", &mime::IMAGE_JPEG, &mut media, AttachmentConfig::new())
+            .await
+            .unwrap();
 
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    }
+
+    #[async_test]
+    async fn room_attachment_send_info() {
+        let client = logged_in_client().await;
+
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .match_body(Matcher::PartialJson(json!({
+                "info": {
+                    "mimetype": "image/jpeg",
+                    "h": 600,
+                    "w": 800,
+                }
+            })))
+            .with_body(test_json::EVENT_ID.to_string())
+            .create();
+
+        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+            .with_status(200)
+            .match_header("content-type", "image/jpeg")
+            .with_body(
+                json!({
+                  "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .with_body(test_json::SYNC.to_string())
+            .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+
+        let mut media = Cursor::new("Hello world");
+
+        let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            size: None,
+            blurhash: None,
+        }));
+
+        let response =
+            room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
+
+        upload_mock.assert();
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    }
+
+    #[async_test]
+    async fn room_attachment_send_wrong_info() {
+        let client = logged_in_client().await;
+
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .match_body(Matcher::PartialJson(json!({
+                "info": {
+                    "mimetype": "image/jpeg",
+                    "h": 600,
+                    "w": 800,
+                }
+            })))
+            .with_body(test_json::EVENT_ID.to_string())
+            .create();
+
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+            .with_status(200)
+            .match_header("content-type", "image/jpeg")
+            .with_body(
+                json!({
+                  "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .with_body(test_json::SYNC.to_string())
+            .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+
+        let mut media = Cursor::new("Hello world");
+
+        let config = AttachmentConfig::new().info(AttachmentInfo::Video(BaseVideoInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            duration: Some(uint!(3600)),
+            size: None,
+            blurhash: None,
+        }));
+
+        let response = room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await;
+
+        assert!(response.is_err())
+    }
+
+    #[async_test]
+    async fn room_attachment_send_info_thumbnail() {
+        let client = logged_in_client().await;
+
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .match_body(Matcher::PartialJson(json!({
+                "info": {
+                    "mimetype": "image/jpeg",
+                    "h": 600,
+                    "w": 800,
+                    "thumbnail_info": {
+                        "h": 360,
+                        "w": 480,
+                        "mimetype":"image/jpeg",
+                        "size": 3600,
+                    },
+                    "thumbnail_url": "mxc://example.com/AQwafuaFswefuhsfAFAgsw",
+                }
+            })))
+            .with_body(test_json::EVENT_ID.to_string())
+            .create();
+
+        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+            .with_status(200)
+            .match_header("content-type", "image/jpeg")
+            .with_body(
+                json!({
+                  "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+                })
+                .to_string(),
+            )
+            .expect(2)
+            .create();
+
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .with_body(test_json::SYNC.to_string())
+            .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+
+        let mut media = Cursor::new("Hello world");
+
+        let mut thumbnail_reader = Cursor::new("Thumbnail");
+
+        let config = AttachmentConfig::with_thumbnail(Thumbnail {
+            reader: &mut thumbnail_reader,
+            content_type: &mime::IMAGE_JPEG,
+            info: Some(BaseThumbnailInfo {
+                height: Some(uint!(360)),
+                width: Some(uint!(480)),
+                size: Some(uint!(3600)),
+            }),
+        })
+        .info(AttachmentInfo::Image(BaseImageInfo {
+            height: Some(uint!(600)),
+            width: Some(uint!(800)),
+            size: None,
+            blurhash: None,
+        }));
+
+        let response =
+            room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
+
+        upload_mock.assert();
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 

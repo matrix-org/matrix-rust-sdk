@@ -366,7 +366,7 @@ impl InboundGroupSession {
 
         let room_id = decrypted_object
             .get("room_id")
-            .and_then(|r| r.as_str().and_then(|r| Box::<RoomId>::try_from(r).ok()));
+            .and_then(|r| r.as_str().and_then(|r| RoomId::parse(r).ok()));
 
         // Check that we have a room id and that the event wasn't forwarded from
         // another room.

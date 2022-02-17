@@ -28,13 +28,13 @@ This is demonstrated in the example below.
 use std::convert::TryFrom;
 use matrix_sdk::{
     Client, config::SyncSettings, Result,
-    ruma::{UserId, events::room::message::SyncRoomMessageEvent},
+    ruma::{user_id, events::room::message::SyncRoomMessageEvent},
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let alice = Box::<UserId>::try_from("@alice:example.org")?;
-    let client = Client::new_from_user_id(&alice).await?;
+    let alice = user_id!("@alice:example.org");
+    let client = Client::new_from_user_id(alice).await?;
 
     // First we need to log in.
     client.login(alice, "password", None, None).await?;
@@ -64,6 +64,8 @@ The following crate feature flags are available:
 | `anyhow`           |   No    | Better logging for event handlers that return `anyhow::Result` |
 | `encryption`       |   Yes   | End-to-end encryption support                                  |
 | `eyre`             |   No    | Better logging for event handlers that return `eyre::Result`   |
+| `image_proc`       |   No    | Enables image processing to generate thumbnails                |
+| `image_rayon`      |   No    | Enables faster image processing                                |
 | `markdown`         |   No    | Support to send Markdown-formatted messages                    |
 | `qrcode`           |   Yes   | QR code verification support                                   |
 | `sled_cryptostore` |   Yes   | Persistent storage for E2EE related data                       |

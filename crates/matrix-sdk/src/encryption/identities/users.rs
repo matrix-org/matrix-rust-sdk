@@ -91,13 +91,13 @@ impl UserIdentity {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # futures::executor::block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     println!("This user identity belongs to {}", user.user_id().as_str());
@@ -143,13 +143,13 @@ impl UserIdentity {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # futures::executor::block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     let verification = user.request_verification().await?;
@@ -198,17 +198,17 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
     /// // verification
@@ -277,17 +277,17 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     user.verify().await?;
@@ -320,17 +320,17 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     if user.verified() {
@@ -360,17 +360,17 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     // Let's verify the user after we confirm that the master key

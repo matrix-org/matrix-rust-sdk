@@ -443,7 +443,7 @@ impl SledStore {
     async fn load_tracked_users(&self) -> Result<()> {
         for value in &self.tracked_users {
             let (user, dirty) = value?;
-            let user = Box::<UserId>::try_from(String::from_utf8_lossy(&user).to_string())?;
+            let user = UserId::parse(String::from_utf8_lossy(&user).to_string())?;
             let dirty = dirty.get(0).map(|d| *d == 1).unwrap_or(true);
 
             self.tracked_users_cache.insert(user.to_owned());

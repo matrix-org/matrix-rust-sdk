@@ -147,7 +147,7 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
 }
 
 /// A wrapper that transparently encrypts anything that implements `Read`.
-pub struct AttachmentEncryptor<'a, R: Read + 'a> {
+pub struct AttachmentEncryptor<'a, R: Read + ?Sized + 'a> {
     finished: bool,
     inner: &'a mut R,
     web_key: JsonWebKey,
@@ -157,7 +157,7 @@ pub struct AttachmentEncryptor<'a, R: Read + 'a> {
     sha: Sha256,
 }
 
-impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentEncryptor<'a, R> {
+impl<'a, R: 'a + Read + std::fmt::Debug + ?Sized> std::fmt::Debug for AttachmentEncryptor<'a, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentEncryptor")
             .field("inner", &self.inner)
@@ -166,7 +166,7 @@ impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentEncryptor
     }
 }
 
-impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
+impl<'a, R: Read + ?Sized + 'a> Read for AttachmentEncryptor<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read_bytes = self.inner.read(buf)?;
 
@@ -185,7 +185,7 @@ impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
     }
 }
 
-impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
+impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
     /// Wrap the given reader encrypting all the data we read from it.
     ///
     /// After all the reads are done, and all the data is encrypted that we wish
