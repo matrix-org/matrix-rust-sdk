@@ -72,5 +72,3 @@ pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
