@@ -22,12 +22,12 @@ use std::{collections::BTreeMap, convert::TryFrom};
 use matrix_sdk_crypto::{OlmMachine, OlmError};
 use ruma::{
     api::client::r0::sync::sync_events::{ToDevice, DeviceLists},
-    device_id, UserId,
+    device_id, user_id,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), OlmError> {
-    let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    let alice = user_id!("@alice:example.org");
     let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 
     let to_device_events = ToDevice::default();

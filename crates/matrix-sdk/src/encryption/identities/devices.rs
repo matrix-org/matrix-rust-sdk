@@ -82,14 +82,14 @@ impl Device {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::{device_id, UserId}};
+    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.request_verification().await?;
@@ -127,17 +127,17 @@ impl Device {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        device_id, UserId,
+    /// #        device_id, user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
     /// // verification
@@ -172,14 +172,14 @@ impl Device {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::{device_id, UserId}};
+    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.start_verification().await?;
@@ -233,17 +233,17 @@ impl Device {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        device_id, UserId,
+    /// #        device_id, user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     device.verify().await?;
@@ -348,17 +348,17 @@ impl Device {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        device_id, UserId,
+    /// #        device_id, user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     if device.verified() {

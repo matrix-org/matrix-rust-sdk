@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    convert::TryFrom,
-    sync::{Arc, RwLock as SyncRwLock},
-};
+use std::sync::{Arc, RwLock as SyncRwLock};
 
 use futures_util::stream::{self, StreamExt};
 use ruma::{
@@ -346,7 +343,7 @@ impl Room {
             let members: Vec<_> =
                 stream::iter(summary.heroes.iter().filter(|u| !is_own_user_id(u)))
                     .filter_map(|u| async move {
-                        let user_id = Box::<UserId>::try_from(u.as_str()).ok()?;
+                        let user_id = UserId::parse(u.as_str()).ok()?;
                         self.get_member(&user_id).await.transpose()
                     })
                     .collect()

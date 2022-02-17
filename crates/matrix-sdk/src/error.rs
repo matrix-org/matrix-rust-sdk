@@ -157,6 +157,11 @@ pub enum Error {
     /// An error encountered when trying to parse a user tag name.
     #[error(transparent)]
     UserTagName(#[from] InvalidUserTagName),
+
+    /// An error while processing images.
+    #[cfg(feature = "image_proc")]
+    #[error(transparent)]
+    ImageError(#[from] ImageError),
 }
 
 /// Error for the room key importing functionality.
@@ -256,4 +261,21 @@ impl From<ReqwestError> for Error {
     fn from(e: ReqwestError) -> Self {
         Error::Http(HttpError::Reqwest(e))
     }
+}
+
+/// All possible errors that can happen during image processing.
+#[cfg(feature = "image_proc")]
+#[derive(Error, Debug)]
+pub enum ImageError {
+    /// Error processing the image data.
+    #[error(transparent)]
+    Proc(#[from] image::ImageError),
+
+    /// The image format is not supported.
+    #[error("the image format is not supported")]
+    FormatNotSupported,
+
+    /// The thumbnail size is bigger than the original image.
+    #[error("the thumbnail size is bigger than the original image size")]
+    ThumbnailBiggerThanOriginal,
 }

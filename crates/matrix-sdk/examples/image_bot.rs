@@ -9,6 +9,7 @@ use std::{
 
 use matrix_sdk::{
     self,
+    attachment::AttachmentConfig,
     config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
@@ -39,7 +40,9 @@ async fn on_room_message(event: SyncRoomMessageEvent, room: Room, image: Arc<Mut
             println!("sending image");
             let mut image = image.lock().await;
 
-            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, None).await.unwrap();
+            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, AttachmentConfig::new())
+                .await
+                .unwrap();
 
             image.seek(SeekFrom::Start(0)).unwrap();
 

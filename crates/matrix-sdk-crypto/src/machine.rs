@@ -449,10 +449,10 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::UserId;
+    /// # use ruma::user_id;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
+    /// # let alice = user_id!("@alice:example.org");
+    /// # let machine = OlmMachine::new(alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// if machine.should_upload_keys().await {
     ///     let request = machine

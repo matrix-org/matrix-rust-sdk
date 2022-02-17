@@ -581,7 +581,7 @@ impl IndexeddbStore {
             .await?
             .iter()
             .filter_map(|key| match key.as_string() {
-                Some(k) => Box::<UserId>::try_from(&k[skip..]).ok(),
+                Some(k) => UserId::parse(&k[skip..]).ok(),
                 _ => None,
             })
             .collect::<Vec<_>>())
@@ -726,7 +726,7 @@ impl IndexeddbStore {
             let res =
                 store.get(&k)?.await?.ok_or(StoreError::Codec(format!("no data at {:?}", k)))?;
             let u = if let Some(k_str) = k.as_string() {
-                Box::<UserId>::try_from(&k_str[prefix_len..])
+                UserId::parse(&k_str[prefix_len..])
                     .map_err(|e| StoreError::Codec(format!("{:?}", e)))?
             } else {
                 return Err(StoreError::Codec(format!("{:?}", k)).into());
