@@ -13,6 +13,7 @@ interface ClientError {
 };
 
 interface Room {
+    string identifier();
     [Throws=ClientError]
     string display_name();
     [Throws=ClientError]

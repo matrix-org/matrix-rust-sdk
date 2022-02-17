@@ -1,7 +1,6 @@
 
-use futures::{stream, Stream};
 use std::{fs, path};
-use anyhow::{bail, Result};
+use anyhow::Result;
 use sanitize_filename_reader_friendly::sanitize;
 
 
@@ -91,6 +90,10 @@ impl From<anyhow::Error> for ClientError {
 }
 
 impl Room {
+    pub fn identifier(&self) -> String {
+        return self.room.room_id().to_string()
+    }
+
     pub fn display_name(&self) -> Result<String> {
         let r = self.room.clone();
         RUNTIME.block_on(async move {
@@ -201,17 +204,6 @@ impl Client {
         RUNTIME.block_on(async move {
             let user_id = l.user_id().await.expect("No User ID found");
             Ok(user_id.as_str().to_string())
-        })
-    }
-
-    pub fn room(&self, room_name: String) -> Result<Room> {
-        let room_id = RoomId::parse(room_name)?;
-        let l = self.client.clone();
-        RUNTIME.block_on(async move {
-            if let Some(room) = l.get_room(&room_id) {
-                return Ok(Room { room })
-            }
-            bail!("Room not found")
         })
     }
 
