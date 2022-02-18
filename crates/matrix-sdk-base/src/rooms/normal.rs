@@ -366,12 +366,10 @@ impl Room {
         Ok(inner.base_info.calculate_room_name(joined, invited, members))
     }
 
-    #[cfg(any(cfg, feature = "testing"))]
     pub fn clone_info(&self) -> RoomInfo {
         (*self.inner.read().unwrap()).clone()
     }
 
-    #[cfg(any(cfg, feature = "testing"))]
     pub fn update_summary(&self, summary: RoomInfo) {
         let mut inner = self.inner.write().unwrap();
         *inner = summary;

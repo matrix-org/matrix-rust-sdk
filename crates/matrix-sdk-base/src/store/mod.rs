@@ -338,57 +338,8 @@ pub struct Store {
     stripped_rooms: Arc<DashMap<Box<RoomId>, Room>>,
 }
 
-#[cfg(feature = "sled_state_store")]
 impl Store {
-    /// Open the default Sled store.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path where the store should reside in.
-    ///
-    /// * `passphrase` - A passphrase that should be used to encrypt the state
-    /// store.
-    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
-        let inner = if let Some(passphrase) = passphrase {
-            SledStore::open_with_passphrase(path, passphrase)?
-        } else {
-            SledStore::open_with_path(path)?
-        };
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
-    }
-
-    pub(crate) fn open_temporary() -> Result<(Self, Db)> {
-        let inner = SledStore::open()?;
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
-    }
-}
-
-#[cfg(feature = "indexeddb_state_store")]
-impl Store {
-    /// Open the default IndexedDB store.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the store should reside in.
-    ///
-    /// * `passphrase` - A passphrase that should be used to encrypt the state
-    /// store.
-    pub async fn open_default(name: String, passphrase: Option<&str>) -> Result<Self> {
-        let inner = if let Some(passphrase) = passphrase {
-            IndexeddbStore::open_with_passphrase(name, passphrase).await?
-        } else {
-            IndexeddbStore::open_with_name(name).await?
-        };
-
-        Ok(Self::new(Box::new(inner)))
-    }
-}
-
-#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
-impl Store {
-    pub(crate) fn open_memory_store() -> Self {
+    pub fn open_memory_store() -> Self {
         let inner = Box::new(MemoryStore::new());
 
         Self::new(inner)
@@ -407,7 +358,6 @@ impl Store {
         }
     }
 
-    #[cfg(feature = "testing")]
     pub async fn restore_session(&self, session: Session) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session.user_id, self.inner.clone(), info);
@@ -454,7 +404,6 @@ impl Store {
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 
-    #[cfg(any(test, feature = "testing"))]
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let session = self.session.read().await;
         let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
@@ -465,7 +414,6 @@ impl Store {
             .clone()
     }
 
-    #[cfg(any(test, feature = "testing"))]
     pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
         if room_type == RoomType::Invited {
             return self.get_or_create_stripped_room(room_id).await;

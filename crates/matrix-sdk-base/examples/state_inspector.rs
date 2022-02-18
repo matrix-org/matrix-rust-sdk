@@ -214,7 +214,8 @@ impl Printer {
 impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
-        let (store, _) = Store::open_default(database_path, None).unwrap();
+        // FIXME: THIS DOESN"T MAKE SENSE
+        let store = Store::open_memory_store();
 
         Self { store, printer }
     }

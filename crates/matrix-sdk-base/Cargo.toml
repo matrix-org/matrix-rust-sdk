@@ -17,13 +17,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-encryption = ["matrix-sdk-crypto"]
+encryption = ["matrix-sdk-crypto", "state_key"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
-sled_state_store = [ ]
-sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
-
-indexeddb_state_store = ["state_key"]
-indexeddb_cryptostore = ["matrix-sdk-crypto/indexeddb_cryptostore"]
 
 # State Key is a helper feature for state store implementations
 state_key = [
@@ -79,4 +74,3 @@ tempfile = "3.2.0"
 
 [[example]]
 name = "state_inspector"
-required-features = ["sled_state_store"]
