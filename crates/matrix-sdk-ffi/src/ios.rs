@@ -2,11 +2,12 @@
 use std::{fs, path};
 use anyhow::Result;
 use sanitize_filename_reader_friendly::sanitize;
-
+use std::collections::BTreeMap;
 
 use matrix_sdk::{
     Client as MatrixClient,
-    room::{Room as MatrixRoom, MessagesOptions},
+    room::Room as MatrixRoom,
+    deserialized_responses::Timeline,
     config::ClientConfig,
     LoopCtrl,
     Session,
@@ -16,7 +17,7 @@ pub use matrix_sdk::{
     ruma::{
         api::client::r0::account::register,
         UserId, RoomId, MxcUri, DeviceId, ServerName,
-        events::{AnyRoomEvent, AnyMessageEvent}
+        events::{AnySyncRoomEvent, AnySyncMessageEvent}
     }
 };
 use lazy_static::lazy_static;
@@ -26,10 +27,9 @@ use serde_json;
 use parking_lot::RwLock;
 use derive_builder::Builder;
 use std::sync::Arc;
+use anyhow::Context;
 
 use serde::{Serialize, Deserialize};
-
-// use ruma::events::{AnyRoomEvent, AnyMessageEvent};
 
 lazy_static! {
     static ref RUNTIME: runtime::Runtime =
@@ -58,6 +58,8 @@ pub struct ClientState {
     is_syncing: bool,
     #[builder(default)]
     should_stop_syncing: bool,
+    #[builder(default)]
+    timelines: BTreeMap<Box<RoomId>, Vec<Timeline>>
 }
 
 #[derive(Clone)]
@@ -75,6 +77,7 @@ struct RestoreToken {
 
 pub struct Room {
     room: MatrixRoom,
+    client_state: Arc<RwLock<ClientState>>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -140,20 +143,20 @@ impl Room {
     }
 
     pub fn messages(&self) -> Result<Vec<String>> {
-        let r = self.room.clone();
-        RUNTIME.block_on(async move {
+        let r = self; //.room.clone();
+        let state = r.client_state.read();
+        let timelines = state.timelines.get(self.room.room_id()).context("No messages available yet")?;
 
-            let stream = r.messages(MessagesOptions::forward("")).await.expect("No messages");
-            let messages = stream.chunk.iter().filter_map(|e|
+        Ok(timelines.iter().fold(Vec::new(), |mut msgs, t| {
+            t.events.iter().for_each(|e|
                 match e.event.deserialize() {
-                    Ok(AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(m))) => Some(format!("{}: {:?}", m.sender, m.content)),
-                    Ok(e) => { println!("Skipping event {:?}", e); None},
-                    Err(e) => { println!("Error parsing event: {:?}", e); None },
+                    Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => msgs.push(format!("{}: {:?}", m.sender, m.content)),
+                    Ok(e) => println!("Skipping event {:?}", e),
+                    Err(e) => println!("Error parsing event: {:?}", e),
                 }
-            ).collect::<Vec<_>>();
-
-            Ok(messages)
-        })
+            );
+            msgs
+        }))
     }
 }
 
@@ -189,7 +192,7 @@ impl Client {
         let client = self.client.clone();
         let state = self.state.clone();
         RUNTIME.spawn(async move {
-            client.sync_with_callback(matrix_sdk::config::SyncSettings::new(), |_response| async {
+            client.sync_with_callback(matrix_sdk::config::SyncSettings::new(), |response| async {
 
                 delegate.did_receive_sync_update();
 
@@ -204,7 +207,17 @@ impl Client {
                     state.write().is_syncing = true;
                 }
 
-                return LoopCtrl::Continue
+                if !response.rooms.join.is_empty() {
+                    let mut state = state.write();
+                    for (room_id, details) in response.rooms.join {
+                        state.timelines.entry(room_id)
+                            // add to the beginning
+                            .and_modify(|l| l.insert(0, details.timeline.clone()))
+                            // or put in in the first place
+                            .or_insert_with(|| vec![details.timeline.clone()]);
+                    }
+                }
+                LoopCtrl::Continue
             }).await;
         });
     }
@@ -236,7 +249,7 @@ impl Client {
     }
 
     pub  fn conversations(&self) -> Vec<Arc<Room>> {
-        self.rooms().into_iter().map(|room| Arc::new(Room { room })).collect()
+        self.rooms().into_iter().map(|room| Arc::new(Room { room, client_state: self.state.clone() })).collect()
     }
 
     // pub fn get_mxcuri_media(&self, uri: String) -> Result<Vec<u8>> {
