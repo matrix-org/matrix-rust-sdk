@@ -238,7 +238,7 @@ impl Client {
     pub fn display_name(&self) -> Result<String> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
-            let display_name = l.display_name().await?.expect("No User ID found");
+            let display_name = l.account().get_display_name().await?.expect("No User ID found");
             Ok(display_name.as_str().to_string())
         })
     }
@@ -254,7 +254,7 @@ impl Client {
     pub fn avatar(&self) -> Result<Vec<u8>> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
-            let uri = l.avatar_url().await?.expect("No avatar Url given");
+            let uri = l.account().get_avatar_url().await?.expect("No avatar Url given");
             Ok(l.get_media_content(&MediaRequest{
                 media_type: MediaType::Uri(uri),
                 format: MediaFormat::File
