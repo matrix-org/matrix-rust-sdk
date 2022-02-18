@@ -374,8 +374,7 @@ impl ReadOnlyDevice {
     /// Create a new Device, this constructor skips signature verification of
     /// the keys, `TryFrom` should be used for completely new devices we
     /// receive.
-    #[cfg(feature = "sled_cryptostore")]
-    pub(crate) fn new(device_keys: DeviceKeys, trust_state: LocalTrust) -> Self {
+    pub fn new(device_keys: DeviceKeys, trust_state: LocalTrust) -> Self {
         Self {
             inner: device_keys.into(),
             trust_state: Arc::new(Atomic::new(trust_state)),
