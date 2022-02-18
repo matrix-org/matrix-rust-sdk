@@ -194,8 +194,6 @@ impl Client {
         RUNTIME.spawn(async move {
             client.sync_with_callback(matrix_sdk::config::SyncSettings::new(), |response| async {
 
-                delegate.did_receive_sync_update();
-
                 if !state.read().has_first_synced {
                     state.write().has_first_synced = true
                 }
@@ -217,6 +215,8 @@ impl Client {
                             .or_insert_with(|| vec![details.timeline.clone()]);
                     }
                 }
+
+                delegate.did_receive_sync_update();
                 LoopCtrl::Continue
             }).await;
         });
