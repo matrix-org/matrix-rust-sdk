@@ -35,7 +35,8 @@ interface Room {
 
     string? topic();
 
-
+    [Throws=ClientError]
+    sequence<string> messages();
 };
 
 callback interface ClientDelegate {

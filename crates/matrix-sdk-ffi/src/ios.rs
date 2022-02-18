@@ -6,7 +6,7 @@ use sanitize_filename_reader_friendly::sanitize;
 
 use matrix_sdk::{
     Client as MatrixClient,
-    room::Room as MatrixRoom,
+    room::{Room as MatrixRoom, MessagesOptions},
     config::ClientConfig,
     LoopCtrl,
     Session,
@@ -15,7 +15,8 @@ use matrix_sdk::{
 pub use matrix_sdk::{
     ruma::{
         api::client::r0::account::register,
-        UserId, RoomId, MxcUri, DeviceId, ServerName
+        UserId, RoomId, MxcUri, DeviceId, ServerName,
+        events::{AnyRoomEvent, AnyMessageEvent}
     }
 };
 use lazy_static::lazy_static;
@@ -27,6 +28,8 @@ use derive_builder::Builder;
 use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
+
+// use ruma::events::{AnyRoomEvent, AnyMessageEvent};
 
 lazy_static! {
     static ref RUNTIME: runtime::Runtime =
@@ -134,6 +137,23 @@ impl Room {
 
     pub fn is_space(&self) -> bool {
         return self.room.is_space()
+    }
+
+    pub fn messages(&self) -> Result<Vec<String>> {
+        let r = self.room.clone();
+        RUNTIME.block_on(async move {
+
+            let stream = r.messages(MessagesOptions::forward("")).await.expect("No messages");
+            let messages = stream.chunk.iter().filter_map(|e|
+                match e.event.deserialize() {
+                    Ok(AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(m))) => Some(format!("{}: {:?}", m.sender, m.content)),
+                    Ok(e) => { println!("Skipping event {:?}", e); None},
+                    Err(e) => { println!("Error parsing event: {:?}", e); None },
+                }
+            ).collect::<Vec<_>>();
+
+            Ok(messages)
+        })
     }
 }
 
