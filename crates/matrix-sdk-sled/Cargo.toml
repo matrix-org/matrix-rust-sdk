@@ -3,12 +3,17 @@ name = "matrix-sdk-sled"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["encryption"]
+
+encryption = ["matrix-sdk-crypto"]
+
 [dependencies]
 futures-core = "0.3.15"
 futures-util = { version = "0.3.15", default-features = false }
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["state_key"] }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
-matrix-sdk-crypto = { path = "../matrix-sdk-crypto" }
+matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 serde = "1"
 serde_json = "1.0.64"
 sled = { version = "0.34.6" }
