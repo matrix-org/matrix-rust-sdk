@@ -43,8 +43,8 @@ mod utilities;
 mod verification;
 
 #[cfg(feature = "testing")]
-pub mod testing {
 /// Testing facilities and helpers for crypto tests
+pub mod testing {
     pub use crate::identities::{
         device::testing::get_device,
         user::testing::{get_other_identity, get_own_identity},
