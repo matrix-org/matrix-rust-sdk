@@ -12,6 +12,12 @@ interface ClientError {
   Generic(string msg);
 };
 
+interface Message {
+    string message_type();
+    string content();
+    string sender();
+};
+
 interface Room {
     string identifier();
     
@@ -36,7 +42,7 @@ interface Room {
     string? topic();
 
     [Throws=ClientError]
-    sequence<string> messages();
+    sequence<Message> messages();
 };
 
 callback interface ClientDelegate {

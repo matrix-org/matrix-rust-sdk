@@ -75,6 +75,12 @@ struct RestoreToken {
     session: Session,
 }
 
+pub struct Message {
+    message_type: String,
+    content: String,
+    sender: String,
+}
+
 pub struct Room {
     room: MatrixRoom,
     client_state: Arc<RwLock<ClientState>>,
@@ -97,11 +103,11 @@ impl From<anyhow::Error> for ClientError {
 
 impl Room {
     pub fn identifier(&self) -> String {
-        return self.room.room_id().to_string()
+        self.room.room_id().to_string()
     }
 
     pub fn name(&self) -> Option<String> {
-        return self.room.name()
+        self.room.name()
     }
 
     pub fn display_name(&self) -> Result<String> {
@@ -112,7 +118,7 @@ impl Room {
     }
 
     pub fn topic(&self) -> Option<String> {
-        return self.room.topic()
+        self.room.topic()
     }
 
     pub fn avatar(&self) -> Result<Vec<u8>> {
@@ -123,26 +129,26 @@ impl Room {
     }
 
     pub fn avatar_url(&self) -> Option<String> {
-        return self.room.avatar_url().map(|m| m.to_string())
+        self.room.avatar_url().map(|m| m.to_string())
     }
 
     pub fn is_direct(&self) -> bool {
-        return self.room.is_direct()
+        self.room.is_direct()
     }
 
     pub fn is_public(&self) -> bool {
-        return self.room.is_public()
+        self.room.is_public()
     }
 
     pub fn is_encrypted(&self) -> bool {
-        return self.room.is_encrypted()
+        self.room.is_encrypted()
     }
 
     pub fn is_space(&self) -> bool {
-        return self.room.is_space()
+        self.room.is_space()
     }
 
-    pub fn messages(&self) -> Result<Vec<String>> {
+    pub fn messages(&self) -> Result<Vec<Arc<Message>>> {
         let r = self; //.room.clone();
         let state = r.client_state.read();
         let timelines = state.timelines.get(self.room.room_id()).context("No messages available yet")?;
@@ -150,13 +156,34 @@ impl Room {
         Ok(timelines.iter().fold(Vec::new(), |mut msgs, t| {
             t.events.iter().for_each(|e|
                 match e.event.deserialize() {
-                    Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => msgs.push(format!("{}: {:?}", m.sender, m.content)),
+                    Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => {
+                        let message = Message { 
+                            message_type: m.content.msgtype().to_string(), 
+                            content: m.content.body().to_string(), 
+                            sender: m.sender.to_string() 
+                        };
+                        msgs.push( Arc::new(message))
+                    }
                     Ok(e) => println!("Skipping event {:?}", e),
                     Err(e) => println!("Error parsing event: {:?}", e),
                 }
             );
             msgs
         }))
+    }
+}
+
+impl Message {
+    pub fn message_type(&self) -> String {
+        self.message_type.clone()
+    }
+
+    pub fn content(&self) -> String {
+        self.content.clone()
+    }
+
+    pub fn sender(&self) -> String {
+        self.sender.clone()
     }
 }
 
