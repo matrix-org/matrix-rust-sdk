@@ -15,6 +15,7 @@
 use std::collections::BTreeSet;
 
 use futures_core::stream::BoxStream;
+use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{async_trait, SafeEncode};
 use ruma::{
@@ -22,13 +23,15 @@ use ruma::{
         presence::PresenceEvent,
         receipt::Receipt,
         room::member::{MembershipState, RoomMemberEventContent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent, AnySyncRoomEvent,
+        AnySyncStateEvent, EventType, Redact,
     },
     receipt::ReceiptType,
     serde::Raw,
-    EventId, MxcUri, RoomId, UserId,
+    EventId, MxcUri, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 
 use self::store_key::{EncryptedEvent, StoreKey};
@@ -77,6 +80,10 @@ mod KEYS {
 
     pub const ROOM_USER_RECEIPTS: &'static str = "room_user_receipts";
     pub const ROOM_EVENT_RECEIPTS: &'static str = "room_event_receipts";
+
+    pub const ROOM_TIMELINE: &'static str = "room_timeline";
+    pub const ROOM_TIMELINE_METADATA: &'static str = "room_timeline_metadata";
+    pub const ROOM_EVENT_ID_TO_POSITION: &'static str = "room_event_id_to_position";
 
     pub const MEDIA: &'static str = "media";
 
@@ -144,6 +151,10 @@ impl IndexeddbStore {
 
                 db.create_object_store(KEYS::ROOM_USER_RECEIPTS)?;
                 db.create_object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
+
+                db.create_object_store(KEYS::ROOM_TIMELINE)?;
+                db.create_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
+                db.create_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
 
                 db.create_object_store(KEYS::MEDIA)?;
 
@@ -280,7 +291,7 @@ impl IndexeddbStore {
             (!changes.profiles.is_empty(), KEYS::PROFILES),
             (!changes.state.is_empty(), KEYS::ROOM_STATE),
             (!changes.room_account_data.is_empty(), KEYS::ROOM_ACCOUNT_DATA),
-            (!changes.room_infos.is_empty(), KEYS::ROOM_INFOS),
+            (!changes.room_infos.is_empty() || !changes.timeline.is_empty(), KEYS::ROOM_INFOS),
             (!changes.receipts.is_empty(), KEYS::ROOM_EVENT_RECEIPTS),
             (!changes.stripped_state.is_empty(), KEYS::STRIPPED_ROOM_STATE),
             (!changes.stripped_members.is_empty(), KEYS::STRIPPED_MEMBERS),
@@ -301,6 +312,14 @@ impl IndexeddbStore {
 
         if !changes.receipts.is_empty() {
             stores.extend([KEYS::ROOM_EVENT_RECEIPTS, KEYS::ROOM_USER_RECEIPTS])
+        }
+
+        if !changes.timeline.is_empty() {
+            stores.extend([
+                KEYS::ROOM_TIMELINE,
+                KEYS::ROOM_TIMELINE_METADATA,
+                KEYS::ROOM_EVENT_ID_TO_POSITION,
+            ])
         }
 
         if stores.len() == 0 {
@@ -466,6 +485,185 @@ impl IndexeddbStore {
                         }
                     }
                 }
+            }
+        }
+
+        if !changes.timeline.is_empty() {
+            let timeline_store = tx.object_store(KEYS::ROOM_TIMELINE)?;
+            let timeline_metadata_store = tx.object_store(KEYS::ROOM_TIMELINE_METADATA)?;
+            let event_id_to_position_store = tx.object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
+            let room_infos = tx.object_store(KEYS::ROOM_INFOS)?;
+
+            for (room_id, timeline) in &changes.timeline {
+                if timeline.sync {
+                    info!("Save new timeline batch from sync response for {}", room_id);
+                } else {
+                    info!("Save new timeline batch from messages response for {}", room_id);
+                }
+                let room_key = room_id.encode();
+
+                let metadata: Option<TimelineMetadata> = if timeline.limited {
+                    info!(
+                        "Delete stored timeline for {} because the sync response was limited",
+                        room_id
+                    );
+
+                    let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
+                    let stores =
+                        &[&timeline_store, &timeline_metadata_store, &event_id_to_position_store];
+                    for store in stores {
+                        for key in store.get_all_keys_with_key(&range)?.await?.iter() {
+                            store.delete(&key)?;
+                        }
+                    }
+
+                    None
+                } else {
+                    let metadata: Option<TimelineMetadata> = timeline_metadata_store
+                        .get(&room_key)?
+                        .await?
+                        .map(|v| v.into_serde())
+                        .transpose()?;
+                    if let Some(mut metadata) = metadata {
+                        if !timeline.sync && Some(&timeline.start) != metadata.end.as_ref() {
+                            warn!("Drop unexpected timeline batch for {}", room_id);
+                            return Ok(());
+                        }
+
+                        // Check if the event already exists in the store
+                        let mut delete_timeline = false;
+                        for event in &timeline.events {
+                            if let Some(event_id) = event.event_id() {
+                                let event_key = (room_id, &event_id).encode();
+                                if event_id_to_position_store
+                                    .count_with_key_owned(event_key)?
+                                    .await?
+                                    > 0
+                                {
+                                    delete_timeline = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if delete_timeline {
+                            info!(
+                                "Delete stored timeline for {} because of duplicated events",
+                                room_id
+                            );
+
+                            let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
+                            let stores = &[
+                                &timeline_store,
+                                &timeline_metadata_store,
+                                &event_id_to_position_store,
+                            ];
+                            for store in stores {
+                                for key in store.get_all_keys_with_key(&range)?.await?.iter() {
+                                    store.delete(&key)?;
+                                }
+                            }
+
+                            None
+                        } else if timeline.sync {
+                            metadata.start = timeline.start.clone();
+                            Some(metadata)
+                        } else {
+                            metadata.end = timeline.end.clone();
+                            Some(metadata)
+                        }
+                    } else {
+                        None
+                    }
+                };
+
+                let mut metadata = if let Some(metadata) = metadata {
+                    metadata
+                } else {
+                    TimelineMetadata {
+                        start: timeline.start.clone(),
+                        end: timeline.end.clone(),
+                        start_position: usize::MAX / 2,
+                        end_position: usize::MAX / 2,
+                    }
+                };
+
+                if timeline.sync {
+                    let mut room_version = None;
+                    for event in timeline.events.iter().rev() {
+                        // Redact events already in store only on sync response
+                        if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
+                            redaction,
+                        ))) = event.event.deserialize()
+                        {
+                            let redacts_key = (room_id, &redaction.redacts).encode();
+                            if let Some(position_key) =
+                                event_id_to_position_store.get_owned(redacts_key)?.await?
+                            {
+                                if let Some(mut full_event) = timeline_store
+                                    .get(&position_key)?
+                                    .await?
+                                    .map(|e| {
+                                        self.deserialize_event::<SyncRoomEvent>(e)
+                                            .map_err(StoreError::from)
+                                    })
+                                    .transpose()?
+                                {
+                                    let inner_event = full_event.event.deserialize()?;
+                                    if room_version.is_none() {
+                                        room_version = Some(room_infos
+                                                        .get(&room_key)?
+                                                        .await?
+                                                        .map(|r| self.deserialize_event::<RoomInfo>(r))
+                                                        .transpose()?
+                                                        .and_then(|info| {
+                                                            info.base_info
+                                                                .create
+                                                                .map(|event| event.room_version)
+                                                        }).unwrap_or_else(|| {
+                                                            warn!("Unable to find the room version for {}, assume version 9", room_id);
+                                                            RoomVersionId::V9
+                                                        }));
+                                    }
+
+                                    full_event.event = Raw::new(&AnySyncRoomEvent::from(
+                                        inner_event
+                                            .redact(redaction, room_version.as_ref().unwrap()),
+                                    ))?;
+                                    timeline_store.put_key_val_owned(
+                                        position_key,
+                                        &self.serialize_event(&full_event)?,
+                                    )?;
+                                }
+                            }
+                        }
+
+                        metadata.start_position -= 1;
+                        let key = (room_id, &metadata.start_position).encode();
+                        // Only add event with id to the position map
+                        if let Some(event_id) = event.event_id() {
+                            let event_key = (room_id, &event_id).encode();
+                            event_id_to_position_store.put_key_val(&event_key, &key)?;
+                        }
+
+                        timeline_store.put_key_val_owned(key, &self.serialize_event(&event)?)?;
+                    }
+                } else {
+                    for event in timeline.events.iter() {
+                        metadata.end_position += 1;
+                        let key = (room_id, &metadata.end_position).encode();
+                        // Only add event with id to the position map
+                        if let Some(event_id) = event.event_id() {
+                            let event_key = (room_id, &event_id).encode();
+                            event_id_to_position_store.put_key_val(&event_key, &key)?;
+                        }
+
+                        timeline_store.put_key_val_owned(key, &self.serialize_event(&event)?)?;
+                    }
+                }
+
+                timeline_metadata_store
+                    .put_key_val_owned(room_key, &JsValue::from_serde(&metadata)?)?;
             }
         }
 
@@ -809,6 +1007,9 @@ impl IndexeddbStore {
             KEYS::ROOM_USER_RECEIPTS,
             KEYS::STRIPPED_ROOM_STATE,
             KEYS::STRIPPED_MEMBERS,
+            KEYS::ROOM_TIMELINE,
+            KEYS::ROOM_TIMELINE_METADATA,
+            KEYS::ROOM_EVENT_ID_TO_POSITION,
         ];
 
         let all_stores = {
@@ -835,6 +1036,39 @@ impl IndexeddbStore {
             }
         }
         tx.await.into_result().map_err::<StoreError, _>(|e| e.into())
+    }
+
+    async fn room_timeline(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+        let key = room_id.encode();
+        let tx = self.inner.transaction_on_multi_with_mode(
+            &[KEYS::ROOM_TIMELINE, KEYS::ROOM_TIMELINE_METADATA],
+            IdbTransactionMode::Readonly,
+        )?;
+        let timeline = tx.object_store(KEYS::ROOM_TIMELINE)?;
+        let metadata = tx.object_store(KEYS::ROOM_TIMELINE_METADATA)?;
+
+        let metadata: Option<TimelineMetadata> =
+            metadata.get(&key)?.await?.map(|v| v.into_serde()).transpose()?;
+        if metadata.is_none() {
+            info!("No timeline for {} was previously stored", room_id);
+            return Ok(None);
+        }
+        let end_token = metadata.and_then(|m| m.end);
+        let timeline: Vec<Result<SyncRoomEvent>> = timeline
+            .get_all_with_key(&key)?
+            .await?
+            .iter()
+            .map(|v| self.deserialize_event(v).map_err(|e| e.into()))
+            .collect();
+
+        let stream = Box::pin(stream::iter(timeline.into_iter()));
+
+        info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
+
+        Ok(Some((stream, end_token)))
     }
 }
 
@@ -984,11 +1218,18 @@ impl StateStore for IndexeddbStore {
 
     async fn room_timeline(
         &self,
-        _room_id: &RoomId,
+        room_id: &RoomId,
     ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
-        // TODO: we need to implement storing the timeline first
-        Ok(None)
+        self.room_timeline(room_id).await
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TimelineMetadata {
+    pub start: String,
+    pub start_position: usize,
+    pub end: Option<String>,
+    pub end_position: usize,
 }
 
 #[cfg(test)]

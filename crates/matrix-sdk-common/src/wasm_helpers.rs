@@ -175,3 +175,9 @@ impl SafeEncode for MxcUri {
         self.as_str().as_encoded_string()
     }
 }
+
+impl SafeEncode for usize {
+    fn as_encoded_string(&self) -> String {
+        self.to_string()
+    }
+}
