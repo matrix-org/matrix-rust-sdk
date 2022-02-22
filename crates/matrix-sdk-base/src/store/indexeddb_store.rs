@@ -14,7 +14,6 @@
 
 use std::collections::BTreeSet;
 
-use futures_core::stream::BoxStream;
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{async_trait, SafeEncode};
@@ -35,7 +34,7 @@ use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{store_key, Result, BoxStream, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
@@ -1041,7 +1040,7 @@ impl IndexeddbStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
         let key = room_id.encode();
         let tx = self.inner.transaction_on_multi_with_mode(
             &[KEYS::ROOM_TIMELINE, KEYS::ROOM_TIMELINE_METADATA],
@@ -1219,7 +1218,7 @@ impl StateStore for IndexeddbStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
         self.room_timeline(room_id).await
     }
 }

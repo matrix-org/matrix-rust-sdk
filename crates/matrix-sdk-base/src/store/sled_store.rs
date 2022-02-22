@@ -20,7 +20,7 @@ use std::{
     time::Instant,
 };
 
-use futures_core::stream::{BoxStream, Stream};
+use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
 use matrix_sdk_common::async_trait;
 use ruma::{
@@ -44,7 +44,7 @@ use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{store_key, BoxStream, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
@@ -1009,7 +1009,7 @@ impl SledStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
         let db = self.clone();
         let key = room_id.encode();
         let metadata: Option<TimelineMetadata> = db
@@ -1376,7 +1376,7 @@ impl StateStore for SledStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
         self.room_timeline(room_id).await
     }
 }

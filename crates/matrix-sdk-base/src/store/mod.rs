@@ -17,6 +17,7 @@ use std::path::Path;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
+    pin::Pin,
     sync::Arc,
 };
 
@@ -25,7 +26,6 @@ use std::{
 pub mod integration_tests;
 
 use dashmap::DashMap;
-use futures_core::stream::BoxStream;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use ruma::{
     api::client::r0::push::get_notifications::Notification,
@@ -40,6 +40,8 @@ use ruma::{
     serde::Raw,
     EventId, MxcUri, RoomId, UserId,
 };
+
+pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 #[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
 mod store_key;
@@ -367,7 +369,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>>;
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>>;
 }
 
 /// A state store wrapper for the SDK.

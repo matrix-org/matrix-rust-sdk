@@ -19,7 +19,6 @@ use std::{
 
 use async_stream::stream;
 use dashmap::{DashMap, DashSet};
-use futures_core::stream::BoxStream;
 use lru::LruCache;
 #[allow(unused_imports)]
 use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
@@ -38,7 +37,7 @@ use ruma::{
 #[allow(unused_imports)]
 use tracing::{info, warn};
 
-use super::{Result, RoomInfo, StateChanges, StateStore};
+use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
@@ -577,7 +576,7 @@ impl MemoryStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
         if let Some(data) = self.room_timeline.get(room_id) {
             let events = data.events.clone();
             let stream = stream! {
@@ -749,7 +748,7 @@ impl StateStore for MemoryStore {
     async fn room_timeline(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<(BoxStream<'static, Result<SyncRoomEvent>>, Option<String>)>> {
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
         self.room_timeline(room_id).await
     }
 }
