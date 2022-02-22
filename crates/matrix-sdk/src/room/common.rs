@@ -286,6 +286,135 @@ impl Common {
         Ok((forward_store, backward))
     }
 
+    /// Create a stream that returns all events of the room's timeline forward
+    /// in time.
+    ///
+    /// The stream makes sure that no duplicated events are returned.
+    ///
+    /// The stream will only return `None` when a gapped sync was
+    /// performed.
+    ///
+    /// With the encryption feature, messages are decrypted if possible. If
+    /// decryption fails for an individual message, that message is returned
+    /// undecrypted.
+    ///
+    /// If you need also a backward stream you should use
+    /// [`timeline`][`crate::room::Common::timeline`]
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     room_id,
+    /// # };
+    /// # use url::Url;
+    /// # use futures::StreamExt;
+    /// # use futures_util::pin_mut;
+    ///
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    ///
+    /// let mut client = Client::new(homeserver).await?;
+    ///
+    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com")) {
+    ///   let forward_stream = room.timeline_forward().await?;
+    ///
+    ///   pin_mut!(forward_stream);
+    ///
+    ///   while let Some(event) = forward_stream.next().await {
+    ///       println!("{:?}", event);
+    ///   }
+    /// }
+    ///
+    /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # });
+    /// ```
+
+    pub async fn timeline_forward(&self) -> Result<impl Stream<Item = SyncRoomEvent>> {
+        Ok(self.inner.timeline_forward().await?)
+    }
+
+    /// Create a stream that returns all events of the room's timeline backward
+    /// in time.
+    ///
+    /// If the `Store` used implements message caching and the
+    /// timeline is cached no request to the server is made.
+    ///
+    /// The stream makes sure that no duplicated events are returned. If the
+    /// event graph changed on the server existing streams will keep the
+    /// previous event order. Streams created later will use the new event
+    /// graph, and therefore will create a new local cache.
+    ///
+    /// The stream returns `None` once the first event of the room was
+    /// reached. The backward stream may also return an Error when a request
+    /// to the server failed. If the error is persistent a new stream needs to
+    /// be created.
+    ///
+    /// With the encryption feature, messages are decrypted if possible. If
+    /// decryption fails for an individual message, that message is returned
+    /// undecrypted.
+    ///
+    /// If you need also a backward stream you should use
+    /// [`timeline`][`crate::room::Common::timeline`]
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     room_id,
+    /// # };
+    /// # use url::Url;
+    /// # use futures::StreamExt;
+    /// # use futures_util::pin_mut;
+    ///
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    ///
+    /// let mut client = Client::new(homeserver).await?;
+    ///
+    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com")) {
+    ///   let backward_stream = room.timeline_backward().await?;
+    ///
+    ///   tokio::spawn(async move {
+    ///       pin_mut!(backward_stream);
+    ///
+    ///       while let Some(item) = backward_stream.next().await {
+    ///           match item {
+    ///               Ok(event) => println!("{:?}", event),
+    ///               Err(_) => println!("Some error occurred!"),
+    ///           }
+    ///       }
+    ///   });
+    /// }
+    ///
+    /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # });
+    /// ```
+    pub async fn timeline_backward(&self) -> Result<impl Stream<Item = Result<SyncRoomEvent>>> {
+        let backward_store = self.inner.timeline_backward().await?;
+
+        let room = self.to_owned();
+        let backward = async_stream::stream! {
+            for await item in backward_store {
+                match item {
+                    Ok(event) => yield Ok(event),
+                    Err(TimelineStreamError::EndCache { fetch_more_token }) => if let Err(error) = room.request_messages(&fetch_more_token).await {
+                        yield Err(error);
+                    },
+                    Err(TimelineStreamError::Store(error)) => yield Err(error.into()),
+                }
+            }
+        };
+
+        Ok(backward)
+    }
+
     async fn request_messages(&self, token: &str) -> Result<()> {
         let filter = assign!(RoomEventFilter::default(), {
             lazy_load_options: LazyLoadOptions::Enabled { include_redundant_members: false },

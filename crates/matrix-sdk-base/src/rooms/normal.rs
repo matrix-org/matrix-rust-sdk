@@ -508,8 +508,47 @@ impl Room {
         Ok((forward_stream, backward_stream))
     }
 
-    /// Add a new timeline slice to the timeline streams created with
-    /// `self.timeline()`.
+    /// Create a stream that returns all events of the room's timeline forward
+    /// in time.
+    ///
+    /// If you need also a backward stream you should use
+    /// [`timeline`][`crate::Room::timeline`]
+    pub async fn timeline_forward(&self) -> StoreResult<impl Stream<Item = SyncRoomEvent>> {
+        let mut forward_timeline_streams = self.forward_timeline_streams.lock().await;
+        let event_ids = Arc::new(DashSet::new());
+
+        let (forward_stream, forward_sender) = TimelineStreamForward::new(event_ids);
+        forward_timeline_streams.push(forward_sender);
+
+        Ok(forward_stream)
+    }
+
+    /// Create a stream that returns all events of the room's timeline backward
+    /// in time.
+    ///
+    /// If you need also a forward stream you should use
+    /// [`timeline`][`crate::Room::timeline`]
+    pub async fn timeline_backward(
+        &self,
+    ) -> StoreResult<impl Stream<Item = Result<SyncRoomEvent, TimelineStreamError>>> {
+        let mut backward_timeline_streams = self.backward_timeline_streams.lock().await;
+        let sync_token = self.store.get_sync_token().await?;
+        let event_ids = Arc::new(DashSet::new());
+
+        let (backward_stream, backward_sender) = if let Some((stored_events, end_token)) =
+            self.store.room_timeline(&self.room_id).await?
+        {
+            TimelineStreamBackward::new(event_ids.clone(), end_token, Some(stored_events))
+        } else {
+            TimelineStreamBackward::new(event_ids.clone(), Some(sync_token.clone().unwrap()), None)
+        };
+
+        backward_timeline_streams.push(backward_sender);
+
+        Ok(backward_stream)
+    }
+
+    /// Add a new timeline slice to the timeline streams.
     pub async fn add_timeline_slice(&self, timeline: &TimelineSlice) {
         if timeline.sync {
             let mut streams = self.forward_timeline_streams.lock().await;
