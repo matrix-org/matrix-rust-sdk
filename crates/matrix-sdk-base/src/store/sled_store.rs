@@ -1093,6 +1093,9 @@ impl SledStore {
                     .transpose()?;
                 if let Some(mut metadata) = metadata {
                     if !timeline.sync && Some(&timeline.start) != metadata.end.as_ref() {
+                        // This should only happen when a developer adds a wrong timeline
+                        // batch to the `StateChanges` or the server returns a wrong response
+                        // to our request.
                         warn!("Drop unexpected timeline batch for {}", room_id);
                         return Ok(());
                     }

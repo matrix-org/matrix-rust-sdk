@@ -290,6 +290,9 @@ impl MemoryStore {
                 None
             } else if let Some(mut data) = self.room_timeline.get_mut(room) {
                 if !timeline.sync && Some(&timeline.start) != data.end.as_ref() {
+                    // This should only happen when a developer adds a wrong timeline
+                    // batch to the `StateChanges` or the server returns a wrong response
+                    // to our request.
                     warn!("Drop unexpected timeline batch for {}", room);
                     return Ok(());
                 }
