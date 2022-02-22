@@ -34,7 +34,7 @@ use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{store_key, Result, BoxStream, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{store_key, BoxStream, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
