@@ -13,9 +13,12 @@ Rust SDK can evolve, feel free to propose an experiment.
 
 ## Current experiments
 
-TBD
+#### Agent Smith
 
+Or; Matrix Rust Bot SDK / `matrix-sdk-bot-framework`, `matrix-sdk-agent`, `matrix-sdk-bot`, (naming suggestions welcome!)
+
+A high-level batteries-included bot framework, aiming to aid server-side bot development.
 
 ## Archived experiments
 
-_Link to PR that deleted the experiment from the repo, newest first_: 
+_Link to PR that deleted the experiment from the repo, newest first_:
