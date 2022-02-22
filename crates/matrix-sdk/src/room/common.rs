@@ -231,28 +231,37 @@ impl Common {
     /// #     room_id,
     /// # };
     /// # use url::Url;
+    /// # use futures::StreamExt;
+    /// # use futures_util::pin_mut;
     ///
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
     ///
     /// let mut client = Client::new(homeserver).await?;
-    /// let room = client
-    ///    .get_joined_room(room_id!("!roomid:example.com"))?;
-    /// let (backward_stream, forward_stream) = room.timeline().await?;
-    /// tokio::spawn(async move {
-    ///     while let Some(item) = backward_stream.next() {
-    ///         match item {
-    ///             Ok(event) => println!("{:?}", event),
-    ///             Err(_) => prinln!("Some error occurred!"),
-    ///         }
-    ///     }
-    /// });
     ///
-    /// while let Some(event) = forward_stream.next().await {
-    ///     println!("{:?}", event);
+    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com")) {
+    ///   let (forward_stream, backward_stream) = room.timeline().await?;
+    ///
+    ///   tokio::spawn(async move {
+    ///       pin_mut!(backward_stream);
+    ///
+    ///       while let Some(item) = backward_stream.next().await {
+    ///           match item {
+    ///               Ok(event) => println!("{:?}", event),
+    ///               Err(_) => println!("Some error occurred!"),
+    ///           }
+    ///       }
+    ///   });
+    ///
+    ///   pin_mut!(forward_stream);
+    ///
+    ///   while let Some(event) = forward_stream.next().await {
+    ///       println!("{:?}", event);
+    ///   }
     /// }
     ///
+    /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
     pub async fn timeline(
