@@ -19,7 +19,7 @@ use std::{
     sync::Arc,
 };
 
-use http::{header::InvalidHeaderValue, HeaderValue};
+use http::header::InvalidHeaderValue;
 use matrix_sdk_base::BaseClientConfig;
 
 use crate::{config::RequestConfig, HttpSend, Result};
@@ -40,11 +40,32 @@ use crate::{config::RequestConfig, HttpSend, Result};
 ///     .disable_ssl_verification();
 /// # matrix_sdk::Result::<()>::Ok(())
 /// ```
+///
+/// # Example for using a custom client
+/// Note: setting a custom client will ignore `user_agent`, `proxy`, and
+/// `disable_ssl_verification` - you'd need to set these yourself if you
+/// want them.
+///
+/// ```
+/// use matrix_sdk::config::ClientConfig;
+/// use reqwest::ClientBuilder;
+/// use std::sync::Arc;
+///
+/// // setting up a custom builder
+/// let builder = ClientBuilder::new()
+///     .https_only(true)
+///     .no_proxy()
+///     .user_agent("MyApp/v3.0");
+///
+/// let client_config = ClientConfig::new()
+///     .client(Arc::new(builder.build()?));
+/// # matrix_sdk::Result::<()>::Ok(())
+/// ```
 #[derive(Default)]
 pub struct ClientConfig {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) proxy: Option<reqwest::Proxy>,
-    pub(crate) user_agent: Option<HeaderValue>,
+    pub(crate) user_agent: Option<String>,
     pub(crate) disable_ssl_verification: bool,
     pub(crate) base_config: BaseClientConfig,
     pub(crate) request_config: RequestConfig,
@@ -108,7 +129,7 @@ impl ClientConfig {
 
     /// Set a custom HTTP user agent for the client.
     pub fn user_agent(mut self, user_agent: &str) -> Result<Self, InvalidHeaderValue> {
-        self.user_agent = Some(HeaderValue::from_str(user_agent)?);
+        self.user_agent = Some(user_agent.to_owned());
         Ok(self)
     }
 

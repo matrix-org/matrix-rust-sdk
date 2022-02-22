@@ -3,7 +3,7 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use atty::Stream;
 #[cfg(not(target_arch = "wasm32"))]
-use clap::{App as Argparse, AppSettings as ArgParseSettings, Arg, ArgMatches};
+use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
 use matrix_sdk_base::{RoomInfo, Store};
 use ruma::{events::EventType, RoomId, UserId};
@@ -307,10 +307,11 @@ impl Inspector {
 
     async fn parse_and_run(&self, input: &str) {
         let argparse = Argparse::new("state-inspector")
-            .global_setting(ArgParseSettings::DisableHelpFlag)
-            .global_setting(ArgParseSettings::DisableVersionFlag)
-            .global_setting(ArgParseSettings::NoBinaryName)
-            .setting(ArgParseSettings::SubcommandRequiredElseHelp)
+            .disable_version_flag(true)
+            .disable_help_flag(true)
+            .no_binary_name(true)
+            .subcommand_required(true)
+            .arg_required_else_help(true)
             .subcommands(Inspector::subcommands());
 
         match argparse.try_get_matches_from(input.split_ascii_whitespace()) {
@@ -327,7 +328,7 @@ impl Inspector {
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let argparse = Argparse::new("state-inspector")
-        .global_setting(ArgParseSettings::DisableVersionFlag)
+        .disable_version_flag(true)
         .arg(Arg::new("database").required(true))
         .arg(
             Arg::new("json")
