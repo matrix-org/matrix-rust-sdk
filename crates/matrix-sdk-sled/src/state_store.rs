@@ -311,10 +311,10 @@ impl SledStore {
         })
     }
 
-    pub fn open() -> Result<Self> {
-        let db = Config::new().temporary(true).open()?;
+    pub fn open() -> StoreResult<Self> {
+        let db = Config::new().temporary(true).open().map_err(|e| StoreError::Backend(anyhow!(e)))?;
 
-        SledStore::open_helper(db, None, None)
+        SledStore::open_helper(db, None, None).map_err(|e| e.into())
     }
 
     pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> Result<Self> {

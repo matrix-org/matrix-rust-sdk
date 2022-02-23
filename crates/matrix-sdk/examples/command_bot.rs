@@ -1,7 +1,7 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    config::{ClientConfig, SyncSettings},
+    config::{ClientConfig, SyncSettings, default_store_with_name},
     room::Room,
     ruma::events::room::message::{
         MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
@@ -41,7 +41,7 @@ async fn login_and_sync(
     let mut home = dirs::home_dir().expect("no home directory found");
     home.push("party_bot");
 
-    let client_config = ClientConfig::new().store_path(home);
+    let client_config = ClientConfig::new()?.state_store(default_store_with_name(home.to_str().expect("home dir path must be utf-8"), None)?);
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     // create a new Client with the given homeserver url and config
