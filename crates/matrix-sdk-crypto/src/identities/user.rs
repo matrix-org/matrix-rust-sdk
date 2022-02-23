@@ -941,10 +941,9 @@ pub(crate) mod testing {
     use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
 
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
-    use crate::{
-        identities::{
-            manager::testing::{other_key_query, own_key_query}, ReadOnlyDevice,
-        },
+    use crate::identities::{
+        manager::testing::{other_key_query, own_key_query},
+        ReadOnlyDevice,
     };
 
     fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
@@ -982,7 +981,6 @@ pub(crate) mod testing {
     }
 }
 
-
 #[cfg(test)]
 pub(crate) mod test {
     use std::{convert::TryFrom, sync::Arc};
@@ -991,6 +989,7 @@ pub(crate) mod test {
     use matrix_sdk_test::async_test;
     use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
 
+    use super::testing::{get_other_identity, get_own_identity};
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity};
     use crate::{
         identities::{
@@ -1001,7 +1000,6 @@ pub(crate) mod test {
         store::MemoryStore,
         verification::VerificationMachine,
     };
-    use super::testing::{get_other_identity, get_own_identity};
 
     #[test]
     fn own_identity_create() {

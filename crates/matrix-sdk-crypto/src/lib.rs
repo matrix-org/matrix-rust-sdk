@@ -84,6 +84,7 @@ pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, KeyExportError, MediaEncryptionInfo,
 };
+pub use gossiping::GossipRequest;
 pub use identities::{
     Device, LocalTrust, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
@@ -93,12 +94,11 @@ pub use machine::OlmMachine;
 pub use matrix_qrcode;
 pub use olm::ReadOnlyAccount;
 pub use olm::{CrossSigningStatus, EncryptionSettings};
-pub use gossiping::GossipRequest;
 pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
-pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretInfo, SecretImportError};
+pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
 pub use verification::{AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest};
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, ScanError};

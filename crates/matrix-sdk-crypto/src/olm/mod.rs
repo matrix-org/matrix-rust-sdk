@@ -27,7 +27,8 @@ pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
 pub use account::{AccountPickle, OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, InboundGroupSessionPickle,
-    OlmOutboundGroupSession, OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession, ShareInfo,
+    OlmOutboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
+    PickledOutboundGroupSession, ShareInfo,
 };
 pub use group_sessions::{GroupSessionKey, ShareState};
 use matrix_sdk_common::instant::{Duration, Instant};

@@ -45,8 +45,6 @@ mod pickle_key;
 #[macro_use]
 #[allow(missing_docs)]
 pub mod integration_tests;
-#[cfg(feature = "sled_cryptostore")]
-pub(crate) mod sled;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -73,10 +71,6 @@ use zeroize::Zeroize;
 #[allow(unused_imports)]
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
 
-#[cfg(feature = "indexeddb_cryptostore")]
-pub use self::indexeddb::IndexeddbStore;
-#[cfg(feature = "sled_cryptostore")]
-pub use self::sled::SledStore;
 use crate::{
     error::SessionUnpicklingError,
     identities::{
@@ -538,11 +532,6 @@ pub enum CryptoStoreError {
     /// found.
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
-
-    /// Error in the internal database
-    #[cfg(feature = "sled_cryptostore")]
-    #[error(transparent)]
-    Database(#[from] sled::Error),
 
     /// An IO error occurred.
     #[error(transparent)]

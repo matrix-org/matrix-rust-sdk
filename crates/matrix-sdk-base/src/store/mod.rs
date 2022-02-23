@@ -13,9 +13,6 @@
 // limitations under the License.
 
 /// Implementing the state store
-
-#[cfg(feature = "sled_state_store")]
-use std::path::Path;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
@@ -58,14 +55,13 @@ use crate::{
 pub(crate) mod ambiguity_map;
 mod memory_store;
 
-#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
-use self::memory_store::MemoryStore;
+pub use self::memory_store::MemoryStore;
 
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error(transparent)]
-    /// An error happened in the underlying sled database.
+    /// An error happened in the underlying database backend.
     Backend(#[from] anyhow::Error),
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "sled_cryptostore")]
-use std::path::Path;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     mem,
@@ -54,8 +52,6 @@ use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
-#[cfg(feature = "sled_cryptostore")]
-use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     gossiping::GossipMachine,
@@ -1559,8 +1555,6 @@ pub(crate) mod testing {
     pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
         Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
     }
-
-
 }
 
 #[cfg(test)]
@@ -1568,6 +1562,7 @@ pub(crate) mod test {
 
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
+    use super::testing::response_from_file;
     use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -1593,7 +1588,6 @@ pub(crate) mod test {
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
     };
     use serde_json::json;
-    use super::testing::response_from_file;
 
     use crate::{
         machine::OlmMachine,

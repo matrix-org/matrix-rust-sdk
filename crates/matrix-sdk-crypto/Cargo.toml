@@ -19,7 +19,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 qrcode = ["matrix-qrcode"]
 backups_v1 = []
-sled_cryptostore = []
 docsrs = []
 indexeddb_cryptostore = []
 
@@ -87,4 +86,3 @@ pprof = { version = "0.6.2", features = ["flamegraph", "criterion"] }
 [[bench]]
 name = "crypto_bench"
 harness = false
-required-features = ["sled_cryptostore"]

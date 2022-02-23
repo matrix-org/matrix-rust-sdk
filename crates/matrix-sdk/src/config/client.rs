@@ -144,10 +144,10 @@ mod store_helpers {
 #[cfg(not(any(feature = "indexeddb_stores", feature = "sled_state_store")))]
 mod store_helpers {
     use super::Result;
-    use matrix_sdk_base::state::MemoryStore as StateStore;
+    use matrix_sdk_base::store::MemoryStore as StateStore;
     /// Open a new in-memory StateStore
     pub async fn default_store() -> Result<Box<StateStore>> {
-        Ok(Box::new(StateStore::default()))
+        Ok(Box::new(StateStore::new()))
     }
 
     /// Alias for `default_store` - in Memory Stores are never named
@@ -155,7 +155,7 @@ mod store_helpers {
         _name: &str,
         _passphrase: Option<&str>,
     ) -> Result<Box<StateStore>> {
-        Ok(Box::new(StateStore::default()))
+        Ok(Box::new(StateStore::new()))
     }
 }
 

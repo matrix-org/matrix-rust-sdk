@@ -481,7 +481,7 @@ impl Account {
 pub struct ReadOnlyAccount {
     /// The user_id this account belongs to
     pub user_id: Arc<UserId>,
-    /// The device_id of this entry 
+    /// The device_id of this entry
     pub device_id: Arc<DeviceId>,
     inner: Arc<Mutex<OlmAccount>>,
     /// The associated identity keys
@@ -868,9 +868,7 @@ impl ReadOnlyAccount {
         self.sign(&canonical_json.to_string()).await
     }
 
-    pub async fn signed_one_time_keys_helper(
-        &self,
-    ) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
+    pub async fn signed_one_time_keys_helper(&self) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 

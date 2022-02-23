@@ -733,14 +733,12 @@ pub(crate) mod test {
     };
     use serde_json::json;
 
+    use super::testing::{device_id, other_key_query, other_user_id, own_key_query, user_id};
     use crate::{
         identities::IdentityManager,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
-    };
-    use super::testing::{
-        user_id, other_user_id, device_id, other_key_query, own_key_query,
     };
 
     #[async_test]
