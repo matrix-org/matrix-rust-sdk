@@ -1,9 +1,18 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
+    branches:
+    - master
   pull_request:
     branches: [ main ]
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,6 +21,7 @@ jobs:
   style:
     name: Check style
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     steps:
     - name: Checkout the repo
@@ -35,6 +45,7 @@ jobs:
     name: Spell Check with Typos
     needs: [style]
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     steps:
     - name: Checkout Actions Repository
@@ -47,6 +58,7 @@ jobs:
     name: Run clippy
     needs: [style]
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     steps:
     - name: Checkout the repo
@@ -86,6 +98,7 @@ jobs:
   check-wasm:
     name: checking WASM builds
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     strategy:
 #      fail-fast: true
@@ -159,6 +172,7 @@ jobs:
     name: ${{ matrix.name }} WASM test
     runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.experimental }}
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     strategy:
       matrix:
@@ -263,6 +277,7 @@ jobs:
 
   test-appservice:
     name: ${{ matrix.name }}
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
@@ -323,6 +338,7 @@ jobs:
 
   test-features:
     name: ${{ matrix.name }}
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
@@ -400,6 +416,7 @@ jobs:
 
   test:
     name: ${{ matrix.name }}
+    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
