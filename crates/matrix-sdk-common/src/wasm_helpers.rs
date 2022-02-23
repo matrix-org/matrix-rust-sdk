@@ -8,13 +8,13 @@ use web_sys::IdbKeyRange;
 /// Helpers for wasm32/browser environments
 
 /// ASCII Group Separator, for elements in the keys
-pub const KEY_SEPARATOR: &'static str = "\u{001D}";
+pub const KEY_SEPARATOR: &str = "\u{001D}";
 /// ASCII Record Separator is sure smaller than the Key Separator but smaller
 /// than regular characters
-pub const RANGE_END: &'static str = "\u{001E}";
+pub const RANGE_END: &str = "\u{001E}";
 /// Using the literal escape character to escape KEY_SEPARATOR in regular keys
 /// (though super unlikely)
-pub const ESCAPED: &'static str = "\u{001E}\u{001D}";
+pub const ESCAPED: &str = "\u{001E}\u{001D}";
 
 /// Encode value as String/JsValue/IdbKeyRange for the JS APIs in a
 /// safe, escaped manner.
@@ -45,7 +45,7 @@ pub trait SafeEncode {
             &JsValue::from([&key, KEY_SEPARATOR].concat()),
             &JsValue::from([&key, RANGE_END].concat()),
         )
-        .map_err(|e| e.as_string().unwrap_or(format!("Creating key range failed")))
+        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_string()))
     }
 }
 
