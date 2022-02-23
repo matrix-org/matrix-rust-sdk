@@ -39,6 +39,7 @@ pub use matrix_sdk_common::*;
 pub use crate::{
     error::{Error, Result},
     session::Session,
+    timeline_stream::TimelineStreamError,
 };
 
 mod client;
@@ -47,6 +48,7 @@ pub mod media;
 mod rooms;
 mod session;
 mod store;
+mod timeline_stream;
 
 pub use client::{BaseClient, BaseClientConfig};
 #[cfg(feature = "encryption")]

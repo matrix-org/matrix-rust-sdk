@@ -97,6 +97,13 @@ pub struct SyncRoomEvent {
     pub encryption_info: Option<EncryptionInfo>,
 }
 
+impl SyncRoomEvent {
+    /// Get the event id of this `SyncRoomEvent` if the event has any valid id.
+    pub fn event_id(&self) -> Option<Box<EventId>> {
+        self.event.get_field::<Box<EventId>>("event_id").ok().flatten()
+    }
+}
+
 impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
     fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
         Self { encryption_info: None, event: inner }
@@ -252,6 +259,39 @@ pub struct Timeline {
 impl Timeline {
     pub fn new(limited: bool, prev_batch: Option<String>) -> Self {
         Self { limited, prev_batch, ..Default::default() }
+    }
+}
+
+/// A slice of the timeline in the room.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct TimelineSlice {
+    /// The `next_batch` or `from` token used to obtain this slice
+    pub start: String,
+
+    /// The `prev_batch` or `to` token used to obtain this slice
+    /// If `None` this `TimelineSlice` is the beginning of the room
+    pub end: Option<String>,
+
+    /// Whether the number of events returned for this slice was limited
+    /// by a `limit`-filter when requesting
+    pub limited: bool,
+
+    /// A list of events.
+    pub events: Vec<SyncRoomEvent>,
+
+    /// Whether this is a timeline slice obtained from a `SyncResponse`
+    pub sync: bool,
+}
+
+impl TimelineSlice {
+    pub fn new(
+        events: Vec<SyncRoomEvent>,
+        start: String,
+        end: Option<String>,
+        limited: bool,
+        sync: bool,
+    ) -> Self {
+        Self { start, end, events, limited, sync }
     }
 }
 

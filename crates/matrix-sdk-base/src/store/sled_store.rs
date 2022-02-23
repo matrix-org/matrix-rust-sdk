@@ -28,11 +28,12 @@ use ruma::{
         presence::PresenceEvent,
         receipt::Receipt,
         room::member::{MembershipState, RoomMemberEventContent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent, AnySyncRoomEvent,
+        AnySyncStateEvent, EventType, Redact,
     },
     receipt::ReceiptType,
     serde::Raw,
-    EventId, MxcUri, RoomId, UserId,
+    EventId, MxcUri, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use sled::{
@@ -40,12 +41,12 @@ use sled::{
     Config, Db, Transactional, Tree,
 };
 use tokio::task::spawn_blocking;
-use tracing::info;
+use tracing::{info, warn};
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{store_key, Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{store_key, BoxStream, Result, RoomInfo, StateChanges, StateStore, StoreError};
 use crate::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
 };
 
@@ -169,6 +170,19 @@ impl EncodeKey for EventType {
     }
 }
 
+impl EncodeKey for EventId {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+}
+
+impl EncodeKey for (&RoomId, usize) {
+    fn encode(&self) -> Vec<u8> {
+        [self.0.as_bytes(), &[ENCODE_SEPARATOR], self.1.to_be_bytes().as_ref(), &[ENCODE_SEPARATOR]]
+            .concat()
+    }
+}
+
 /// Get the value at `position` in encoded `key`.
 ///
 /// The key must have been encoded with the `EncodeKey` trait. `position`
@@ -205,6 +219,9 @@ pub struct SledStore {
     room_event_receipts: Tree,
     media: Tree,
     custom: Tree,
+    room_timeline: Tree,
+    room_timeline_metadata: Tree,
+    room_event_id_to_position: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -244,6 +261,10 @@ impl SledStore {
 
         let custom = db.open_tree("custom")?;
 
+        let room_timeline = db.open_tree("room_timeline")?;
+        let room_timeline_metadata = db.open_tree("room_timeline_metadata")?;
+        let room_event_id_to_position = db.open_tree("room_event_id_to_position")?;
+
         Ok(Self {
             path,
             inner: db,
@@ -266,6 +287,9 @@ impl SledStore {
             room_event_receipts,
             media,
             custom,
+            room_timeline,
+            room_timeline_metadata,
+            room_event_id_to_position,
         })
     }
 
@@ -574,6 +598,8 @@ impl SledStore {
             );
 
         ret?;
+
+        self.save_room_timeline(changes).await?;
 
         self.inner.flush_async().await?;
 
@@ -973,7 +999,229 @@ impl SledStore {
 
         ret?;
 
+        self.remove_room_timeline(room_id).await?;
+
         self.inner.flush_async().await?;
+
+        Ok(())
+    }
+
+    async fn room_timeline(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
+        let db = self.clone();
+        let key = room_id.encode();
+        let metadata: Option<TimelineMetadata> = db
+            .room_timeline_metadata
+            .get(key.as_slice())?
+            .map(|v| serde_json::from_slice(&v).map_err(StoreError::Json))
+            .transpose()?;
+        if metadata.is_none() {
+            info!("No timeline for {} was previously stored", room_id);
+            return Ok(None);
+        }
+        let end_token = metadata.and_then(|m| m.end);
+        let stream = Box::pin(stream::iter(
+            db.room_timeline
+                .scan_prefix(key)
+                .map(move |v| db.deserialize_event(&v?.1).map_err(|e| e.into())),
+        ));
+
+        info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
+
+        Ok(Some((stream, end_token)))
+    }
+
+    async fn remove_room_timeline(&self, room_id: &RoomId) -> Result<()> {
+        let room_key = room_id.encode();
+        info!("Remove stored timeline for {}", room_id);
+
+        let mut timeline_batch = sled::Batch::default();
+        for key in self.room_timeline.scan_prefix(room_key.as_slice()).keys() {
+            timeline_batch.remove(key?)
+        }
+
+        let mut event_id_to_position_batch = sled::Batch::default();
+        for key in self.room_event_id_to_position.scan_prefix(room_key.as_slice()).keys() {
+            event_id_to_position_batch.remove(key?)
+        }
+
+        let ret: Result<(), TransactionError<SerializationError>> =
+            (&self.room_timeline, &self.room_timeline_metadata, &self.room_event_id_to_position)
+                .transaction(
+                    |(room_timeline, room_timeline_metadata, room_event_id_to_position)| {
+                        room_timeline_metadata.remove(room_key.as_slice())?;
+
+                        room_timeline.apply_batch(&timeline_batch)?;
+                        room_event_id_to_position.apply_batch(&event_id_to_position_batch)?;
+
+                        Ok(())
+                    },
+                );
+
+        ret?;
+
+        Ok(())
+    }
+
+    async fn save_room_timeline(&self, changes: &StateChanges) -> Result<()> {
+        let mut timeline_batch = sled::Batch::default();
+        let mut event_id_to_position_batch = sled::Batch::default();
+        let mut timeline_metadata_batch = sled::Batch::default();
+
+        for (room_id, timeline) in &changes.timeline {
+            if timeline.sync {
+                info!("Save new timeline batch from sync response for {}", room_id);
+            } else {
+                info!("Save new timeline batch from messages response for {}", room_id);
+            }
+            let room_key = room_id.encode();
+
+            let metadata: Option<TimelineMetadata> = if timeline.limited {
+                info!(
+                    "Delete stored timeline for {} because the sync response was limited",
+                    room_id
+                );
+                self.remove_room_timeline(room_id).await?;
+                None
+            } else {
+                let metadata: Option<TimelineMetadata> = self
+                    .room_timeline_metadata
+                    .get(room_key.as_slice())?
+                    .map(|v| serde_json::from_slice(&v).map_err(StoreError::Json))
+                    .transpose()?;
+                if let Some(mut metadata) = metadata {
+                    if !timeline.sync && Some(&timeline.start) != metadata.end.as_ref() {
+                        // This should only happen when a developer adds a wrong timeline
+                        // batch to the `StateChanges` or the server returns a wrong response
+                        // to our request.
+                        warn!("Drop unexpected timeline batch for {}", room_id);
+                        return Ok(());
+                    }
+
+                    // Check if the event already exists in the store
+                    let mut delete_timeline = false;
+                    for event in &timeline.events {
+                        if let Some(event_id) = event.event_id() {
+                            let event_key = (room_id.as_ref(), event_id.as_ref()).encode();
+                            if self.room_event_id_to_position.contains_key(event_key)? {
+                                delete_timeline = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if delete_timeline {
+                        info!(
+                            "Delete stored timeline for {} because of duplicated events",
+                            room_id
+                        );
+                        self.remove_room_timeline(room_id).await?;
+                        None
+                    } else if timeline.sync {
+                        metadata.start = timeline.start.clone();
+                        Some(metadata)
+                    } else {
+                        metadata.end = timeline.end.clone();
+                        Some(metadata)
+                    }
+                } else {
+                    None
+                }
+            };
+
+            let mut metadata = if let Some(metadata) = metadata {
+                metadata
+            } else {
+                TimelineMetadata {
+                    start: timeline.start.clone(),
+                    end: timeline.end.clone(),
+                    start_position: usize::MAX / 2,
+                    end_position: usize::MAX / 2,
+                }
+            };
+            let room_version = self
+                .room_info
+                .get(room_id.encode())?
+                .map(|r| self.deserialize_event::<RoomInfo>(&r))
+                .transpose()?
+                .and_then(|info| info.base_info.create.map(|event| event.room_version))
+                .unwrap_or_else(|| {
+                    warn!("Unable to find the room version for {}, assume version 9", room_id);
+                    RoomVersionId::V9
+                });
+
+            if timeline.sync {
+                for event in timeline.events.iter().rev() {
+                    // Redact events already in store only on sync response
+                    if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
+                        redaction,
+                    ))) = event.event.deserialize()
+                    {
+                        let redacts_key = (room_id.as_ref(), redaction.redacts.as_ref()).encode();
+                        if let Some(position_key) =
+                            self.room_event_id_to_position.get(redacts_key)?
+                        {
+                            if let Some(mut full_event) = self
+                                .room_timeline
+                                .get(position_key.as_ref())?
+                                .map(|e| {
+                                    self.deserialize_event::<SyncRoomEvent>(&e)
+                                        .map_err(StoreError::from)
+                                })
+                                .transpose()?
+                            {
+                                let inner_event = full_event.event.deserialize()?;
+
+                                full_event.event = Raw::new(&AnySyncRoomEvent::from(
+                                    inner_event.redact(redaction, &room_version),
+                                ))?;
+                                timeline_batch
+                                    .insert(position_key, self.serialize_event(&full_event)?);
+                            }
+                        }
+                    }
+
+                    metadata.start_position -= 1;
+                    let key = (room_id.as_ref(), metadata.start_position).encode();
+                    timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
+                    // Only add event with id to the position map
+                    if let Some(event_id) = event.event_id() {
+                        let event_key = (room_id.as_ref(), event_id.as_ref()).encode();
+                        event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
+                    }
+                }
+            } else {
+                for event in timeline.events.iter() {
+                    metadata.end_position += 1;
+                    let key = (room_id.as_ref(), metadata.end_position).encode();
+                    timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
+                    // Only add event with id to the position map
+                    if let Some(event_id) = event.event_id() {
+                        let event_key = (room_id.as_ref(), event_id.as_ref()).encode();
+                        event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
+                    }
+                }
+            }
+
+            timeline_metadata_batch.insert(room_key, serde_json::to_vec(&metadata)?);
+        }
+
+        let ret: Result<(), TransactionError<SerializationError>> =
+            (&self.room_timeline, &self.room_timeline_metadata, &self.room_event_id_to_position)
+                .transaction(
+                    |(room_timeline, room_timeline_metadata, room_event_id_to_position)| {
+                        room_timeline_metadata.apply_batch(&timeline_metadata_batch)?;
+
+                        room_timeline.apply_batch(&timeline_batch)?;
+                        room_event_id_to_position.apply_batch(&event_id_to_position_batch)?;
+
+                        Ok(())
+                    },
+                );
+
+        ret?;
 
         Ok(())
     }
@@ -1122,11 +1370,25 @@ impl StateStore for SledStore {
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         self.remove_room(room_id).await
     }
+
+    async fn room_timeline(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
+        self.room_timeline(room_id).await
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TimelineMetadata {
+    pub start: String,
+    pub start_position: usize,
+    pub end: Option<String>,
+    pub end_position: usize,
 }
 
 #[cfg(test)]
 mod test {
-
     use super::{Result, SledStore};
 
     async fn get_store() -> Result<SledStore> {
