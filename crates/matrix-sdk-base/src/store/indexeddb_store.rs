@@ -591,7 +591,19 @@ impl IndexeddbStore {
                 };
 
                 if timeline.sync {
-                    let mut room_version = None;
+                    let room_version = room_infos
+                        .get(&room_key)?
+                        .await?
+                        .map(|r| self.deserialize_event::<RoomInfo>(r))
+                        .transpose()?
+                        .and_then(|info| {
+                            info.base_info
+                                .create
+                                .map(|event| event.room_version)
+                        }).unwrap_or_else(|| {
+                            warn!("Unable to find the room version for {}, assume version 9", room_id);
+                            RoomVersionId::V9
+                        });
                     for event in timeline.events.iter().rev() {
                         // Redact events already in store only on sync response
                         if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
@@ -612,25 +624,9 @@ impl IndexeddbStore {
                                     .transpose()?
                                 {
                                     let inner_event = full_event.event.deserialize()?;
-                                    if room_version.is_none() {
-                                        room_version = Some(room_infos
-                                                        .get(&room_key)?
-                                                        .await?
-                                                        .map(|r| self.deserialize_event::<RoomInfo>(r))
-                                                        .transpose()?
-                                                        .and_then(|info| {
-                                                            info.base_info
-                                                                .create
-                                                                .map(|event| event.room_version)
-                                                        }).unwrap_or_else(|| {
-                                                            warn!("Unable to find the room version for {}, assume version 9", room_id);
-                                                            RoomVersionId::V9
-                                                        }));
-                                    }
-
                                     full_event.event = Raw::new(&AnySyncRoomEvent::from(
                                         inner_event
-                                            .redact(redaction, room_version.as_ref().unwrap()),
+                                            .redact(redaction, &room_version),
                                     ))?;
                                     timeline_store.put_key_val_owned(
                                         position_key,
