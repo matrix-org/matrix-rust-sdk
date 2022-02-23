@@ -19,6 +19,7 @@ use std::path::Path;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
+    pin::Pin,
     sync::Arc,
 };
 
@@ -43,13 +44,12 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 
+#[cfg(feature = "state_key")]
 pub mod store_key;
-
-#[cfg(feature = "sled_state_store")]
-use sled::Db;
+pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent, TimelineSlice},
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,
@@ -323,6 +323,19 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `room_id` - The `RoomId` of the room to delete.
     async fn remove_room(&self, room_id: &RoomId) -> Result<()>;
+
+    /// Get a stream of the stored timeline
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The `RoomId` of the room to delete.
+    ///
+    /// Returns a stream of events and a token that can be used to request
+    /// previous events.
+    async fn room_timeline(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>>;
 }
 
 /// A state store wrapper for the SDK.
@@ -483,6 +496,8 @@ pub struct StateChanges {
     pub ambiguity_maps: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<Box<UserId>>>>,
     /// A map of `RoomId` to a vector of `Notification`s
     pub notifications: BTreeMap<Box<RoomId>, Vec<Notification>>,
+    /// A mapping of `RoomId` to a `TimelineSlice`
+    pub timeline: BTreeMap<Box<RoomId>, TimelineSlice>,
 }
 
 impl StateChanges {
@@ -566,5 +581,11 @@ impl StateChanges {
     /// `Receipts`.
     pub fn add_receipts(&mut self, room_id: &RoomId, event: ReceiptEventContent) {
         self.receipts.insert(room_id.to_owned(), event);
+    }
+
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `TimelineSlice`.
+    pub fn add_timeline(&mut self, room_id: &RoomId, timeline: TimelineSlice) {
+        self.timeline.insert(room_id.to_owned(), timeline);
     }
 }

@@ -8,7 +8,9 @@ use ruma::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnySyncEphemeralRoomEvent,
         AnySyncRoomEvent, AnySyncStateEvent,
     },
-    room_id, RoomId,
+    room_id,
+    serde::Raw,
+    RoomId,
 };
 use serde_json::Value as JsonValue;
 
@@ -85,19 +87,19 @@ pub enum EventsJson {
 #[derive(Default)]
 pub struct EventBuilder {
     /// The events that determine the state of a `Room`.
-    joined_room_events: HashMap<Box<RoomId>, Vec<AnySyncRoomEvent>>,
+    joined_room_events: HashMap<Box<RoomId>, Vec<Raw<AnySyncRoomEvent>>>,
     /// The events that determine the state of a `Room`.
-    invited_room_events: HashMap<Box<RoomId>, Vec<AnySyncStateEvent>>,
+    invited_room_events: HashMap<Box<RoomId>, Vec<Raw<AnySyncStateEvent>>>,
     /// The events that determine the state of a `Room`.
-    left_room_events: HashMap<Box<RoomId>, Vec<AnySyncRoomEvent>>,
+    left_room_events: HashMap<Box<RoomId>, Vec<Raw<AnySyncRoomEvent>>>,
     /// The presence events that determine the presence state of a `RoomMember`.
     presence_events: Vec<PresenceEvent>,
     /// The state events that determine the state of a `Room`.
-    state_events: Vec<AnySyncStateEvent>,
+    state_events: Vec<Raw<AnySyncStateEvent>>,
     /// The ephemeral room events that determine the state of a `Room`.
-    ephemeral: Vec<AnySyncEphemeralRoomEvent>,
+    ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     /// The account data events that determine the state of a `Room`.
-    account_data: Vec<AnyGlobalAccountDataEvent>,
+    account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Internal counter to enable the `prev_batch` and `next_batch` of each
     /// sync response to vary.
     batch_counter: i64,
@@ -118,7 +120,7 @@ impl EventBuilder {
             _ => panic!("unknown ephemeral event {:?}", json),
         };
 
-        let event = serde_json::from_value::<AnySyncEphemeralRoomEvent>(val.clone()).unwrap();
+        let event = serde_json::from_value(val.clone()).unwrap();
         self.ephemeral.push(event);
         self
     }
@@ -131,7 +133,7 @@ impl EventBuilder {
             _ => panic!("unknown account event {:?}", json),
         };
 
-        let event = serde_json::from_value::<AnyGlobalAccountDataEvent>(val.clone()).unwrap();
+        let event = serde_json::from_value(val.clone()).unwrap();
         self.account_data.push(event);
         self
     }
@@ -146,7 +148,7 @@ impl EventBuilder {
             _ => panic!("unknown room event json {:?}", json),
         };
 
-        let event = serde_json::from_value::<AnySyncRoomEvent>(val.clone()).unwrap();
+        let event = serde_json::from_value(val.clone()).unwrap();
 
         self.add_joined_event(room_id!("!SVkFJHzfwvuaIEawgC:localhost"), event);
         self
@@ -157,12 +159,12 @@ impl EventBuilder {
         room_id: &RoomId,
         event: serde_json::Value,
     ) -> &mut Self {
-        let event = serde_json::from_value::<AnySyncRoomEvent>(event).unwrap();
+        let event = serde_json::from_value(event).unwrap();
         self.add_joined_event(room_id, event);
         self
     }
 
-    fn add_joined_event(&mut self, room_id: &RoomId, event: AnySyncRoomEvent) {
+    fn add_joined_event(&mut self, room_id: &RoomId, event: Raw<AnySyncRoomEvent>) {
         self.joined_room_events.entry(room_id.to_owned()).or_insert_with(Vec::new).push(event);
     }
 
@@ -171,7 +173,7 @@ impl EventBuilder {
         room_id: &RoomId,
         event: serde_json::Value,
     ) -> &mut Self {
-        let event = serde_json::from_value::<AnySyncStateEvent>(event).unwrap();
+        let event = serde_json::from_value(event).unwrap();
         self.invited_room_events.entry(room_id.to_owned()).or_insert_with(Vec::new).push(event);
         self
     }
@@ -181,7 +183,7 @@ impl EventBuilder {
         room_id: &RoomId,
         event: serde_json::Value,
     ) -> &mut Self {
-        let event = serde_json::from_value::<AnySyncRoomEvent>(event).unwrap();
+        let event = serde_json::from_value(event).unwrap();
         self.left_room_events.entry(room_id.to_owned()).or_insert_with(Vec::new).push(event);
         self
     }
@@ -197,7 +199,7 @@ impl EventBuilder {
             _ => panic!("unknown state event {:?}", json),
         };
 
-        let event = serde_json::from_value::<AnySyncStateEvent>(val.clone()).unwrap();
+        let event = serde_json::from_value(val.clone()).unwrap();
         self.state_events.push(event);
         self
     }

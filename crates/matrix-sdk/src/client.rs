@@ -55,6 +55,7 @@ use ruma::{
                 sync::sync_events,
                 uiaa::{AuthData, UserIdentifier},
             },
+            session::sso_login_with_provider::v3 as sso_login_with_provider,
             unversioned::{discover_homeserver, get_supported_versions},
         },
         error::FromHttpResponseError,
@@ -743,12 +744,23 @@ impl Client {
     /// * `redirect_url` - The URL that will receive a `loginToken` after a
     ///   successful SSO login.
     ///
+    /// * `idp_id` - The optional ID of the identity provider to login with.
+    ///
     /// [`login_with_token`]: #method.login_with_token
-    pub async fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
+    pub async fn get_sso_login_url(
+        &self,
+        redirect_url: &str,
+        idp_id: Option<&str>,
+    ) -> Result<String> {
         let homeserver = self.homeserver().await;
 
-        let request = sso_login::Request::new(redirect_url)
-            .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None);
+        let request = if let Some(id) = idp_id {
+            sso_login_with_provider::Request::new(id, redirect_url)
+                .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None)
+        } else {
+            sso_login::Request::new(redirect_url)
+                .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None)
+        };
 
         match request {
             Ok(req) => Ok(req.uri().to_string()),
@@ -876,6 +888,8 @@ impl Client {
     ///   associated with the device_id. Only necessary the first time you login
     ///   with this device_id. It can be changed later.
     ///
+    /// * `idp_id` - The optional ID of the identity provider to login with.
+    ///
     /// # Example
     /// ```no_run
     /// # use matrix_sdk::Client;
@@ -894,7 +908,8 @@ impl Client {
     ///         None,
     ///         None,
     ///         None,
-    ///         Some("My app")
+    ///         Some("My app"),
+    ///         None,
     ///     )
     ///     .await
     ///     .unwrap();
@@ -915,6 +930,7 @@ impl Client {
         server_response: Option<&str>,
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
+        idp_id: Option<&str>,
     ) -> Result<login::Response>
     where
         C: Future<Output = Result<()>>,
@@ -1007,7 +1023,7 @@ impl Client {
 
         tokio::spawn(server);
 
-        let sso_url = self.get_sso_login_url(redirect_url.as_str()).await?;
+        let sso_url = self.get_sso_login_url(redirect_url.as_str(), idp_id).await?;
 
         match use_sso_login_url(sso_url).await {
             Ok(t) => t,
@@ -1067,7 +1083,7 @@ impl Client {
     /// # let login_token = "token";
     /// # block_on(async {
     /// let client = Client::new(homeserver).await.unwrap();
-    /// let sso_url = client.get_sso_login_url(redirect_url);
+    /// let sso_url = client.get_sso_login_url(redirect_url, None);
     ///
     /// // Let the user authenticate at the SSO URL
     /// // Receive the loginToken param at redirect_url
@@ -2303,6 +2319,7 @@ pub(crate) mod test {
     use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
     use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
+    use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
     use ruma::{
@@ -2499,7 +2516,10 @@ pub(crate) mod test {
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
-
+        let idp = crate::client::get_login_types::IdentityProvider::new(
+            "some-id".to_string(),
+            "idp-name".to_string(),
+        );
         client
             .login_with_sso(
                 |sso_url| async move {
@@ -2519,6 +2539,7 @@ pub(crate) mod test {
                 None,
                 None,
                 None,
+                Some(&idp.id),
             )
             .await
             .unwrap();
@@ -2547,7 +2568,7 @@ pub(crate) mod test {
             .any(|flow| matches!(flow, LoginType::Sso(_)));
         assert!(can_sso);
 
-        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030").await;
+        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030", None).await;
         assert!(sso_url.is_ok());
 
         let _m = mock("POST", "/_matrix/client/r0/login")
@@ -3807,5 +3828,146 @@ pub(crate) mod test {
             .unwrap();
 
         matches::assert_matches!(encryption_event, AnySyncStateEvent::RoomEncryption(_));
+    }
+
+    #[async_test]
+    async fn room_timeline() {
+        let client = logged_in_client().await;
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .with_body(test_json::SYNC.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+
+        let _ = client.sync_once(sync_settings).await.unwrap();
+        sync.assert();
+        drop(sync);
+        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+        let (forward_stream, backward_stream) = room.timeline().await.unwrap();
+
+        let sync_2 = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::MORE_SYNC.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let sync_3 = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::MORE_SYNC_2.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let mocked_messages = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
+                    .to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_1.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let mocked_messages_2 = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
+                    .to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_2.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_string()));
+        let sync_settings = SyncSettings::new()
+            .timeout(Duration::from_millis(3000))
+            .token("s526_47314_0_7_1_1_1_11444_1");
+        let _ = client.sync_once(sync_settings).await.unwrap();
+        sync_2.assert();
+        let sync_settings = SyncSettings::new()
+            .timeout(Duration::from_millis(3000))
+            .token("s526_47314_0_7_1_1_1_11444_2");
+        let _ = client.sync_once(sync_settings).await.unwrap();
+        sync_3.assert();
+
+        let expected_events = vec![
+            "$152037280074GZeOm:localhost",
+            "$editevid:localhost",
+            "$151957878228ssqrJ:localhost",
+            "$15275046980maRLj:localhost",
+            "$15275047031IXQRi:localhost",
+            "$098237280074GZeOm:localhost",
+            "$152037280074GZeOm2:localhost",
+            "$editevid2:localhost",
+            "$151957878228ssqrJ2:localhost",
+            "$15275046980maRLj2:localhost",
+            "$15275047031IXQRi2:localhost",
+            "$098237280074GZeOm2:localhost",
+        ];
+
+        use futures_util::StreamExt;
+        let forward_events =
+            forward_stream.take(expected_events.len()).collect::<Vec<SyncRoomEvent>>().await;
+
+        assert!(forward_events.into_iter().zip(expected_events.iter()).all(|(a, b)| &a
+            .event_id()
+            .unwrap()
+            .as_str()
+            == b));
+
+        let expected_events = vec![
+            "$152037280074GZeOm2:localhost",
+            "$editevid2:localhost",
+            "$151957878228ssqrJ2:localhost",
+            "$15275046980maRLj2:localhost",
+            "$15275047031IXQRi2:localhost",
+            "$098237280074GZeOm2:localhost",
+            "$152037280074GZeOm:localhost",
+            "$editevid:localhost",
+            "$151957878228ssqrJ:localhost",
+            "$15275046980maRLj:localhost",
+            "$15275047031IXQRi:localhost",
+            "$098237280074GZeOm:localhost",
+            "$1444812213350496Caaaf:example.com",
+            "$1444812213350496Cbbbf:example.com",
+            "$1444812213350496Ccccf:example.com",
+            "$1444812213350496Caaak:example.com",
+            "$1444812213350496Cbbbk:example.com",
+            "$1444812213350496Cccck:example.com",
+        ];
+
+        let join_handle = tokio::spawn(async move {
+            let backward_events = backward_stream
+                .take(expected_events.len())
+                .collect::<Vec<crate::Result<SyncRoomEvent>>>()
+                .await;
+
+            assert!(backward_events.into_iter().zip(expected_events.iter()).all(|(a, b)| &a
+                .unwrap()
+                .event_id()
+                .unwrap()
+                .as_str()
+                == b));
+        });
+
+        join_handle.await.unwrap();
+
+        mocked_messages.assert();
+        mocked_messages_2.assert();
     }
 }

@@ -296,6 +296,7 @@ impl Inspector {
             .disable_version_flag(true)
             .disable_help_flag(true)
             .no_binary_name(true)
+            .subcommand_required(true)
             .arg_required_else_help(true)
             .subcommands(Inspector::subcommands());
 
