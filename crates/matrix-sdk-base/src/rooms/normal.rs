@@ -640,10 +640,7 @@ impl RoomInfo {
         self.base_info.handle_state_event(event)
     }
 
-    pub fn update_notification_count(
-        &mut self,
-        notification_counts: UnreadNotificationsCount,
-    ) {
+    pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
         self.notification_counts = notification_counts;
     }
 

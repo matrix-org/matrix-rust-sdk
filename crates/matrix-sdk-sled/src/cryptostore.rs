@@ -20,12 +20,12 @@ use std::{
 };
 
 use dashmap::DashSet;
-use matrix_sdk_common::{async_trait, locks::Mutex};
 use matrix_sdk_common::ruma::{
     encryption::DeviceKeys,
     events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
     DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
 };
+use matrix_sdk_common::{async_trait, locks::Mutex};
 use serde::{Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
@@ -35,16 +35,15 @@ use sled::{
 use tracing::debug;
 
 use matrix_sdk_crypto::{
-    store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError,
-        PickleKey, Result, RoomKeyCounts, IdentityKeys, PicklingMode,
-    },
-    GossipRequest, SecretInfo, ReadOnlyAccount,
-    ReadOnlyDevice, ReadOnlyUserIdentities,
     olm::{
-        InboundGroupSession, Session, OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity
+        InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
+        PrivateCrossSigningIdentity, Session,
     },
-    LocalTrust,
+    store::{
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, IdentityKeys,
+        PickleKey, PicklingMode, Result, RoomKeyCounts,
+    },
+    GossipRequest, LocalTrust, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
 
 use anyhow::anyhow;
@@ -210,9 +209,16 @@ impl std::fmt::Debug for SledStore {
 impl SledStore {
     /// Open the sled based cryptostore at the given path using the given
     /// passphrase to encrypt private data.
-    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self, anyhow::Error> {
+    pub fn open_with_passphrase(
+        path: impl AsRef<Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, anyhow::Error> {
         let path = path.as_ref().join("matrix-sdk-crypto");
-        let db = Config::new().temporary(false).path(&path).open().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        let db = Config::new()
+            .temporary(false)
+            .path(&path)
+            .open()
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         SledStore::open_helper(db, Some(path), passphrase)
     }
@@ -266,7 +272,8 @@ impl SledStore {
     fn upgrade(&self) -> Result<()> {
         let version = self
             .inner
-            .get("store_version").map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .get("store_version")
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
             .map(|v| {
                 let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
                 u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
@@ -281,7 +288,9 @@ impl SledStore {
             // We changed the schema but migrating this isn't important since we
             // rotate the group sessions relatively often anyways so we just
             // clear the tree.
-            self.outbound_group_sessions.clear().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            self.outbound_group_sessions
+                .clear()
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
         }
 
         if version <= 1 {
@@ -316,46 +325,64 @@ impl SledStore {
             let devices: Vec<ReadOnlyDevice> = self
                 .devices
                 .iter()
-                .map(|d| serde_json::from_slice(&d.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1).map_err(CryptoStoreError::Serialization))
+                .map(|d| {
+                    serde_json::from_slice(&d.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                        .map_err(CryptoStoreError::Serialization)
+                })
                 .map(|d| {
                     let d: OldReadOnlyDevice = d?;
                     Ok(d.into())
                 })
                 .collect::<Result<Vec<ReadOnlyDevice>, CryptoStoreError>>()?;
 
-            self.devices.transaction(move |tree| {
-                for device in &devices {
-                    let key = device.encode();
-                    let device =
-                        serde_json::to_vec(device).map_err(ConflictableTransactionError::Abort)?;
-                    tree.insert(key, device)?;
-                }
+            self.devices
+                .transaction(move |tree| {
+                    for device in &devices {
+                        let key = device.encode();
+                        let device = serde_json::to_vec(device)
+                            .map_err(ConflictableTransactionError::Abort)?;
+                        tree.insert(key, device)?;
+                    }
 
-                Ok(())
-            }).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                    Ok(())
+                })
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
         }
 
         if version <= 2 {
             // We're treating our own device now differently, we're checking if
             // the keys match to what we have locally, remove the unchecked
             // device and mark our own user as dirty.
-            if let Some(pickle) = self.account.get("account".encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))? {
+            if let Some(pickle) = self
+                .account
+                .get("account".encode())
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            {
                 let pickle = serde_json::from_slice(&pickle)?;
                 let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
 
                 self.devices
-                    .remove((account.user_id().as_str(), account.device_id.as_str()).encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-                self.tracked_users.insert(account.user_id().as_str(), &[true as u8]).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                    .remove((account.user_id().as_str(), account.device_id.as_str()).encode())
+                    .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                self.tracked_users
+                    .insert(account.user_id().as_str(), &[true as u8])
+                    .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
             }
         }
 
-        self.inner.insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.inner
+            .insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
         self.inner.flush().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         Ok(())
     }
 
-    fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self, anyhow::Error> {
+    fn open_helper(
+        db: Db,
+        path: Option<PathBuf>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, anyhow::Error> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 
@@ -411,15 +438,19 @@ impl SledStore {
     }
 
     fn get_or_create_pickle_key(passphrase: &str, database: &Db) -> Result<PickleKey> {
-        let key = if let Some(key) =
-            database.get("pickle_key".encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.map(|v| serde_json::from_slice(&v))
+        let key = if let Some(key) = database
+            .get("pickle_key".encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|v| serde_json::from_slice(&v))
         {
             PickleKey::from_encrypted(passphrase, key?)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?
         } else {
             let key = PickleKey::new();
             let encrypted = key.encrypt(passphrase);
-            database.insert("pickle_key".encode(), serde_json::to_vec(&encrypted)?).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            database
+                .insert("pickle_key".encode(), serde_json::to_vec(&encrypted)?)
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
             key
         };
 
@@ -457,7 +488,8 @@ impl SledStore {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         self.outbound_group_sessions
-            .get(room_id.encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .get(room_id.encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
             .map(|p| serde_json::from_slice(&p).map_err(CryptoStoreError::Serialization))
             .transpose()?
             .map(|p| {
@@ -674,12 +706,17 @@ impl SledStore {
     async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
         let request = self
             .outgoing_secret_requests
-            .get(id).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .get(id)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
             .map(|r| serde_json::from_slice(&r))
             .transpose()?;
 
         let request = if request.is_none() {
-            self.unsent_secret_requests.get(id).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.map(|r| serde_json::from_slice(&r)).transpose()?
+            self.unsent_secret_requests
+                .get(id)
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+                .map(|r| serde_json::from_slice(&r))
+                .transpose()?
         } else {
             request
         };
@@ -691,7 +728,11 @@ impl SledStore {
 #[async_trait]
 impl CryptoStore for SledStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
-        if let Some(pickle) = self.account.get("account".encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))? {
+        if let Some(pickle) = self
+            .account
+            .get("account".encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+        {
             let pickle = serde_json::from_slice(&pickle)?;
 
             self.load_tracked_users().await?;
@@ -727,7 +768,11 @@ impl CryptoStore for SledStore {
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        if let Some(i) = self.private_identity.get("identity".encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))? {
+        if let Some(i) = self
+            .private_identity
+            .get("identity".encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+        {
             let pickle = serde_json::from_slice(&i)?;
             Ok(Some(
                 PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
@@ -750,7 +795,10 @@ impl CryptoStore for SledStore {
             let sessions: Result<Vec<Session>> = self
                 .sessions
                 .scan_prefix(sender_key.encode())
-                .map(|s| serde_json::from_slice(&s.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1).map_err(CryptoStoreError::Serialization))
+                .map(|s| {
+                    serde_json::from_slice(&s.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                        .map_err(CryptoStoreError::Serialization)
+                })
                 .map(|p| {
                     Session::from_pickle(
                         account_info.user_id.clone(),
@@ -776,7 +824,11 @@ impl CryptoStore for SledStore {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
         let key = (room_id.as_str(), sender_key, session_id).encode();
-        let pickle = self.inbound_group_sessions.get(&key).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.map(|p| serde_json::from_slice(&p));
+        let pickle = self
+            .inbound_group_sessions
+            .get(&key)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|p| serde_json::from_slice(&p));
 
         if let Some(pickle) = pickle {
             Ok(Some(InboundGroupSession::from_pickle(pickle?, self.get_pickle_mode())?))
@@ -789,7 +841,10 @@ impl CryptoStore for SledStore {
         let pickles: Result<Vec<PickledInboundGroupSession>> = self
             .inbound_group_sessions
             .iter()
-            .map(|p| serde_json::from_slice(&p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1).map_err(CryptoStoreError::Serialization))
+            .map(|p| {
+                serde_json::from_slice(&p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                    .map_err(CryptoStoreError::Serialization)
+            })
             .collect();
 
         Ok(pickles?
@@ -881,7 +936,9 @@ impl CryptoStore for SledStore {
             self.users_for_key_query_cache.remove(user);
         }
 
-        self.tracked_users.insert(user.as_str(), &[dirty as u8]).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.tracked_users
+            .insert(user.as_str(), &[dirty as u8])
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         Ok(already_added)
     }
@@ -892,7 +949,12 @@ impl CryptoStore for SledStore {
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
         let key = (user_id.as_str(), device_id.as_str()).encode();
-        Ok(self.devices.get(key).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.map(|d| serde_json::from_slice(&d)).transpose()?)
+        Ok(self
+            .devices
+            .get(key)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|d| serde_json::from_slice(&d))
+            .transpose()?)
     }
 
     async fn get_user_devices(
@@ -901,7 +963,10 @@ impl CryptoStore for SledStore {
     ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
         self.devices
             .scan_prefix(user_id.encode())
-            .map(|d| serde_json::from_slice(&d.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1).map_err(CryptoStoreError::Serialization))
+            .map(|d| {
+                serde_json::from_slice(&d.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                    .map_err(CryptoStoreError::Serialization)
+            })
             .map(|d| {
                 let d: ReadOnlyDevice = d?;
                 Ok((d.device_id().to_owned(), d))
@@ -912,13 +977,20 @@ impl CryptoStore for SledStore {
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         Ok(self
             .identities
-            .get(user_id.encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .get(user_id.encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
             .map(|i| serde_json::from_slice(&i))
             .transpose()?)
     }
 
-    async fn is_message_known(&self, message_hash: &matrix_sdk_crypto::olm::OlmMessageHash) -> Result<bool> {
-        Ok(self.olm_hashes.contains_key(serde_json::to_vec(message_hash)?).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?)
+    async fn is_message_known(
+        &self,
+        message_hash: &matrix_sdk_crypto::olm::OlmMessageHash,
+    ) -> Result<bool> {
+        Ok(self
+            .olm_hashes
+            .contains_key(serde_json::to_vec(message_hash)?)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?)
     }
 
     async fn get_outgoing_secret_requests(
@@ -934,7 +1006,10 @@ impl CryptoStore for SledStore {
         &self,
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
-        let id = self.secret_requests_by_info.get(key_info.encode()).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        let id = self
+            .secret_requests_by_info
+            .get(key_info.encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         if let Some(id) = id {
             self.get_outgoing_key_request_helper(&id).await
@@ -947,7 +1022,10 @@ impl CryptoStore for SledStore {
         let requests: Result<Vec<GossipRequest>> = self
             .unsent_secret_requests
             .iter()
-            .map(|i| serde_json::from_slice(&i.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1).map_err(CryptoStoreError::from))
+            .map(|i| {
+                serde_json::from_slice(&i.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                    .map_err(CryptoStoreError::from)
+            })
             .collect();
 
         requests
@@ -1025,8 +1103,8 @@ impl CryptoStore for SledStore {
 #[cfg(test)]
 mod test {
     use lazy_static::lazy_static;
-    use tempfile::{tempdir, TempDir};
     use matrix_sdk_crypto::cryptostore_integration_tests;
+    use tempfile::{tempdir, TempDir};
 
     use super::SledStore;
     lazy_static! {

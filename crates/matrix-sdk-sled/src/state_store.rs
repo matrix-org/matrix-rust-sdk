@@ -20,6 +20,7 @@ use std::{
     time::Instant,
 };
 
+use anyhow::anyhow;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
 use matrix_sdk_common::async_trait;
@@ -43,16 +44,15 @@ use sled::{
 };
 use tokio::task::spawn_blocking;
 use tracing::{info, warn};
-use anyhow::anyhow;
 
 use matrix_sdk_base::{
-    store::{
-        store_key::{self, EncryptedEvent, StoreKey},
-        BoxStream,
-        Result as StoreResult, StateChanges, StateStore, StoreError},
-    RoomInfo,
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
+    store::{
+        store_key::{self, EncryptedEvent, StoreKey},
+        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
+    },
+    RoomInfo,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,7 +86,7 @@ impl From<TransactionError<SledStoreError>> for SledStoreError {
     }
 }
 
-impl Into<StoreError> for SledStoreError  {
+impl Into<StoreError> for SledStoreError {
     fn into(self) -> StoreError {
         match self {
             SledStoreError::Json(e) => StoreError::Json(e),
@@ -97,7 +97,7 @@ impl Into<StoreError> for SledStoreError  {
                 store_key::Error::Encryption(e) => StoreError::Encryption(e),
             },
             SledStoreError::StoreError(e) => e,
-            _ => StoreError::Backend(anyhow!(self))
+            _ => StoreError::Backend(anyhow!(self)),
         }
     }
 }
@@ -710,8 +710,15 @@ impl SledStore {
         let members = self.members.clone();
         let key = room_id.encode();
 
-        spawn_blocking(move || stream::iter(members.scan_prefix(key).map(move |u| decode(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.0))))
-            .await.map_err(|e| StoreError::Backend(anyhow!(e)))
+        spawn_blocking(move || {
+            stream::iter(
+                members
+                    .scan_prefix(key)
+                    .map(move |u| decode(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.0)),
+            )
+        })
+        .await
+        .map_err(|e| StoreError::Backend(anyhow!(e)))
     }
 
     pub async fn get_invited_user_ids(
@@ -722,11 +729,15 @@ impl SledStore {
         let key = room_id.encode();
         spawn_blocking(move || {
             stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1).to_string())
-                    .map_err(StoreError::Identifier)
+                UserId::parse(
+                    String::from_utf8_lossy(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1)
+                        .to_string(),
+                )
+                .map_err(StoreError::Identifier)
             }))
         })
-        .await.map_err(|e| StoreError::Backend(anyhow!(e)))
+        .await
+        .map_err(|e| StoreError::Backend(anyhow!(e)))
     }
 
     pub async fn get_joined_user_ids(
@@ -737,11 +748,15 @@ impl SledStore {
         let key = room_id.encode();
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1).to_string())
-                    .map_err(StoreError::Identifier)
+                UserId::parse(
+                    String::from_utf8_lossy(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1)
+                        .to_string(),
+                )
+                .map_err(StoreError::Identifier)
             }))
         })
-        .await.map_err(|e| StoreError::Backend(anyhow!(e)))
+        .await
+        .map_err(|e| StoreError::Backend(anyhow!(e)))
     }
 
     pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
@@ -837,19 +852,19 @@ impl SledStore {
             db.room_event_receipts
                 .scan_prefix(key)
                 .map(|u| {
-                    u
-                        .map_err(|e| StoreError::Backend(anyhow!(e)))
-                        .and_then(|(key, value)| {
-                            db.deserialize_event(&value)
-                                // TODO remove this unwrapping
-                                .map(|receipt| {
-                                    (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
-                                }).map_err(|e| StoreError::Backend(anyhow!(e)))
-                        })
+                    u.map_err(|e| StoreError::Backend(anyhow!(e))).and_then(|(key, value)| {
+                        db.deserialize_event(&value)
+                            // TODO remove this unwrapping
+                            .map(|receipt| {
+                                (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
+                            })
+                            .map_err(|e| StoreError::Backend(anyhow!(e)))
+                    })
                 })
                 .collect()
         })
-        .await.map_err(|e| StoreError::Backend(anyhow!(e)))?
+        .await
+        .map_err(|e| StoreError::Backend(anyhow!(e)))?
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
@@ -1042,7 +1057,7 @@ impl SledStore {
             db.room_timeline
                 .scan_prefix(key)
                 .map(move |v| db.deserialize_event(&v.map_err(SledStoreError::from)?.1))
-                .map(|e| e.map_err(|e| e.into()))
+                .map(|e| e.map_err(|e| e.into())),
         ));
 
         info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
@@ -1262,7 +1277,10 @@ impl StateStore for SledStore {
         self.get_sync_token().await.map_err(Into::into)
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> StoreResult<Option<Raw<PresenceEvent>>> {
+    async fn get_presence_event(
+        &self,
+        user_id: &UserId,
+    ) -> StoreResult<Option<Raw<PresenceEvent>>> {
         self.get_presence_event(user_id).await.map_err(Into::into)
     }
 
@@ -1312,11 +1330,21 @@ impl StateStore for SledStore {
     }
 
     async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
-        self.get_room_infos().await.map_err::<StoreError, _>(Into::into)?.try_collect().await.map_err::<StoreError, _>(Into::into)
+        self.get_room_infos()
+            .await
+            .map_err::<StoreError, _>(Into::into)?
+            .try_collect()
+            .await
+            .map_err::<StoreError, _>(Into::into)
     }
 
     async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
-        self.get_stripped_room_infos().await.map_err::<StoreError, _>(Into::into)?.try_collect().await.map_err::<StoreError, _>(Into::into)
+        self.get_stripped_room_infos()
+            .await
+            .map_err::<StoreError, _>(Into::into)?
+            .try_collect()
+            .await
+            .map_err::<StoreError, _>(Into::into)
     }
 
     async fn get_users_with_display_name(
@@ -1357,7 +1385,9 @@ impl StateStore for SledStore {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await.map_err(Into::into)
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {
@@ -1407,7 +1437,7 @@ struct TimelineMetadata {
 #[cfg(test)]
 mod test {
 
-    use super::{StoreResult, SledStore, StateStore};
+    use super::{SledStore, StateStore, StoreResult};
     use matrix_sdk_base::statestore_integration_tests;
 
     async fn get_store() -> StoreResult<impl StateStore> {

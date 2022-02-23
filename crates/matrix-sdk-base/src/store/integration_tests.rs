@@ -1,5 +1,4 @@
 #[allow(unused_macros, unused_extern_crates)]
-
 #[macro_export]
 macro_rules! statestore_integration_tests {
     ($($name:ident)*) => {

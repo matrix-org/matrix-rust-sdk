@@ -1,11 +1,11 @@
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 use atty::Stream;
-use clap::{Command as Argparse, Arg, ArgMatches};
+use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
 use matrix_sdk_base::{RoomInfo, Store};
-use matrix_sdk_sled::{StateStore};
 use matrix_sdk_common::ruma::{events::EventType, RoomId, UserId};
+use matrix_sdk_sled::StateStore;
 use rustyline::{
     completion::{Completer, Pair},
     error::ReadlineError,
@@ -200,7 +200,9 @@ impl Printer {
 impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
-        let store = Store::new(Box::new(StateStore::open_with_path(database_path).expect("Can't open sled database")));
+        let store = Store::new(Box::new(
+            StateStore::open_with_path(database_path).expect("Can't open sled database"),
+        ));
 
         Self { store, printer }
     }

@@ -16,34 +16,36 @@ use std::collections::BTreeSet;
 
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{async_trait, SafeEncode,
+use matrix_sdk_common::{
+    async_trait,
     ruma::{
         events::{
             presence::PresenceEvent,
             receipt::Receipt,
             room::member::{MembershipState, RoomMemberEventContent},
-            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-            AnySyncStateEvent, EventType, Redact,
+            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent,
+            AnySyncRoomEvent, AnySyncStateEvent, EventType, Redact,
         },
         receipt::ReceiptType,
         serde::Raw,
         EventId, MxcUri, RoomId, RoomVersionId, UserId,
-    }
+    },
+    SafeEncode,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 
+use anyhow::anyhow;
 use matrix_sdk_base::{
-    store::{
-        store_key::{self, EncryptedEvent, StoreKey},
-        Result as StoreResult, StateChanges, StateStore, StoreError, BoxStream,
-    },
-    RoomInfo,
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
+    store::{
+        store_key::{self, EncryptedEvent, StoreKey},
+        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
+    },
+    RoomInfo,
 };
-use anyhow::anyhow;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
@@ -58,18 +60,18 @@ pub enum SerializationError {
     #[error(transparent)]
     Encryption(#[from] store_key::Error),
     #[error("DomException {name} ({code}): {message}")]
-    DomException {
-        name: String,
-        message: String,
-        code: u16,
-    },
+    DomException { name: String, message: String, code: u16 },
     #[error(transparent)]
     StoreError(#[from] StoreError),
 }
 
 impl From<indexed_db_futures::web_sys::DomException> for SerializationError {
     fn from(frm: indexed_db_futures::web_sys::DomException) -> SerializationError {
-        SerializationError::DomException { name: frm.name(), message: frm.message(), code: frm.code() }
+        SerializationError::DomException {
+            name: frm.name(),
+            message: frm.message(),
+            code: frm.code(),
+        }
     }
 }
 
@@ -83,9 +85,7 @@ impl From<SerializationError> for StoreError {
                 store_key::Error::Serialization(e) => StoreError::Json(e),
                 store_key::Error::Encryption(e) => StoreError::Encryption(e),
             },
-            _ => {
-                StoreError::Backend(anyhow!(e))
-            }
+            _ => StoreError::Backend(anyhow!(e)),
         }
     }
 }
@@ -130,7 +130,6 @@ mod KEYS {
     pub const SYNC_TOKEN: &str = "sync_token";
 }
 
-
 pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
@@ -143,7 +142,7 @@ impl std::fmt::Debug for IndexeddbStore {
     }
 }
 
-type Result<A, E = SerializationError> = std::result::Result<A, E>; 
+type Result<A, E = SerializationError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
     async fn open_helper(name: String, store_key: Option<StoreKey>) -> Result<Self> {
@@ -249,7 +248,10 @@ impl IndexeddbStore {
         IndexeddbStore::open_helper(name, None).await
     }
 
-    fn serialize_event(&self, event: &impl Serialize) -> std::result::Result<JsValue, SerializationError> {
+    fn serialize_event(
+        &self,
+        event: &impl Serialize,
+    ) -> std::result::Result<JsValue, SerializationError> {
         Ok(match self.store_key {
             Some(ref key) => JsValue::from_serde(&key.encrypt(event)?)?,
             None => JsValue::from_serde(event)?,
@@ -851,7 +853,7 @@ impl IndexeddbStore {
             .await?
             .map(|f| {
                 self.deserialize_event::<BTreeSet<Box<UserId>>>(f)
-                    .map_err::<SerializationError, _>(|e| e.into())
+                    .map_err::<SerializationError, _>(|e| e)
             })
             .unwrap_or_else(|| Ok(Default::default()))
     }
@@ -866,7 +868,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ACCOUNT_DATA)?
             .get(&JsValue::from_str(event_type.as_str()))?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e.into()))
+            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
             .transpose()?)
     }
 
@@ -881,7 +883,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
             .get(&(room_id.as_str(), event_type.as_str()).encode())?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e.into()))
+            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
             .transpose()?)
     }
 
@@ -1086,7 +1088,7 @@ impl IndexeddbStore {
             .get_all_with_key(&key)?
             .await?
             .iter()
-            .map(|v| self.deserialize_event(v).map_err(|e| SerializationError::from(e).into()))
+            .map(|v| self.deserialize_event(v).map_err(|e| e.into()))
             .collect();
 
         let stream = Box::pin(stream::iter(timeline.into_iter()));
@@ -1115,7 +1117,10 @@ impl StateStore for IndexeddbStore {
         self.get_sync_token().await.map_err(|e| e.into())
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> StoreResult<Option<Raw<PresenceEvent>>> {
+    async fn get_presence_event(
+        &self,
+        user_id: &UserId,
+    ) -> StoreResult<Option<Raw<PresenceEvent>>> {
         self.get_presence_event(user_id).await.map_err(|e| e.into())
     }
 
@@ -1210,7 +1215,9 @@ impl StateStore for IndexeddbStore {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
-        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await.map_err(|e| e.into())
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id)
+            .await
+            .map_err(|e| e.into())
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {

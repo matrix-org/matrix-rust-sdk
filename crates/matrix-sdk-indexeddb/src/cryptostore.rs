@@ -20,49 +20,52 @@ use std::{
 
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{async_trait, locks::Mutex, SafeEncode,
-    ruma::{DeviceId, RoomId, TransactionId, UserId}
+use matrix_sdk_common::{
+    async_trait,
+    locks::Mutex,
+    ruma::{DeviceId, RoomId, TransactionId, UserId},
+    SafeEncode,
 };
 use wasm_bindgen::JsValue;
 
-use matrix_sdk_crypto::{
-    store::{
-        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, EncryptedPickleKey,
-        PickleKey, RoomKeyCounts, PicklingMode, IdentityKeys,
-    },
-    GossipRequest, SecretInfo, ReadOnlyAccount, 
-    ReadOnlyDevice, ReadOnlyUserIdentities,
-    olm::{
-        InboundGroupSession, Session, OutboundGroupSession, PrivateCrossSigningIdentity, OlmMessageHash},
-};
 use anyhow::anyhow;
-
+use matrix_sdk_crypto::{
+    olm::{
+        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
+        Session,
+    },
+    store::{
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError,
+        EncryptedPickleKey, IdentityKeys, PickleKey, PicklingMode, RoomKeyCounts,
+    },
+    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+};
 
 #[allow(non_snake_case)]
 mod KEYS {
 
     // STORES
-    pub const CORE: &'static str = "core";
+    pub const CORE: &str = "core";
 
-    pub const SESSION: &'static str = "session";
-    pub const INBOUND_GROUP_SESSIONS: &'static str = "inbound_group_sessions";
+    pub const SESSION: &str = "session";
+    pub const INBOUND_GROUP_SESSIONS: &str = "inbound_group_sessions";
 
-    pub const OUTBOUND_GROUP_SESSIONS: &'static str = "outbound_group_sessions";
+    pub const OUTBOUND_GROUP_SESSIONS: &str = "outbound_group_sessions";
 
-    pub const TRACKED_USERS: &'static str = "tracked_users";
-    pub const OLM_HASHES: &'static str = "olm_hashes";
+    pub const TRACKED_USERS: &str = "tracked_users";
+    pub const OLM_HASHES: &str = "olm_hashes";
 
-    pub const DEVICES: &'static str = "devices";
-    pub const IDENTITIES: &'static str = "identities";
+    pub const DEVICES: &str = "devices";
+    pub const IDENTITIES: &str = "identities";
 
-    pub const OUTGOING_SECRET_REQUESTS: &'static str = "outgoing_secret_requests";
-    pub const UNSENT_SECRET_REQUESTS: &'static str = "unsent_secret_requests";
-    pub const SECRET_REQUESTS_BY_INFO: &'static str = "secret_requests_by_info";
+    pub const OUTGOING_SECRET_REQUESTS: &str = "outgoing_secret_requests";
+    pub const UNSENT_SECRET_REQUESTS: &str = "unsent_secret_requests";
+    pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
 
     // KEYS
-    pub const PICKLE_KEY: &'static str = "pickle_key";
-    pub const ACCOUNT: &'static str = "account";
-    pub const PRIVATE_IDENTITY: &'static str = "private_identity";
+    pub const PICKLE_KEY: &str = "pickle_key";
+    pub const ACCOUNT: &str = "account";
+    pub const PRIVATE_IDENTITY: &str = "private_identity";
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -98,7 +101,6 @@ pub enum IndexeddbStoreError {
     },
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
-
 }
 
 impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
@@ -112,13 +114,11 @@ impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
 }
 
 impl From<IndexeddbStoreError> for CryptoStoreError {
-    fn from(frm: IndexeddbStoreError) -> CryptoStoreError  {
+    fn from(frm: IndexeddbStoreError) -> CryptoStoreError {
         match frm {
             IndexeddbStoreError::Json(e) => CryptoStoreError::Serialization(e),
             IndexeddbStoreError::CryptoStoreError(e) => e,
-            _ => {
-                CryptoStoreError::Backend(anyhow!(frm))
-            }
+            _ => CryptoStoreError::Backend(anyhow!(frm)),
         }
     }
 }
@@ -251,7 +251,7 @@ impl IndexeddbStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let mut stores: Vec<&'static str> = [
+        let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), KEYS::CORE),
             (!changes.sessions.is_empty(), KEYS::SESSION),
             (
@@ -280,7 +280,7 @@ impl IndexeddbStore {
             ])
         }
 
-        if stores.len() == 0 {
+        if stores.is_empty() {
             // nothing to do, quit early
             return Ok(());
         }
@@ -427,11 +427,8 @@ impl IndexeddbStore {
         let os = tx.object_store(KEYS::TRACKED_USERS)?;
         let user_ids = os.get_all_keys()?.await?;
         for user_id in user_ids.iter() {
-            let dirty: bool = match os.get(&user_id)?.await?.map(|v| v.into_serde()) {
-                Some(Ok(false)) => false,
-                _ => true,
-            };
-            let user = match user_id.as_string().map(|u| UserId::parse(u)) {
+            let dirty: bool = matches!(os.get(&user_id)?.await?.map(|v| v.into_serde()), Some(Ok(false)));
+            let user = match user_id.as_string().map(UserId::parse) {
                 Some(Ok(user)) => user,
                 _ => continue,
             };
@@ -509,7 +506,7 @@ impl IndexeddbStore {
 
             let account =
                 ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())
-                .map_err(|e| CryptoStoreError::OlmAccount(e))?;
+                    .map_err(CryptoStoreError::OlmAccount)?;
 
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -613,10 +610,10 @@ impl IndexeddbStore {
             .get(&key)?
             .await?
         {
-            Ok(Some(InboundGroupSession::from_pickle(
-                pickle.into_serde()?,
-                self.get_pickle_mode(),
-            ).map_err(|e| CryptoStoreError::OlmGroupSession(e))?))
+            Ok(Some(
+                InboundGroupSession::from_pickle(pickle.into_serde()?, self.get_pickle_mode())
+                    .map_err(CryptoStoreError::OlmGroupSession)?,
+            ))
         } else {
             Ok(None)
         }
@@ -796,7 +793,7 @@ impl IndexeddbStore {
         &self,
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
-        self.get_outgoing_key_request_helper(&request_id.as_str()).await
+        self.get_outgoing_key_request_helper(request_id.as_str()).await
     }
 
     async fn get_secret_request_by_info(
@@ -874,8 +871,6 @@ impl IndexeddbStore {
     }
 }
 
-
-
 #[async_trait(?Send)]
 impl CryptoStore for IndexeddbStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, CryptoStoreError> {
@@ -898,14 +893,16 @@ impl CryptoStore for IndexeddbStore {
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, CryptoStoreError> {
         self.load_identity().await.map_err(|e| e.into())
-
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<(), CryptoStoreError> {
         self.save_changes(changes).await.map_err(|e| e.into())
     }
 
-    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>, CryptoStoreError> {
+    async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>, CryptoStoreError> {
         self.get_sessions(sender_key).await.map_err(|e| e.into())
     }
 
@@ -918,7 +915,9 @@ impl CryptoStore for IndexeddbStore {
         self.get_inbound_group_session(room_id, sender_key, session_id).await.map_err(|e| e.into())
     }
 
-    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, CryptoStoreError> {
+    async fn get_inbound_group_sessions(
+        &self,
+    ) -> Result<Vec<InboundGroupSession>, CryptoStoreError> {
         self.get_inbound_group_sessions().await.map_err(|e| e.into())
     }
 
@@ -964,7 +963,11 @@ impl CryptoStore for IndexeddbStore {
         todo!()
     }
 
-    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool, CryptoStoreError> {
+    async fn update_tracked_user(
+        &self,
+        user: &UserId,
+        dirty: bool,
+    ) -> Result<bool, CryptoStoreError> {
         self.update_tracked_user(user, dirty).await.map_err(|e| e.into())
     }
 
@@ -983,20 +986,22 @@ impl CryptoStore for IndexeddbStore {
         self.get_user_devices(user_id).await.map_err(|e| e.into())
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
+    async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
         self.get_user_identity(user_id).await.map_err(|e| e.into())
     }
 
     async fn is_message_known(&self, hash: &OlmMessageHash) -> Result<bool, CryptoStoreError> {
         self.is_message_known(hash).await.map_err(|e| e.into())
-    
     }
 
     async fn get_outgoing_secret_requests(
         &self,
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>, CryptoStoreError> {
-        self.get_outgoing_key_request_helper(&request_id.as_str()).await.map_err(|e| e.into())
+        self.get_outgoing_key_request_helper(request_id.as_str()).await.map_err(|e| e.into())
     }
 
     async fn get_secret_request_by_info(
@@ -1010,7 +1015,10 @@ impl CryptoStore for IndexeddbStore {
         self.get_unsent_secret_requests().await.map_err(|e| e.into())
     }
 
-    async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<(), CryptoStoreError> {
+    async fn delete_outgoing_secret_requests(
+        &self,
+        request_id: &TransactionId,
+    ) -> Result<(), CryptoStoreError> {
         self.delete_outgoing_secret_requests(request_id).await.map_err(|e| e.into())
     }
 }

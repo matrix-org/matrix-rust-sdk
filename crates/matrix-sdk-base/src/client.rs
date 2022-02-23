@@ -65,12 +65,13 @@ use ruma::{
 use tracing::{info, trace, warn};
 
 use crate::{
-    error::{Result, Error},
+    error::{Error, Result},
     rooms::{Room, RoomInfo, RoomType},
     session::Session,
-    store::{ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStore, Store},
+    store::{
+        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStore, Store,
+    },
 };
-
 
 pub type Token = String;
 
@@ -147,7 +148,6 @@ impl BaseClientConfig {
     }
 }
 
-
 #[cfg(feature = "encryption")]
 enum CryptoHolder {
     PreSetupStore(Option<Box<dyn CryptoStore>>),
@@ -164,7 +164,7 @@ impl Default for CryptoHolder {
 #[cfg(feature = "encryption")]
 impl CryptoHolder {
     fn new(store: Box<dyn CryptoStore>) -> Self {
-         CryptoHolder::PreSetupStore(Some(store))
+        CryptoHolder::PreSetupStore(Some(store))
     }
     async fn convert_to_olm(&mut self, session: &Session) -> Result<()> {
         if let CryptoHolder::PreSetupStore(store) = self {
@@ -175,10 +175,9 @@ impl CryptoHolder {
                     store.take().expect("We always exist"),
                 )
                 .await
-                .map_err(OlmError::from)?
+                .map_err(OlmError::from)?,
             );
             Ok(())
-
         } else {
             Err(Error::BadCryptoStoreState)
         }
@@ -201,7 +200,8 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        let store = config.state_store.map(Store::new).unwrap_or_else(|| Store::open_memory_store());
+        let store =
+            config.state_store.map(Store::new).unwrap_or_else(|| Store::open_memory_store());
         #[cfg(feature = "encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 
@@ -978,7 +978,6 @@ impl BaseClient {
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     #[cfg(feature = "encryption")]
     pub async fn outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
-
         match self.olm_machine().await {
             Some(o) => o.outgoing_requests().await,
             None => Ok(vec![]),
