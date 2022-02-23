@@ -20,6 +20,6 @@ mod client;
 mod request;
 mod sync;
 
-pub use client::{ClientConfig, default_store, default_store_with_name};
+pub use client::{default_store, default_store_with_name, ClientConfig};
 pub use request::RequestConfig;
 pub use sync::SyncSettings;

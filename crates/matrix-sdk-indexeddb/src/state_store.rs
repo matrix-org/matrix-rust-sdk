@@ -190,12 +190,17 @@ impl IndexeddbStore {
 
         Ok(Self { name, inner: db, store_key })
     }
+
     #[allow(dead_code)]
-    pub async fn open() -> Result<Self> {
-        IndexeddbStore::open_helper("state".to_owned(), None).await
+    pub async fn open() -> StoreResult<Self> {
+        Ok(IndexeddbStore::open_helper("state".to_owned(), None).await?)
     }
 
-    pub async fn open_with_passphrase(name: String, passphrase: &str) -> Result<Self> {
+    pub async fn open_with_passphrase(name: String, passphrase: &str) -> StoreResult<Self> {
+        Ok(Self::inner_open_with_passphrase(name, passphrase).await?)
+    }
+
+    async fn inner_open_with_passphrase(name: String, passphrase: &str) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-state", name);
 
         let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
@@ -244,8 +249,8 @@ impl IndexeddbStore {
         IndexeddbStore::open_helper(name, Some(store_key)).await
     }
 
-    pub async fn open_with_name(name: String) -> Result<Self> {
-        IndexeddbStore::open_helper(name, None).await
+    pub async fn open_with_name(name: String) -> StoreResult<Self> {
+        Ok(IndexeddbStore::open_helper(name, None).await?)
     }
 
     fn serialize_event(

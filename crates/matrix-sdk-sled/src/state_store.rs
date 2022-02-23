@@ -312,12 +312,17 @@ impl SledStore {
     }
 
     pub fn open() -> StoreResult<Self> {
-        let db = Config::new().temporary(true).open().map_err(|e| StoreError::Backend(anyhow!(e)))?;
+        let db =
+            Config::new().temporary(true).open().map_err(|e| StoreError::Backend(anyhow!(e)))?;
 
         SledStore::open_helper(db, None, None).map_err(|e| e.into())
     }
 
-    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> Result<Self> {
+    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> StoreResult<Self> {
+        Self::inner_open_with_passphrase(path, passphrase).map_err(|e| e.into())
+    }
+
+    fn inner_open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-state");
         let db = Config::new().temporary(false).path(&path).open()?;
 
@@ -344,7 +349,11 @@ impl SledStore {
         SledStore::open_helper(db, Some(path), Some(store_key))
     }
 
-    pub fn open_with_path(path: impl AsRef<Path>) -> Result<Self> {
+    pub fn open_with_path(path: impl AsRef<Path>) -> StoreResult<Self> {
+        Self::inner_open_with_path(path).map_err(|e| e.into())
+    }
+
+    fn inner_open_with_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-state");
         let db = Config::new().temporary(false).path(&path).open()?;
 
