@@ -1141,9 +1141,20 @@ impl SledStore {
                     end_position: usize::MAX / 2,
                 }
             };
+            let room_version = self.room_info
+                .get(room_id.encode())?
+                .map(|r| self.deserialize_event::<RoomInfo>(&r))
+                .transpose()?
+                .and_then(|info| {
+                    info.base_info
+                        .create
+                        .map(|event| event.room_version)
+                }).unwrap_or_else(|| {
+                    warn!("Unable to find the room version for {}, assume version 9", room_id);
+                    RoomVersionId::V9
+                });
 
             if timeline.sync {
-                let mut room_version = None;
                 for event in timeline.events.iter().rev() {
                     // Redact events already in store only on sync response
                     if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
@@ -1164,23 +1175,10 @@ impl SledStore {
                                 .transpose()?
                             {
                                 let inner_event = full_event.event.deserialize()?;
-                                if room_version.is_none() {
-                                    room_version = Some(self.room_info
-                                                        .get(room_id.encode())?
-                                                        .map(|r| self.deserialize_event::<RoomInfo>(&r))
-                                                        .transpose()?
-                                                        .and_then(|info| {
-                                                            info.base_info
-                                                                .create
-                                                                .map(|event| event.room_version)
-                                                        }).unwrap_or_else(|| {
-                                                            warn!("Unable to find the room version for {}, assume version 9", room_id);
-                                                            RoomVersionId::V9
-                                                        }));
-                                }
+                                
 
                                 full_event.event = Raw::new(&AnySyncRoomEvent::from(
-                                    inner_event.redact(redaction, room_version.as_ref().unwrap()),
+                                    inner_event.redact(redaction, &room_version),
                                 ))?;
                                 timeline_batch
                                     .insert(position_key, self.serialize_event(&full_event)?);
