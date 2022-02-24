@@ -26,11 +26,10 @@ mod utility;
 pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
 pub use account::{AccountPickle, OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub use group_sessions::{
-    EncryptionSettings, ExportedRoomKey, InboundGroupSession, InboundGroupSessionPickle,
-    OlmOutboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
-    PickledOutboundGroupSession, ShareInfo,
+    EncryptionSettings, ExportedRoomKey, GroupSessionKey, InboundGroupSession,
+    InboundGroupSessionPickle, OlmOutboundGroupSession, OutboundGroupSession,
+    PickledInboundGroupSession, PickledOutboundGroupSession, ShareInfo, ShareState,
 };
-pub use group_sessions::{GroupSessionKey, ShareState};
 use matrix_sdk_common::instant::{Duration, Instant};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

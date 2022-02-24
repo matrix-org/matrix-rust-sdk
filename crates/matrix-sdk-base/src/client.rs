@@ -63,6 +63,8 @@ use ruma::{
 };
 use tracing::{info, trace, warn};
 
+#[cfg(feature = "encryption")]
+use crate::error::Error;
 use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
@@ -71,10 +73,6 @@ use crate::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStore, Store,
     },
 };
-
-#[cfg(feature = "encryption")]
-use crate::error::Error;
-
 
 pub type Token = String;
 
@@ -203,8 +201,7 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        let store =
-            config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
+        let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 

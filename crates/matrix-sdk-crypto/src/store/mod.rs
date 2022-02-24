@@ -58,6 +58,8 @@ use base64::DecodeError;
 use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+#[allow(unused_imports)]
+pub use olm_rs::{account::IdentityKeys, PicklingMode};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
     events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
@@ -67,9 +69,6 @@ use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
 use zeroize::Zeroize;
-
-#[allow(unused_imports)]
-pub use olm_rs::{account::IdentityKeys, PicklingMode};
 
 use crate::{
     error::SessionUnpicklingError,

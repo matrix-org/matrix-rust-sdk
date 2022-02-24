@@ -19,21 +19,17 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use anyhow::anyhow;
 use dashmap::DashSet;
-use matrix_sdk_common::ruma::{
-    encryption::DeviceKeys,
-    events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+use matrix_sdk_common::{
+    async_trait,
+    locks::Mutex,
+    ruma::{
+        encryption::DeviceKeys,
+        events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
+        DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+    },
 };
-use matrix_sdk_common::{async_trait, locks::Mutex};
-use serde::{Deserialize, Serialize};
-pub use sled::Error;
-use sled::{
-    transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, IVec, Transactional, Tree,
-};
-use tracing::debug;
-
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
@@ -45,8 +41,13 @@ use matrix_sdk_crypto::{
     },
     GossipRequest, LocalTrust, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
-
-use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
+pub use sled::Error;
+use sled::{
+    transaction::{ConflictableTransactionError, TransactionError},
+    Config, Db, IVec, Transactional, Tree,
+};
+use tracing::debug;
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.

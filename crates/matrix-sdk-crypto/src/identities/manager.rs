@@ -549,9 +549,9 @@ pub(crate) mod testing {
     };
     use serde_json::json;
 
-    use crate::machine::testing::response_from_file;
     use crate::{
         identities::IdentityManager,
+        machine::testing::response_from_file,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
@@ -745,9 +745,9 @@ pub(crate) mod testing {
 #[cfg(test)]
 pub(crate) mod test {
     use matrix_sdk_test::async_test;
+    use ruma::{device_id, user_id, DeviceId, UserId};
 
     use super::testing::{device_id, manager, other_key_query, other_user_id};
-    use ruma::{device_id, user_id, DeviceId, UserId};
 
     #[async_test]
     async fn test_manager_creation() {

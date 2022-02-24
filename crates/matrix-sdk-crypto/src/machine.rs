@@ -1562,7 +1562,6 @@ pub(crate) mod test {
 
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
-    use super::testing::response_from_file;
     use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -1589,6 +1588,7 @@ pub(crate) mod test {
     };
     use serde_json::json;
 
+    use super::testing::response_from_file;
     use crate::{
         machine::OlmMachine,
         olm::Utility,

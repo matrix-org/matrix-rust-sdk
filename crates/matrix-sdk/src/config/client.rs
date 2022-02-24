@@ -60,7 +60,7 @@ use crate::{config::RequestConfig, HttpSend, Result};
 ///     .no_proxy()
 ///     .user_agent("MyApp/v3.0");
 ///
-///# futures::executor::block_on(async {
+/// # futures::executor::block_on(async {
 /// let client_config = ClientConfig::new().await?
 ///     .client(Arc::new(builder.build()?));
 /// # matrix_sdk::Result::<()>::Ok(())
@@ -96,11 +96,11 @@ impl Debug for ClientConfig {
 
 #[cfg(feature = "sled_state_store")]
 mod store_helpers {
-    use super::Result;
     use matrix_sdk_sled::StateStore;
 
+    use super::Result;
+
     /// Build the sled Store with the default settings - as a temporary storage
-    ///
     pub async fn default_store() -> Result<Box<StateStore>> {
         Ok(Box::new(StateStore::open()?))
     }
@@ -120,8 +120,9 @@ mod store_helpers {
 
 #[cfg(feature = "indexeddb_stores")]
 mod store_helpers {
-    use super::Result;
     use matrix_sdk_indexeddb::StateStore;
+
+    use super::Result;
 
     /// Open the IndexedDB store with the default name, unencrypted
     pub async fn default_store() -> Result<Box<StateStore>> {
@@ -143,8 +144,9 @@ mod store_helpers {
 
 #[cfg(not(any(feature = "indexeddb_stores", feature = "sled_state_store")))]
 mod store_helpers {
-    use super::Result;
     use matrix_sdk_base::store::MemoryStore as StateStore;
+
+    use super::Result;
     /// Open a new in-memory StateStore
     pub async fn default_store() -> Result<Box<StateStore>> {
         Ok(Box::new(StateStore::new()))
@@ -170,7 +172,8 @@ impl ClientConfig {
         Ok(d)
     }
 
-    /// Create a new ClientConfig with a named state store, encrypted with the given passphrase (if any)
+    /// Create a new ClientConfig with a named state store, encrypted with the
+    /// given passphrase (if any)
     pub async fn with_named_store(name: &str, passphrase: Option<&str>) -> Result<Self> {
         let mut d = Self::default();
         d.base_config = d.base_config.state_store(default_store_with_name(name, passphrase).await?);

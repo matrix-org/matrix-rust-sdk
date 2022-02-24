@@ -41,10 +41,9 @@ mod session;
 pub mod store;
 mod timeline_stream;
 
+pub use client::{BaseClient, BaseClientConfig};
 #[cfg(any(test, feature = "testing"))]
 pub use http;
-
-pub use client::{BaseClient, BaseClientConfig};
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto as crypto;
 pub use rooms::{Room, RoomInfo, RoomMember, RoomType};

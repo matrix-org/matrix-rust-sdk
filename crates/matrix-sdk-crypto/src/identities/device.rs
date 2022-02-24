@@ -649,9 +649,9 @@ pub(crate) mod testing {
 pub(crate) mod test {
     use std::convert::TryFrom;
 
-    use super::testing::{device_keys, get_device};
     use ruma::{user_id, DeviceKeyAlgorithm};
 
+    use super::testing::{device_keys, get_device};
     use crate::identities::LocalTrust;
 
     #[test]

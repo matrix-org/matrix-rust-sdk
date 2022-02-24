@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::safe_encode::SafeEncode;
+use anyhow::anyhow;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{
@@ -26,9 +26,6 @@ use matrix_sdk_common::{
     locks::Mutex,
     ruma::{DeviceId, RoomId, TransactionId, UserId},
 };
-use wasm_bindgen::JsValue;
-
-use anyhow::anyhow;
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -40,6 +37,9 @@ use matrix_sdk_crypto::{
     },
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
+use wasm_bindgen::JsValue;
+
+use crate::safe_encode::SafeEncode;
 
 #[allow(non_snake_case)]
 mod KEYS {

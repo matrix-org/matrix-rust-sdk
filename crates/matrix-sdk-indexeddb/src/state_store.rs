@@ -14,9 +14,18 @@
 
 use std::collections::BTreeSet;
 
-use crate::safe_encode::SafeEncode;
+use anyhow::anyhow;
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
+use matrix_sdk_base::{
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
+    media::{MediaRequest, UniqueKey},
+    store::{
+        store_key::{self, EncryptedEvent, StoreKey},
+        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
+    },
+    RoomInfo,
+};
 use matrix_sdk_common::{
     async_trait,
     ruma::{
@@ -36,16 +45,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 
-use anyhow::anyhow;
-use matrix_sdk_base::{
-    deserialized_responses::{MemberEvent, SyncRoomEvent},
-    media::{MediaRequest, UniqueKey},
-    store::{
-        store_key::{self, EncryptedEvent, StoreKey},
-        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
-    },
-    RoomInfo,
-};
+use crate::safe_encode::SafeEncode;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
@@ -1274,8 +1274,9 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use super::{IndexeddbStore, Result};
     use matrix_sdk_base::statestore_integration_tests;
+
+    use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
         IndexeddbStore::open().await

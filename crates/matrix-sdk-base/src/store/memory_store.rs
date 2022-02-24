@@ -75,7 +75,7 @@ pub struct MemoryStore {
 impl Default for MemoryStore {
     fn default() -> Self {
         Self::new()
-    } 
+    }
 }
 
 impl MemoryStore {

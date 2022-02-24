@@ -33,7 +33,8 @@ pub enum Error {
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
-    /// Attempting to restore a session after the olm-machine has already been set up fails
+    /// Attempting to restore a session after the olm-machine has already been
+    /// set up fails
     #[cfg(feature = "encryption")]
     #[error("The olm machine has already been initialized")]
     BadCryptoStoreState,

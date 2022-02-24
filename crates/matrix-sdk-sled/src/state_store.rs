@@ -23,28 +23,6 @@ use std::{
 use anyhow::anyhow;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
-use matrix_sdk_common::async_trait;
-use matrix_sdk_common::ruma::{
-    self,
-    events::{
-        presence::PresenceEvent,
-        receipt::Receipt,
-        room::member::{MembershipState, RoomMemberEventContent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-        AnySyncStateEvent, EventType, Redact,
-    },
-    receipt::ReceiptType,
-    serde::Raw,
-    EventId, MxcUri, RoomId, RoomVersionId, UserId,
-};
-use serde::{Deserialize, Serialize};
-use sled::{
-    transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, Transactional, Tree,
-};
-use tokio::task::spawn_blocking;
-use tracing::{info, warn};
-
 use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
@@ -54,6 +32,29 @@ use matrix_sdk_base::{
     },
     RoomInfo,
 };
+use matrix_sdk_common::{
+    async_trait,
+    ruma::{
+        self,
+        events::{
+            presence::PresenceEvent,
+            receipt::Receipt,
+            room::member::{MembershipState, RoomMemberEventContent},
+            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent,
+            AnySyncRoomEvent, AnySyncStateEvent, EventType, Redact,
+        },
+        receipt::ReceiptType,
+        serde::Raw,
+        EventId, MxcUri, RoomId, RoomVersionId, UserId,
+    },
+};
+use serde::{Deserialize, Serialize};
+use sled::{
+    transaction::{ConflictableTransactionError, TransactionError},
+    Config, Db, Transactional, Tree,
+};
+use tokio::task::spawn_blocking;
+use tracing::{info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
@@ -1446,8 +1447,9 @@ struct TimelineMetadata {
 #[cfg(test)]
 mod test {
 
-    use super::{SledStore, StateStore, StoreResult};
     use matrix_sdk_base::statestore_integration_tests;
+
+    use super::{SledStore, StateStore, StoreResult};
 
     async fn get_store() -> StoreResult<impl StateStore> {
         SledStore::open().map_err(Into::into)
