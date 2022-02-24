@@ -41,7 +41,7 @@ mod session;
 pub mod store;
 mod timeline_stream;
 
-#[cfg(feature = "testing")]
+#[cfg(any(test, feature = "testing"))]
 pub use http;
 
 pub use client::{BaseClient, BaseClientConfig};
