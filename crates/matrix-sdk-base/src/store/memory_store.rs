@@ -72,6 +72,12 @@ pub struct MemoryStore {
     room_timeline: Arc<DashMap<Box<RoomId>, TimelineData>>,
 }
 
+impl Default for MemoryStore {
+    fn default() -> Self {
+        Self::new()
+    } 
+}
+
 impl MemoryStore {
     #[allow(dead_code)]
     pub fn new() -> Self {

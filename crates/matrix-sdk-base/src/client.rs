@@ -20,7 +20,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
     fmt,
-    path::{Path, PathBuf},
     result::Result as StdResult,
     sync::Arc,
 };
@@ -65,7 +64,7 @@ use ruma::{
 use tracing::{info, trace, warn};
 
 use crate::{
-    error::{Error, Result},
+    error::Result,
     rooms::{Room, RoomInfo, RoomType},
     session::Session,
     store::{
@@ -201,7 +200,7 @@ impl BaseClient {
     /// previous login call.
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         let store =
-            config.state_store.map(Store::new).unwrap_or_else(|| Store::open_memory_store());
+            config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 

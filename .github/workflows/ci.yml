@@ -126,7 +126,7 @@ jobs:
 
           # special check for specific features
           - name: matrix-sdk / indexeddb_stores
-            cargo_args: --package matrix-sdk-base --no-default-features --features indexeddb_stores,encryption
+            cargo_args: --package matrix-sdk --no-default-features --features indexeddb_stores,encryption
 
     steps:
     - name: Checkout the repo
@@ -163,7 +163,7 @@ jobs:
         command: check
         args: --target wasm32-unknown-unknown ${{ matrix.cargo_args }}
 
-  test-wasm:
+  wasmpack-tests:
     # building wasm is not enough, we've seen runtime errors before,
     # hence the tests
     name: ${{ matrix.name }} WASM test
