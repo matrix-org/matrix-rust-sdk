@@ -540,13 +540,22 @@ impl IdentityManager {
 #[cfg(any(test, feature = "testing"))]
 pub(crate) mod testing {
     #![allow(dead_code)]
+    use std::sync::Arc;
+
+    use matrix_sdk_common::locks::Mutex;
     use ruma::{
         api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
-        device_id, user_id, DeviceId, UserId,
+        DeviceId, UserId, device_id, user_id,
     };
     use serde_json::json;
 
     use crate::machine::testing::response_from_file;
+    use crate::{
+        identities::IdentityManager,
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        store::{CryptoStore, MemoryStore, Store},
+        verification::VerificationMachine,
+    };
 
     pub fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
@@ -558,6 +567,18 @@ pub(crate) mod testing {
 
     pub fn device_id() -> &'static DeviceId {
         device_id!("WSKKLTJZCL")
+    }
+
+    pub(crate) fn manager() -> IdentityManager {
+        let identity =
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id().to_owned())));
+        let user_id = Arc::from(user_id());
+        let account = ReadOnlyAccount::new(&user_id, device_id());
+        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
+        let verification = VerificationMachine::new(account, identity.clone(), store);
+        let store =
+            Store::new(user_id.clone(), identity, Arc::new(MemoryStore::new()), verification);
+        IdentityManager::new(user_id, device_id().into(), store)
     }
 
     pub fn other_key_query() -> KeyQueryResponse {
@@ -723,22 +744,11 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use std::sync::Arc;
-
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
-        DeviceId, UserId,
-    };
-    use serde_json::json;
 
-    use super::testing::{device_id, other_key_query, other_user_id, own_key_query, user_id};
-    use crate::{
-        identities::IdentityManager,
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{CryptoStore, MemoryStore, Store},
-        verification::VerificationMachine,
+    use super::testing::{manager, device_id, other_key_query, other_user_id};
+    use ruma::{
+        DeviceId, UserId, device_id, user_id,
     };
 
     #[async_test]

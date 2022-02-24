@@ -946,7 +946,7 @@ pub(crate) mod testing {
         ReadOnlyDevice,
     };
 
-    fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
+    pub fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();
         let first =
             ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
@@ -955,7 +955,7 @@ pub(crate) mod testing {
         (first, second)
     }
 
-    fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
+    pub fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
         let user_id = user_id!("@example:localhost");
 
         let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
@@ -989,11 +989,11 @@ pub(crate) mod test {
     use matrix_sdk_test::async_test;
     use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
 
-    use super::testing::{get_other_identity, get_own_identity};
+    use super::testing::{get_other_identity, get_own_identity, device};
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity};
     use crate::{
         identities::{
-            manager::test::{other_key_query, own_key_query},
+            manager::testing::{other_key_query, own_key_query},
             Device, ReadOnlyDevice,
         },
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
