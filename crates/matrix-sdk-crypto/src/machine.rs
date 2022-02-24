@@ -442,10 +442,10 @@ impl OlmMachine {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```[skip]
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::user_id;
+    /// # use ruma::{user_id, device_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let machine = OlmMachine::new(alice, device_id!("DEVICEID"));
@@ -460,7 +460,6 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
-    #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     async fn should_upload_keys(&self) -> bool {
         self.account.should_upload_keys().await
