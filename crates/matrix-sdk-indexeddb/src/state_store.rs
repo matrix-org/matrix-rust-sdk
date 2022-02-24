@@ -14,6 +14,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::safe_encode::SafeEncode;
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{
@@ -31,7 +32,6 @@ use matrix_sdk_common::{
         EventId, MxcUri, RoomId, RoomVersionId, UserId,
     },
 };
-use crate::safe_encode::SafeEncode;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use wasm_bindgen::JsValue;

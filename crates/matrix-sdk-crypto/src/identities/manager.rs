@@ -545,7 +545,7 @@ pub(crate) mod testing {
     use matrix_sdk_common::locks::Mutex;
     use ruma::{
         api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
-        DeviceId, UserId, device_id, user_id,
+        device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
 
@@ -746,10 +746,8 @@ pub(crate) mod testing {
 pub(crate) mod test {
     use matrix_sdk_test::async_test;
 
-    use super::testing::{manager, device_id, other_key_query, other_user_id};
-    use ruma::{
-        DeviceId, UserId, device_id, user_id,
-    };
+    use super::testing::{device_id, manager, other_key_query, other_user_id};
+    use ruma::{device_id, user_id, DeviceId, UserId};
 
     #[async_test]
     async fn test_manager_creation() {

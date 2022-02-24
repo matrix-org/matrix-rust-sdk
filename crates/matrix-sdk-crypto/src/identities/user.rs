@@ -989,7 +989,7 @@ pub(crate) mod test {
     use matrix_sdk_test::async_test;
     use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
 
-    use super::testing::{get_other_identity, get_own_identity, device};
+    use super::testing::{device, get_other_identity, get_own_identity};
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity};
     use crate::{
         identities::{

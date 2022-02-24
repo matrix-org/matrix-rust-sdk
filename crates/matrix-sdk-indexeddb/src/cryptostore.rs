@@ -18,6 +18,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::safe_encode::SafeEncode;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{
@@ -25,7 +26,6 @@ use matrix_sdk_common::{
     locks::Mutex,
     ruma::{DeviceId, RoomId, TransactionId, UserId},
 };
-use crate::safe_encode::SafeEncode;
 use wasm_bindgen::JsValue;
 
 use anyhow::anyhow;
