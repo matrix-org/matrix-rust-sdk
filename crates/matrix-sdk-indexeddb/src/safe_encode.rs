@@ -1,4 +1,4 @@
-use ruma::{
+use matrix_sdk_common::ruma::{
     events::EventType, receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId,
     UserId,
 };

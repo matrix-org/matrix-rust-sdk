@@ -30,8 +30,8 @@ use matrix_sdk_common::{
         serde::Raw,
         EventId, MxcUri, RoomId, RoomVersionId, UserId,
     },
-    SafeEncode,
 };
+use crate::safe_encode::SafeEncode;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use wasm_bindgen::JsValue;

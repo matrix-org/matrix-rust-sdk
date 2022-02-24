@@ -24,8 +24,8 @@ use matrix_sdk_common::{
     async_trait,
     locks::Mutex,
     ruma::{DeviceId, RoomId, TransactionId, UserId},
-    SafeEncode,
 };
+use crate::safe_encode::SafeEncode;
 use wasm_bindgen::JsValue;
 
 use anyhow::anyhow;
