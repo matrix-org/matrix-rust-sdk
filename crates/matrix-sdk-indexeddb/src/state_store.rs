@@ -1279,7 +1279,7 @@ mod test {
     use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
-        IndexeddbStore::open().await
+        Ok(IndexeddbStore::open().await?)
     }
 
     statestore_integration_tests! { integration }
