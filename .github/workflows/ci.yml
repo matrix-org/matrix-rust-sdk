@@ -179,6 +179,7 @@ jobs:
             base_dir: matrix-sdk
             cargo_args: --no-default-features --features indexeddb_stores,rustls-tls --lib
           - name: "matrix-sdk-indexeddb"
+            base_dir: matrix-sdk-indexeddb
             experimental: false
           - name: "matrix-sdk-example-wasm_command_bot @Node14"
             experimental: false
