@@ -72,6 +72,10 @@ use crate::{
     },
 };
 
+#[cfg(feature = "encryption")]
+use crate::error::Error;
+
+
 pub type Token = String;
 
 /// A no IO Client implementation.
