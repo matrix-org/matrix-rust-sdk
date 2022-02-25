@@ -297,19 +297,17 @@ impl IndexeddbStore {
             .object_store(KEYS::SESSION)?
             .get(&(KEYS::FILTER, filter_name).encode())?
             .await?
-            .map(|f| f.as_string())
-            .flatten())
+            .and_then(|f| f.as_string()))
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::SYNC_TOKEN, IdbTransactionMode::Readonly)?
             .object_store(KEYS::SYNC_TOKEN)?
             .get(&JsValue::from_str(KEYS::SYNC_TOKEN))?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
@@ -495,11 +493,10 @@ impl IndexeddbStore {
                         for (user_id, receipt) in receipts {
                             let key = (room, receipt_type, user_id).encode();
 
-                            if let Some((old_event, _)) = room_user_receipts
-                                .get(&key)?
-                                .await?
-                                .map(|f| self.deserialize_event::<(Box<EventId>, Receipt)>(f).ok())
-                                .flatten()
+                            if let Some((old_event, _)) =
+                                room_user_receipts.get(&key)?.await?.and_then(|f| {
+                                    self.deserialize_event::<(Box<EventId>, Receipt)>(f).ok()
+                                })
                             {
                                 room_event_receipts
                                     .delete(&(room, receipt_type, &old_event, user_id).encode())?;
@@ -700,14 +697,13 @@ impl IndexeddbStore {
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::PRESENCE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PRESENCE)?
             .get(&user_id.encode())?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     pub async fn get_state_event(
@@ -716,14 +712,13 @@ impl IndexeddbStore {
         event_type: EventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_STATE)?
             .get(&(room_id, &event_type, state_key).encode())?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     pub async fn get_state_events(
@@ -748,14 +743,13 @@ impl IndexeddbStore {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<RoomMemberEventContent>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::PROFILES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PROFILES)?
             .get(&(room_id, user_id).encode())?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     pub async fn get_member_event(
@@ -763,14 +757,13 @@ impl IndexeddbStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
             .get(&(room_id, state_key).encode())?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
@@ -867,14 +860,13 @@ impl IndexeddbStore {
         &self,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ACCOUNT_DATA)?
             .get(&JsValue::from_str(event_type.as_str()))?
             .await?
             .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
-            .transpose()?)
+            .transpose()
     }
 
     pub async fn get_room_account_data_event(
@@ -882,14 +874,13 @@ impl IndexeddbStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
             .get(&(room_id.as_str(), event_type.as_str()).encode())?
             .await?
             .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
-            .transpose()?)
+            .transpose()
     }
 
     async fn get_user_room_receipt_event(
@@ -898,14 +889,13 @@ impl IndexeddbStore {
         receipt_type: ReceiptType,
         user_id: &UserId,
     ) -> Result<Option<(Box<EventId>, Receipt)>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_USER_RECEIPTS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_USER_RECEIPTS)?
             .get(&(room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode())?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     async fn get_event_room_receipt_events(
@@ -956,14 +946,13 @@ impl IndexeddbStore {
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let key = (&request.media_type.unique_key(), &request.format.unique_key()).encode();
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEDIA)?
             .get(&key)?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
@@ -974,14 +963,13 @@ impl IndexeddbStore {
     }
 
     async fn get_custom_value_for_js(&self, jskey: &JsValue) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::CUSTOM, IdbTransactionMode::Readonly)?
             .object_store(KEYS::CUSTOM)?
             .get(jskey)?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()?)
+            .transpose()
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {

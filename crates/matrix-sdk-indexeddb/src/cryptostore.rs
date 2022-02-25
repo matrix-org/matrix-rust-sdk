@@ -770,8 +770,7 @@ impl IndexeddbStore {
             .object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
             .get(&key_info.as_key().encode())?
             .await?
-            .map(|i| i.as_string())
-            .flatten();
+            .and_then(|i| i.as_string());
         if let Some(id) = id {
             self.get_outgoing_key_request_helper(&id).await
         } else {
