@@ -126,7 +126,7 @@ jobs:
 
           # special check for specific features
           - name: matrix-sdk / indexeddb_stores
-            cargo_args: --package matrix-sdk --no-default-features --features indexeddb_stores,encryption
+            cargo_args: --package matrix-sdk --no-default-features --features indexeddb_stores,encryption,rustls-tls --lib
 
     steps:
     - name: Checkout the repo
