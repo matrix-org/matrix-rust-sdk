@@ -161,7 +161,6 @@ mod store_helpers {
     }
 }
 
-#[allow(dead_code)]
 pub use store_helpers::{default_store, default_store_with_name};
 
 impl ClientConfig {

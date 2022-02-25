@@ -523,20 +523,6 @@ impl IndexeddbStore {
         }
     }
 
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let account_info = AccountInfo {
-            user_id: account.user_id.clone(),
-            device_id: account.device_id.clone(),
-            identity_keys: account.identity_keys.clone(),
-        };
-
-        *self.account_info.write().unwrap() = Some(account_info);
-
-        let changes = Changes { account: Some(account), ..Default::default() };
-
-        self.save_changes(changes).await
-    }
-
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         if let Some(pickle) = self
             .inner
@@ -636,13 +622,6 @@ impl IndexeddbStore {
             .collect())
     }
 
-    async fn get_outbound_group_sessions(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>> {
-        self.load_outbound_group_session(room_id).await
-    }
-
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
         let all = self.get_inbound_group_sessions().await?;
         let backed_up = all.iter().filter(|s| s.backed_up()).count();
@@ -684,24 +663,12 @@ impl IndexeddbStore {
         Ok(())
     }
 
-    fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        self.tracked_users_cache.contains(user_id)
-    }
-
-    fn has_users_for_key_query(&self) -> bool {
-        !self.users_for_key_query_cache.is_empty()
-    }
-
     fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
     fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
-    }
-
-    async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        todo!()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -788,13 +755,6 @@ impl IndexeddbStore {
             .get(&(&hash.sender_key, &hash.hash).encode())?
             .await?
             .is_some())
-    }
-
-    async fn get_outgoing_secret_requests(
-        &self,
-        request_id: &TransactionId,
-    ) -> Result<Option<GossipRequest>> {
-        self.get_outgoing_key_request_helper(request_id.as_str()).await
     }
 
     async fn get_secret_request_by_info(
