@@ -43,6 +43,9 @@ use crate::{
     media::{MediaRequest, UniqueKey},
 };
 
+/// In-Memory, non-peristent implementation of the `StateStore`
+///
+/// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -80,6 +83,7 @@ impl Default for MemoryStore {
 
 impl MemoryStore {
     #[allow(dead_code)]
+    /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Self {
             sync_token: Default::default(),

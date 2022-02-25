@@ -60,7 +60,7 @@ const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShareState {
+pub(crate) enum ShareState {
     NotShared,
     SharedButChangedSenderKey,
     Shared(u32),

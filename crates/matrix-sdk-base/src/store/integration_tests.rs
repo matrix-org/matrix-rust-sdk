@@ -1,3 +1,30 @@
+//! Macro of integration tests for StateStore implementions.
+
+/// Macro building to allow your StateStore implementation to run the entire
+/// tests suite locally.
+///
+/// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
+/// providing a fresh store on the same level you invoke the macro.
+///
+/// ## Usage Example:
+/// ```no_run
+/// # use crate::store::{
+/// #    StateStore,
+/// #    memory_store::{MemoryStore as MyStore, Result as StoreResult}
+/// # }
+///
+/// #[cfg(test)]
+/// mod test {
+///
+///    use super::{MyStore, StoreResult, StateStore};
+///
+///    async fn get_store() -> StoreResult<impl StateStore> {
+///        Ok(MyStore::new())
+///    }
+///
+///    statestore_integration_tests! { integration }
+/// }
+/// ```
 #[allow(unused_macros, unused_extern_crates)]
 #[macro_export]
 macro_rules! statestore_integration_tests {

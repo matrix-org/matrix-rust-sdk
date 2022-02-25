@@ -755,6 +755,7 @@ impl ReadOnlyAccount {
         })
     }
 
+    /// Generate the unsigned `DeviceKeys` from this ReadOnlyAccount
     pub fn unsigned_device_keys(&self) -> DeviceKeys {
         let identity_keys = self.identity_keys();
         let keys = BTreeMap::from([
@@ -803,12 +804,14 @@ impl ReadOnlyAccount {
         device_keys
     }
 
+    /// Bootstrap Cross-Signing
     pub async fn bootstrap_cross_signing(
         &self,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
         PrivateCrossSigningIdentity::new_with_account(self).await
     }
 
+    /// Sign the given CrossSigning Key in place
     pub async fn sign_cross_signing_key(
         &self,
         cross_signing_key: &mut CrossSigningKey,
@@ -827,6 +830,7 @@ impl ReadOnlyAccount {
         Ok(())
     }
 
+    /// Sign the given Master Key
     pub async fn sign_master_key(
         &self,
         master_key: MasterPubkey,
@@ -868,6 +872,7 @@ impl ReadOnlyAccount {
         self.sign(&canonical_json.to_string()).await
     }
 
+    /// Generate a Map of One-Time-Keys for each DeviceKeyId
     pub async fn signed_one_time_keys_helper(&self) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
@@ -1108,6 +1113,8 @@ impl ReadOnlyAccount {
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
+    /// Testing only facility to create a group_session_pari with default
+    /// settings
     pub async fn create_group_session_pair_with_defaults(
         &self,
         room_id: &RoomId,
@@ -1117,6 +1124,7 @@ impl ReadOnlyAccount {
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
+    /// Testing only helper to create a session for the given Account
     pub async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
         use ruma::events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent};
 

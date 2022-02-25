@@ -745,9 +745,9 @@ pub(crate) mod testing {
 #[cfg(test)]
 pub(crate) mod test {
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, UserId};
+    use ruma::device_id;
 
-    use super::testing::{device_id, manager, other_key_query, other_user_id};
+    use super::testing::{manager, other_key_query, other_user_id};
 
     #[async_test]
     async fn test_manager_creation() {

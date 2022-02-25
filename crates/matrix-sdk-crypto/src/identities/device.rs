@@ -573,12 +573,18 @@ impl ReadOnlyDevice {
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
+    /// Generate the Device from the reference of an OlmMachine.
+    ///
+    /// TESTING FACILITY ONLY, DO NOT USE OUTSIDE OF TESTS
     pub async fn from_machine(machine: &OlmMachine) -> ReadOnlyDevice {
         ReadOnlyDevice::from_account(machine.account()).await
     }
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
+    /// Generate the Device from the reference of an Account.
+    ///
+    /// TESTING FACILITY ONLY, DO NOT USE OUTSIDE OF TESTS
     pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
         ReadOnlyDevice::try_from(&device_keys).unwrap()
@@ -608,12 +614,14 @@ impl PartialEq for ReadOnlyDevice {
 
 #[cfg(any(test, feature = "testing"))]
 pub(crate) mod testing {
+    //! Testing Facilities for Device Management
     #![allow(dead_code)]
     use ruma::encryption::DeviceKeys;
     use serde_json::json;
 
     use crate::identities::ReadOnlyDevice;
 
+    /// Generate default DeviceKeys for tests
     pub fn device_keys() -> DeviceKeys {
         let device_keys = json!({
           "algorithms": vec![
@@ -639,6 +647,7 @@ pub(crate) mod testing {
         serde_json::from_value(device_keys).unwrap()
     }
 
+    /// Generate default ReadOnlyDevice for tests
     pub fn get_device() -> ReadOnlyDevice {
         let device_keys = device_keys();
         ReadOnlyDevice::try_from(&device_keys).unwrap()
@@ -647,8 +656,6 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use std::convert::TryFrom;
-
     use ruma::{user_id, DeviceKeyAlgorithm};
 
     use super::testing::{device_keys, get_device};

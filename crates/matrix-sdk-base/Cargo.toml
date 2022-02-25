@@ -17,11 +17,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-encryption = ["matrix-sdk-crypto", "state_key"]
+encryption = ["matrix-sdk-crypto", "store_key"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
 
 # State Key is a helper feature for state store implementations
-state_key = [
+store_key = [
     "pbkdf2",
     "hmac",
     "sha2",

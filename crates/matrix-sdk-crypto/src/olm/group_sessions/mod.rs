@@ -27,9 +27,10 @@ mod inbound;
 mod outbound;
 
 pub use inbound::{InboundGroupSession, InboundGroupSessionPickle, PickledInboundGroupSession};
+pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, OlmOutboundGroupSession, OutboundGroupSession, PickledOutboundGroupSession,
-    ShareInfo, ShareState,
+    ShareInfo,
 };
 
 /// The private session key of a group session.

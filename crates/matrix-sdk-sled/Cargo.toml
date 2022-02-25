@@ -24,7 +24,7 @@ binary-build = [
 [dependencies]
 futures-core = "0.3.15"
 futures-util = { version = "0.3.15", default-features = false }
-matrix-sdk-base = { path = "../matrix-sdk-base", features = ["state_key"] }
+matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"] }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 serde = "1"

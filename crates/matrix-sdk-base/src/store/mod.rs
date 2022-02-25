@@ -1,3 +1,5 @@
+//! Implementing the state store
+
 // Copyright 2021 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,7 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Implementing the state store
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
@@ -22,7 +23,6 @@ use std::{
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
-#[macro_export]
 pub mod integration_tests;
 
 use dashmap::DashMap;
@@ -41,8 +41,10 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 
-#[cfg(feature = "state_key")]
+#[cfg(feature = "store_key")]
 pub mod store_key;
+
+/// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
@@ -348,6 +350,7 @@ pub struct Store {
 }
 
 impl Store {
+    /// Create a new Store with teh default `MemoryStore`
     pub fn open_memory_store() -> Self {
         let inner = Box::new(MemoryStore::new());
 
@@ -367,6 +370,8 @@ impl Store {
         }
     }
 
+    /// Restore the access to the Store from the given `Session`, overwrites any
+    /// previously existing access to the Store.
     pub async fn restore_session(&self, session: Session) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session.user_id, self.inner.clone(), info);
@@ -413,6 +418,8 @@ impl Store {
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 
+    /// Lookup the stripped Room for the given RoomId, or create one, if it
+    /// didn't exist yet in the store
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let session = self.session.read().await;
         let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
@@ -423,6 +430,8 @@ impl Store {
             .clone()
     }
 
+    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
+    /// yet in the store
     pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
         if room_type == RoomType::Invited {
             return self.get_or_create_stripped_room(room_id).await;

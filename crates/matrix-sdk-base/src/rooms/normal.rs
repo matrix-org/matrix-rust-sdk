@@ -375,10 +375,12 @@ impl Room {
         Ok(inner.base_info.calculate_room_name(joined, invited, members))
     }
 
+    /// Clone the inner RoomInfo
     pub fn clone_info(&self) -> RoomInfo {
         (*self.inner.read().unwrap()).clone()
     }
 
+    /// Update the summary with given RoomInfo
     pub fn update_summary(&self, summary: RoomInfo) {
         let mut inner = self.inner.write().unwrap();
         *inner = summary;
@@ -607,22 +609,29 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
+    /// Mark this Room as joined
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
 
+    /// Mark this Room as left
     pub fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
     }
 
+    /// Mark this Room as having all the members synced
     pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
 
+    /// Mark this Room still missing member information
     pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
 
+    /// Set the `prev_batch`-token.
+    /// Returns whether the token has differed and thus has been upgraded:
+    /// `false` means no update was applied as the were the same
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_string());
@@ -632,18 +641,26 @@ impl RoomInfo {
         }
     }
 
+    /// Whether this is an encrypted Room
     pub fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
     }
 
+    /// handle the given State event.
+    ///
+    /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
         self.base_info.handle_state_event(event)
     }
 
+    /// Update the notifications count
     pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
         self.notification_counts = notification_counts;
     }
 
+    /// Update the RoomSummary
+    ///
+    /// Returns true if the Summary modified the info, false otherwise.
     pub fn update_summary(&mut self, summary: &RumaSummary) -> bool {
         let mut changed = false;
 

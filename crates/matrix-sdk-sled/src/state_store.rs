@@ -81,7 +81,7 @@ pub enum SledStoreError {
 impl From<TransactionError<SledStoreError>> for SledStoreError {
     fn from(e: TransactionError<SledStoreError>) -> Self {
         match e {
-            TransactionError::Abort(e) => e.into(),
+            TransactionError::Abort(e) => e,
             TransactionError::Storage(e) => SledStoreError::TransactionError(e),
         }
     }

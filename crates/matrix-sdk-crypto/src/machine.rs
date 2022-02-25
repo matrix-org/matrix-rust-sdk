@@ -1549,7 +1549,6 @@ impl OlmMachine {
 pub(crate) mod testing {
     #![allow(dead_code)]
     use http::Response;
-    use serde_json;
 
     pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
         Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()

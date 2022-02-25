@@ -20,7 +20,6 @@ default = []
 qrcode = ["matrix-qrcode"]
 backups_v1 = []
 docsrs = []
-indexeddb_cryptostore = []
 
 # Testing helpers for implementations based upon this
 testing = ["http"]

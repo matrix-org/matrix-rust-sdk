@@ -64,10 +64,14 @@ use crate::error::{EventError, MegolmResult};
 pub struct InboundGroupSession {
     inner: Arc<Mutex<OlmInboundGroupSession>>,
     history_visibility: Arc<Option<HistoryVisibility>>,
+    /// The SessionId associated to this GroupSession
     pub session_id: Arc<str>,
     first_known_index: u32,
+    /// The sender_key associated to this GroupSession
     pub sender_key: Arc<str>,
+    /// Map of DeviceKeyAlgorithm to the public ed25519 key of the account
     pub signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
+    /// The Room this GroupSession belongs to
     pub room_id: Arc<RoomId>,
     forwarding_chains: Arc<Vec<String>>,
     imported: bool,
@@ -236,6 +240,8 @@ impl InboundGroupSession {
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
+    /// For testing, allow to manually mark this GroupSession to have been
+    /// backed up
     pub fn mark_as_backed_up(&self) {
         self.backed_up.store(true, SeqCst)
     }

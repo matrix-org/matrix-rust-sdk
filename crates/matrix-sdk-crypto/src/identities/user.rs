@@ -937,6 +937,7 @@ impl ReadOnlyOwnUserIdentity {
 
 #[cfg(any(test, feature = "testing"))]
 pub(crate) mod testing {
+    //! Testing Facilities
     #![allow(dead_code)]
     use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
 
@@ -946,6 +947,7 @@ pub(crate) mod testing {
         ReadOnlyDevice,
     };
 
+    /// Generate test devices from KeyQueryResponse
     pub fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();
         let first =
@@ -955,6 +957,7 @@ pub(crate) mod testing {
         (first, second)
     }
 
+    /// Generate ReadOnlyOwnUserIdentity from KeyQueryResponse for testing
     pub fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
         let user_id = user_id!("@example:localhost");
 
@@ -966,10 +969,12 @@ pub(crate) mod testing {
             .unwrap()
     }
 
+    /// Generate default own identiy for tests
     pub fn get_own_identity() -> ReadOnlyOwnUserIdentity {
         own_identity(&own_key_query())
     }
 
+    /// Generate default other identify for tests
     pub fn get_other_identity() -> ReadOnlyUserIdentity {
         let user_id = user_id!("@example2:localhost");
         let response = other_key_query();
@@ -983,21 +988,18 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use std::{convert::TryFrom, sync::Arc};
+    use std::sync::Arc;
 
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
+    use ruma::user_id;
 
     use super::{
         testing::{device, get_other_identity, get_own_identity},
-        ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity,
+        ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
     };
     use crate::{
-        identities::{
-            manager::testing::{other_key_query, own_key_query},
-            Device, ReadOnlyDevice,
-        },
+        identities::{manager::testing::own_key_query, Device},
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
         verification::VerificationMachine,
