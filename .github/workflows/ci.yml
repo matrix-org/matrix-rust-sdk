@@ -116,7 +116,7 @@ jobs:
           - name: matrix-qrcode
             cargo_args: --package matrix-qrcode
           - name: matrix-sdk (no-default, wasm-flags)
-            cargo_args: --no-default-features --features qrcode,encryption,indexeddb_stores,rustls-tls --package matrix-sdk
+            cargo_args: --no-default-features --features qrcode,encryption,indexeddb_stores,rustls-tls --package matrix-sdk --lib
           - name: matrix-sdk-base
             cargo_args: --package matrix-sdk-base
           - name: matrix-sdk-common
@@ -252,7 +252,7 @@ jobs:
       run: |
         cd crates/${{matrix.base_dir}}
         wasm-pack test --node -- ${{ matrix.cargo_args }}
-        wasm-pack test --firefox --headless -- --features ${{ matrix.cargo_args }}
+        wasm-pack test --firefox --headless -- ${{ matrix.cargo_args }}
 
     - name: Testing with custom command
       if: ${{matrix.cmd}}
