@@ -112,7 +112,7 @@ mod store_helpers {
         passphrase: Option<&str>,
     ) -> Result<Box<StateStore>> {
         Ok(Box::new(match passphrase {
-            Some(pass) => StateStore::open_with_passphrase(name.to_owned(), pass)?,
+            Some(pass) => StateStore::open_with_passphrase(name, pass)?,
             _ => StateStore::open_with_path(&name)?,
         }))
     }
@@ -137,7 +137,7 @@ mod store_helpers {
     ) -> Result<Box<StateStore>> {
         Ok(Box::new(match passphrase {
             Some(pass) => StateStore::open_with_passphrase(name.to_owned(), pass).await?,
-            _ => StateStore::open_with_name(name.to_owned()).await?,
+            _ => StateStore::open_with_name(name).await?,
         }))
     }
 }

@@ -152,7 +152,7 @@ impl BaseClientConfig {
 #[cfg(feature = "encryption")]
 enum CryptoHolder {
     PreSetupStore(Option<Box<dyn CryptoStore>>),
-    Olm(OlmMachine),
+    Olm(Box<OlmMachine>),
 }
 
 #[cfg(feature = "encryption")]
@@ -169,15 +169,15 @@ impl CryptoHolder {
     }
     async fn convert_to_olm(&mut self, session: &Session) -> Result<()> {
         if let CryptoHolder::PreSetupStore(store) = self {
-            CryptoHolder::Olm(
+            *self = CryptoHolder::Olm(Box::new(
                 OlmMachine::new_with_store(
                     session.user_id.to_owned(),
                     session.device_id.as_str().into(),
                     store.take().expect("We always exist"),
                 )
                 .await
-                .map_err(OlmError::from)?,
-            );
+                .map_err(OlmError::from)?
+            ));
             Ok(())
         } else {
             Err(Error::BadCryptoStoreState)
@@ -186,7 +186,7 @@ impl CryptoHolder {
 
     fn machine(&self) -> Option<OlmMachine> {
         if let CryptoHolder::Olm(m) = self {
-            Some(m.clone())
+            Some(*m.clone())
         } else {
             None
         }
