@@ -87,6 +87,7 @@ impl From<TransactionError<SledStoreError>> for SledStoreError {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<StoreError> for SledStoreError {
     fn into(self) -> StoreError {
         match self {
@@ -639,10 +640,8 @@ impl SledStore {
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         let db = self.clone();
         let key = user_id.encode();
-        spawn_blocking(move || {
-            Ok(db.presence.get(key)?.map(|e| db.deserialize_event(&e)).transpose()?)
-        })
-        .await?
+        spawn_blocking(move || db.presence.get(key)?.map(|e| db.deserialize_event(&e)).transpose())
+            .await?
     }
 
     pub async fn get_state_event(
@@ -654,7 +653,7 @@ impl SledStore {
         let db = self.clone();
         let key = (room_id.as_str(), event_type.as_str(), state_key).encode();
         spawn_blocking(move || {
-            Ok(db.room_state.get(key)?.map(|e| db.deserialize_event(&e)).transpose()?)
+            db.room_state.get(key)?.map(|e| db.deserialize_event(&e)).transpose()
         })
         .await?
     }
@@ -667,11 +666,10 @@ impl SledStore {
         let db = self.clone();
         let key = (room_id.as_str(), event_type.as_str()).encode();
         spawn_blocking(move || {
-            Ok(db
-                .room_state
+            db.room_state
                 .scan_prefix(key)
                 .flat_map(|e| e.map(|(_, e)| db.deserialize_event(&e)))
-                .collect::<Result<_, _>>()?)
+                .collect::<Result<_, _>>()
         })
         .await?
     }
@@ -683,10 +681,8 @@ impl SledStore {
     ) -> Result<Option<RoomMemberEventContent>> {
         let db = self.clone();
         let key = (room_id.as_str(), user_id.as_str()).encode();
-        spawn_blocking(move || {
-            Ok(db.profiles.get(key)?.map(|p| db.deserialize_event(&p)).transpose()?)
-        })
-        .await?
+        spawn_blocking(move || db.profiles.get(key)?.map(|p| db.deserialize_event(&p)).transpose())
+            .await?
     }
 
     pub async fn get_member_event(
@@ -696,10 +692,8 @@ impl SledStore {
     ) -> Result<Option<MemberEvent>> {
         let db = self.clone();
         let key = (room_id.as_str(), state_key.as_str()).encode();
-        spawn_blocking(move || {
-            Ok(db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()?)
-        })
-        .await?
+        spawn_blocking(move || db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose())
+            .await?
     }
 
     pub async fn get_user_ids_stream(
@@ -773,7 +767,7 @@ impl SledStore {
         let db = self.clone();
         spawn_blocking(move || {
             stream::iter(
-                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
+                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e)),
             )
         })
         .await
@@ -786,7 +780,7 @@ impl SledStore {
             stream::iter(
                 db.stripped_room_infos
                     .iter()
-                    .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
+                    .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e)),
             )
         })
         .await
@@ -818,7 +812,7 @@ impl SledStore {
         let db = self.clone();
         let key = event_type.encode();
         spawn_blocking(move || {
-            Ok(db.account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
+            db.account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
         .await?
     }
@@ -831,7 +825,7 @@ impl SledStore {
         let db = self.clone();
         let key = (room_id.as_str(), event_type.as_str()).encode();
         spawn_blocking(move || {
-            Ok(db.room_account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
+            db.room_account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
         .await?
     }
@@ -845,7 +839,7 @@ impl SledStore {
         let db = self.clone();
         let key = (room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode();
         spawn_blocking(move || {
-            Ok(db.room_user_receipts.get(key)?.map(|m| db.deserialize_event(&m)).transpose()?)
+            db.room_user_receipts.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
         .await?
     }

@@ -233,6 +233,7 @@ pub enum SecretImportError {
 }
 
 impl Store {
+    /// Create a new Store
     pub fn new(
         user_id: Arc<UserId>,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
@@ -242,27 +243,33 @@ impl Store {
         Self { user_id, identity, inner: store, verification_machine }
     }
 
+    /// UserId associated with this store
     pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
+    /// DeviceId associated with this store
     pub fn device_id(&self) -> &DeviceId {
         self.verification_machine.own_device_id()
     }
 
+    /// The Account associated with this store
     pub fn account(&self) -> &ReadOnlyAccount {
         &self.verification_machine.store.account
     }
 
     #[cfg(test)]
+    /// test helper to reset the cross signing identity
     pub async fn reset_cross_signing_identity(&self) {
         self.identity.lock().await.reset().await;
     }
 
+    ///  PrivateCrossSigningIdentity associated with this store
     pub fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
         self.identity.clone()
     }
 
+    /// Save the given Sessions to the store
     pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
@@ -270,6 +277,7 @@ impl Store {
     }
 
     #[cfg(test)]
+    /// Testing helper to allo to save only a set of devices
     pub async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         let changes = Changes {
             devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },
@@ -280,6 +288,7 @@ impl Store {
     }
 
     #[cfg(test)]
+    /// Testing helper to allo to save only a set of InboundGroupSession
     pub async fn save_inbound_group_sessions(
         &self,
         sessions: &[InboundGroupSession],
@@ -298,6 +307,7 @@ impl Store {
             .and_then(|d| d.display_name().map(|d| d.to_string())))
     }
 
+    /// Get the read-only device associated with `device_id` for `user_id`
     pub async fn get_readonly_device(
         &self,
         user_id: &UserId,
@@ -346,6 +356,7 @@ impl Store {
         })
     }
 
+    /// Get all devices associated with the given `user_id`
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         let devices = self.inner.get_user_devices(user_id).await?;
 
@@ -361,6 +372,7 @@ impl Store {
         })
     }
 
+    /// Get a Device copy associated with `device_id` for `user_id`
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -378,6 +390,7 @@ impl Store {
         }))
     }
 
+    ///  Get the Identity of `user_id`
     pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         // let own_identity =
         // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
@@ -444,6 +457,7 @@ impl Store {
         }
     }
 
+    /// Import the Cross Signing Keys
     pub async fn import_cross_signing_keys(
         &self,
         export: CrossSigningKeyExport,
@@ -473,6 +487,7 @@ impl Store {
         Ok(self.identity.lock().await.status().await)
     }
 
+    /// Import the given `secret` named `secret_name` into the keystore.
     pub async fn import_secret(
         &self,
         secret_name: &SecretName,
