@@ -68,10 +68,7 @@ pub fn keys_query(c: &mut Criterion) {
     });
 
     let _dir = tempfile::tempdir().unwrap();
-    let machine = OlmMachine::new(
-            alice_id(),
-            alice_device_id(),
-        );
+    let machine = OlmMachine::new(alice_id(), alice_device_id());
 
     group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
         b.to_async(&runtime)
@@ -116,10 +113,7 @@ pub fn keys_claiming(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let _dir = tempfile::tempdir().unwrap();
-                let machine = OlmMachine::new(
-                        alice_id(),
-                        alice_device_id(),
-                    );
+                let machine = OlmMachine::new(alice_id(), alice_device_id());
                 runtime
                     .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
                     .unwrap();
@@ -178,10 +172,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     });
 
     let _dir = tempfile::tempdir().unwrap();
-    let machine = OlmMachine::new(
-            alice_id(),
-            alice_device_id(),
-        );
+    let machine = OlmMachine::new(alice_id(), alice_device_id());
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
@@ -233,10 +224,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     });
 
     let _dir = tempfile::tempdir().unwrap();
-    let machine = OlmMachine::new(
-            alice_id(),
-            alice_device_id(),
-        );
+    let machine = OlmMachine::new(alice_id(), alice_device_id());
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 

@@ -176,7 +176,7 @@ impl CryptoHolder {
                     store.take().expect("We always exist"),
                 )
                 .await
-                .map_err(OlmError::from)?
+                .map_err(OlmError::from)?,
             ));
             Ok(())
         } else {
