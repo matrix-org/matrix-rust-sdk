@@ -137,7 +137,7 @@ mod store_helpers {
     ) -> Result<Box<StateStore>> {
         Ok(Box::new(match passphrase {
             Some(pass) => StateStore::open_with_passphrase(name.to_owned(), pass).await?,
-            _ => StateStore::open_with_name(name).await?,
+            _ => StateStore::open_with_name(name.to_string()).await?,
         }))
     }
 }
