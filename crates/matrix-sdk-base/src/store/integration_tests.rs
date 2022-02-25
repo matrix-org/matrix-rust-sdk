@@ -8,10 +8,11 @@
 ///
 /// ## Usage Example:
 /// ```no_run
-/// # use crate::store::{
+/// # use matrix_sdk_base::store::{
 /// #    StateStore,
-/// #    memory_store::{MemoryStore as MyStore, Result as StoreResult}
-/// # }
+/// #    MemoryStore as MyStore,
+/// #    Result as StoreResult,
+/// # };
 ///
 /// #[cfg(test)]
 /// mod test {
