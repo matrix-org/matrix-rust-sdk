@@ -43,7 +43,7 @@ use crate::{
     media::{MediaRequest, UniqueKey},
 };
 
-/// In-Memory, non-peristent implementation of the `StateStore`
+/// In-Memory, non-persistent implementation of the `StateStore`
 ///
 /// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]

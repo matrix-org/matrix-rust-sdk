@@ -350,7 +350,7 @@ pub struct Store {
 }
 
 impl Store {
-    /// Create a new Store with teh default `MemoryStore`
+    /// Create a new Store with the default `MemoryStore`
     pub fn open_memory_store() -> Self {
         let inner = Box::new(MemoryStore::new());
 

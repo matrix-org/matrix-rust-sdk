@@ -55,7 +55,7 @@ pub struct Session {
     pub session_id: Arc<str>,
     /// The Key of the sender
     pub sender_key: Arc<str>,
-    /// Has this been creaed using the fallback key
+    /// Has this been created using the fallback key
     pub created_using_fallback_key: bool,
     /// When the session was created
     pub creation_time: Arc<Instant>,

@@ -969,7 +969,7 @@ pub(crate) mod testing {
             .unwrap()
     }
 
-    /// Generate default own identiy for tests
+    /// Generate default own identity for tests
     pub fn get_own_identity() -> ReadOnlyOwnUserIdentity {
         own_identity(&own_key_query())
     }
