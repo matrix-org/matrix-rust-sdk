@@ -339,11 +339,7 @@ impl Client {
     /// # Result::<_, anyhow::Error>::Ok(()) });
     /// ```
     pub async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
-        self.send(
-            get_supported_versions::Request::new(),
-            Some(RequestConfig::new().disable_retry()),
-        )
-        .await
+        self.send(get_supported_versions::Request::new(), Some(RequestConfig::short_retry())).await
     }
 
     /// Process a [transaction] received from the homeserver
@@ -941,7 +937,7 @@ impl Client {
             initial_device_display_name,
         });
 
-        let response = self.send(request, None).await?;
+        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
         self.receive_login_response(&response).await?;
 
         Ok(response)
@@ -1220,7 +1216,7 @@ impl Client {
             }
         );
 
-        let response = self.send(request, None).await?;
+        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
         self.receive_login_response(&response).await?;
 
         Ok(response)
@@ -1351,11 +1347,8 @@ impl Client {
         let homeserver = self.homeserver().await;
         info!("Registering to {}", homeserver);
 
-        let config = if self.inner.appservice_mode {
-            Some(self.inner.http_client.request_config.force_auth())
-        } else {
-            None
-        };
+        let config =
+            if self.inner.appservice_mode { Some(RequestConfig::new().force_auth()) } else { None };
 
         let request = registration.into();
         self.send(request, config).await
@@ -3486,15 +3479,27 @@ pub(crate) mod test {
     }
 
     #[async_test]
-    async fn no_retry_http_requests() {
+    async fn short_retry_initial_http_requests() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
-        assert!(config.request_config.retry_limit.unwrap() == 0);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = Client::new(homeserver).await.unwrap();
 
-        let m = mock("POST", "/_matrix/client/r0/login").with_status(501).create();
+        let m =
+            mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
 
         if client.login("example", "wordpass", None, None).await.is_err() {
+            m.assert();
+        } else {
+            panic!("this request should return an `Err` variant")
+        }
+    }
+
+    #[async_test]
+    async fn no_retry_http_requests() {
+        let client = logged_in_client().await;
+
+        let m = mock("GET", "/_matrix/client/r0/devices").with_status(501).create();
+
+        if client.devices().await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
