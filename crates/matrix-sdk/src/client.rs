@@ -1347,8 +1347,11 @@ impl Client {
         let homeserver = self.homeserver().await;
         info!("Registering to {}", homeserver);
 
-        let config =
-            if self.inner.appservice_mode { Some(RequestConfig::new().force_auth()) } else { None };
+        let config = if self.inner.appservice_mode {
+            Some(RequestConfig::short_retry().force_auth())
+        } else {
+            None
+        };
 
         let request = registration.into();
         self.send(request, config).await
