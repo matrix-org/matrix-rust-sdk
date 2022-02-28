@@ -64,7 +64,7 @@ wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"], optional = 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma/"
 rev = "b9f32bc6327542d382d4eb42ec43623495c50e66"
-features = ["client-api-c"]
+features = ["client-api-c", "unstable-pre-spec"]
 
 [dev-dependencies]
 futures = { version = "0.3.15", default-features = false, features = ["executor"] }
