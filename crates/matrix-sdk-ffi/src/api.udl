@@ -7,7 +7,7 @@ namespace sdk {
     Client login_with_token(string base_path, string restore_token);
 };
 
-[Enum]
+[Error]
 interface ClientError {
   Generic(string msg);
 };
