@@ -50,7 +50,11 @@ callback interface ClientDelegate {
 };
 
 interface Client {
-    void start_sync(ClientDelegate delegate);
+
+    void set_delegate(ClientDelegate? delegate);
+
+    void start_sync();
+
     [Throws=ClientError]
     string restore_token();
     boolean is_guest();

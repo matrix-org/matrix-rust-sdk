@@ -8,16 +8,28 @@ use matrix_sdk::{
     Client as MatrixClient,
     room::Room as MatrixRoom,
     deserialized_responses::Timeline,
-    config::ClientConfig,
+    config::{ClientConfig, SyncSettings},
     LoopCtrl,
     Session,
     media::{MediaRequest, MediaFormat, MediaType},
 };
 pub use matrix_sdk::{
     ruma::{
-        api::client::r0::account::register,
+        api::client::r0::{
+            account::register,
+            sync::sync_events::Filter,
+            filter::{
+                LazyLoadOptions, 
+                RoomFilter, 
+                FilterDefinition, 
+                RoomEventFilter
+            },
+        },
         UserId, RoomId, MxcUri, DeviceId, ServerName,
-        events::{AnySyncRoomEvent, AnySyncMessageEvent}
+        events::{
+            AnySyncRoomEvent, 
+            AnySyncMessageEvent
+        }
     }
 };
 use lazy_static::lazy_static;
@@ -62,28 +74,11 @@ pub struct ClientState {
     timelines: BTreeMap<Box<RoomId>, Vec<Timeline>>
 }
 
-#[derive(Clone)]
-pub struct Client {
-    client: MatrixClient,
-    state: Arc<RwLock<ClientState>>,
-}
-
 #[derive(Serialize, Deserialize)]
 struct RestoreToken {
     is_guest: bool,
     homeurl: String,
     session: Session,
-}
-
-pub struct Message {
-    message_type: String,
-    content: String,
-    sender: String,
-}
-
-pub struct Room {
-    room: MatrixRoom,
-    client_state: Arc<RwLock<ClientState>>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -99,6 +94,11 @@ impl From<anyhow::Error> for ClientError {
     fn from(e: anyhow::Error) -> ClientError {
         ClientError::Generic { msg: e.to_string() }
     }
+}
+
+pub struct Room {
+    room: MatrixRoom,
+    client_state: Arc<RwLock<ClientState>>,
 }
 
 impl Room {
@@ -164,13 +164,18 @@ impl Room {
                         };
                         msgs.push( Arc::new(message))
                     }
-                    Ok(e) => println!("Skipping event {:?}", e),
-                    Err(e) => println!("Error parsing event: {:?}", e),
+                    _ => {}
                 }
             );
             msgs
         }))
     }
+}
+
+pub struct Message {
+    message_type: String,
+    content: String,
+    sender: String,
 }
 
 impl Message {
@@ -206,21 +211,52 @@ pub trait ClientDelegate: Sync + Send {
     fn did_receive_sync_update(&self);
 }
 
+#[derive(Clone)]
+pub struct Client {
+    client: MatrixClient,
+    state: Arc<RwLock<ClientState>>,
+    delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
+}
+
 impl Client {
 
     fn new(client: MatrixClient, state: ClientState) -> Self {
         Client {
             client,
             state: Arc::new(RwLock::new(state)),
+            delegate: Arc::new(RwLock::new(None))
         }
     }
 
-    pub fn start_sync(&self, delegate: Box<dyn ClientDelegate>) {
+    pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
+        *self.delegate.write() = delegate;
+    }
+
+    pub fn start_sync(&self) {
         let client = self.client.clone();
         let state = self.state.clone();
+        let delegate = self.delegate.clone();
         RUNTIME.spawn(async move {
-            client.sync_with_callback(matrix_sdk::config::SyncSettings::new(), |response| async {
 
+            let mut filter = FilterDefinition::default();
+            let mut room_filter = RoomFilter::default();
+            let mut event_filter = RoomEventFilter::default();
+
+            event_filter.lazy_load_options = LazyLoadOptions::Enabled {
+                include_redundant_members: false,
+            };
+            room_filter.state = event_filter;
+            filter.room = room_filter;
+
+            let filter_id = client
+                .get_or_upload_filter("sync", filter)
+                .await
+                .unwrap();
+
+            let sync_settings = SyncSettings::new()
+                .filter(Filter::FilterId(&filter_id));
+
+            client.sync_with_callback(sync_settings, |response| async {
                 if !state.read().has_first_synced {
                     state.write().has_first_synced = true
                 }
@@ -243,7 +279,9 @@ impl Client {
                     }
                 }
 
-                delegate.did_receive_sync_update();
+                if let Some(ref delegate) = *delegate.read() {
+                    delegate.did_receive_sync_update()
+                }
                 LoopCtrl::Continue
             }).await;
         });
