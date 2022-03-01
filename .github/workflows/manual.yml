@@ -31,7 +31,6 @@ jobs:
       - uses: malinskiy/action-android/install-sdk@release/0.1.2
       - run: sdkmanager --install "ndk;22.0.7026061"
       - run: echo $ANDROID_HOME
-      - name: configure
       - uses: actions-rs/cargo@v1
         with:
           command: build
