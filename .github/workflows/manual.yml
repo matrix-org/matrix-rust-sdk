@@ -29,14 +29,15 @@ jobs:
           command: install
           args: uniffi_bindgen    
       - uses: malinskiy/action-android/install-sdk@release/0.1.2
-      - run: sdkmanager --install "ndk;22.0.7026061"
       - run: echo $ANDROID_HOME
       - uses: nttld/setup-ndk@v1
         id: install-ndk
         with:
-          ndk-version: r22e
+          ndk-version: r22b
       - run: ${{ steps.install-ndk.outputs.ndk-path }}/ndk-build --version
       - uses: actions-rs/cargo@v1
+        env: 
+          ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
         with:
           use-cross: true
           command: build
