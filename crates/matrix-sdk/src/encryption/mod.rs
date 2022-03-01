@@ -687,10 +687,10 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn decrypt_room_event(
         &self,
-        event: &AnyRoomEvent,
+        event: Raw<AnyRoomEvent>,
     ) -> RoomEvent {
         if let Some(machine) = self.olm_machine().await {
-            if let AnyRoomEvent::Message(event) = event {
+            if let Ok(AnyRoomEvent::Message(event)) = event.deserialize() {
                 if let AnyMessageEvent::RoomEncrypted(_) = event {
                     let room_id = event.room_id();
                     // Turn the AnyMessageEvent into a AnySyncMessageEvent
@@ -706,7 +706,7 @@ impl Client {
         }
 
         // Fallback to still-encrypted room event
-        RoomEvent { event: Raw::new(event).expect("AnyRoomEvent serialization should not fail"), encryption_info: None }
+        RoomEvent { event, encryption_info: None }
     }
 
     /// Query the server for users device keys.

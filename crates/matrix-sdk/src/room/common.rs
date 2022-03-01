@@ -180,14 +180,7 @@ impl Common {
 
         for event in http_response.chunk {
             #[cfg(feature = "encryption")]
-            let event = match event.deserialize() {
-                Ok(event) => self.client.decrypt_room_event(&event).await,
-                Err(_) => {
-                    // "Broken" messages (i.e., those that cannot be deserialized) are
-                    // returned unchanged so that the caller can handle them individually.
-                    RoomEvent { event, encryption_info: None }
-                }
-            };
+            let event = self.client.decrypt_room_event(event).await;
 
             #[cfg(not(feature = "encryption"))]
             let event = RoomEvent { event, encryption_info: None };
@@ -442,13 +435,13 @@ impl Common {
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
         let request = get_room_event::Request::new(self.room_id(), event_id);
-        let event = self.client.send(request, None).await?.event.deserialize()?;
+        let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "encryption")]
-        return Ok(self.client.decrypt_room_event(&event).await);
+        return Ok(self.client.decrypt_room_event(event).await);
 
         #[cfg(not(feature = "encryption"))]
-        return Ok(RoomEvent { event: Raw::new(&event)?, encryption_info: None });
+        return Ok(RoomEvent { event, encryption_info: None });
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
