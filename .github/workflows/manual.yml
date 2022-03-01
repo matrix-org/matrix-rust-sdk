@@ -19,9 +19,12 @@ jobs:
           override: true
       - uses: actions-rs/cargo@v1
         with:
-          command: check
-          args: --manifest-path ./rust-sdk-crypto/Cargo.toml
+          command: install
+          args: uniffi_bindgen    
+      - uses: malinskiy/action-android/install-sdk@release/0.1.2
+      - run: sdkmanager --install "ndk;22.0.7026061"
       - uses: actions-rs/cargo@v1
         with:
-          command: install
-          args: uniffi_bindgen
+          command: check
+          args: --manifest-path ./rust-sdk-crypto/Cargo.toml
+      
