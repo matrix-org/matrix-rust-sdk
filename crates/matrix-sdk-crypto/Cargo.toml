@@ -64,6 +64,7 @@ http = "0.2.4"
 indoc = "1.0.3"
 matches = "0.1.8"
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
+matrix-sdk-sled = { version = "0.1.0", path = "../matrix-sdk-sled", features = ["encryption"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = { version = "0.3.4", features = [
