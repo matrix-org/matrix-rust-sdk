@@ -7,6 +7,9 @@ jobs:
   build:
     name: Build and generate Crypto bindings
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./rust-sdk-crypto
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -17,4 +20,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          
+      - uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: uniffi_bindgen
