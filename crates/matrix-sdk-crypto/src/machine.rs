@@ -442,7 +442,7 @@ impl OlmMachine {
     ///
     /// # Example
     ///
-    /// ```[skip]
+    /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
     /// # use ruma::{user_id, device_id};
@@ -451,11 +451,6 @@ impl OlmMachine {
     /// # let machine = OlmMachine::new(alice, device_id!("DEVICEID"));
     /// # block_on(async {
     /// if machine.should_upload_keys().await {
-    ///     let request = machine
-    ///         .keys_for_upload()
-    ///         .await
-    ///         .unwrap();
-    ///
     ///     // Upload the keys here.
     /// }
     /// # });

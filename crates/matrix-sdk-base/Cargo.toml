@@ -20,7 +20,7 @@ default = []
 encryption = ["matrix-sdk-crypto", "store_key"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
 
-# State Key is a helper feature for state store implementations
+# Store Key is a helper feature for state store implementations
 store_key = [
     "pbkdf2",
     "hmac",
