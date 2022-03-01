@@ -85,3 +85,8 @@ if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_macos.a" ]; then rm -rf "${GENERATED
 if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
 if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_maccatalyst.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_maccatalyst.a"; fi
 if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
+
+# Debug -> Copy generated files over to ../../../matrix-rust-components-swift
+# rsync -a --delete "${GENERATED_DIR}/MatrixSDKFFI.xcframework" "../../../matrix-rust-components-swift/"
+# rsync -a --delete "${GENERATED_DIR}/swift/" "../../../matrix-rust-components-swift/Sources/MatrixRustSDK"
+
