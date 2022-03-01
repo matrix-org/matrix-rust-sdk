@@ -349,10 +349,7 @@ impl MemoryStore {
                         redaction,
                     ))) = event.event.deserialize()
                     {
-                        let pos = match data.event_id_to_position.get(&redaction.redacts) {
-                            Some(pos) => Some(pos.clone()),
-                            None => None,
-                        };
+                        let pos = data.event_id_to_position.get(&redaction.redacts).copied();
 
                         if let Some(position) = pos{
                             if let Some(mut full_event) = data.events.get_mut(&position.clone()) {
@@ -369,7 +366,7 @@ impl MemoryStore {
                     }
 
                     data.start_position -= 1;
-                    let start_position = data.start_position.clone();
+                    let start_position = data.start_position;
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
                         data.event_id_to_position.insert(event_id, start_position);
@@ -379,7 +376,7 @@ impl MemoryStore {
             } else {
                 for event in timeline.events.iter() {
                     data.end_position += 1;
-                    let end_position = data.end_position.clone();
+                    let end_position = data.end_position;
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
                         data.event_id_to_position.insert(event_id, end_position);
