@@ -21,7 +21,7 @@ jobs:
   style:
     name: Check style
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
     - name: Checkout the repo
@@ -45,7 +45,7 @@ jobs:
     name: Spell Check with Typos
     needs: [style]
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
     - name: Checkout Actions Repository
@@ -58,7 +58,7 @@ jobs:
     name: Run clippy
     needs: [style]
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
     - name: Checkout the repo
@@ -98,7 +98,7 @@ jobs:
   check-wasm:
     name: checking WASM builds
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     strategy:
 #      fail-fast: true
@@ -169,7 +169,7 @@ jobs:
     name: ${{ matrix.name }} WASM test
     runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.experimental }}
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     strategy:
       matrix:
@@ -248,21 +248,21 @@ jobs:
         emcc -v
 
     - name: Default wasm-pack tests
-      if: ${{!matrix.cmd}}
+      if: !matrix.cmd
       run: |
         cd crates/${{matrix.base_dir}}
         wasm-pack test --node -- ${{ matrix.cargo_args }}
         wasm-pack test --firefox --headless -- ${{ matrix.cargo_args }}
 
     - name: Testing with custom command
-      if: ${{matrix.cmd}}
+      if: matrix.cmd
       run: |
         cd crates/${{matrix.base_dir}}
         ${{matrix.cmd}}
 
   test-appservice:
     name: ${{ matrix.name }}
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
@@ -323,7 +323,7 @@ jobs:
 
   test-features:
     name: ${{ matrix.name }}
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
@@ -401,7 +401,7 @@ jobs:
 
   test:
     name: ${{ matrix.name }}
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:
