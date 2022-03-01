@@ -353,12 +353,10 @@ impl MemoryStore {
                         if let Some(position) = pos {
                             if let Some(mut full_event) = data.events.get_mut(&position.clone()) {
                                 let inner_event = full_event.event.deserialize()?;
-                                if room_version.is_none() {
-                                    room_version = Some(make_room_version());
-                                }
+                                let v = room_version.get_or_insert_with(make_room_version);
 
                                 full_event.event = Raw::new(&AnySyncRoomEvent::from(
-                                    inner_event.redact(redaction, room_version.as_ref().unwrap()),
+                                    inner_event.redact(redaction, v),
                                 ))?;
                             }
                         }
