@@ -7,6 +7,12 @@ jobs:
   build:
     name: Build and generate Crypto bindings
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - armv7-linux-androideabi
+          - i686-linux-android   
+          - aarch64-linux-android
     defaults:
       run:
         working-directory: ./rust-sdk-crypto
@@ -15,6 +21,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
+          target: ${{ matrix.target }}
           toolchain: stable
           override: true
       - uses: actions-rs/cargo@v1
@@ -23,8 +30,10 @@ jobs:
           args: uniffi_bindgen    
       - uses: malinskiy/action-android/install-sdk@release/0.1.2
       - run: sdkmanager --install "ndk;22.0.7026061"
+      - run: echo $ANDROID_HOME
+      - name: configure
       - uses: actions-rs/cargo@v1
         with:
-          command: check
-          args: --manifest-path ./rust-sdk-crypto/Cargo.toml
+          command: build
+          args: --manifest-path ./rust-sdk-crypto/Cargo.toml --target aarch64-linux-android
       
