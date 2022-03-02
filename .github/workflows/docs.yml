@@ -1,4 +1,4 @@
-name: docs
+name: Docs
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   docs:
-    name: docs
+    name: Docs
     runs-on: ubuntu-latest
 
     steps:
