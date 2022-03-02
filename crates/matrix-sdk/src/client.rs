@@ -3839,7 +3839,7 @@ pub(crate) mod test {
     }
 
     // FIXME: removing timelines during reading the stream currently leaves to an
-    // inconsitent undefined state. This tests shows that, but because
+    // inconsistent undefined state. This tests shows that, but because
     // different implementations deal with problem in different,
     // inconsistent manners, isn't activated.
     //#[async_test]
