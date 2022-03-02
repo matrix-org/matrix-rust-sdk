@@ -80,4 +80,10 @@ jobs:
         run: |
           mkdir -p ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}   
           cp target/${{ matrix.targets.value }}/release/libmatrix_crypto.so ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
+          
+      - name: Upload binary result
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.targets.folder }}_libuniffi_olm
+          path: ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
       
