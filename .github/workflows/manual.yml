@@ -63,6 +63,7 @@ jobs:
           cat $HOME/.cargo/config.toml
         
       - name: Cargo install uniffi_bindgen
+        continue-on-error: true
         uses: actions-rs/cargo@v1
         with:
           command: install
