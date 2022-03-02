@@ -24,10 +24,6 @@ jobs:
           target: ${{ matrix.target }}
           toolchain: stable
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: uniffi_bindgen    
       - uses: malinskiy/action-android/install-sdk@release/0.1.2
       - run: echo $ANDROID_HOME
       - uses: nttld/setup-ndk@v1
@@ -35,11 +31,30 @@ jobs:
         with:
           ndk-version: r22b
       - run: ${{ steps.install-ndk.outputs.ndk-path }}/ndk-build --version
+      - name: Create cargo config
+        run: |
+          echo [target.aarch64-linux-android] > $HOME/.cargo/config.toml
+          echo ar = ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/ar >> $HOME/.cargo/config.toml
+          echo linker = ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android30-clang  >> $HOME/.cargo/config.toml
+          
+          echo [target.i686-linux-android] > $HOME/.cargo/config.toml
+          echo ar = ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/ar >> $HOME/.cargo/config.toml
+          echo linker = ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/i686-linux-android30-clang  >> $HOME/.cargo/config.toml
+          
+          echo [target.armv7-linux-androideabi] > $HOME/.cargo/config.toml
+          echo ar = ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/ar >> $HOME/.cargo/config.toml
+          echo linker = ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi30-clang  >> $HOME/.cargo/config.toml
+          
+          cat $HOME/.cargo/config.toml
+        
+      - uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: uniffi_bindgen    
       - uses: actions-rs/cargo@v1
         env: 
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
         with:
-          use-cross: true
           command: build
           args: --manifest-path ./rust-sdk-crypto/Cargo.toml --target=${{ matrix.target }}
       
