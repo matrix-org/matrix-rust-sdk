@@ -86,5 +86,5 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.targets.folder }}_libuniffi_olm
-          path: ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
+          path: crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
       
