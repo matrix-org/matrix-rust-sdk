@@ -22,7 +22,7 @@ use inner_sas::InnerSas;
 #[cfg(test)]
 use matrix_sdk_common::instant::Instant;
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{cancel::CancelCode, ShortAuthenticationString},
         AnyMessageEventContent, AnyToDeviceEventContent,

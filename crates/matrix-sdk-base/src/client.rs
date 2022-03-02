@@ -44,7 +44,7 @@ use matrix_sdk_crypto::{
 };
 #[cfg(feature = "encryption")]
 use ruma::{
-    api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
+    api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
         AnySyncMessageEvent, MessageEventContent,
@@ -52,7 +52,7 @@ use ruma::{
     DeviceId, TransactionId,
 };
 use ruma::{
-    api::client::r0::{self as api, push::get_notifications::Notification},
+    api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
         room::member::MembershipState, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
@@ -355,7 +355,7 @@ impl BaseClient {
     /// and device id.
     pub async fn receive_login_response(
         &self,
-        response: &api::session::login::Response,
+        response: &api::session::login::v3::Response,
     ) -> Result<()> {
         let session = Session {
             access_token: response.access_token.clone(),
@@ -430,7 +430,7 @@ impl BaseClient {
     async fn handle_timeline(
         &self,
         room: &Room,
-        ruma_timeline: api::sync::sync_events::Timeline,
+        ruma_timeline: api::sync::sync_events::v3::Timeline,
         push_rules: &Ruleset,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
@@ -727,10 +727,10 @@ impl BaseClient {
     /// * `response` - The response that we received after a successful sync.
     pub async fn receive_sync_response(
         &self,
-        response: api::sync::sync_events::Response,
+        response: api::sync::sync_events::v3::Response,
     ) -> Result<SyncResponse> {
         #[allow(unused_variables)]
-        let api::sync::sync_events::Response {
+        let api::sync::sync_events::v3::Response {
             next_batch,
             rooms,
             presence,
@@ -1009,7 +1009,7 @@ impl BaseClient {
     pub async fn receive_members(
         &self,
         room_id: &RoomId,
-        response: &api::membership::get_member_events::Response,
+        response: &api::membership::get_member_events::v3::Response,
     ) -> Result<MembersResponse> {
         let members: Vec<MemberEvent> = response
             .chunk
@@ -1094,7 +1094,7 @@ impl BaseClient {
     pub async fn receive_filter_upload(
         &self,
         filter_name: &str,
-        response: &api::filter::create_filter::Response,
+        response: &api::filter::create_filter::v3::Response,
     ) -> Result<()> {
         Ok(self.store.save_filter(filter_name, &response.filter_id).await?)
     }

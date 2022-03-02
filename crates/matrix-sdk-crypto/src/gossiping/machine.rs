@@ -24,7 +24,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use ruma::{
-    api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
+    api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
         forwarded_room_key::{ToDeviceForwardedRoomKeyEvent, ToDeviceForwardedRoomKeyEventContent},
         room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEvent},

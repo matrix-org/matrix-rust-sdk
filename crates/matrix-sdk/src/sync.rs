@@ -5,7 +5,7 @@ use matrix_sdk_base::{
     deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
     instant::Instant,
 };
-use ruma::api::client::r0::sync::sync_events;
+use ruma::api::client::sync::sync_events;
 use tracing::{error, warn};
 
 use crate::{event_handler::EventKind, Client, Result};
@@ -15,7 +15,7 @@ use crate::{event_handler::EventKind, Client, Result};
 impl Client {
     pub(crate) async fn process_sync(
         &self,
-        response: sync_events::Response,
+        response: sync_events::v3::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().receive_sync_response(response).await?;
         let SyncResponse {

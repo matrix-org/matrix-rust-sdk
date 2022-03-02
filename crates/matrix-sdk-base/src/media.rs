@@ -1,7 +1,7 @@
 //! Common types for [media content](https://matrix.org/docs/spec/client_server/r0.6.1#id66).
 
 use ruma::{
-    api::client::r0::media::get_content_thumbnail::Method,
+    api::client::media::get_content_thumbnail::v3::Method,
     events::{
         room::{
             message::{

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::api::client::r0::uiaa::UiaaInfo;
+use ruma::api::client::uiaa::UiaaInfo;
 use thiserror::Error;
 
 #[derive(Error, Debug)]

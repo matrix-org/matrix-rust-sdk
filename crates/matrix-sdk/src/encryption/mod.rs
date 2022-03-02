@@ -266,11 +266,11 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::instant::Duration;
 use ruma::{
-    api::client::r0::{
-        backup::add_backup_keys::Response as KeysBackupResponse,
-        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
+    api::client::{
+        backup::add_backup_keys::v3::Response as KeysBackupResponse,
+        keys::{get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest},
         message::send_message_event,
-        to_device::send_event_to_device::{
+        to_device::send_event_to_device::v3::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
         uiaa::AuthData,
@@ -500,7 +500,7 @@ impl Client {
     /// ```no_run
     /// # use std::{convert::TryFrom, collections::BTreeMap};
     /// # use matrix_sdk::{
-    /// #     ruma::{api::client::r0::uiaa, assign},
+    /// #     ruma::{api::client::uiaa, assign},
     /// #     Client,
     /// # };
     /// # use url::Url;
@@ -512,8 +512,12 @@ impl Client {
     /// if let Err(e) = client.bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.uiaa_response() {
     ///         let auth_data = uiaa::AuthData::Password(assign!(
-    ///             uiaa::Password::new(uiaa::UserIdentifier::MatrixId("example"), "wordpass"),
-    ///             { session: response.session.as_deref() }
+    ///             uiaa::Password::new(
+    ///                 uiaa::UserIdentifier::UserIdOrLocalpart("example"),
+    ///                 "wordpass",
+    ///             ), {
+    ///                 session: response.session.as_deref(),
+    ///             }
     ///         ));
     ///
     ///         client
@@ -720,8 +724,8 @@ impl Client {
         &self,
         request_id: &TransactionId,
         device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>,
-    ) -> Result<get_keys::Response> {
-        let request = assign!(get_keys::Request::new(), { device_keys });
+    ) -> Result<get_keys::v3::Response> {
+        let request = assign!(get_keys::v3::Request::new(), { device_keys });
 
         let response = self.send(request, None).await?;
         self.mark_request_as_sent(request_id, &response).await?;
@@ -852,12 +856,12 @@ impl Client {
     async fn send_account_data(
         &self,
         content: ruma::events::AnyGlobalAccountDataEventContent,
-    ) -> Result<ruma::api::client::r0::config::set_global_account_data::Response> {
+    ) -> Result<ruma::api::client::config::set_global_account_data::v3::Response> {
         let own_user =
             self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
         let data = serde_json::value::to_raw_value(&content)?;
 
-        let request = ruma::api::client::r0::config::set_global_account_data::Request::new(
+        let request = ruma::api::client::config::set_global_account_data::v3::Request::new(
             &data,
             ruma::events::EventContent::event_type(&content),
             &own_user,
@@ -869,7 +873,7 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn create_dm_room(&self, user_id: Box<UserId>) -> Result<Option<room::Joined>> {
         use ruma::{
-            api::client::r0::room::create_room::RoomPreset,
+            api::client::room::create_room::v3::RoomPreset,
             events::AnyGlobalAccountDataEventContent,
         };
 
@@ -880,7 +884,7 @@ impl Client {
         let invite = &[user_id.clone()];
 
         let request = assign!(
-            ruma::api::client::r0::room::create_room::Request::new(),
+            ruma::api::client::room::create_room::v3::Request::new(),
             {
                 invite,
                 is_direct: true,
@@ -960,8 +964,8 @@ impl Client {
     pub(crate) async fn keys_upload(
         &self,
         request_id: &TransactionId,
-        request: &upload_keys::Request,
-    ) -> Result<upload_keys::Response> {
+        request: &upload_keys::v3::Request,
+    ) -> Result<upload_keys::v3::Response> {
         debug!(
             device_keys = request.device_keys.is_some(),
             one_time_key_count = request.one_time_keys.len(),
@@ -978,7 +982,7 @@ impl Client {
     pub(crate) async fn room_send_helper(
         &self,
         request: &RoomMessageRequest,
-    ) -> Result<send_message_event::Response> {
+    ) -> Result<send_message_event::v3::Response> {
         let content = request.content.clone();
         let txn_id = &request.txn_id;
         let room_id = &request.room_id;
@@ -1072,7 +1076,7 @@ impl Client {
         &self,
         request: &matrix_sdk_base::crypto::KeysBackupRequest,
     ) -> Result<KeysBackupResponse> {
-        let request = ruma::api::client::r0::backup::add_backup_keys::Request::new(
+        let request = ruma::api::client::backup::add_backup_keys::v3::Request::new(
             &request.version,
             request.rooms.to_owned(),
         );

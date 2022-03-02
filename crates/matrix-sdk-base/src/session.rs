@@ -45,8 +45,8 @@ pub struct Session {
     pub device_id: Box<DeviceId>,
 }
 
-impl From<ruma::api::client::r0::session::login::Response> for Session {
-    fn from(response: ruma::api::client::r0::session::login::Response) -> Self {
+impl From<ruma::api::client::session::login::v3::Response> for Session {
+    fn from(response: ruma::api::client::session::login::v3::Response) -> Self {
         Self {
             access_token: response.access_token,
             user_id: response.user_id,

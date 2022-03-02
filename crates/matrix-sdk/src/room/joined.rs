@@ -12,10 +12,10 @@ use matrix_sdk_common::instant::{Duration, Instant};
 use matrix_sdk_common::locks::Mutex;
 use mime::{self, Mime};
 use ruma::{
-    api::client::r0::{
+    api::client::{
         membership::{
             ban_user,
-            invite_user::{self, InvitationRecipient},
+            invite_user::{self, v3::InvitationRecipient},
             kick_user, Invite3pid,
         },
         message::send_message_event,
@@ -23,7 +23,7 @@ use ruma::{
         receipt::create_receipt,
         redact::redact_event,
         state::send_state_event,
-        typing::create_typing_event::{Request as TypingRequest, Typing},
+        typing::create_typing_event::v3::{Request as TypingRequest, Typing},
     },
     assign,
     events::{room::message::RoomMessageEventContent, MessageEventContent, StateEventContent},
@@ -96,7 +96,8 @@ impl Joined {
     ///
     /// * `reason` - The reason for banning this user.
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request = assign!(ban_user::Request::new(self.inner.room_id(), user_id), { reason });
+        let request =
+            assign!(ban_user::v3::Request::new(self.inner.room_id(), user_id), { reason });
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -110,7 +111,8 @@ impl Joined {
     ///
     /// * `reason` - Optional reason why the room member is being kicked out.
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request = assign!(kick_user::Request::new(self.inner.room_id(), user_id), { reason });
+        let request =
+            assign!(kick_user::v3::Request::new(self.inner.room_id(), user_id), { reason });
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -123,7 +125,7 @@ impl Joined {
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         let recipient = InvitationRecipient::UserId { user_id };
 
-        let request = invite_user::Request::new(self.inner.room_id(), recipient);
+        let request = invite_user::v3::Request::new(self.inner.room_id(), recipient);
         self.client.send(request, None).await?;
 
         Ok(())
@@ -136,7 +138,7 @@ impl Joined {
     /// * `invite_id` - A third party id of a user to invite to the room.
     pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid<'_>) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
-        let request = invite_user::Request::new(self.inner.room_id(), recipient);
+        let request = invite_user::v3::Request::new(self.inner.room_id(), recipient);
         self.client.send(request, None).await?;
 
         Ok(())
@@ -158,7 +160,7 @@ impl Joined {
     ///
     /// ```no_run
     /// use std::time::Duration;
-    /// use matrix_sdk::ruma::api::client::r0::typing::create_typing_event::Typing;
+    /// use matrix_sdk::ruma::api::client::typing::create_typing_event::v3::Typing;
     ///
     /// # use matrix_sdk::{
     /// #     Client, config::SyncSettings,
@@ -228,7 +230,7 @@ impl Joined {
     ///   on.
     pub async fn read_receipt(&self, event_id: &EventId) -> Result<()> {
         let request =
-            create_receipt::Request::new(self.inner.room_id(), ReceiptType::Read, event_id);
+            create_receipt::v3::Request::new(self.inner.room_id(), ReceiptType::Read, event_id);
 
         self.client.send(request, None).await?;
         Ok(())
@@ -248,9 +250,10 @@ impl Joined {
         fully_read: &EventId,
         read_receipt: Option<&EventId>,
     ) -> Result<()> {
-        let request = assign!(set_read_marker::Request::new(self.inner.room_id(), fully_read), {
-            read_receipt
-        });
+        let request =
+            assign!(set_read_marker::v3::Request::new(self.inner.room_id(), fully_read), {
+                read_receipt
+            });
 
         self.client.send(request, None).await?;
         Ok(())
@@ -465,7 +468,7 @@ impl Joined {
         &self,
         content: impl MessageEventContent,
         txn_id: Option<&TransactionId>,
-    ) -> Result<send_message_event::Response> {
+    ) -> Result<send_message_event::v3::Response> {
         let event_type = content.event_type();
         let content = serde_json::to_value(&content)?;
 
@@ -534,7 +537,7 @@ impl Joined {
         content: Value,
         event_type: &str,
         txn_id: Option<&TransactionId>,
-    ) -> Result<send_message_event::Response> {
+    ) -> Result<send_message_event::v3::Response> {
         let txn_id: Box<TransactionId> = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
         #[cfg(not(feature = "encryption"))]
@@ -577,7 +580,7 @@ impl Joined {
             (serde_json::value::to_raw_value(&content)?, event_type)
         };
 
-        let request = send_message_event::Request::new_raw(
+        let request = send_message_event::v3::Request::new_raw(
             self.inner.room_id(),
             &txn_id,
             event_type,
@@ -642,7 +645,7 @@ impl Joined {
         content_type: &Mime,
         reader: &mut R,
         config: AttachmentConfig<'_, T>,
-    ) -> Result<send_message_event::Response> {
+    ) -> Result<send_message_event::v3::Response> {
         let reader = &mut BufReader::new(reader);
 
         #[cfg(feature = "image_proc")]
@@ -721,7 +724,7 @@ impl Joined {
         content_type: &Mime,
         reader: &mut R,
         config: AttachmentConfig<'_, T>,
-    ) -> Result<send_message_event::Response> {
+    ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "encryption")]
         let content = if self.is_encrypted() {
             self.client
@@ -805,8 +808,9 @@ impl Joined {
         &self,
         content: impl StateEventContent,
         state_key: &str,
-    ) -> Result<send_state_event::Response> {
-        let request = send_state_event::Request::new(self.inner.room_id(), state_key, &content)?;
+    ) -> Result<send_state_event::v3::Response> {
+        let request =
+            send_state_event::v3::Request::new(self.inner.room_id(), state_key, &content)?;
         let response = self.client.send(request, None).await?;
         Ok(response)
     }
@@ -849,9 +853,9 @@ impl Joined {
         content: Value,
         event_type: &str,
         state_key: &str,
-    ) -> Result<send_state_event::Response> {
+    ) -> Result<send_state_event::v3::Response> {
         let content = Raw::from_json(serde_json::value::to_raw_value(&content)?);
-        let request = send_state_event::Request::new_raw(
+        let request = send_state_event::v3::Request::new_raw(
             self.inner.room_id(),
             event_type,
             state_key,
@@ -863,7 +867,7 @@ impl Joined {
 
     /// Strips all information out of an event of the room.
     ///
-    /// Returns the [`redact_event::Response`] from the server.
+    /// Returns the [`redact_event::v3::Response`] from the server.
     ///
     /// This cannot be undone. Users may redact their own events, and any user
     /// with a power level greater than or equal to the redact power level of
@@ -899,10 +903,10 @@ impl Joined {
         event_id: &EventId,
         reason: Option<&str>,
         txn_id: Option<Box<TransactionId>>,
-    ) -> HttpResult<redact_event::Response> {
+    ) -> HttpResult<redact_event::v3::Response> {
         let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request =
-            assign!(redact_event::Request::new(self.inner.room_id(), event_id, &txn_id), {
+            assign!(redact_event::v3::Request::new(self.inner.room_id(), event_id, &txn_id), {
                 reason
             });
 

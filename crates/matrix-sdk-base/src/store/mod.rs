@@ -28,7 +28,7 @@ pub mod integration_tests;
 use dashmap::DashMap;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use ruma::{
-    api::client::r0::push::get_notifications::Notification,
+    api::client::push::get_notifications::v3::Notification,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent},
@@ -113,6 +113,11 @@ pub enum StoreError {
     #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Task(#[from] tokio::task::JoinError),
+    /// Redacting an event in the store has failed.
+    ///
+    /// This should never happen.
+    #[error("Redaction failed: {0}")]
+    Redaction(#[source] ruma::signatures::Error),
 }
 
 #[cfg(feature = "indexeddb_state_store")]

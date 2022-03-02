@@ -7,10 +7,10 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::client::r0::{
+    api::client::{
         filter::{LazyLoadOptions, RoomEventFilter},
         membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events::{self, Direction},
+        message::get_message_events::{self, v3::Direction},
         room::get_room_event,
         tag::{create_tag, delete_tag},
     },
@@ -81,7 +81,7 @@ impl Common {
     ///
     /// Only invited and joined rooms can be left
     pub(crate) async fn leave(&self) -> Result<()> {
-        let request = leave_room::Request::new(self.inner.room_id());
+        let request = leave_room::v3::Request::new(self.inner.room_id());
         let _response = self.client.send(request, None).await?;
 
         Ok(())
@@ -91,7 +91,7 @@ impl Common {
     ///
     /// Only invited and left rooms can be joined via this method
     pub(crate) async fn join(&self) -> Result<()> {
-        let request = join_room_by_id::Request::new(self.inner.room_id());
+        let request = join_room_by_id::v3::Request::new(self.inner.room_id());
         let _response = self.client.send(request, None).await?;
 
         Ok(())
@@ -150,7 +150,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -220,7 +220,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -299,7 +299,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -358,7 +358,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -434,7 +434,7 @@ impl Common {
 
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
-        let request = get_room_event::Request::new(self.room_id(), event_id);
+        let request = get_room_event::v3::Request::new(self.room_id(), event_id);
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "encryption")]
@@ -460,7 +460,7 @@ impl Common {
 
             let _guard = mutex.lock().await;
 
-            let request = get_member_events::Request::new(self.inner.room_id());
+            let request = get_member_events::v3::Request::new(self.inner.room_id());
             let response = self.client.send(request, None).await?;
 
             let response =
@@ -680,7 +680,7 @@ impl Common {
 
     /// Adds a tag to the room, or updates it if it already exists.
     ///
-    /// Returns the [`create_tag::Response`] from the server.
+    /// Returns the [`create_tag::v3::Response`] from the server.
     ///
     /// # Arguments
     /// * `tag` - The tag to add or update.
@@ -712,22 +712,22 @@ impl Common {
         &self,
         tag: TagName,
         tag_info: TagInfo,
-    ) -> HttpResult<create_tag::Response> {
+    ) -> HttpResult<create_tag::v3::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
         let request =
-            create_tag::Request::new(&user_id, self.inner.room_id(), tag.as_ref(), tag_info);
+            create_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref(), tag_info);
         self.client.send(request, None).await
     }
 
     /// Removes a tag from the room.
     ///
-    /// Returns the [`delete_tag::Response`] from the server.
+    /// Returns the [`delete_tag::v3::Response`] from the server.
     ///
     /// # Arguments
     /// * `tag` - The tag to remove.
-    pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::Response> {
+    pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::v3::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
-        let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
+        let request = delete_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
         self.client.send(request, None).await
     }
 }
@@ -784,8 +784,8 @@ impl<'a> MessagesOptions<'a> {
         Self::new(from, Direction::Forward)
     }
 
-    fn into_request(self, room_id: &'a RoomId) -> get_message_events::Request {
-        assign!(get_message_events::Request::new(room_id, self.from, self.dir), {
+    fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request {
+        assign!(get_message_events::v3::Request::new(room_id, self.from, self.dir), {
             to: self.to,
             limit: self.limit,
             filter: self.filter,
