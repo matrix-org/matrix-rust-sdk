@@ -53,17 +53,6 @@ jobs:
     - name: Checkout the repo
       uses: actions/checkout@v2
 
-    - name: Load cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
     - name: Install rust
       uses: actions-rs/toolchain@v1
       with:
@@ -71,6 +60,9 @@ jobs:
         components: clippy
         profile: minimal
         override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
 
     - name: Clippy
       uses: actions-rs/cargo@v1
@@ -123,17 +115,6 @@ jobs:
     - name: Checkout the repo
       uses: actions/checkout@v2
 
-    - name: Load cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
     - name: Install rust
       uses: actions-rs/toolchain@v1
       with:
@@ -141,6 +122,9 @@ jobs:
         target: wasm32-unknown-unknown
         profile: minimal
         override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
 
     # needed for libolm-sys compilation
     - name: Install emscripten
@@ -206,17 +190,6 @@ jobs:
     - name: Checkout the repo
       uses: actions/checkout@v2
 
-    - name: Load cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
     - name: Install rust
       uses: actions-rs/toolchain@v1
       with:
@@ -224,6 +197,9 @@ jobs:
         target: wasm32-unknown-unknown
         profile: minimal
         override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
 
     - name: Setup Node
       uses: actions/setup-node@v2
@@ -285,17 +261,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
-      - name: Load cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
@@ -303,6 +268,9 @@ jobs:
           target: ${{ matrix.target }}
           profile: minimal
           override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
       - name: Clippy
         uses: actions-rs/cargo@v1
@@ -368,17 +336,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
-      - name: Load cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
@@ -386,6 +343,9 @@ jobs:
           target: ${{ matrix.target }}
           profile: minimal
           override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
       - name: Check
         uses: actions-rs/cargo@v1
@@ -424,17 +384,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
-      - name: Load cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
@@ -442,6 +391,9 @@ jobs:
           target: ${{ matrix.target }}
           profile: minimal
           override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
       - name: Build
         uses: actions-rs/cargo@v1
