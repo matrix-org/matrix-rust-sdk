@@ -56,5 +56,8 @@ jobs:
           command: build
           args: --manifest-path ./rust-sdk-crypto/Cargo.toml --target=${{ matrix.targets.value }}
       - run: mkdir -p ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}
+      - run: ls target
+      - run: ls target/${{ matrix.targets.value }}
+      - run: ls target/${{ matrix.targets.value }}/release
       - run: cp target/${{ matrix.targets.value }}/release/libmatrix_crypto.so ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
       
