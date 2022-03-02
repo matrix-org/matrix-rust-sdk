@@ -16,8 +16,18 @@ jobs:
         java-version: '11'
         distribution: 'temurin'
         cache: gradle
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+            ${{ runner.os }}-gradle-
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
-    - name: Build with Gradle
-      run: ./gradlew build
+    - name: Generate uniffi bindings 
+      run: ./gradlew :crypto:generateReleaseUniffiBindings
+    - name: Build crypto with Gradle
+      run: ./gradlew :crypto:build
