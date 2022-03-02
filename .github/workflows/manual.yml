@@ -9,10 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target:
-          - armv7-linux-androideabi
-          - i686-linux-android   
-          - aarch64-linux-android
+        targets: [ {value: armv7-linux-androideabi, folder: armeabi-v7a}, {value: i686-linux-android, folder: x86}, {value: aarch64-linux-android, folder: arm64-v8a} ]
     defaults:
       run:
         working-directory: ./rust-sdk-crypto
@@ -29,7 +26,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          target: ${{ matrix.target }}
+          target: ${{ matrix.targets.value }}
           toolchain: stable
           override: true
       - name: Create cargo config
@@ -57,5 +54,7 @@ jobs:
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
         with:
           command: build
-          args: --manifest-path ./rust-sdk-crypto/Cargo.toml --target=${{ matrix.target }}
+          args: --manifest-path ./rust-sdk-crypto/Cargo.toml --target=${{ matrix.targets.value }}
+      - run: mkdir -p ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}
+      - run: cp target/${{ matrix.targets.value }}/release/libmatrix_crypto.so ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
       
