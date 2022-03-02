@@ -36,17 +36,14 @@ jobs:
           echo [target.aarch64-linux-android] > $HOME/.cargo/config.toml
           echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
           echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android30-clang\"  >> $HOME/.cargo/config.toml
-          echo \n >> $HOME/.cargo/config.toml
           
           echo [target.i686-linux-android] >> $HOME/.cargo/config.toml
           echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
           echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/i686-linux-android30-clang\"  >> $HOME/.cargo/config.toml
-          echo \n >> $HOME/.cargo/config.toml          
           
           echo [target.armv7-linux-androideabi] >> $HOME/.cargo/config.toml
           echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
           echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi30-clang\"  >> $HOME/.cargo/config.toml
-          echo \n >> $HOME/.cargo/config.toml          
           
           cat $HOME/.cargo/config.toml
         
