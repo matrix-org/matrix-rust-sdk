@@ -3913,7 +3913,7 @@ pub(crate) mod test {
         let _ = client.sync_once(sync_settings).await.unwrap();
         sync_3.assert();
 
-        let expected_events = vec![
+        let expected_forward_events = vec![
             "$152037280074GZeOm:localhost",
             "$editevid:localhost",
             "$151957878228ssqrJ:localhost",
@@ -3930,27 +3930,14 @@ pub(crate) mod test {
 
         use futures_util::StreamExt;
         let forward_events =
-            forward_stream.take(expected_events.len()).collect::<Vec<SyncRoomEvent>>().await;
+            forward_stream.take(expected_forward_events.len()).collect::<Vec<SyncRoomEvent>>().await;
 
-        assert!(forward_events.into_iter().zip(expected_events.iter()).all(|(a, b)| &a
-            .event_id()
-            .unwrap()
-            .as_str()
-            == b));
+        for (r, e) in forward_events.into_iter().zip(expected_forward_events.iter()) {
+            assert_eq!(&r.event_id().unwrap().as_str(), e);
+        }
 
-        let expected_events = vec![
-            "$152037280074GZeOm2:localhost",
-            "$editevid2:localhost",
-            "$151957878228ssqrJ2:localhost",
-            "$15275046980maRLj2:localhost",
-            "$15275047031IXQRi2:localhost",
-            "$098237280074GZeOm2:localhost",
+        let expected_backwards_events = vec![
             "$152037280074GZeOm:localhost",
-            "$editevid:localhost",
-            "$151957878228ssqrJ:localhost",
-            "$15275046980maRLj:localhost",
-            "$15275047031IXQRi:localhost",
-            "$098237280074GZeOm:localhost",
             "$1444812213350496Caaaf:example.com",
             "$1444812213350496Cbbbf:example.com",
             "$1444812213350496Ccccf:example.com",
@@ -3959,23 +3946,17 @@ pub(crate) mod test {
             "$1444812213350496Cccck:example.com",
         ];
 
-        let join_handle = tokio::spawn(async move {
-            let backward_events = backward_stream
-                .take(expected_events.len())
-                .collect::<Vec<crate::Result<SyncRoomEvent>>>()
-                .await;
+        let backward_events = backward_stream
+            .take(expected_backwards_events.len())
+            .collect::<Vec<crate::Result<SyncRoomEvent>>>()
+            .await;
 
-            assert!(backward_events.into_iter().zip(expected_events.iter()).all(|(a, b)| &a
-                .unwrap()
-                .event_id()
-                .unwrap()
-                .as_str()
-                == b));
-        });
-
-        join_handle.await.unwrap();
+        for (r, e) in backward_events.into_iter().zip(expected_backwards_events.iter()) {
+            assert_eq!(&r.unwrap().event_id().unwrap().as_str(), e);
+        }
 
         mocked_messages.assert();
         mocked_messages_2.assert();
+
     }
 }

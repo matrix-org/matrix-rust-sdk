@@ -351,7 +351,7 @@ impl MemoryStore {
                     {
                         let pos = data.event_id_to_position.get(&redaction.redacts).copied();
 
-                        if let Some(position) = pos{
+                        if let Some(position) = pos {
                             if let Some(mut full_event) = data.events.get_mut(&position.clone()) {
                                 let inner_event = full_event.event.deserialize()?;
                                 if room_version.is_none() {
@@ -371,7 +371,7 @@ impl MemoryStore {
                     if let Some(event_id) = event.event_id() {
                         data.event_id_to_position.insert(event_id, start_position);
                     }
-                    data.events.insert(start_position, event.to_owned());
+                    data.events.insert(start_position, event.clone());
                 }
             } else {
                 for event in timeline.events.iter() {
@@ -381,7 +381,7 @@ impl MemoryStore {
                     if let Some(event_id) = event.event_id() {
                         data.event_id_to_position.insert(event_id, end_position);
                     }
-                    data.events.insert(end_position, event.to_owned());
+                    data.events.insert(end_position, event.clone());
                 }
             }
         }
@@ -576,22 +576,26 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
-        if let Some(data) = self.room_timeline.get(room_id) {
-            let events = data.events.clone();
-            let stream = stream! {
-                for item in events.values() {
-                    yield Ok(item.to_owned());
-                }
-            };
-            info!(
-                "Found previously stored timeline for {}, with end token {:?}",
-                room_id, data.end
-            );
-            Ok(Some((Box::pin(stream), data.end.to_owned())))
+        let (events, end_token) = if let Some(data) = self.room_timeline.get(room_id) {
+            (data.events.clone(), data.end.clone())
         } else {
             info!("No timeline for {} was previously stored", room_id);
-            Ok(None)
-        }
+            return Ok(None);
+        };
+
+        let stream = stream! {
+            for (_, item) in events {
+                println!("yield {:#?}", item);
+                yield Ok(item);
+            }
+        };
+
+        info!(
+            "Found previously stored timeline for {}, with end token {:?}",
+            room_id, end_token
+        );
+
+        Ok(Some((Box::pin(stream), end_token)))
     }
 }
 
