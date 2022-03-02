@@ -287,7 +287,7 @@ impl MemoryStore {
             let mut delete_timeline = false;
             if timeline.limited {
                 info!("Delete stored timeline for {} because the sync response was limited", room);
-                delete_timeline = true
+                delete_timeline = true;
             } else if let Some(mut data) = self.room_timeline.get_mut(room) {
                 if !timeline.sync && Some(&timeline.start) != data.end.as_ref() {
                     // This should only happen when a developer adds a wrong timeline
