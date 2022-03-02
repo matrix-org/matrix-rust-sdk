@@ -10,12 +10,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    
     - name: set up JDK 11
       uses: actions/setup-java@v2
       with:
         java-version: '11'
         distribution: 'temurin'
         cache: gradle
+        
     - uses: actions/cache@v2
       with:
         path: |
@@ -24,10 +26,27 @@ jobs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
         restore-keys: |
             ${{ runner.os }}-gradle-
-
+  
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        target: ${{ matrix.targets.value }}
+        toolchain: stable
+        override: true
+            
+    - name: Cargo install uniffi_bindgen
+      continue-on-error: true
+      uses: actions-rs/cargo@v1
+      with:
+        command: install
+        args: uniffi_bindgen    
+        
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
+      
     - name: Generate uniffi bindings 
       run: ./gradlew :crypto:generateReleaseUniffiBindings
-    - name: Build crypto with Gradle
+      
+    - name: Build crypto module
       run: ./gradlew :crypto:build
