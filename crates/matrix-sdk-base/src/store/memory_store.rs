@@ -321,25 +321,24 @@ impl MemoryStore {
                 self.room_timeline.remove(room);
             }
 
-            let mut data = self.room_timeline.entry(room.to_owned()).or_insert_with(||
-                TimelineData {
+            let mut data =
+                self.room_timeline.entry(room.to_owned()).or_insert_with(|| TimelineData {
                     start: timeline.start.clone(),
                     end: timeline.end.clone(),
                     ..Default::default()
-                }
-            );
-            
-            let make_room_version = || self.room_info
-                .get(room)
-                .and_then(|info| {
-                    info.base_info
-                        .create
-                        .as_ref()
-                        .map(|event| event.room_version.clone())
-                }).unwrap_or_else(|| {
-                    warn!("Unable to find the room version for {}, assume version 9", room);
-                    RoomVersionId::V9
                 });
+
+            let make_room_version = || {
+                self.room_info
+                    .get(room)
+                    .and_then(|info| {
+                        info.base_info.create.as_ref().map(|event| event.room_version.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        warn!("Unable to find the room version for {}, assume version 9", room);
+                        RoomVersionId::V9
+                    })
+            };
 
             if timeline.sync {
                 let mut room_version = None;
@@ -590,10 +589,7 @@ impl MemoryStore {
             }
         };
 
-        info!(
-            "Found previously stored timeline for {}, with end token {:?}",
-            room_id, end_token
-        );
+        info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
 
         Ok(Some((Box::pin(stream), end_token)))
     }
