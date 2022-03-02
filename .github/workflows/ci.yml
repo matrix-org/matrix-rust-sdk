@@ -67,14 +67,8 @@ jobs:
     - name: Clippy
       uses: actions-rs/cargo@v1
       with:
-        command: clippy
-        args: --all-targets -- -D warnings
-
-    - name: Clippy without default features
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: --all-targets --no-default-features --features native-tls,warp -- -D warnings
+        command: run
+        args: -p xtask -- ci clippy
 
   check-wasm:
     name: checking WASM builds

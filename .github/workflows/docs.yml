@@ -24,6 +24,7 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
+      # Keep in sync with xtask docs
       - name: Build docs
         uses: actions-rs/cargo@v1
         env:
