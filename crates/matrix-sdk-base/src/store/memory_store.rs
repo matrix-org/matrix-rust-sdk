@@ -584,7 +584,6 @@ impl MemoryStore {
 
         let stream = stream! {
             for (_, item) in events {
-                println!("yield {:#?}", item);
                 yield Ok(item);
             }
         };
