@@ -13,22 +13,39 @@ jobs:
     defaults:
       run:
         working-directory: ./rust-sdk-crypto
+        
     steps:
-      - uses: actions/checkout@v2
-      - uses: malinskiy/action-android/install-sdk@release/0.1.2
-      - run: echo $ANDROID_HOME
-      - uses: nttld/setup-ndk@v1
+      - name: Checkout
+        uses: actions/checkout@v2
+        
+      - name: Install android sdk
+        uses: malinskiy/action-android/install-sdk@release/0.1.2
+        
+      - name: Install android ndk   
+        uses: nttld/setup-ndk@v1
         id: install-ndk
         with:
           ndk-version: r22b
-      - run: ${{ steps.install-ndk.outputs.ndk-path }}/ndk-build --version
-      - run: ls ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin
-      - uses: actions-rs/toolchain@v1
+          
+      - name: Load cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           target: ${{ matrix.targets.value }}
           toolchain: stable
           override: true
+            
       - name: Create cargo config
         run: |
           echo [target.aarch64-linux-android] > $HOME/.cargo/config.toml
@@ -45,19 +62,22 @@ jobs:
           
           cat $HOME/.cargo/config.toml
         
-      - uses: actions-rs/cargo@v1
+      - name: Cargo install uniffi_bindgen
+        uses: actions-rs/cargo@v1
         with:
           command: install
           args: uniffi_bindgen    
-      - uses: actions-rs/cargo@v1
+          
+      - name: Cargo build    
+        uses: actions-rs/cargo@v1
         env: 
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
         with:
           command: build
-          args: --manifest-path ./rust-sdk-crypto/Cargo.toml --target=${{ matrix.targets.value }}
-      - run: mkdir -p ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}
-      - run: ls target
-      - run: ls target/${{ matrix.targets.value }}
-      - run: ls target/${{ matrix.targets.value }}/release
-      - run: cp target/${{ matrix.targets.value }}/release/libmatrix_crypto.so ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
+          args: --manifest-path ./rust-sdk-crypto/Cargo.toml --release --target=${{ matrix.targets.value }}
+          
+      - name: Move libmatrix_crypto.so to jniLibs folder
+        run: |
+          mkdir -p ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}   
+          cp target/${{ matrix.targets.value }}/release/libmatrix_crypto.so ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
       
