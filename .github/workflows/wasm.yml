@@ -88,6 +88,12 @@ jobs:
             experimental: false
             base_dir: matrix-sdk
             cargo_args: --no-default-features --features indexeddb_stores,rustls-tls --lib
+          - name: matrix-sdk-encryption
+            experimental: false
+            emcc_version: 2.0.27
+            node_version: '14'
+            base_dir: matrix-sdk
+            cargo_args: --no-default-features --features indexeddb_stores,rustls-tls,encryption --lib
           - name: "matrix-sdk-indexeddb"
             base_dir: matrix-sdk-indexeddb
             experimental: false
