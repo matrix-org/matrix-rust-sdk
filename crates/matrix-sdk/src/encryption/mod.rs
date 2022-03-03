@@ -181,7 +181,8 @@
 //! to work.
 //!
 //! 1. Make sure the `encryption` feature is enabled.
-//! 2. Configure a store path with the [`ClientConfig::store_path`] method.
+//! 2. Ensure you have a persistent storage backend, either by activating the
+//!    `sled_state_store`-feature or providing one via [`ClientConfig.state_store`]
 //!
 //! ## Restoring a client
 //!
@@ -231,13 +232,12 @@
 //! | Failure | Cause | Fix |
 //! | ------------------- | ----- | ----------- |
 //! | No messages get encrypted nor decrypted | The `encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
-//! | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Setup storage with [`ClientConfig::store_path`] |
+//! | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Ensure you've activated the persistent storage backend feature, e.g. `sled_state_store` |
 //! | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
 //! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out, otherwise it might be a deserialization bug |
 //!
 //! [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
 //! [Megolm]: https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/megolm.md
-//! [`ClientConfig::store_path`]: crate::config::ClientConfig::store_path
 //! [`UserIdentity`]: #struct.verification.UserIdentity
 //! [filtered]: crate::config::SyncSettings::filter
 //! [enabled]: crate::room::Joined::enable_encryption
