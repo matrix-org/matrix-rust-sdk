@@ -1,0 +1,63 @@
+name: Appservice
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-appservice:
+    name: ${{ matrix.name }}
+
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: true
+      matrix:
+        name:
+          - linux / appservice / stable / warp
+          - macOS / appservice / stable / warp
+
+        include:
+          - name: linux / appservice / stable / warp
+            cargo_args: --features warp
+
+          - name: macOS / appservice / stable / warp
+            os: macOS-latest
+            cargo_args: --features warp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust || 'stable' }}
+          target: ${{ matrix.target }}
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }} -- -D warnings
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }}
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }}
