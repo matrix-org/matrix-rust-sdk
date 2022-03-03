@@ -14,14 +14,14 @@
 
 use std::time::Duration;
 
-use ruma::api::client::r0::sync::sync_events;
+use ruma::api::client::sync::sync_events;
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 /// Settings for a sync call.
 pub struct SyncSettings<'a> {
-    pub(crate) filter: Option<sync_events::Filter<'a>>,
+    pub(crate) filter: Option<sync_events::v3::Filter<'a>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
@@ -76,7 +76,7 @@ impl<'a> SyncSettings<'a> {
     /// * `filter` - The filter configuration that should be used for the sync
     ///   call.
     #[must_use]
-    pub fn filter(mut self, filter: sync_events::Filter<'a>) -> Self {
+    pub fn filter(mut self, filter: sync_events::v3::Filter<'a>) -> Self {
         self.filter = Some(filter);
         self
     }

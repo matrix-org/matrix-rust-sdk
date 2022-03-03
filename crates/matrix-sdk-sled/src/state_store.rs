@@ -21,6 +21,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
 use matrix_sdk_base::{
@@ -41,10 +42,11 @@ use matrix_sdk_common::{
             receipt::Receipt,
             room::member::{MembershipState, RoomMemberEventContent},
             AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent,
-            AnySyncRoomEvent, AnySyncStateEvent, EventType, Redact,
+            AnySyncRoomEvent, AnySyncStateEvent, EventType,
         },
         receipt::ReceiptType,
         serde::Raw,
+        signatures::{redact_in_place, CanonicalJsonObject},
         EventId, MxcUri, RoomId, RoomVersionId, UserId,
     },
 };
@@ -1047,26 +1049,33 @@ impl SledStore {
     ) -> Result<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
         let db = self.clone();
         let key = room_id.encode();
+        let r_id = room_id.to_owned();
         let metadata: Option<TimelineMetadata> = db
             .room_timeline_metadata
             .get(key.as_slice())?
             .map(|v| serde_json::from_slice(&v).map_err(StoreError::Json))
             .transpose()?;
-        if metadata.is_none() {
-            info!("No timeline for {} was previously stored", room_id);
-            return Ok(None);
-        }
-        let end_token = metadata.and_then(|m| m.end);
-        let stream = Box::pin(stream::iter(
-            db.room_timeline
-                .scan_prefix(key)
-                .map(move |v| db.deserialize_event(&v.map_err(SledStoreError::from)?.1))
-                .map(|e| e.map_err(|e| e.into())),
-        ));
+        let metadata = match metadata {
+            Some(m) => m,
+            None => {
+                info!("No timeline for {} was previously stored", r_id);
+                return Ok(None);
+            }
+        };
 
-        info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
+        let mut position = metadata.start_position;
+        let end_token = metadata.end;
 
-        Ok(Some((stream, end_token)))
+        info!("Found previously stored timeline for {}, with end token {:?}", r_id, end_token);
+
+        let stream = stream! {
+            while let Ok(Some(item)) = db.room_timeline.get(&(r_id.as_ref(), position).encode()) {
+                position += 1;
+                yield db.deserialize_event(&item).map_err(SledStoreError::from).map_err(|e| e.into());
+            }
+        };
+
+        Ok(Some((Box::pin(stream), end_token)))
     }
 
     async fn remove_room_timeline(&self, room_id: &RoomId) -> Result<()> {
@@ -1208,11 +1217,11 @@ impl SledStore {
                                 })
                                 .transpose()?
                             {
-                                let inner_event = full_event.event.deserialize()?;
-
-                                full_event.event = Raw::new(&AnySyncRoomEvent::from(
-                                    inner_event.redact(redaction, &room_version),
-                                ))?;
+                                let mut event_json: CanonicalJsonObject =
+                                    full_event.event.deserialize_as()?;
+                                redact_in_place(&mut event_json, &room_version)
+                                    .map_err(StoreError::Redaction)?;
+                                full_event.event = Raw::new(&event_json)?.cast();
                                 timeline_batch
                                     .insert(position_key, self.serialize_event(&full_event)?);
                             }

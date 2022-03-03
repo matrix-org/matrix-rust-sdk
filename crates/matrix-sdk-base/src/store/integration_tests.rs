@@ -37,11 +37,11 @@ macro_rules! statestore_integration_tests {
                 use matrix_sdk_test::{async_test, test_json};
                 use matrix_sdk_common::ruma::{
                     api::{
-                        client::r0::{
-                        media::get_content_thumbnail::Method,
-                        message::get_message_events::Response as MessageResponse,
-                        sync::sync_events::Response as SyncResponse,
-                    },
+                        client::{
+                            media::get_content_thumbnail::v3::Method,
+                            message::get_message_events::v3::Response as MessageResponse,
+                            sync::sync_events::v3::Response as SyncResponse,
+                        },
                         IncomingResponse,
                     },
                     device_id, event_id,

@@ -22,7 +22,7 @@ use std::{
 use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, encryption::DeviceKeys,
     serde::Raw, DeviceId, UserId,
 };
 use tracing::{debug, info, trace, warn};
@@ -544,7 +544,7 @@ pub(crate) mod testing {
 
     use matrix_sdk_common::locks::Mutex;
     use ruma::{
-        api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
+        api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
         device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;

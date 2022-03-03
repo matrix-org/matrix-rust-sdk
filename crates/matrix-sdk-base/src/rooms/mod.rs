@@ -79,7 +79,7 @@ impl BaseRoomInfo {
                 true
             }
             AnyStateEventContent::RoomAvatar(a) => {
-                self.avatar_url = Some(a.url.clone());
+                self.avatar_url = a.url.clone();
                 true
             }
             AnyStateEventContent::RoomName(n) => {

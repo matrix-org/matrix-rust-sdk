@@ -2,12 +2,13 @@ use std::ops::Deref;
 
 use criterion::*;
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
+use matrix_sdk_sled::CryptoStore as SledCryptoStore;
 use matrix_sdk_test::response_from_file;
 use ruma::{
     api::{
-        client::r0::{
+        client::{
             keys::{claim_keys, get_keys},
-            to_device::send_event_to_device::Response as ToDeviceResponse,
+            to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         IncomingResponse,
     },
@@ -15,7 +16,6 @@ use ruma::{
 };
 use serde_json::Value;
 use tokio::runtime::Builder;
-use matrix_sdk_sled::CryptoStore as SledCryptoStore;
 
 fn alice_id() -> &'static UserId {
     user_id!("@alice:example.org")
@@ -25,26 +25,28 @@ fn alice_device_id() -> &'static DeviceId {
     device_id!("JLAFKJWSCS")
 }
 
-fn keys_query_response() -> get_keys::Response {
+fn keys_query_response() -> get_keys::v3::Response {
     let data = include_bytes!("./keys_query.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
-    get_keys::Response::try_from_http_response(data).expect("Can't parse the keys upload response")
-}
-
-fn keys_claim_response() -> claim_keys::Response {
-    let data = include_bytes!("./keys_claim.json");
-    let data: Value = serde_json::from_slice(data).unwrap();
-    let data = response_from_file(&data);
-    claim_keys::Response::try_from_http_response(data)
+    get_keys::v3::Response::try_from_http_response(data)
         .expect("Can't parse the keys upload response")
 }
 
-fn huge_keys_query_response() -> get_keys::Response {
+fn keys_claim_response() -> claim_keys::v3::Response {
+    let data = include_bytes!("./keys_claim.json");
+    let data: Value = serde_json::from_slice(data).unwrap();
+    let data = response_from_file(&data);
+    claim_keys::v3::Response::try_from_http_response(data)
+        .expect("Can't parse the keys upload response")
+}
+
+fn huge_keys_query_response() -> get_keys::v3::Response {
     let data = include_bytes!("./keys_query_2000_members.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
-    get_keys::Response::try_from_http_response(data).expect("Can't parse the keys query response")
+    get_keys::v3::Response::try_from_http_response(data)
+        .expect("Can't parse the keys query response")
 }
 
 pub fn keys_query(c: &mut Criterion) {
@@ -70,7 +72,9 @@ pub fn keys_query(c: &mut Criterion) {
 
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
-    let machine = runtime.block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store)).unwrap();
+    let machine = runtime
+        .block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store))
+        .unwrap();
 
     group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
         b.to_async(&runtime)
@@ -116,8 +120,14 @@ pub fn keys_claiming(c: &mut Criterion) {
             || {
                 let dir = tempfile::tempdir().unwrap();
                 let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
-            
-                let machine = runtime.block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store)).unwrap();
+
+                let machine = runtime
+                    .block_on(OlmMachine::new_with_store(
+                        alice_id().into(),
+                        alice_device_id().into(),
+                        store,
+                    ))
+                    .unwrap();
                 runtime
                     .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
                     .unwrap();
@@ -177,7 +187,9 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
-    let machine = runtime.block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store)).unwrap();
+    let machine = runtime
+        .block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store))
+        .unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
@@ -231,7 +243,9 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
-    let machine = runtime.block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store)).unwrap();
+    let machine = runtime
+        .block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store))
+        .unwrap();
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 

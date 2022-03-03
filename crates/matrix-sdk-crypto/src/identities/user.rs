@@ -23,7 +23,7 @@ use std::{
 };
 
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
@@ -939,7 +939,7 @@ impl ReadOnlyOwnUserIdentity {
 pub(crate) mod testing {
     //! Testing Facilities
     #![allow(dead_code)]
-    use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
+    use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
     use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
     use crate::identities::{

@@ -77,6 +77,13 @@ impl RequestConfig {
         Default::default()
     }
 
+    /// Create a new `RequestConfig` with default values, except the retry limit
+    /// which is set to 3.
+    #[must_use]
+    pub fn short_retry() -> Self {
+        Self::default().retry_limit(3)
+    }
+
     /// This is a convince method to disable the retries of a request. Setting
     /// the `retry_limit` to `0` has the same effect.
     #[must_use]

@@ -14,20 +14,18 @@
 
 mod pk_signing;
 
-use std::{
-    collections::BTreeMap,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use matrix_sdk_common::locks::Mutex;
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     encryption::{DeviceKeys, KeyUsage},
     events::secret::request::SecretName,
+    serde::Raw,
     UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -404,17 +402,17 @@ impl PrivateCrossSigningIdentity {
             .sign_user(user_identity)
             .await?;
 
-        let mut signed_keys = BTreeMap::new();
-
-        signed_keys.entry(user_identity.user_id().to_owned()).or_insert_with(BTreeMap::new).insert(
+        let mut user_signed_keys = SignedKeys::new();
+        user_signed_keys.add_cross_signing_keys(
             user_identity
                 .master_key()
                 .get_first_key()
                 .ok_or(SignatureError::MissingSigningKey)?
-                .to_owned(),
-            serde_json::to_value(master_key)?,
+                .into(),
+            Raw::new(&master_key)?,
         );
 
+        let signed_keys = [(user_identity.user_id().to_owned(), user_signed_keys)].into();
         Ok(SignatureUploadRequest::new(signed_keys))
     }
 
@@ -449,12 +447,10 @@ impl PrivateCrossSigningIdentity {
             .sign_device(device_keys)
             .await?;
 
-        let mut signed_keys = BTreeMap::new();
-        signed_keys
-            .entry((*self.user_id).to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(device_keys.device_id.to_string(), serde_json::to_value(device_keys)?);
+        let mut user_signed_keys = SignedKeys::new();
+        user_signed_keys.add_device_keys(device_keys.device_id.clone(), Raw::new(device_keys)?);
 
+        let signed_keys = [((*self.user_id).to_owned(), user_signed_keys)].into();
         Ok(SignatureUploadRequest::new(signed_keys))
     }
 

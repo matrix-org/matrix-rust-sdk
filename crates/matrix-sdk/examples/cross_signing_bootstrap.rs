@@ -15,11 +15,14 @@ async fn bootstrap(client: Client, user_id: Box<UserId>, password: String) {
     io::stdin().read_line(&mut input).expect("error: unable to read user input");
 
     if let Err(e) = client.bootstrap_cross_signing(None).await {
-        use matrix_sdk::ruma::{api::client::r0::uiaa, assign};
+        use matrix_sdk::ruma::{api::client::uiaa, assign};
 
         if let Some(response) = e.uiaa_response() {
             let auth_data = uiaa::AuthData::Password(assign!(
-                uiaa::Password::new(uiaa::UserIdentifier::MatrixId(user_id.as_str()), &password),
+                uiaa::Password::new(
+                    uiaa::UserIdentifier::UserIdOrLocalpart(user_id.as_str()),
+                    &password,
+                ),
                 { session: response.session.as_deref() }
             ));
 

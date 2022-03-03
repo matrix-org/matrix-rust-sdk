@@ -20,7 +20,7 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use ruma::{
-    api::client::r0::keys::claim_keys::{
+    api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
@@ -338,7 +338,7 @@ mod test {
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::r0::keys::claim_keys::Response as KeyClaimResponse, device_id, user_id,
+        api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id, user_id,
         DeviceId, UserId,
     };
 

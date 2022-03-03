@@ -3,7 +3,7 @@ use std::{collections::HashMap, panic};
 use http::Response;
 pub use matrix_sdk_test_macros::async_test;
 use ruma::{
-    api::{client::r0::sync::sync_events::Response as SyncResponse, IncomingResponse},
+    api::{client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse},
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnySyncEphemeralRoomEvent,
         AnySyncRoomEvent, AnySyncStateEvent,

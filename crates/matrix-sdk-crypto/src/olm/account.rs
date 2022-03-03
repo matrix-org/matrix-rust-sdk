@@ -31,7 +31,10 @@ use olm_rs::{
     PicklingMode,
 };
 use ruma::{
-    api::client::r0::keys::{upload_keys, upload_signatures::Request as SignatureUploadRequest},
+    api::client::keys::{
+        upload_keys,
+        upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
+    },
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
         room::encrypted::{
@@ -250,7 +253,7 @@ impl Account {
 
     pub async fn receive_keys_upload_response(
         &self,
-        response: &upload_keys::Response,
+        response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
         if !self.inner.shared() {
             debug!("Marking account as shared");
@@ -836,17 +839,15 @@ impl ReadOnlyAccount {
         master_key: MasterPubkey,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let public_key =
-            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_string();
+            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.into();
         let mut cross_signing_key: CrossSigningKey = master_key.into();
         cross_signing_key.signatures.clear();
         self.sign_cross_signing_key(&mut cross_signing_key).await?;
 
-        let mut signed_keys = BTreeMap::new();
-        signed_keys
-            .entry(self.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(public_key, serde_json::to_value(cross_signing_key)?);
+        let mut user_signed_keys = SignedKeys::new();
+        user_signed_keys.add_cross_signing_keys(public_key, Raw::new(&cross_signing_key)?);
 
+        let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
         Ok(SignatureUploadRequest::new(signed_keys))
     }
 

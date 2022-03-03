@@ -1,4 +1,4 @@
-name: docs
+name: Docs
 
 on:
   push:
@@ -7,36 +7,29 @@ on:
 
 jobs:
   docs:
-    name: docs
+    name: Docs
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || !github.event.pull_request.draft }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Load cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install stable toolchain
+      - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
           override: true
 
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      # Keep in sync with xtask docs
       - name: Build docs
         uses: actions-rs/cargo@v1
         env:
-          RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs"
+          RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs -Dwarnings"
         with:
           command: doc
           args: --no-deps --workspace --features docsrs -Zrustdoc-map

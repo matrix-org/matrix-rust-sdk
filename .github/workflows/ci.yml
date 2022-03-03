@@ -3,16 +3,14 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches:
-    - master
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
     types:
       - opened
       - reopened
       - synchronize
       - ready_for_review
-
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,7 +25,7 @@ jobs:
     - name: Checkout the repo
       uses: actions/checkout@v2
 
-    - name: Install rust
+    - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly
@@ -39,7 +37,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: fmt
-        args: --all -- --check
+        args: -- --check
 
   typos:
     name: Spell Check with Typos
@@ -64,18 +62,7 @@ jobs:
     - name: Checkout the repo
       uses: actions/checkout@v2
 
-    - name: Load cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install rust
+    - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly
@@ -83,243 +70,14 @@ jobs:
         profile: minimal
         override: true
 
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
+
     - name: Clippy
       uses: actions-rs/cargo@v1
       with:
-        command: clippy
-        args: --all-targets -- -D warnings
-
-    - name: Clippy without default features
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: --all-targets --no-default-features --features native-tls,warp -- -D warnings
-
-  check-wasm:
-    name: checking WASM builds
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    strategy:
-#      fail-fast: true
-
-      matrix:
-        name:
-          - matrix-qrcode
-          - matrix-sdk (no-default, wasm-flags)
-          - matrix-sdk-base
-          - matrix-sdk-common
-          - matrix-sdk-crypto
-          - matrix-sdk / indexeddb_stores
-
-        include:
-          - name: matrix-qrcode
-            cargo_args: --package matrix-qrcode
-          - name: matrix-sdk (no-default, wasm-flags)
-            cargo_args: --no-default-features --features qrcode,encryption,indexeddb_stores,rustls-tls --package matrix-sdk --lib
-          - name: matrix-sdk-base
-            cargo_args: --package matrix-sdk-base
-          - name: matrix-sdk-common
-            cargo_args: --package matrix-sdk-common
-          - name: matrix-sdk-crypto
-            cargo_args: --package matrix-sdk-crypto
-
-          # special check for specific features
-          - name: matrix-sdk / indexeddb_stores
-            cargo_args: --package matrix-sdk --no-default-features --features indexeddb_stores,encryption,rustls-tls --lib
-
-    steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v2
-
-    - name: Load cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: wasm32-unknown-unknown
-        profile: minimal
-        override: true
-
-    # needed for libolm-sys compilation
-    - name: Install emscripten
-      uses: mymindstorm/setup-emsdk@v11
-      with:
-        version: ${{ matrix.emcc_version || 'latest'  }}
-
-    - name: check
-      uses: actions-rs/cargo@v1
-      with:
-        command: check
-        args: --target wasm32-unknown-unknown ${{ matrix.cargo_args }}
-
-  wasmpack-tests:
-    # building wasm is not enough, we've seen runtime errors before,
-    # hence the tests
-    name: ${{ matrix.name }} WASM test
-    runs-on: ubuntu-latest
-    continue-on-error: ${{ matrix.experimental }}
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    strategy:
-      matrix:
-        include:
-          - name: matrix-sdk
-            experimental: false
-            base_dir: matrix-sdk
-            cargo_args: --no-default-features --features indexeddb_stores,rustls-tls --lib
-          - name: "matrix-sdk-indexeddb"
-            base_dir: matrix-sdk-indexeddb
-            experimental: false
-          - name: "matrix-sdk-example-wasm_command_bot @Node14"
-            experimental: false
-            emcc_version: 2.0.27
-            node_version: '14'
-            # known to work
-            base_dir: matrix-sdk/examples/wasm_command_bot
-            cmd: |
-              npm install
-              npm test
-              wasm-pack test --firefox --headless
-          - name: matrix-sdk-example-wasm_command_bot
-            base_dir: matrix-sdk/examples/wasm_command_bot
-            # this might fail
-            experimental: true
-            cmd: |
-              npm install
-              npm test
-              wasm-pack test --firefox --headless
-
-    steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v2
-
-    - name: Load cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: wasm32-unknown-unknown
-        profile: minimal
-        override: true
-
-    - name: Setup Node
-      uses: actions/setup-node@v2
-      with:
-        node-version: ${{ matrix.node_version || 'lts/*' }}
-
-    - name: Install emscripten
-      uses: mymindstorm/setup-emsdk@v11
-      with:
-        version: ${{ matrix.emcc_version || 'latest'  }}
-
-    - name: Install wasm-pack
-      run: cargo install wasm-pack
-
-    - name: Verify versions
-      run: |
-        echo "> node --version"
-        node --version
-        echo "> npm --version"
-        npm --version
-        echo "> wasm-pack --version"
-        wasm-pack --version
-        echo "> emcc -v"
-        emcc -v
-
-    - name: Default wasm-pack tests
-      if: !matrix.cmd
-      run: |
-        cd crates/${{matrix.base_dir}}
-        wasm-pack test --node -- ${{ matrix.cargo_args }}
-        wasm-pack test --firefox --headless -- ${{ matrix.cargo_args }}
-
-    - name: Testing with custom command
-      if: matrix.cmd
-      run: |
-        cd crates/${{matrix.base_dir}}
-        ${{matrix.cmd}}
-
-  test-appservice:
-    name: ${{ matrix.name }}
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
-    strategy:
-      fail-fast: true
-      matrix:
-        name:
-          - linux / appservice / stable / warp
-          - macOS / appservice / stable / warp
-
-        include:
-          - name: linux / appservice / stable / warp
-            cargo_args: --features warp
-
-          - name: macOS / appservice / stable / warp
-            os: macOS-latest
-            cargo_args: --features warp
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-
-      - name: Load cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ matrix.rust || 'stable' }}
-          target: ${{ matrix.target }}
-          profile: minimal
-          override: true
-
-      - name: Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }} -- -D warnings
-
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }}
-
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }}
+        command: run
+        args: -p xtask -- ci clippy
 
   test-features:
     name: ${{ matrix.name }}
@@ -368,24 +126,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
-      - name: Load cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install rust
+      - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust || 'stable' }}
           target: ${{ matrix.target }}
           profile: minimal
           override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
       - name: Check
         uses: actions-rs/cargo@v1
@@ -425,24 +175,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
-      - name: Load cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install rust
+      - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust || 'stable' }}
           target: ${{ matrix.target }}
           profile: minimal
           override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
 
       - name: Build
         uses: actions-rs/cargo@v1

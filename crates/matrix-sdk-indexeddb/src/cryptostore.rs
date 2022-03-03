@@ -43,7 +43,6 @@ use crate::safe_encode::SafeEncode;
 
 #[allow(non_snake_case)]
 mod KEYS {
-
     // STORES
     pub const CORE: &str = "core";
 

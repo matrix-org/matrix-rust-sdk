@@ -19,7 +19,7 @@ use std::{
 
 use olm_rs::pk::OlmPkEncryption;
 use ruma::{
-    api::client::r0::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
+    api::client::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
     DeviceKeyId, UserId,
 };
 use zeroize::Zeroizing;

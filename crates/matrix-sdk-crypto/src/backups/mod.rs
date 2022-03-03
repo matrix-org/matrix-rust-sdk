@@ -30,7 +30,7 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    api::client::r0::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, RoomId,
+    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, RoomId,
     TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -115,7 +115,7 @@ impl BackupMachine {
     /// and the given Ruma struct will lose the unspecced fields after a
     /// serialization cycle.
     ///
-    /// [`BackupAlgorithm`]: ruma::api::client::r0::backup::BackupAlgorithm
+    /// [`BackupAlgorithm`]: ruma::api::client::backup::BackupAlgorithm
     /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
     pub async fn verify_backup(
         &self,

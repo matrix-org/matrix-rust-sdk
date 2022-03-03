@@ -592,7 +592,7 @@ mod test {
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
-            client::r0::keys::{claim_keys, get_keys},
+            client::keys::{claim_keys, get_keys},
             IncomingResponse,
         },
         device_id, room_id, user_id, DeviceId, TransactionId, UserId,
@@ -609,19 +609,19 @@ mod test {
         device_id!("JLAFKJWSCS")
     }
 
-    fn keys_query_response() -> get_keys::Response {
+    fn keys_query_response() -> get_keys::v3::Response {
         let data = include_bytes!("../../benches/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
-        get_keys::Response::try_from_http_response(data)
+        get_keys::v3::Response::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
 
-    fn keys_claim_response() -> claim_keys::Response {
+    fn keys_claim_response() -> claim_keys::v3::Response {
         let data = include_bytes!("../../benches/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
-        claim_keys::Response::try_from_http_response(data)
+        claim_keys::v3::Response::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
 

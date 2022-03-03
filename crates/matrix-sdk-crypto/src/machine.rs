@@ -24,14 +24,14 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 use ruma::{
-    api::client::r0::{
+    api::client::{
         keys::{
-            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-            get_keys::Response as KeysQueryResponse,
+            claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+            get_keys::v3::Response as KeysQueryResponse,
             upload_keys,
-            upload_signatures::Request as UploadSignaturesRequest,
+            upload_signatures::v3::Request as UploadSignaturesRequest,
         },
-        sync::sync_events::{DeviceLists, ToDevice},
+        sync::sync_events::v3::{DeviceLists, ToDevice},
     },
     assign,
     events::{
@@ -475,7 +475,7 @@ impl OlmMachine {
     /// performed.
     async fn receive_keys_upload_response(
         &self,
-        response: &upload_keys::Response,
+        response: &upload_keys::v3::Response,
     ) -> OlmResult<()> {
         self.account.receive_keys_upload_response(response).await
     }
@@ -549,14 +549,14 @@ impl OlmMachine {
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     /// [`OlmMachine`]: struct.OlmMachine.html
-    async fn keys_for_upload(&self) -> Option<upload_keys::Request> {
+    async fn keys_for_upload(&self) -> Option<upload_keys::v3::Request> {
         let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
 
         let device_keys = device_keys
             .map(|d| Raw::from_json(to_raw_value(&d).expect("Coulnd't serialize device keys")));
 
         Some(
-            assign!(upload_keys::Request::new(), { device_keys, one_time_keys, fallback_keys: BTreeMap::new(), }),
+            assign!(upload_keys::v3::Request::new(), { device_keys, one_time_keys, fallback_keys: BTreeMap::new(), }),
         )
     }
 
@@ -1559,7 +1559,7 @@ pub(crate) mod test {
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
-            client::r0::keys::{claim_keys, get_keys, upload_keys},
+            client::keys::{claim_keys, get_keys, upload_keys},
             IncomingResponse,
         },
         device_id,
@@ -1604,15 +1604,15 @@ pub(crate) mod test {
         user_id!("@bob:example.com")
     }
 
-    fn keys_upload_response() -> upload_keys::Response {
+    fn keys_upload_response() -> upload_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_UPLOAD);
-        upload_keys::Response::try_from_http_response(data)
+        upload_keys::v3::Response::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
 
-    fn keys_query_response() -> get_keys::Response {
+    fn keys_query_response() -> get_keys::v3::Response {
         let data = response_from_file(&test_json::KEYS_QUERY);
-        get_keys::Response::try_from_http_response(data)
+        get_keys::v3::Response::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
 
@@ -1680,7 +1680,7 @@ pub(crate) mod test {
         let mut one_time_keys = BTreeMap::new();
         one_time_keys.insert(bob.user_id().to_owned(), bob_keys);
 
-        let response = claim_keys::Response::new(one_time_keys);
+        let response = claim_keys::v3::Response::new(one_time_keys);
 
         alice.receive_keys_claim_response(&response).await.unwrap();
 
@@ -1912,7 +1912,7 @@ pub(crate) mod test {
         let mut one_time_keys = BTreeMap::new();
         one_time_keys.insert(bob_machine.user_id().to_owned(), bob_keys);
 
-        let response = claim_keys::Response::new(one_time_keys);
+        let response = claim_keys::v3::Response::new(one_time_keys);
 
         alice_machine.receive_keys_claim_response(&response).await.unwrap();
 

@@ -25,7 +25,7 @@ use std::{
 use atomic::Atomic;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     encryption::{DeviceKeys, SignedKey},
     events::{
         forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,

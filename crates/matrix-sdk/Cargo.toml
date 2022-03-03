@@ -67,7 +67,7 @@ thiserror = "1.0.25"
 tracing = "0.1.26"
 url = "2.2.2"
 zeroize = "1.3.0"
-async-stream = "0.3.2" 
+async-stream = "0.3.2"
 
 matrix-sdk-sled = { path = "../matrix-sdk-sled", optional = true }
 matrix-sdk-indexeddb = { path = "../matrix-sdk-indexeddb", optional = true }
@@ -102,9 +102,8 @@ version = "0.11.3"
 default_features = false
 
 [dependencies.ruma]
-git = "https://github.com/ruma/ruma/"
-rev = "b9f32bc6327542d382d4eb42ec43623495c50e66"
-features = ["client-api-c", "compat", "rand", "unstable-msc2448"]
+version = "0.5.0"
+features = ["client-api-c", "compat", "rand", "unstable-msc2448", "unstable-pre-spec"]
 
 [dependencies.tokio-stream]
 version = "0.1.6"
