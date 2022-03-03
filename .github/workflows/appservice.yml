@@ -33,7 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
-      - name: Install rust
+      - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust || 'stable' }}
