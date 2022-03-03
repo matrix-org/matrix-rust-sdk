@@ -1113,7 +1113,7 @@ impl ReadOnlyAccount {
 
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    /// Testing only facility to create a group_session_pari with default
+    /// Testing only facility to create a group session pair with default
     /// settings
     pub async fn create_group_session_pair_with_defaults(
         &self,
