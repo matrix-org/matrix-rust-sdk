@@ -20,7 +20,7 @@ use std::{
 };
 
 use http::header::InvalidHeaderValue;
-use matrix_sdk_base::BaseClientConfig;
+use matrix_sdk_base::{BaseClientConfig, StateStore};
 
 use crate::{config::RequestConfig, HttpSend, Result};
 
@@ -35,10 +35,13 @@ use crate::{config::RequestConfig, HttpSend, Result};
 /// use matrix_sdk::config::ClientConfig;
 /// // To pass all the request through mitmproxy set the proxy and disable SSL
 /// // verification
-/// let client_config = ClientConfig::new()
+///
+/// # futures::executor::block_on(async {
+/// let client_config = ClientConfig::new().await?
 ///     .proxy("http://localhost:8080")?
 ///     .disable_ssl_verification();
 /// # matrix_sdk::Result::<()>::Ok(())
+/// # });
 /// ```
 ///
 /// # Example for using a custom client
@@ -57,9 +60,11 @@ use crate::{config::RequestConfig, HttpSend, Result};
 ///     .no_proxy()
 ///     .user_agent("MyApp/v3.0");
 ///
-/// let client_config = ClientConfig::new()
+/// # futures::executor::block_on(async {
+/// let client_config = ClientConfig::new().await?
 ///     .client(Arc::new(builder.build()?));
 /// # matrix_sdk::Result::<()>::Ok(())
+/// # });
 /// ```
 #[derive(Default)]
 pub struct ClientConfig {
@@ -89,11 +94,89 @@ impl Debug for ClientConfig {
     }
 }
 
+#[cfg(feature = "sled_state_store")]
+mod store_helpers {
+    use matrix_sdk_sled::StateStore;
+
+    use super::Result;
+
+    /// Build the sled Store with the default settings - as a temporary storage
+    pub async fn default_store() -> Result<Box<StateStore>> {
+        Ok(Box::new(StateStore::open()?))
+    }
+
+    /// Build a sled store at `name` (being a relative or full path), and open
+    /// the store with the given passphrase (if given) for encryption
+    pub async fn default_store_with_name(
+        name: &str,
+        passphrase: Option<&str>,
+    ) -> Result<Box<StateStore>> {
+        Ok(Box::new(match passphrase {
+            Some(pass) => StateStore::open_with_passphrase(name, pass)?,
+            _ => StateStore::open_with_path(&name)?,
+        }))
+    }
+}
+
+#[cfg(feature = "indexeddb_stores")]
+mod store_helpers {
+    use matrix_sdk_indexeddb::StateStore;
+
+    use super::Result;
+
+    /// Open the IndexedDB store with the default name, unencrypted
+    pub async fn default_store() -> Result<Box<StateStore>> {
+        Ok(Box::new(StateStore::open().await?))
+    }
+
+    /// Open the indexeddb store at `name` (IndexedDB Database name), and open
+    /// the store with the given passphrase (if given) for encryption
+    pub async fn default_store_with_name(
+        name: &str,
+        passphrase: Option<&str>,
+    ) -> Result<Box<StateStore>> {
+        Ok(Box::new(match passphrase {
+            Some(pass) => StateStore::open_with_passphrase(name.to_owned(), pass).await?,
+            _ => StateStore::open_with_name(name.to_string()).await?,
+        }))
+    }
+}
+
+#[cfg(not(any(feature = "indexeddb_stores", feature = "sled_state_store")))]
+mod store_helpers {
+    use matrix_sdk_base::store::MemoryStore as StateStore;
+
+    use super::Result;
+    /// Open a new in-memory StateStore
+    pub async fn default_store() -> Result<Box<StateStore>> {
+        Ok(Box::new(StateStore::new()))
+    }
+
+    /// Alias for `default_store` - in Memory Stores are never named
+    pub async fn default_store_with_name(
+        _name: &str,
+        _passphrase: Option<&str>,
+    ) -> Result<Box<StateStore>> {
+        Ok(Box::new(StateStore::new()))
+    }
+}
+
+pub use store_helpers::{default_store, default_store_with_name};
+
 impl ClientConfig {
     /// Create a new default `ClientConfig`.
-    #[must_use]
-    pub fn new() -> Self {
-        Default::default()
+    pub async fn new() -> Result<Self> {
+        let mut d = Self::default();
+        d.base_config = d.base_config.state_store(default_store().await?);
+        Ok(d)
+    }
+
+    /// Create a new ClientConfig with a named state store, encrypted with the
+    /// given passphrase (if any)
+    pub async fn with_named_store(name: &str, passphrase: Option<&str>) -> Result<Self> {
+        let mut d = Self::default();
+        d.base_config = d.base_config.state_store(default_store_with_name(name, passphrase).await?);
+        Ok(d)
     }
 
     /// Set the proxy through which all the HTTP requests should go.
@@ -107,12 +190,14 @@ impl ClientConfig {
     /// # Example
     ///
     /// ```
+    /// # futures::executor::block_on(async {
     /// use matrix_sdk::{Client, config::ClientConfig};
     ///
-    /// let client_config = ClientConfig::new()
+    /// let client_config = ClientConfig::new().await?
     ///     .proxy("http://localhost:8080")?;
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self, proxy: &str) -> Result<Self> {
@@ -133,44 +218,11 @@ impl ClientConfig {
         Ok(self)
     }
 
-    ///// Set a custom implementation of a `StateStore`.
-    /////
-    ///// The state store should be opened before being set.
-    //#[must_use]
-    //pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-    //    self.base_config = self.base_config.state_store(store);
-    //    self
-    //}
-
-    /// Set the path for storage.
+    /// Set a custom implementation of a `StateStore`.
     ///
-    /// # Arguments
-    ///
-    /// * `path` - The path where the stores should save data in. It is the
-    /// callers responsibility to make sure that the path exists.
-    ///
-    /// In the default configuration, and if the corresponding features
-    /// (`sled_state_store` and `sled_cryptostore`) are enabled, the client will
-    /// open default implementations for the crypto store and the state store.
-    /// It will use the given path to open the stores. If no path is provided an
-    /// in-memory store will be opened.
-    #[must_use]
-    pub fn store_path(mut self, path: impl AsRef<Path>) -> Self {
-        self.base_config = self.base_config.store_path(path);
-        self
-    }
-
-    /// Set the passphrase to encrypt the crypto store.
-    ///
-    /// # Argument
-    ///
-    /// * `passphrase` - The passphrase that will be used to encrypt the data in
-    /// the cryptostore.
-    ///
-    /// This is only used if no custom cryptostore is set.
-    #[must_use]
-    pub fn passphrase(mut self, passphrase: String) -> Self {
-        self.base_config = self.base_config.passphrase(passphrase);
+    /// The state store should be opened before being set.
+    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+        self.base_config = self.base_config.state_store(store);
         self
     }
 

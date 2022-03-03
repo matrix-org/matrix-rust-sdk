@@ -1,0 +1,57 @@
+[package]
+name = "matrix-sdk-sled"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "state-inspector"
+path = "bin/state_inspector.rs"
+required-features = ["binary-build"]
+
+[features]
+default = ["encryption"]
+
+encryption = ["matrix-sdk-crypto"]
+binary-build = [
+    "atty",
+    "clap",
+    "futures",
+    "rustyline",
+    "rustyline-derive",
+    "syntect",
+]
+
+[dependencies]
+futures-core = "0.3.15"
+futures-util = { version = "0.3.15", default-features = false }
+matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"] }
+matrix-sdk-common = { path = "../matrix-sdk-common" }
+matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
+async-stream = "0.3.2"
+serde = "1"
+serde_json = "1.0.64"
+sled = { version = "0.34.6" }
+thiserror = "1.0.25"
+tokio = { version = "1.7.1", default-features = false, features = ["sync", "fs"] }
+tracing = "0.1.26"
+anyhow = "1"
+dashmap = "4.0.2"
+
+# binary-build only
+atty = { version = "0.2.14", optional = true }
+clap = { version = "3.1.0", optional = true }
+futures = { version = "0.3.15", default-features = false, features = ["executor"], optional = true}
+rustyline = { version = "9.0.0", optional = true }
+rustyline-derive = { version = "0.6.0", optional = true }
+syntect = { version = "4.5.0", optional = true }
+
+[dev-dependencies]
+lazy_static = "1.4"
+tempfile = "3.2.0"
+matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
+matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
+matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
+tokio = { version = "1.7.1", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+] }

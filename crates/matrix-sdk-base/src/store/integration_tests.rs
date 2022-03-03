@@ -1,14 +1,41 @@
-#[allow(unused_macros)]
+//! Macro of integration tests for StateStore implementions.
 
+/// Macro building to allow your StateStore implementation to run the entire
+/// tests suite locally.
+///
+/// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
+/// providing a fresh store on the same level you invoke the macro.
+///
+/// ## Usage Example:
+/// ```no_run
+/// # use matrix_sdk_base::store::{
+/// #    StateStore,
+/// #    MemoryStore as MyStore,
+/// #    Result as StoreResult,
+/// # };
+///
+/// #[cfg(test)]
+/// mod test {
+///
+///    use super::{MyStore, StoreResult, StateStore};
+///
+///    async fn get_store() -> StoreResult<impl StateStore> {
+///        Ok(MyStore::new())
+///    }
+///
+///    statestore_integration_tests! { integration }
+/// }
+/// ```
+#[allow(unused_macros, unused_extern_crates)]
+#[macro_export]
 macro_rules! statestore_integration_tests {
     ($($name:ident)*) => {
         $(
             mod $name {
 
                 use futures_util::StreamExt;
-                use http::Response;
                 use matrix_sdk_test::{async_test, test_json};
-                use ruma::{
+                use matrix_sdk_common::ruma::{
                     api::{
                         client::{
                             media::get_content_thumbnail::v3::Method,
@@ -38,14 +65,15 @@ macro_rules! statestore_integration_tests {
 
                 use std::collections::{BTreeMap, BTreeSet};
 
-                use crate::{
+                use $crate::{
+                    http::Response,
                     RoomType, Session,
                     deserialized_responses::{MemberEvent, StrippedMemberEvent, RoomEvent, SyncRoomEvent, TimelineSlice},
                     media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
                     store::{
                         Store,
                         StateStore,
-                        Result,
+                        Result as StoreResult,
                         StateChanges
                     }
                 };
@@ -73,7 +101,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 /// Populate the given `StateStore`.
-                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> Result<Store> {
+                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> StoreResult<Store> {
                     let mut changes = StateChanges::default();
                     let store = Store::new(inner);
 
@@ -240,7 +268,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_populate_store() -> Result<()> {
+                async fn test_populate_store() -> StoreResult<()> {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
@@ -458,7 +486,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_custom_storage() -> Result<()> {
+                async fn test_custom_storage() -> StoreResult<()> {
                     let key = "my_key";
                     let value = &[0, 1, 2, 3];
                     let store = get_store().await?;
@@ -473,7 +501,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_persist_invited_room() -> Result<()> {
+                async fn test_persist_invited_room() -> StoreResult<()> {
                     let stripped_room_id = stripped_room_id();
                     let inner_store = get_store().await?;
                     let store = populated_store(Box::new(inner_store)).await?;
@@ -486,7 +514,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_room_removal() -> Result<()>  {
+                async fn test_room_removal() -> StoreResult<()>  {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
@@ -668,7 +696,7 @@ macro_rules! statestore_integration_tests {
 
                     assert_eq!(end_token.as_deref(), expected_end_token);
 
-                    let timeline = timeline_iter.collect::<Vec<Result<SyncRoomEvent>>>().await;
+                    let timeline = timeline_iter.collect::<Vec<StoreResult<SyncRoomEvent>>>().await;
 
                     assert!(timeline
                             .into_iter()

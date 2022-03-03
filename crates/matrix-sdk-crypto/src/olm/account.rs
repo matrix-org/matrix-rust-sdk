@@ -69,8 +69,8 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Account {
-    pub(crate) inner: ReadOnlyAccount,
-    pub(crate) store: Store,
+    pub inner: ReadOnlyAccount,
+    pub store: Store,
 }
 
 #[derive(Debug, Clone)]
@@ -149,7 +149,7 @@ impl Account {
         Ok((message, message_hash))
     }
 
-    pub(crate) async fn save(&self) -> Result<(), CryptoStoreError> {
+    pub async fn save(&self) -> Result<(), CryptoStoreError> {
         self.store.save_account(self.inner.clone()).await
     }
 
@@ -482,10 +482,13 @@ impl Account {
 /// devices.
 #[derive(Clone)]
 pub struct ReadOnlyAccount {
-    pub(crate) user_id: Arc<UserId>,
-    pub(crate) device_id: Arc<DeviceId>,
+    /// The user_id this account belongs to
+    pub user_id: Arc<UserId>,
+    /// The device_id of this entry
+    pub device_id: Arc<DeviceId>,
     inner: Arc<Mutex<OlmAccount>>,
-    pub(crate) identity_keys: Arc<IdentityKeys>,
+    /// The associated identity keys
+    pub identity_keys: Arc<IdentityKeys>,
     shared: Arc<AtomicBool>,
     /// The number of signed one-time keys we have uploaded to the server. If
     /// this is None, no action will be taken. After a sync request the client
@@ -582,7 +585,7 @@ impl ReadOnlyAccount {
     /// # Arguments
     ///
     /// * `new_count` - The new count that was reported by the server.
-    pub(crate) fn update_uploaded_key_count(&self, new_count: u64) {
+    pub fn update_uploaded_key_count(&self, new_count: u64) {
         self.uploaded_signed_key_count.store(new_count, Ordering::SeqCst);
     }
 
@@ -600,31 +603,31 @@ impl ReadOnlyAccount {
     ///
     /// Messages shouldn't be encrypted with the session before it has been
     /// shared.
-    pub(crate) fn mark_as_shared(&self) {
+    pub fn mark_as_shared(&self) {
         self.shared.store(true, Ordering::SeqCst);
     }
 
     /// Get the one-time keys of the account.
     ///
     /// This can be empty, keys need to be generated first.
-    pub(crate) async fn one_time_keys(&self) -> OneTimeKeys {
+    pub async fn one_time_keys(&self) -> OneTimeKeys {
         self.inner.lock().await.parsed_one_time_keys()
     }
 
     /// Generate count number of one-time keys.
-    pub(crate) async fn generate_one_time_keys_helper(&self, count: usize) {
+    pub async fn generate_one_time_keys_helper(&self, count: usize) {
         self.inner.lock().await.generate_one_time_keys(count);
     }
 
     /// Get the maximum number of one-time keys the account can hold.
-    pub(crate) async fn max_one_time_keys(&self) -> usize {
+    pub async fn max_one_time_keys(&self) -> usize {
         self.inner.lock().await.max_number_of_one_time_keys()
     }
 
     /// Get a tuple of device and one-time keys that need to be uploaded.
     ///
     /// Returns an empty error if no keys need to be uploaded.
-    pub(crate) async fn generate_one_time_keys(&self) -> Result<u64, ()> {
+    pub async fn generate_one_time_keys(&self) -> Result<u64, ()> {
         // Only generate one-time keys if there aren't any, otherwise the caller
         // might have failed to upload them the last time this method was
         // called.
@@ -648,7 +651,7 @@ impl ReadOnlyAccount {
     }
 
     /// Should account or one-time keys be uploaded to the server.
-    pub(crate) async fn should_upload_keys(&self) -> bool {
+    pub async fn should_upload_keys(&self) -> bool {
         if !self.shared() {
             return true;
         }
@@ -671,7 +674,7 @@ impl ReadOnlyAccount {
     /// Get a tuple of device and one-time keys that need to be uploaded.
     ///
     /// Returns None if no keys need to be uploaded.
-    pub(crate) async fn keys_for_upload(
+    pub async fn keys_for_upload(
         &self,
     ) -> Option<(Option<DeviceKeys>, BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>)> {
         if !self.should_upload_keys().await {
@@ -686,7 +689,7 @@ impl ReadOnlyAccount {
     }
 
     /// Mark the current set of one-time keys as being published.
-    pub(crate) async fn mark_keys_as_published(&self) {
+    pub async fn mark_keys_as_published(&self) {
         self.inner.lock().await.mark_keys_as_published();
     }
 
@@ -698,7 +701,7 @@ impl ReadOnlyAccount {
     }
 
     #[cfg(feature = "backups_v1")]
-    pub(crate) fn is_signed(&self, json: &mut Value) -> Result<(), SignatureError> {
+    pub fn is_signed(&self, json: &mut Value) -> Result<(), SignatureError> {
         let signing_key = self.identity_keys.ed25519();
         let utility = crate::olm::Utility::new();
 
@@ -755,7 +758,8 @@ impl ReadOnlyAccount {
         })
     }
 
-    pub(crate) fn unsigned_device_keys(&self) -> DeviceKeys {
+    /// Generate the unsigned `DeviceKeys` from this ReadOnlyAccount
+    pub fn unsigned_device_keys(&self) -> DeviceKeys {
         let identity_keys = self.identity_keys();
         let keys = BTreeMap::from([
             (
@@ -779,7 +783,7 @@ impl ReadOnlyAccount {
 
     /// Sign the device keys of the account and return them so they can be
     /// uploaded.
-    pub(crate) async fn device_keys(&self) -> DeviceKeys {
+    pub async fn device_keys(&self) -> DeviceKeys {
         let mut device_keys = self.unsigned_device_keys();
 
         // Create a copy of the device keys containing only fields that will
@@ -803,13 +807,15 @@ impl ReadOnlyAccount {
         device_keys
     }
 
-    pub(crate) async fn bootstrap_cross_signing(
+    /// Bootstrap Cross-Signing
+    pub async fn bootstrap_cross_signing(
         &self,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
         PrivateCrossSigningIdentity::new_with_account(self).await
     }
 
-    pub(crate) async fn sign_cross_signing_key(
+    /// Sign the given CrossSigning Key in place
+    pub async fn sign_cross_signing_key(
         &self,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
@@ -827,7 +833,8 @@ impl ReadOnlyAccount {
         Ok(())
     }
 
-    pub(crate) async fn sign_master_key(
+    /// Sign the given Master Key
+    pub async fn sign_master_key(
         &self,
         master_key: MasterPubkey,
     ) -> Result<SignatureUploadRequest, SignatureError> {
@@ -866,9 +873,8 @@ impl ReadOnlyAccount {
         self.sign(&canonical_json.to_string()).await
     }
 
-    pub(crate) async fn signed_one_time_keys_helper(
-        &self,
-    ) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
+    /// Generate a Map of One-Time-Keys for each DeviceKeyId
+    pub async fn signed_one_time_keys_helper(&self) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
@@ -912,7 +918,7 @@ impl ReadOnlyAccount {
     /// Generate, sign and prepare one-time keys to be uploaded.
     ///
     /// If no one-time keys need to be uploaded returns an empty error.
-    pub(crate) async fn signed_one_time_keys(
+    pub async fn signed_one_time_keys(
         &self,
     ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
         let _ = self.generate_one_time_keys().await?;
@@ -929,7 +935,7 @@ impl ReadOnlyAccount {
     ///
     /// * `their_one_time_key` - A signed one-time key that the other account
     /// created and shared with us.
-    pub(crate) async fn create_outbound_session_helper(
+    pub async fn create_outbound_session_helper(
         &self,
         their_identity_key: &str,
         their_one_time_key: &SignedKey,
@@ -967,7 +973,7 @@ impl ReadOnlyAccount {
     ///
     /// * `key_map` - A map from the algorithm and device id to the one-time key
     ///   that the other account created and shared with us.
-    pub(crate) async fn create_outbound_session(
+    pub async fn create_outbound_session(
         &self,
         device: ReadOnlyDevice,
         key_map: &BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>,
@@ -1030,7 +1036,7 @@ impl ReadOnlyAccount {
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
-    pub(crate) async fn create_inbound_session(
+    pub async fn create_inbound_session(
         &self,
         their_identity_key: &str,
         message: PreKeyMessage,
@@ -1072,7 +1078,7 @@ impl ReadOnlyAccount {
     ///
     /// * `settings` - Settings determining the algorithm and rotation period of
     /// the outbound group session.
-    pub(crate) async fn create_group_session_pair(
+    pub async fn create_group_session_pair(
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
@@ -1106,16 +1112,21 @@ impl ReadOnlyAccount {
         Ok((outbound, inbound))
     }
 
-    #[cfg(test)]
-    pub(crate) async fn create_group_session_pair_with_defaults(
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
+    /// Testing only facility to create a group session pair with default
+    /// settings
+    pub async fn create_group_session_pair_with_defaults(
         &self,
         room_id: &RoomId,
     ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
         self.create_group_session_pair(room_id, EncryptionSettings::default()).await
     }
 
-    #[cfg(test)]
-    pub(crate) async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
+    /// Testing only helper to create a session for the given Account
+    pub async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
         use ruma::events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent};
 
         other.generate_one_time_keys_helper(1).await;

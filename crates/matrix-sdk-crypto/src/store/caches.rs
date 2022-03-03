@@ -191,7 +191,7 @@ mod test {
     use ruma::room_id;
 
     use crate::{
-        identities::device::test::get_device,
+        identities::device::testing::get_device,
         olm::{test::get_account_and_session, InboundGroupSession},
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };

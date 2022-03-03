@@ -2,6 +2,7 @@ use std::ops::Deref;
 
 use criterion::*;
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
+use matrix_sdk_sled::CryptoStore as SledCryptoStore;
 use matrix_sdk_test::response_from_file;
 use ruma::{
     api::{
@@ -70,13 +71,9 @@ pub fn keys_query(c: &mut Criterion) {
     });
 
     let dir = tempfile::tempdir().unwrap();
+    let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
     let machine = runtime
-        .block_on(OlmMachine::new_with_default_store(
-            alice_id(),
-            alice_device_id(),
-            dir.path(),
-            None,
-        ))
+        .block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store))
         .unwrap();
 
     group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
@@ -122,12 +119,13 @@ pub fn keys_claiming(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let dir = tempfile::tempdir().unwrap();
+                let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
+
                 let machine = runtime
-                    .block_on(OlmMachine::new_with_default_store(
-                        alice_id(),
-                        alice_device_id(),
-                        dir.path(),
-                        None,
+                    .block_on(OlmMachine::new_with_store(
+                        alice_id().into(),
+                        alice_device_id().into(),
+                        store,
                     ))
                     .unwrap();
                 runtime
@@ -186,15 +184,11 @@ pub fn room_key_sharing(c: &mut Criterion) {
             machine.invalidate_group_session(room_id).await.unwrap();
         })
     });
-
     let dir = tempfile::tempdir().unwrap();
+    let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
+
     let machine = runtime
-        .block_on(OlmMachine::new_with_default_store(
-            alice_id(),
-            alice_device_id(),
-            dir.path(),
-            None,
-        ))
+        .block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store))
         .unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
@@ -247,13 +241,10 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     });
 
     let dir = tempfile::tempdir().unwrap();
+    let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
+
     let machine = runtime
-        .block_on(OlmMachine::new_with_default_store(
-            alice_id(),
-            alice_device_id(),
-            dir.path(),
-            None,
-        ))
+        .block_on(OlmMachine::new_with_store(alice_id().into(), alice_device_id().into(), store))
         .unwrap();
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();

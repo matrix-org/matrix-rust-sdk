@@ -14,10 +14,10 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![warn(missing_docs)]
 #![deny(
     missing_debug_implementations,
     dead_code,
-    missing_docs,
     trivial_casts,
     trivial_numeric_casts,
     unused_extern_crates,
@@ -41,6 +41,15 @@ mod session_manager;
 pub mod store;
 mod utilities;
 mod verification;
+
+#[cfg(feature = "testing")]
+/// Testing facilities and helpers for crypto tests
+pub mod testing {
+    pub use crate::identities::{
+        device::testing::get_device,
+        user::testing::{get_other_identity, get_own_identity},
+    };
+}
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -75,6 +84,7 @@ pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, KeyExportError, MediaEncryptionInfo,
 };
+pub use gossiping::GossipRequest;
 pub use identities::{
     Device, LocalTrust, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
@@ -82,13 +92,12 @@ pub use identities::{
 pub use machine::OlmMachine;
 #[cfg(feature = "qrcode")]
 pub use matrix_qrcode;
-pub(crate) use olm::ReadOnlyAccount;
-pub use olm::{CrossSigningStatus, EncryptionSettings};
+pub use olm::{CrossSigningStatus, EncryptionSettings, ReadOnlyAccount};
 pub use requests::{
     IncomingResponse, KeysBackupRequest, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
-pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError};
+pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo};
 pub use verification::{AcceptSettings, CancelInfo, Emoji, Sas, Verification, VerificationRequest};
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, ScanError};

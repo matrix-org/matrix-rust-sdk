@@ -537,12 +537,12 @@ impl IdentityManager {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test {
+#[cfg(any(test, feature = "testing"))]
+pub(crate) mod testing {
+    #![allow(dead_code)]
     use std::sync::Arc;
 
     use matrix_sdk_common::locks::Mutex;
-    use matrix_sdk_test::async_test;
     use ruma::{
         api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
         device_id, user_id, DeviceId, UserId,
@@ -551,25 +551,25 @@ pub(crate) mod test {
 
     use crate::{
         identities::IdentityManager,
-        machine::test::response_from_file,
+        machine::testing::response_from_file,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
 
-    fn user_id() -> &'static UserId {
+    pub fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
-    fn other_user_id() -> &'static UserId {
+    pub fn other_user_id() -> &'static UserId {
         user_id!("@example2:localhost")
     }
 
-    fn device_id() -> &'static DeviceId {
+    pub fn device_id() -> &'static DeviceId {
         device_id!("WSKKLTJZCL")
     }
 
-    fn manager() -> IdentityManager {
+    pub(crate) fn manager() -> IdentityManager {
         let identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id().to_owned())));
         let user_id = Arc::from(user_id());
@@ -581,7 +581,7 @@ pub(crate) mod test {
         IdentityManager::new(user_id, device_id().into(), store)
     }
 
-    pub(crate) fn other_key_query() -> KeyQueryResponse {
+    pub fn other_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
                 "@example2:localhost": {
@@ -640,7 +640,7 @@ pub(crate) mod test {
             .expect("Can't parse the keys upload response")
     }
 
-    pub(crate) fn own_key_query() -> KeyQueryResponse {
+    pub fn own_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
           "device_keys": {
             "@example:localhost": {
@@ -740,6 +740,14 @@ pub(crate) mod test {
         KeyQueryResponse::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use matrix_sdk_test::async_test;
+    use ruma::device_id;
+
+    use super::testing::{manager, other_key_query, other_user_id};
 
     #[async_test]
     async fn test_manager_creation() {

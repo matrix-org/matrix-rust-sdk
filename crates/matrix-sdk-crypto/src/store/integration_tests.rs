@@ -1,5 +1,5 @@
 #[allow(unused_macros)]
-
+#[macro_export]
 macro_rules! cryptostore_integration_tests {
     ($($name:ident)*) => {
     $(
@@ -8,20 +8,17 @@ macro_rules! cryptostore_integration_tests {
             use std::collections::BTreeMap;
 
             use matrix_sdk_test::async_test;
-            use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-            use ruma::{
+            use matrix_sdk_common::ruma::{
                 encryption::SignedKey, events::room_key_request::RequestedKeyInfo,
                 serde::Base64, user_id, TransactionId, DeviceId, EventEncryptionAlgorithm, UserId,
                 room_id, device_id,
             };
 
-            use crate::{
-                gossiping::SecretInfo,
-                identities::{
-                    device::test::get_device,
-                    user::test::{get_other_identity, get_own_identity},
-                },
+            use $crate::{
+                SecretInfo,
+                testing::{get_device, get_other_identity, get_own_identity},
                 olm::{
+                    OlmOutboundGroupSession,
                     GroupSessionKey, InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
                     ReadOnlyAccount, Session,
                 },
@@ -346,31 +343,31 @@ macro_rules! cryptostore_integration_tests {
                 let (_account, store) = get_loaded_store(dir.clone()).await;
                 let device = get_device();
 
-                assert!(store.update_tracked_user(device.user_id(), false).await.unwrap());
-                assert!(!store.update_tracked_user(device.user_id(), false).await.unwrap());
+                assert!(store.update_tracked_user(device.user_id(), false).await.unwrap(), "We were not tracked");
+                assert!(!store.update_tracked_user(device.user_id(), false).await.unwrap(), "We were still tracked ");
 
                 assert!(store.is_user_tracked(device.user_id()));
-                assert!(!store.users_for_key_query().contains(device.user_id()));
-                assert!(!store.update_tracked_user(device.user_id(), true).await.unwrap());
-                assert!(store.users_for_key_query().contains(device.user_id()));
+                assert!(!store.users_for_key_query().contains(device.user_id()), "Unexpectedly key found");
+                assert!(!store.update_tracked_user(device.user_id(), true).await.unwrap(), "User was there?");
+                assert!(store.users_for_key_query().contains(device.user_id()), "Didn't find the key despite tracking");
                 drop(store);
 
                 let store = get_store(dir.clone(), None).await;
 
                 store.load_account().await.unwrap();
 
-                assert!(store.is_user_tracked(device.user_id()));
-                assert!(store.users_for_key_query().contains(device.user_id()));
+                assert!(store.is_user_tracked(device.user_id()), "Reopened didn't track");
+                assert!(store.users_for_key_query().contains(device.user_id()), "Reopened doesn't have the key");
 
                 store.update_tracked_user(device.user_id(), false).await.unwrap();
-                assert!(!store.users_for_key_query().contains(device.user_id()));
+                assert!(!store.users_for_key_query().contains(device.user_id()), "Reopened has the key despite us not tracking");
                 drop(store);
 
                 let store = get_store(dir, None).await;
 
                 store.load_account().await.unwrap();
 
-                assert!(!store.users_for_key_query().contains(device.user_id()));
+                assert!(!store.users_for_key_query().contains(device.user_id()), "Reloaded store has the account");
             }
 
             #[async_test]

@@ -18,33 +18,28 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use anyhow::anyhow;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{async_trait, locks::Mutex, SafeEncode};
-use olm_rs::{account::IdentityKeys, PicklingMode};
-use ruma::{DeviceId, RoomId, TransactionId, UserId};
+use matrix_sdk_common::{
+    async_trait,
+    locks::Mutex,
+    ruma::{DeviceId, RoomId, TransactionId, UserId},
+};
+use matrix_sdk_crypto::{
+    olm::{
+        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
+        Session,
+    },
+    store::{
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError,
+        EncryptedPickleKey, IdentityKeys, PickleKey, PicklingMode, RoomKeyCounts,
+    },
+    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+};
 use wasm_bindgen::JsValue;
 
-use super::{
-    caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, EncryptedPickleKey,
-    InboundGroupSession, PickleKey, ReadOnlyAccount, Result, RoomKeyCounts, Session,
-};
-use crate::{
-    gossiping::{GossipRequest, SecretInfo},
-    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
-};
-
-/// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
-/// panic once we try to pickle a Signing object.
-const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
-
-#[derive(Clone, Debug)]
-pub struct AccountInfo {
-    user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
-    identity_keys: Arc<IdentityKeys>,
-}
+use crate::safe_encode::SafeEncode;
 
 #[allow(non_snake_case)]
 mod KEYS {
@@ -88,6 +83,56 @@ impl std::fmt::Debug for IndexeddbStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IndexeddbStore").field("name", &self.name).finish()
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IndexeddbStoreError {
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("DomException {name} ({code}): {message}")]
+    DomException {
+        /// DomException code
+        code: u16,
+        /// Specific name of the DomException
+        name: String,
+        /// Message given to the DomException
+        message: String,
+    },
+    #[error(transparent)]
+    CryptoStoreError(#[from] CryptoStoreError),
+}
+
+impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStoreError {
+        IndexeddbStoreError::DomException {
+            name: frm.name(),
+            message: frm.message(),
+            code: frm.code(),
+        }
+    }
+}
+
+impl From<IndexeddbStoreError> for CryptoStoreError {
+    fn from(frm: IndexeddbStoreError) -> CryptoStoreError {
+        match frm {
+            IndexeddbStoreError::Json(e) => CryptoStoreError::Serialization(e),
+            IndexeddbStoreError::CryptoStoreError(e) => e,
+            _ => CryptoStoreError::Backend(anyhow!(frm)),
+        }
+    }
+}
+
+type Result<A, E = IndexeddbStoreError> = std::result::Result<A, E>;
+
+/// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
+/// panic once we try to pickle a Signing object.
+const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
+
+#[derive(Clone, Debug)]
+pub struct AccountInfo {
+    user_id: Arc<UserId>,
+    device_id: Arc<DeviceId>,
+    identity_keys: Arc<IdentityKeys>,
 }
 
 impl IndexeddbStore {
@@ -205,7 +250,7 @@ impl IndexeddbStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let mut stores: Vec<&'static str> = [
+        let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), KEYS::CORE),
             (!changes.sessions.is_empty(), KEYS::SESSION),
             (
@@ -234,7 +279,7 @@ impl IndexeddbStore {
             ])
         }
 
-        if stores.len() == 0 {
+        if stores.is_empty() {
             // nothing to do, quit early
             return Ok(());
         }
@@ -381,11 +426,9 @@ impl IndexeddbStore {
         let os = tx.object_store(KEYS::TRACKED_USERS)?;
         let user_ids = os.get_all_keys()?.await?;
         for user_id in user_ids.iter() {
-            let dirty: bool = match os.get(&user_id)?.await?.map(|v| v.into_serde()) {
-                Some(Ok(false)) => false,
-                _ => true,
-            };
-            let user = match user_id.as_string().map(|u| UserId::parse(u)) {
+            let dirty: bool =
+                !matches!(os.get(&user_id)?.await?.map(|v| v.into_serde()), Some(Ok(false)));
+            let user = match user_id.as_string().map(UserId::parse) {
                 Some(Ok(user)) => user,
                 _ => continue,
             };
@@ -450,10 +493,7 @@ impl IndexeddbStore {
             Some(request) => Some(request),
         })
     }
-}
 
-#[async_trait(?Send)]
-impl CryptoStore for IndexeddbStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         if let Some(pickle) = self
             .inner
@@ -465,7 +505,8 @@ impl CryptoStore for IndexeddbStore {
             self.load_tracked_users().await?;
 
             let account =
-                ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())?;
+                ReadOnlyAccount::from_pickle(pickle.into_serde()?, self.get_pickle_mode())
+                    .map_err(CryptoStoreError::OlmAccount)?;
 
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -479,20 +520,6 @@ impl CryptoStore for IndexeddbStore {
         } else {
             Ok(None)
         }
-    }
-
-    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let account_info = AccountInfo {
-            user_id: account.user_id.clone(),
-            device_id: account.device_id.clone(),
-            identity_keys: account.identity_keys.clone(),
-        };
-
-        *self.account_info.write().unwrap() = Some(account_info);
-
-        let changes = Changes { account: Some(account), ..Default::default() };
-
-        self.save_changes(changes).await
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -516,16 +543,12 @@ impl CryptoStore for IndexeddbStore {
         }
     }
 
-    async fn save_changes(&self, changes: Changes) -> Result<()> {
-        self.save_changes(changes).await
-    }
-
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let range =
-                sender_key.encode_to_range().map_err(|e| CryptoStoreError::IndexedDatabase {
+                sender_key.encode_to_range().map_err(|e| IndexeddbStoreError::DomException {
                     code: 0,
                     name: "IdbKeyRangeMakeError".to_owned(),
                     message: e,
@@ -573,10 +596,10 @@ impl CryptoStore for IndexeddbStore {
             .get(&key)?
             .await?
         {
-            Ok(Some(InboundGroupSession::from_pickle(
-                pickle.into_serde()?,
-                self.get_pickle_mode(),
-            )?))
+            Ok(Some(
+                InboundGroupSession::from_pickle(pickle.into_serde()?, self.get_pickle_mode())
+                    .map_err(CryptoStoreError::OlmGroupSession)?,
+            ))
         } else {
             Ok(None)
         }
@@ -596,13 +619,6 @@ impl CryptoStore for IndexeddbStore {
             .filter_map(|i| i.into_serde().ok())
             .filter_map(|p| InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok())
             .collect())
-    }
-
-    async fn get_outbound_group_sessions(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>> {
-        self.load_outbound_group_session(room_id).await
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
@@ -646,24 +662,12 @@ impl CryptoStore for IndexeddbStore {
         Ok(())
     }
 
-    fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        self.tracked_users_cache.contains(user_id)
-    }
-
-    fn has_users_for_key_query(&self) -> bool {
-        !self.users_for_key_query_cache.is_empty()
-    }
-
     fn tracked_users(&self) -> HashSet<Box<UserId>> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
     fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
-    }
-
-    async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        todo!()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -712,7 +716,7 @@ impl CryptoStore for IndexeddbStore {
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
-        let range = user_id.encode_to_range().map_err(|e| CryptoStoreError::IndexedDatabase {
+        let range = user_id.encode_to_range().map_err(|e| IndexeddbStoreError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
             message: e,
@@ -742,7 +746,7 @@ impl CryptoStore for IndexeddbStore {
             .transpose()?)
     }
 
-    async fn is_message_known(&self, hash: &crate::olm::OlmMessageHash) -> Result<bool> {
+    async fn is_message_known(&self, hash: &OlmMessageHash) -> Result<bool> {
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::OLM_HASHES, IdbTransactionMode::Readonly)?
@@ -750,13 +754,6 @@ impl CryptoStore for IndexeddbStore {
             .get(&(&hash.sender_key, &hash.hash).encode())?
             .await?
             .is_some())
-    }
-
-    async fn get_outgoing_secret_requests(
-        &self,
-        request_id: &TransactionId,
-    ) -> Result<Option<GossipRequest>> {
-        self.get_outgoing_key_request_helper(&request_id.as_str()).await
     }
 
     async fn get_secret_request_by_info(
@@ -772,8 +769,7 @@ impl CryptoStore for IndexeddbStore {
             .object_store(KEYS::SECRET_REQUESTS_BY_INFO)?
             .get(&key_info.as_key().encode())?
             .await?
-            .map(|i| i.as_string())
-            .flatten();
+            .and_then(|i| i.as_string());
         if let Some(id) = id {
             self.get_outgoing_key_request_helper(&id).await
         } else {
@@ -834,10 +830,163 @@ impl CryptoStore for IndexeddbStore {
     }
 }
 
+#[async_trait(?Send)]
+impl CryptoStore for IndexeddbStore {
+    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, CryptoStoreError> {
+        self.load_account().await.map_err(|e| e.into())
+    }
+
+    async fn save_account(&self, account: ReadOnlyAccount) -> Result<(), CryptoStoreError> {
+        let account_info = AccountInfo {
+            user_id: account.user_id.clone(),
+            device_id: account.device_id.clone(),
+            identity_keys: account.identity_keys.clone(),
+        };
+
+        *self.account_info.write().unwrap() = Some(account_info);
+
+        let changes = Changes { account: Some(account), ..Default::default() };
+
+        self.save_changes(changes).await.map_err(|e| e.into())
+    }
+
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, CryptoStoreError> {
+        self.load_identity().await.map_err(|e| e.into())
+    }
+
+    async fn save_changes(&self, changes: Changes) -> Result<(), CryptoStoreError> {
+        self.save_changes(changes).await.map_err(|e| e.into())
+    }
+
+    async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>, CryptoStoreError> {
+        self.get_sessions(sender_key).await.map_err(|e| e.into())
+    }
+
+    async fn get_inbound_group_session(
+        &self,
+        room_id: &RoomId,
+        sender_key: &str,
+        session_id: &str,
+    ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
+        self.get_inbound_group_session(room_id, sender_key, session_id).await.map_err(|e| e.into())
+    }
+
+    async fn get_inbound_group_sessions(
+        &self,
+    ) -> Result<Vec<InboundGroupSession>, CryptoStoreError> {
+        self.get_inbound_group_sessions().await.map_err(|e| e.into())
+    }
+
+    async fn get_outbound_group_sessions(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>, CryptoStoreError> {
+        self.load_outbound_group_session(room_id).await.map_err(|e| e.into())
+    }
+
+    async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts, CryptoStoreError> {
+        self.inbound_group_session_counts().await.map_err(|e| e.into())
+    }
+
+    async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>, CryptoStoreError> {
+        self.inbound_group_sessions_for_backup(limit).await.map_err(|e| e.into())
+    }
+
+    async fn reset_backup_state(&self) -> Result<(), CryptoStoreError> {
+        self.reset_backup_state().await.map_err(|e| e.into())
+    }
+
+    fn is_user_tracked(&self, user_id: &UserId) -> bool {
+        self.tracked_users_cache.contains(user_id)
+    }
+
+    fn has_users_for_key_query(&self) -> bool {
+        !self.users_for_key_query_cache.is_empty()
+    }
+
+    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+        self.tracked_users()
+    }
+
+    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+        self.users_for_key_query()
+    }
+
+    async fn load_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
+        todo!()
+    }
+
+    async fn update_tracked_user(
+        &self,
+        user: &UserId,
+        dirty: bool,
+    ) -> Result<bool, CryptoStoreError> {
+        self.update_tracked_user(user, dirty).await.map_err(|e| e.into())
+    }
+
+    async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
+        self.get_device(user_id, device_id).await.map_err(|e| e.into())
+    }
+
+    async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>, CryptoStoreError> {
+        self.get_user_devices(user_id).await.map_err(|e| e.into())
+    }
+
+    async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
+        self.get_user_identity(user_id).await.map_err(|e| e.into())
+    }
+
+    async fn is_message_known(&self, hash: &OlmMessageHash) -> Result<bool, CryptoStoreError> {
+        self.is_message_known(hash).await.map_err(|e| e.into())
+    }
+
+    async fn get_outgoing_secret_requests(
+        &self,
+        request_id: &TransactionId,
+    ) -> Result<Option<GossipRequest>, CryptoStoreError> {
+        self.get_outgoing_key_request_helper(request_id.as_str()).await.map_err(|e| e.into())
+    }
+
+    async fn get_secret_request_by_info(
+        &self,
+        key_info: &SecretInfo,
+    ) -> Result<Option<GossipRequest>, CryptoStoreError> {
+        self.get_secret_request_by_info(key_info).await.map_err(|e| e.into())
+    }
+
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>, CryptoStoreError> {
+        self.get_unsent_secret_requests().await.map_err(|e| e.into())
+    }
+
+    async fn delete_outgoing_secret_requests(
+        &self,
+        request_id: &TransactionId,
+    ) -> Result<(), CryptoStoreError> {
+        self.delete_outgoing_secret_requests(request_id).await.map_err(|e| e.into())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::IndexeddbStore;
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+    use matrix_sdk_crypto::cryptostore_integration_tests;
 
     async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbStore {
         match passphrase {

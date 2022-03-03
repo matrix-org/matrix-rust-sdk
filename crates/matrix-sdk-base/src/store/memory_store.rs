@@ -45,6 +45,9 @@ use crate::{
     StoreError,
 };
 
+/// In-Memory, non-persistent implementation of the `StateStore`
+///
+/// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -74,8 +77,15 @@ pub struct MemoryStore {
     room_timeline: Arc<DashMap<Box<RoomId>, TimelineData>>,
 }
 
+impl Default for MemoryStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryStore {
     #[allow(dead_code)]
+    /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Self {
             sync_token: Default::default(),

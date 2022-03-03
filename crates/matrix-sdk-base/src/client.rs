@@ -20,7 +20,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
     fmt,
-    path::{Path, PathBuf},
     result::Result as StdResult,
     sync::Arc,
 };
@@ -38,7 +37,7 @@ use matrix_sdk_common::{
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
-    store::{CryptoStore, CryptoStoreError},
+    store::{CryptoStore, CryptoStoreError, MemoryStore as MemoryCryptoStore},
     Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
     OutgoingRequest, ToDeviceRequest, UserDevices,
 };
@@ -63,13 +62,16 @@ use ruma::{
     RoomId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
-use zeroize::Zeroizing;
 
+#[cfg(feature = "encryption")]
+use crate::error::Error;
 use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     session::Session,
-    store::{ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store},
+    store::{
+        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStore, Store,
+    },
 };
 
 pub type Token = String;
@@ -87,14 +89,8 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
-    #[allow(dead_code)]
-    store_path: Option<PathBuf>,
     #[cfg(feature = "encryption")]
-    olm: Arc<Mutex<Option<OlmMachine>>>,
-    #[cfg(feature = "encryption")]
-    cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
-    #[allow(dead_code)]
-    store_passphrase: Arc<Option<Zeroizing<String>>>,
+    olm: Arc<Mutex<CryptoHolder>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -114,18 +110,13 @@ impl fmt::Debug for BaseClient {
 /// ```
 /// # use matrix_sdk_base::BaseClientConfig;
 ///
-/// let client_config = BaseClientConfig::new()
-///     .store_path("/home/example/matrix-sdk-client")
-///     .passphrase("test-passphrase".to_owned());
+/// let client_config = BaseClientConfig::new();
 /// ```
 #[derive(Default)]
 pub struct BaseClientConfig {
     #[cfg(feature = "encryption")]
     crypto_store: Option<Box<dyn CryptoStore>>,
-    #[cfg(feature = "indexeddb_state_store")]
-    name: String,
-    store_path: Option<PathBuf>,
-    passphrase: Option<Zeroizing<String>>,
+    state_store: Option<Box<dyn StateStore>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -146,130 +137,62 @@ impl BaseClientConfig {
     ///
     /// The crypto store should be opened before being set.
     #[cfg(feature = "encryption")]
-    #[must_use]
     pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
         self.crypto_store = Some(store);
         self
     }
 
-    /// Set the indexeddb database name for storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name where the stores should save data in. Indexeddb
-    ////           separates database through these nanmes
-    #[cfg(feature = "indexeddb_state_store")]
-    pub fn name(mut self, name: String) -> Self {
-        self.name = name;
-        self
-    }
-
-    /// Set the path for storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path where the stores should save data in. It is the
-    /// callers responsibility to make sure that the path exists.
-    ///
-    /// In the default configuration the client will open default
-    /// implementations for the crypto store and the state store. It will use
-    /// the given path to open the stores. If no path is provided no store will
-    /// be opened
-    #[must_use]
-    pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.store_path = Some(path.as_ref().into());
-        self
-    }
-
-    /// Set the passphrase to encrypt the crypto store.
-    ///
-    /// # Argument
-    ///
-    /// * `passphrase` - The passphrase that will be used to encrypt the data in
-    /// the cryptostore.
-    ///
-    /// This is only used if no custom cryptostore is set.
-    #[must_use]
-    pub fn passphrase(mut self, passphrase: String) -> Self {
-        self.passphrase = Some(Zeroizing::new(passphrase));
+    /// Set a custom implementation of a `StateStore`.
+    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+        self.state_store = Some(store);
         self
     }
 }
 
-#[cfg(feature = "sled_state_store")]
-impl BaseClient {
-    /// Create a new client.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - An optional session if the user already has one from a
-    /// previous login call.
-    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        #[cfg_attr(not(feature = "sled_cryptostore"), allow(unused_variables))]
-        let config = config;
+#[cfg(feature = "encryption")]
+enum CryptoHolder {
+    PreSetupStore(Option<Box<dyn CryptoStore>>),
+    Olm(Box<OlmMachine>),
+}
 
-        #[cfg(feature = "sled_state_store")]
-        let stores = if let Some(path) = &config.store_path {
-            if config.passphrase.is_some() {
-                info!("Opening an encrypted store in path {}", path.display());
-            } else {
-                info!("Opening store in path {}", path.display());
-            }
-            Store::open_default(path, config.passphrase.as_deref().map(|p| p.as_str()))?
-        } else {
-            Store::open_temporary()?
-        };
+#[cfg(feature = "encryption")]
+impl Default for CryptoHolder {
+    fn default() -> Self {
+        CryptoHolder::PreSetupStore(Some(Box::new(MemoryCryptoStore::default())))
+    }
+}
 
-        #[cfg(feature = "indexeddb_state_store")]
-        let store = Store::open_default(
-            config.name.clone(),
-            config.passphrase.as_deref().map(|p| p.as_str()),
-        )
-        .await?;
-
-        #[cfg(not(feature = "sled_state_store"))]
-        let stores = Store::open_memory_store();
-
-        #[cfg(all(feature = "encryption", feature = "sled_state_store"))]
-        let crypto_store = if config.crypto_store.is_none() {
-            #[cfg(feature = "sled_cryptostore")]
-            let store: Option<Box<dyn CryptoStore>> = Some(Box::new(
-                matrix_sdk_crypto::store::SledStore::open_with_database(
-                    stores.1,
-                    config.passphrase.as_deref().map(|p| p.as_str()),
+#[cfg(feature = "encryption")]
+impl CryptoHolder {
+    fn new(store: Box<dyn CryptoStore>) -> Self {
+        CryptoHolder::PreSetupStore(Some(store))
+    }
+    async fn convert_to_olm(&mut self, session: &Session) -> Result<()> {
+        if let CryptoHolder::PreSetupStore(store) = self {
+            *self = CryptoHolder::Olm(Box::new(
+                OlmMachine::new_with_store(
+                    session.user_id.to_owned(),
+                    session.device_id.as_str().into(),
+                    store.take().expect("We always exist"),
                 )
-                .map_err(OlmError::Store)?,
+                .await
+                .map_err(OlmError::from)?,
             ));
-            #[cfg(not(feature = "sled_cryptostore"))]
-            let store = config.crypto_store;
-
-            store
+            Ok(())
         } else {
-            config.crypto_store
-        };
-        #[cfg(all(not(feature = "sled_state_store"), feature = "encryption"))]
-        let crypto_store = config.crypto_store;
+            Err(Error::BadCryptoStoreState)
+        }
+    }
 
-        #[cfg(feature = "sled_state_store")]
-        let store = stores.0;
-        #[cfg(not(feature = "sled_state_store"))]
-        let store = stores;
-
-        Ok(BaseClient {
-            session: store.session.clone(),
-            sync_token: store.sync_token.clone(),
-            store_path: config.store_path,
-            store,
-            #[cfg(feature = "encryption")]
-            olm: Mutex::new(None).into(),
-            #[cfg(feature = "encryption")]
-            cryptostore: Mutex::new(crypto_store).into(),
-            store_passphrase: config.passphrase.into(),
-        })
+    fn machine(&self) -> Option<OlmMachine> {
+        if let CryptoHolder::Olm(m) = self {
+            Some(*m.clone())
+        } else {
+            None
+        }
     }
 }
 
-#[cfg(feature = "indexeddb_state_store")]
 impl BaseClient {
     /// Create a new client.
     ///
@@ -278,47 +201,16 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        let store = Store::open_default(
-            config.name.clone(),
-            config.passphrase.as_deref().map(|p| p.as_str()),
-        )
-        .await?;
+        let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
+        #[cfg(feature = "encryption")]
+        let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 
         Ok(BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
-            store_path: config.store_path,
             store,
             #[cfg(feature = "encryption")]
-            olm: Mutex::new(None).into(),
-            #[cfg(feature = "encryption")]
-            cryptostore: Mutex::new(config.crypto_store).into(),
-            store_passphrase: config.passphrase.into(),
-        })
-    }
-}
-
-#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
-impl BaseClient {
-    /// Create a new client.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - An optional session if the user already has one from a
-    /// previous login call.
-    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        let store = Store::open_memory_store();
-
-        Ok(BaseClient {
-            session: store.session.clone(),
-            sync_token: store.sync_token.clone(),
-            store_path: config.store_path,
-            store,
-            #[cfg(feature = "encryption")]
-            olm: Mutex::new(None).into(),
-            #[cfg(feature = "encryption")]
-            cryptostore: Mutex::new(config.crypto_store).into(),
-            store_passphrase: config.passphrase.into(),
+            olm: Mutex::new(holder).into(),
         })
     }
 }
@@ -377,42 +269,7 @@ impl BaseClient {
         #[cfg(feature = "encryption")]
         {
             let mut olm = self.olm.lock().await;
-            let store = self.cryptostore.lock().await.take();
-
-            if let Some(store) = store {
-                *olm = Some(
-                    OlmMachine::new_with_store(
-                        session.user_id.to_owned(),
-                        session.device_id.as_str().into(),
-                        store,
-                    )
-                    .await
-                    .map_err(OlmError::from)?,
-                );
-            } else {
-                #[cfg(feature = "sled_cryptostore")]
-                {
-                    if let Some(path) = self.store_path.as_ref() {
-                        *olm = Some(
-                            OlmMachine::new_with_default_store(
-                                &session.user_id,
-                                &session.device_id,
-                                path,
-                                self.store_passphrase.as_deref().map(|p| p.as_str()),
-                            )
-                            .await
-                            .map_err(OlmError::from)?,
-                        );
-                    } else {
-                        *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
-                    }
-                }
-
-                #[cfg(not(feature = "sled_cryptostore"))]
-                {
-                    *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
-                }
-            }
+            olm.convert_to_olm(&session).await?;
         }
 
         *self.session.write().await = Some(session);
@@ -753,9 +610,7 @@ impl BaseClient {
 
         #[cfg(feature = "encryption")]
         let to_device = {
-            let olm = self.olm.lock().await;
-
-            if let Some(o) = &*olm {
+            if let Some(o) = self.olm_machine().await {
                 // Let the crypto machine handle the sync response, this
                 // decrypts to-device events, but leaves room events alone.
                 // This makes sure that we have the decryption keys for the room
@@ -1123,9 +978,7 @@ impl BaseClient {
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     #[cfg(feature = "encryption")]
     pub async fn outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
+        match self.olm_machine().await {
             Some(o) => o.outgoing_requests().await,
             None => Ok(vec![]),
         }
@@ -1146,9 +999,7 @@ impl BaseClient {
         request_id: &TransactionId,
         response: impl Into<IncomingResponse<'a>>,
     ) -> Result<()> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
+        match self.olm_machine().await {
             Some(o) => Ok(o.mark_request_as_sent(request_id, response).await?),
             None => Ok(()),
         }
@@ -1162,9 +1013,7 @@ impl BaseClient {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<Option<(Box<TransactionId>, KeysClaimRequest)>> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
+        match self.olm_machine().await {
             Some(o) => Ok(o.get_missing_sessions(users).await?),
             None => Ok(None),
         }
@@ -1173,9 +1022,7 @@ impl BaseClient {
     /// Get a to-device request that will share a group session for a room.
     #[cfg(feature = "encryption")]
     pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
+        match self.olm_machine().await {
             Some(o) => {
                 let (history_visibility, settings) = self
                     .get_room(room_id)
@@ -1218,9 +1065,7 @@ impl BaseClient {
         room_id: &RoomId,
         content: impl MessageEventContent,
     ) -> Result<RoomEncryptedEventContent> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
+        match self.olm_machine().await {
             Some(o) => Ok(o.encrypt(room_id, content).await?),
             None => panic!("Olm machine wasn't started"),
         }
@@ -1236,9 +1081,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
     ) -> Result<bool, CryptoStoreError> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
+        match self.olm_machine().await {
             Some(o) => o.invalidate_group_session(room_id).await,
             None => Ok(false),
         }
@@ -1278,9 +1121,7 @@ impl BaseClient {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> StdResult<Option<Device>, CryptoStoreError> {
-        let olm = self.olm.lock().await;
-
-        if let Some(olm) = olm.as_ref() {
+        if let Some(olm) = self.olm_machine().await {
             olm.get_device(user_id, device_id).await
         } else {
             Ok(None)
@@ -1335,9 +1176,7 @@ impl BaseClient {
         &self,
         user_id: &UserId,
     ) -> StdResult<UserDevices, CryptoStoreError> {
-        let olm = self.olm.lock().await;
-
-        if let Some(olm) = olm.as_ref() {
+        if let Some(olm) = self.olm_machine().await {
             Ok(olm.get_user_devices(user_id).await?)
         } else {
             // TODO remove this panic.
@@ -1349,7 +1188,7 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     pub async fn olm_machine(&self) -> Option<OlmMachine> {
         let olm = self.olm.lock().await;
-        olm.as_ref().cloned()
+        olm.machine()
     }
 
     /// Get the push rules.

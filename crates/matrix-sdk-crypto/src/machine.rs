@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "sled_cryptostore")]
-use std::path::Path;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     mem,
@@ -54,8 +52,6 @@ use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
-#[cfg(feature = "sled_cryptostore")]
-use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     gossiping::GossipMachine,
@@ -440,37 +436,9 @@ impl OlmMachine {
         }
     }
 
-    /// Should device or one-time keys be uploaded to the server.
-    ///
-    /// This needs to be checked periodically, ideally after every sync request.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::convert::TryFrom;
-    /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use ruma::user_id;
-    /// # use futures::executor::block_on;
-    /// # let alice = user_id!("@alice:example.org");
-    /// # let machine = OlmMachine::new(alice, device_id!("DEVICEID"));
-    /// # block_on(async {
-    /// if machine.should_upload_keys().await {
-    ///     let request = machine
-    ///         .keys_for_upload()
-    ///         .await
-    ///         .unwrap();
-    ///
-    ///     // Upload the keys here.
-    /// }
-    /// # });
-    /// ```
-    #[cfg(test)]
-    async fn should_upload_keys(&self) -> bool {
-        self.account.should_upload_keys().await
-    }
-
     /// Get the underlying Olm account of the machine.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
     pub(crate) fn account(&self) -> &ReadOnlyAccount {
         &self.account
     }
@@ -1548,13 +1516,21 @@ impl OlmMachine {
         &self.backup_machine
     }
 }
+#[cfg(any(feature = "testing", test))]
+pub(crate) mod testing {
+    #![allow(dead_code)]
+    use http::Response;
+
+    pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
+        Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod test {
 
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
-    use http::Response;
     use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
@@ -1581,6 +1557,7 @@ pub(crate) mod test {
     };
     use serde_json::json;
 
+    use super::testing::response_from_file;
     use crate::{
         machine::OlmMachine,
         olm::Utility,
@@ -1601,10 +1578,6 @@ pub(crate) mod test {
 
     fn user_id() -> &'static UserId {
         user_id!("@bob:example.com")
-    }
-
-    pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
-        Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
     }
 
     fn keys_upload_response() -> upload_keys::v3::Response {
@@ -1712,7 +1685,7 @@ pub(crate) mod test {
     #[async_test]
     async fn create_olm_machine() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
-        assert!(machine.should_upload_keys().await);
+        assert!(machine.account().should_upload_keys().await);
     }
 
     #[async_test]
@@ -1722,21 +1695,21 @@ pub(crate) mod test {
 
         response.one_time_key_counts.remove(&DeviceKeyAlgorithm::SignedCurve25519).unwrap();
 
-        assert!(machine.should_upload_keys().await);
+        assert!(machine.account().should_upload_keys().await);
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(machine.should_upload_keys().await);
+        assert!(machine.account().should_upload_keys().await);
 
         response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(10));
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(machine.should_upload_keys().await);
+        assert!(machine.account().should_upload_keys().await);
 
         response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(!machine.should_upload_keys().await);
+        assert!(!machine.account().should_upload_keys().await);
 
         response.one_time_key_counts.remove(&DeviceKeyAlgorithm::SignedCurve25519);
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(!machine.should_upload_keys().await);
+        assert!(!machine.account().should_upload_keys().await);
     }
 
     #[async_test]
@@ -1745,10 +1718,10 @@ pub(crate) mod test {
 
         let mut response = keys_upload_response();
 
-        assert!(machine.should_upload_keys().await);
+        assert!(machine.account().should_upload_keys().await);
 
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(machine.should_upload_keys().await);
+        assert!(machine.account().should_upload_keys().await);
         assert!(machine.account.generate_one_time_keys().await.is_ok());
 
         response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));

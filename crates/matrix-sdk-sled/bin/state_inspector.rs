@@ -1,13 +1,11 @@
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
-#[cfg(not(target_arch = "wasm32"))]
 use atty::Stream;
-#[cfg(not(target_arch = "wasm32"))]
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
 use matrix_sdk_base::{RoomInfo, Store};
-use ruma::{events::EventType, RoomId, UserId};
-#[cfg(not(target_arch = "wasm32"))]
+use matrix_sdk_common::ruma::{events::EventType, RoomId, UserId};
+use matrix_sdk_sled::StateStore;
 use rustyline::{
     completion::{Completer, Pair},
     error::ReadlineError,
@@ -16,10 +14,8 @@ use rustyline::{
     validate::{MatchingBracketValidator, Validator},
     CompletionType, Config, Context, EditMode, Editor, OutputStreamType,
 };
-#[cfg(not(target_arch = "wasm32"))]
 use rustyline_derive::Helper;
 use serde::Serialize;
-#[cfg(not(target_arch = "wasm32"))]
 use syntect::{
     dumps::from_binary,
     easy::HighlightLines,
@@ -29,14 +25,12 @@ use syntect::{
 };
 
 #[derive(Clone)]
-#[cfg(not(target_arch = "wasm32"))]
 struct Inspector {
     store: Store,
     printer: Printer,
 }
 
 #[derive(Helper)]
-#[cfg(not(target_arch = "wasm32"))]
 struct InspectorHelper {
     store: Store,
     _highlighter: MatchingBracketHighlighter,
@@ -44,7 +38,6 @@ struct InspectorHelper {
     _hinter: HistoryHinter,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl InspectorHelper {
     const EVENT_TYPES: &'static [&'static str] = &[
         "m.room.aliases",
@@ -92,7 +85,6 @@ impl InspectorHelper {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl Completer for InspectorHelper {
     type Candidate = Pair;
 
@@ -151,19 +143,15 @@ impl Completer for InspectorHelper {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl Hinter for InspectorHelper {
     type Hint = String;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl Highlighter for InspectorHelper {}
 
-#[cfg(not(target_arch = "wasm32"))]
 impl Validator for InspectorHelper {}
 
 #[derive(Clone, Debug)]
-#[cfg(not(target_arch = "wasm32"))]
 struct Printer {
     ps: Arc<SyntaxSet>,
     ts: Arc<ThemeSet>,
@@ -171,7 +159,6 @@ struct Printer {
     color: bool,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl Printer {
     fn new(json: bool, color: bool) -> Self {
         let syntax_set: SyntaxSet = from_binary(include_bytes!("./syntaxes.bin"));
@@ -210,11 +197,12 @@ impl Printer {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
-        let (store, _) = Store::open_default(database_path, None).unwrap();
+        let store = Store::new(Box::new(
+            StateStore::open_with_path(database_path).expect("Can't open sled database"),
+        ));
 
         Self { store, printer }
     }
@@ -325,7 +313,6 @@ impl Inspector {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let argparse = Argparse::new("state-inspector")
         .disable_version_flag(true)
@@ -367,9 +354,4 @@ fn main() {
     } else {
         block_on(inspector.run(matches));
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    panic!("This example doesn't run on WASM");
 }

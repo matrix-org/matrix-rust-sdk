@@ -27,12 +27,11 @@ use dashmap::DashMap;
 use matrix_sdk_common::{instant::Instant, locks::Mutex};
 pub use olm_rs::{
     account::IdentityKeys,
+    outbound_group_session::OlmOutboundGroupSession,
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
 };
-use olm_rs::{
-    errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
-};
+use olm_rs::{errors::OlmGroupSessionError, PicklingMode};
 use ruma::{
     events::{
         room::{
@@ -61,7 +60,7 @@ const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShareState {
+pub(crate) enum ShareState {
     NotShared,
     SharedButChangedSenderKey,
     Shared(u32),

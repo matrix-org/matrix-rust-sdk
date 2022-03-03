@@ -43,15 +43,24 @@ use crate::{
 /// `Account`s
 #[derive(Clone)]
 pub struct Session {
-    pub(crate) user_id: Arc<UserId>,
-    pub(crate) device_id: Arc<DeviceId>,
-    pub(crate) our_identity_keys: Arc<IdentityKeys>,
-    pub(crate) inner: Arc<Mutex<OlmSession>>,
-    pub(crate) session_id: Arc<str>,
-    pub(crate) sender_key: Arc<str>,
-    pub(crate) created_using_fallback_key: bool,
-    pub(crate) creation_time: Arc<Instant>,
-    pub(crate) last_use_time: Arc<Instant>,
+    /// The `UserId` associated with this session
+    pub user_id: Arc<UserId>,
+    /// The specific `DeviceId` associated with this session
+    pub device_id: Arc<DeviceId>,
+    /// The `IdentityKeys` associated with this session
+    pub our_identity_keys: Arc<IdentityKeys>,
+    /// The OlmSession
+    pub inner: Arc<Mutex<OlmSession>>,
+    /// Our sessionId
+    pub session_id: Arc<str>,
+    /// The Key of the sender
+    pub sender_key: Arc<str>,
+    /// Has this been created using the fallback key
+    pub created_using_fallback_key: bool,
+    /// When the session was created
+    pub creation_time: Arc<Instant>,
+    /// When the session was last used
+    pub last_use_time: Arc<Instant>,
 }
 
 #[cfg(not(tarpaulin_include))]

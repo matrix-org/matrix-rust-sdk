@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "sled_state_store")]
-use std::path::Path;
+//! The state store holds the overall state for rooms, users and their
+//! profiles and their timelines. It is an overall cache for faster access
+//! and convenience- accessible through `Store`.
+//!
+//! Implementing the `StateStore` trait, you can plug any storage backend
+//! into the store for the actual storage. By default this brings an in-memory
+//! store.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
@@ -21,7 +27,7 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
 
@@ -41,16 +47,11 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 
+#[cfg(feature = "store_key")]
+pub mod store_key;
+
+/// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
-
-#[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
-mod store_key;
-
-#[cfg(feature = "sled_state_store")]
-use sled::Db;
-
-#[cfg(feature = "indexeddb_state_store")]
-mod indexeddb_store;
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent, TimelineSlice},
@@ -61,34 +62,15 @@ use crate::{
 
 pub(crate) mod ambiguity_map;
 mod memory_store;
-#[cfg(feature = "sled_state_store")]
-mod sled_store;
 
-#[cfg(feature = "indexeddb_state_store")]
-use self::indexeddb_store::IndexeddbStore;
-#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
-use self::memory_store::MemoryStore;
-#[cfg(feature = "sled_state_store")]
-use self::sled_store::SledStore;
+pub use self::memory_store::MemoryStore;
 
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    /// An error happened in the underlying sled database.
-    #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
-    Sled(#[from] sled::Error),
-    /// An error happened in the underlying Indexed Database.
-    #[cfg(feature = "indexeddb_state_store")]
-    #[error("IndexDB error: {name} ({code}): {message}")]
-    Indexeddb {
-        /// DomException code
-        code: u16,
-        /// Specific name of the DomException
-        name: String,
-        /// Message given to the DomException
-        message: String,
-    },
+    /// An error happened in the underlying database backend.
+    Backend(#[from] anyhow::Error),
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
@@ -109,24 +91,12 @@ pub enum StoreError {
     /// The store failed to encode or decode some data.
     #[error("Error encoding or decoding data from the store: {0}")]
     Codec(String),
-    /// An error happened while running a tokio task.
-    #[cfg(feature = "sled_state_store")]
-    #[error(transparent)]
-    Task(#[from] tokio::task::JoinError),
     /// Redacting an event in the store has failed.
     ///
     /// This should never happen.
     #[error("Redaction failed: {0}")]
     Redaction(#[source] ruma::signatures::Error),
 }
-
-#[cfg(feature = "indexeddb_state_store")]
-impl From<indexed_db_futures::web_sys::DomException> for StoreError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> StoreError {
-        StoreError::Indexeddb { name: frm.name(), message: frm.message(), code: frm.code() }
-    }
-}
-
 /// A `StateStore` specific result type.
 pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 
@@ -390,57 +360,9 @@ pub struct Store {
     stripped_rooms: Arc<DashMap<Box<RoomId>, Room>>,
 }
 
-#[cfg(feature = "sled_state_store")]
 impl Store {
-    /// Open the default Sled store.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path where the store should reside in.
-    ///
-    /// * `passphrase` - A passphrase that should be used to encrypt the state
-    /// store.
-    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
-        let inner = if let Some(passphrase) = passphrase {
-            SledStore::open_with_passphrase(path, passphrase)?
-        } else {
-            SledStore::open_with_path(path)?
-        };
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
-    }
-
-    pub(crate) fn open_temporary() -> Result<(Self, Db)> {
-        let inner = SledStore::open()?;
-
-        Ok((Self::new(Box::new(inner.clone())), inner.inner))
-    }
-}
-
-#[cfg(feature = "indexeddb_state_store")]
-impl Store {
-    /// Open the default IndexedDB store.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the store should reside in.
-    ///
-    /// * `passphrase` - A passphrase that should be used to encrypt the state
-    /// store.
-    pub async fn open_default(name: String, passphrase: Option<&str>) -> Result<Self> {
-        let inner = if let Some(passphrase) = passphrase {
-            IndexeddbStore::open_with_passphrase(name, passphrase).await?
-        } else {
-            IndexeddbStore::open_with_name(name).await?
-        };
-
-        Ok(Self::new(Box::new(inner)))
-    }
-}
-
-#[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
-impl Store {
-    pub(crate) fn open_memory_store() -> Self {
+    /// Create a new Store with the default `MemoryStore`
+    pub fn open_memory_store() -> Self {
         let inner = Box::new(MemoryStore::new());
 
         Self::new(inner)
@@ -448,7 +370,8 @@ impl Store {
 }
 
 impl Store {
-    fn new(inner: Box<dyn StateStore>) -> Self {
+    /// Create a new store, wrappning the given `StateStore`
+    pub fn new(inner: Box<dyn StateStore>) -> Self {
         Self {
             inner: inner.into(),
             session: Default::default(),
@@ -458,7 +381,9 @@ impl Store {
         }
     }
 
-    pub(crate) async fn restore_session(&self, session: Session) -> Result<()> {
+    /// Restore the access to the Store from the given `Session`, overwrites any
+    /// previously existing access to the Store.
+    pub async fn restore_session(&self, session: Session) -> Result<()> {
         for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
@@ -504,7 +429,9 @@ impl Store {
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 
-    pub(crate) async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
+    /// Lookup the stripped Room for the given RoomId, or create one, if it
+    /// didn't exist yet in the store
+    pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let session = self.session.read().await;
         let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
 
@@ -514,7 +441,9 @@ impl Store {
             .clone()
     }
 
-    pub(crate) async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+    /// Lookup the Room for the given RoomId, or create one, if it didn't exist
+    /// yet in the store
+    pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
         if room_type == RoomType::Invited {
             return self.get_or_create_stripped_room(room_id).await;
         }

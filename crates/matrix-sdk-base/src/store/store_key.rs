@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Facilities for StateStore implementations to reuse to manage encrypted
+//! state keys
+
 use std::convert::TryFrom;
 
 use chacha20poly1305::{
@@ -37,12 +40,19 @@ const KDF_ROUNDS: u32 = 200_000;
 #[cfg(test)]
 const KDF_ROUNDS: u32 = 1000;
 
+/// Local State Error for Store Keys
+///
+/// provides facilities to directly convert into a `StoreError` thus the most
+/// common usage is to `.map_err(StoreError::into)` it.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A problem de/serializing the JSON
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
+    /// A problem with en/decrypting
     #[error("Error encrypting or decrypting an event {0}")]
     Encryption(String),
+    /// Error generating enough random data for a cryptographic operation
     #[error("Error generating enough random data for a cryptographic operation")]
     Random(#[from] RngError),
 }
@@ -64,6 +74,7 @@ impl From<EncryptionError> for Error {
     }
 }
 
+/// Holding the  data of the encrypted event
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct EncryptedEvent {
     version: u8,
@@ -73,7 +84,7 @@ pub struct EncryptedEvent {
 
 /// Version specific info for the key derivation method that is used.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum KdfInfo {
+enum KdfInfo {
     Pbkdf2ToChaCha20Poly1305 {
         /// The number of PBKDF rounds that were used when deriving the store
         /// key.
@@ -87,7 +98,7 @@ pub enum KdfInfo {
 /// Version specific info for encryption method that is used to encrypt our
 /// store key.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum CipherTextInfo {
+enum CipherTextInfo {
     ChaCha20Poly1305 {
         /// The nonce that was used to encrypt the ciphertext.
         nonce: Vec<u8>,
@@ -102,10 +113,10 @@ pub enum CipherTextInfo {
 pub struct EncryptedStoreKey {
     /// Info about the key derivation method that was used to expand the
     /// passphrase into an encryption key.
-    pub kdf_info: KdfInfo,
+    kdf_info: KdfInfo,
     /// The ciphertext with it's accompanying additional data that is needed to
     /// decrypt the store key.
-    pub ciphertext_info: CipherTextInfo,
+    ciphertext_info: CipherTextInfo,
 }
 
 /// A store key that can be used to encrypt entries in the store.
@@ -185,6 +196,7 @@ impl StoreKey {
         Ok(nonce)
     }
 
+    /// Encrypt the given Event after serializing it with serde_json
     pub fn encrypt(&self, event: &impl Serialize) -> Result<EncryptedEvent, Error> {
         let event = serde_json::to_vec(event)?;
 
@@ -197,6 +209,7 @@ impl StoreKey {
         Ok(EncryptedEvent { version: VERSION, ciphertext, nonce })
     }
 
+    /// Decrypt the given encrypted event back into the inner
     pub fn decrypt<T: for<'b> Deserialize<'b>>(&self, event: EncryptedEvent) -> Result<T, Error> {
         if event.version != VERSION {
             return Err(Error::Encryption(

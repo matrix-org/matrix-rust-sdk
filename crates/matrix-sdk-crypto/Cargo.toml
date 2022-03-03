@@ -19,9 +19,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 qrcode = ["matrix-qrcode"]
 backups_v1 = []
-sled_cryptostore = ["sled"]
-docsrs = ["sled_cryptostore"]
-indexeddb_cryptostore = ["indexed_db_futures", "wasm-bindgen"]
+docsrs = []
+
+# Testing helpers for implementations based upon this
+testing = ["http"]
 
 [dependencies]
 aes = { version = "0.7.4", features = ["ctr"] }
@@ -42,14 +43,13 @@ rand = "0.8.4"
 serde = { version = "1.0.126", features = ["derive", "rc"] }
 serde_json = "1.0.64"
 sha2 = "0.10.1"
-sled = { version = "0.34.6", optional = true }
 thiserror = "1.0.25"
 tracing = "0.1.26"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
+anyhow = "1"
 
-## Feature indexeddb-state-store
-indexed_db_futures = { version = "0.2.0", optional = true }
-wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"], optional = true }
+# feature = testing only
+http = { version = "0.2.4", optional = true}
 
 [dependencies.ruma]
 version = "0.5.0"
@@ -61,6 +61,7 @@ http = "0.2.4"
 indoc = "1.0.3"
 matches = "0.1.8"
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
+matrix-sdk-sled = { version = "0.1.0", path = "../matrix-sdk-sled", features = ["encryption"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = { version = "0.3.4", features = [
@@ -74,15 +75,11 @@ tokio = { version = "1.7.1", default-features = false, features = [
     "rt-multi-thread",
     "macros",
 ] }
-lazy_static = "1.4"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 pprof = { version = "0.6.2", features = ["flamegraph", "criterion"] }
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.24"
 
 [[bench]]
 name = "crypto_bench"
 harness = false
-required-features = ["sled_cryptostore"]

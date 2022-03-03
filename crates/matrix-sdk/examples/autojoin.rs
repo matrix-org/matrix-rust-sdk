@@ -48,7 +48,9 @@ async fn login_and_sync(
     let mut home = dirs::home_dir().expect("no home directory found");
     home.push("autojoin_bot");
 
-    let client_config = ClientConfig::new().store_path(home);
+    let client_config =
+        ClientConfig::with_named_store(home.to_str().expect("home dir path must be utf-8"), None)
+            .await?;
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new_with_config(homeserver_url, client_config).await.unwrap();
