@@ -1,0 +1,20 @@
+[package]
+name = "matrix-store-key"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+blake3 = "1.3.1"
+chacha20poly1305 = { version = "0.9.0", features = ["std"] }
+displaydoc = "0.2"
+hmac = "0.12.1"
+pbkdf2 = "0.10.1"
+rand = "0.8.4"
+serde = { version = "1.0.126", features = ["derive"] }
+serde_json = "1.0.64"
+sha2 = "0.10.2"
+thiserror = "1.0.26"
+zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
+
+[dev-dependencies]
+anyhow = "1.0.56"
