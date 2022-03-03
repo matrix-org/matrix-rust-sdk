@@ -455,6 +455,7 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
+    #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     async fn should_upload_keys(&self) -> bool {
         self.account.should_upload_keys().await
