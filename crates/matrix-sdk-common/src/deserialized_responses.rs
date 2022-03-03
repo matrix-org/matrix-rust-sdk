@@ -1,9 +1,9 @@
 use std::{collections::BTreeMap, convert::TryFrom};
 
 use ruma::{
-    api::client::r0::{
-        push::get_notifications::Notification,
-        sync::sync_events::{
+    api::client::{
+        push::get_notifications::v3::Notification,
+        sync::sync_events::v3::{
             DeviceLists, Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
             State, ToDevice, UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
@@ -411,23 +411,23 @@ mod test {
     fn room_event_to_sync_room_event() {
         let content = RoomMessageEventContent::text_plain("foobar");
 
-        let event: AnyMessageEvent = MessageEvent {
+        let event = MessageEvent {
             content,
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             room_id: room_id!("!someroom:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             sender: user_id!("@carl:example.com").to_owned(),
             unsigned: Unsigned::default(),
-        }
-        .into();
+        };
 
         let room_event =
-            RoomEvent { event: Raw::new(&event.clone().into()).unwrap(), encryption_info: None };
+            RoomEvent { event: Raw::new(&event).unwrap().cast(), encryption_info: None };
 
         let converted_room_event: SyncRoomEvent = room_event.into();
 
         let converted_event: AnySyncRoomEvent = converted_room_event.event.deserialize().unwrap();
 
+        let event: AnyMessageEvent = event.into();
         let sync_event: AnySyncMessageEvent = event.into();
         let sync_event: AnySyncRoomEvent = sync_event.into();
 

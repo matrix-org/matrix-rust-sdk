@@ -105,7 +105,7 @@ use ruma::{
             query::{query_room_alias::v1 as query_room, query_user_id::v1 as query_user},
             Registration,
         },
-        client::r0::account::register,
+        client::account::register,
     },
     assign, identifiers, DeviceId, ServerName, UserId,
 };
@@ -448,7 +448,7 @@ impl AppService {
         *self.event_handler.rooms.lock().await = Some(handler);
     }
 
-    /// Register a virtual user by sending a [`register::Request`] to the
+    /// Register a virtual user by sending a [`register::v3::Request`] to the
     /// homeserver
     ///
     /// # Arguments
@@ -463,7 +463,7 @@ impl AppService {
         if self.is_user_registered(localpart.as_ref()).await? {
             return Ok(());
         }
-        let request = assign!(register::Request::new(), {
+        let request = assign!(register::v3::Request::new(), {
             username: Some(localpart.as_ref()),
             login_type: Some(&register::LoginType::ApplicationService),
         });

@@ -17,12 +17,8 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
 async-trait = "0.1.50"
+ruma = { version = "0.5.0", features = ["client-api-c"] }
 serde = "1.0.126"
-
-[dependencies.ruma]
-git = "https://github.com/ruma/ruma/"
-rev = "b9f32bc6327542d382d4eb42ec43623495c50e66"
-features = ["client-api-c"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.2", default-features = false, features = [

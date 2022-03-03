@@ -5,9 +5,9 @@ use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_test::response_from_file;
 use ruma::{
     api::{
-        client::r0::{
+        client::{
             keys::{claim_keys, get_keys},
-            to_device::send_event_to_device::Response as ToDeviceResponse,
+            to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         IncomingResponse,
     },
@@ -24,26 +24,28 @@ fn alice_device_id() -> &'static DeviceId {
     device_id!("JLAFKJWSCS")
 }
 
-fn keys_query_response() -> get_keys::Response {
+fn keys_query_response() -> get_keys::v3::Response {
     let data = include_bytes!("./keys_query.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
-    get_keys::Response::try_from_http_response(data).expect("Can't parse the keys upload response")
-}
-
-fn keys_claim_response() -> claim_keys::Response {
-    let data = include_bytes!("./keys_claim.json");
-    let data: Value = serde_json::from_slice(data).unwrap();
-    let data = response_from_file(&data);
-    claim_keys::Response::try_from_http_response(data)
+    get_keys::v3::Response::try_from_http_response(data)
         .expect("Can't parse the keys upload response")
 }
 
-fn huge_keys_query_response() -> get_keys::Response {
+fn keys_claim_response() -> claim_keys::v3::Response {
+    let data = include_bytes!("./keys_claim.json");
+    let data: Value = serde_json::from_slice(data).unwrap();
+    let data = response_from_file(&data);
+    claim_keys::v3::Response::try_from_http_response(data)
+        .expect("Can't parse the keys upload response")
+}
+
+fn huge_keys_query_response() -> get_keys::v3::Response {
     let data = include_bytes!("./keys_query_2000_members.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
-    get_keys::Response::try_from_http_response(data).expect("Can't parse the keys query response")
+    get_keys::v3::Response::try_from_http_response(data)
+        .expect("Can't parse the keys query response")
 }
 
 pub fn keys_query(c: &mut Criterion) {

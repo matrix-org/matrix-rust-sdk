@@ -46,6 +46,7 @@ matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.4.0", path = "../matrix-sdk-crypto", optional = true }
 pbkdf2 = { version = "0.10.0", default-features = false, optional = true }
 rand = { version = "0.8.4", optional = true }
+ruma = { version = "0.5.0", features = ["client-api-c", "signatures", "unstable-pre-spec"] }
 serde = { version = "1.0.126", features = ["rc"] }
 serde_json = "1.0.64"
 sha2 = { version = "0.10.1", optional = true }
@@ -60,11 +61,6 @@ tokio = { version = "1.7.1", optional = true, default-features = false, features
 ## Feature indexeddb-state-store
 indexed_db_futures = { version = "0.2.0", optional = true }
 wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"], optional = true }
-
-[dependencies.ruma]
-git = "https://github.com/ruma/ruma/"
-rev = "b9f32bc6327542d382d4eb42ec43623495c50e66"
-features = ["client-api-c", "unstable-pre-spec"]
 
 [dev-dependencies]
 futures = { version = "0.3.15", default-features = false, features = ["executor"] }

@@ -48,29 +48,28 @@ pub struct AccountInfo {
 
 #[allow(non_snake_case)]
 mod KEYS {
-
     // STORES
-    pub const CORE: &'static str = "core";
+    pub const CORE: &str = "core";
 
-    pub const SESSION: &'static str = "session";
-    pub const INBOUND_GROUP_SESSIONS: &'static str = "inbound_group_sessions";
+    pub const SESSION: &str = "session";
+    pub const INBOUND_GROUP_SESSIONS: &str = "inbound_group_sessions";
 
-    pub const OUTBOUND_GROUP_SESSIONS: &'static str = "outbound_group_sessions";
+    pub const OUTBOUND_GROUP_SESSIONS: &str = "outbound_group_sessions";
 
-    pub const TRACKED_USERS: &'static str = "tracked_users";
-    pub const OLM_HASHES: &'static str = "olm_hashes";
+    pub const TRACKED_USERS: &str = "tracked_users";
+    pub const OLM_HASHES: &str = "olm_hashes";
 
-    pub const DEVICES: &'static str = "devices";
-    pub const IDENTITIES: &'static str = "identities";
+    pub const DEVICES: &str = "devices";
+    pub const IDENTITIES: &str = "identities";
 
-    pub const OUTGOING_SECRET_REQUESTS: &'static str = "outgoing_secret_requests";
-    pub const UNSENT_SECRET_REQUESTS: &'static str = "unsent_secret_requests";
-    pub const SECRET_REQUESTS_BY_INFO: &'static str = "secret_requests_by_info";
+    pub const OUTGOING_SECRET_REQUESTS: &str = "outgoing_secret_requests";
+    pub const UNSENT_SECRET_REQUESTS: &str = "unsent_secret_requests";
+    pub const SECRET_REQUESTS_BY_INFO: &str = "secret_requests_by_info";
 
     // KEYS
-    pub const PICKLE_KEY: &'static str = "pickle_key";
-    pub const ACCOUNT: &'static str = "account";
-    pub const PRIVATE_IDENTITY: &'static str = "private_identity";
+    pub const PICKLE_KEY: &str = "pickle_key";
+    pub const ACCOUNT: &str = "account";
+    pub const PRIVATE_IDENTITY: &str = "private_identity";
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.

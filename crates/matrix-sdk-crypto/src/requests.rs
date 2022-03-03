@@ -15,19 +15,19 @@
 use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
 use ruma::{
-    api::client::r0::{
-        backup::{add_backup_keys::Response as KeysBackupResponse, RoomKeyBackup},
+    api::client::{
+        backup::{add_backup_keys::v3::Response as KeysBackupResponse, RoomKeyBackup},
         keys::{
-            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-            get_keys::Response as KeysQueryResponse,
-            upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
-            upload_signatures::{
+            claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+            get_keys::v3::Response as KeysQueryResponse,
+            upload_keys::v3::{Request as KeysUploadRequest, Response as KeysUploadResponse},
+            upload_signatures::v3::{
                 Request as SignatureUploadRequest, Response as SignatureUploadResponse,
             },
-            upload_signing_keys::Response as SigningKeysUploadResponse,
+            upload_signing_keys::v3::Response as SigningKeysUploadResponse,
         },
-        message::send_message_event::Response as RoomMessageResponse,
-        to_device::send_event_to_device::Response as ToDeviceResponse,
+        message::send_message_event::v3::Response as RoomMessageResponse,
+        to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
     encryption::CrossSigningKey,
     events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, EventType},
@@ -38,7 +38,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 /// Customized version of
-/// `ruma_client_api::r0::to_device::send_event_to_device::Request`
+/// `ruma_client_api::to_device::send_event_to_device::v3::Request`
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
@@ -144,7 +144,7 @@ pub struct UploadSigningKeysRequest {
 }
 
 /// Customized version of
-/// `ruma_client_api::r0::keys::get_keys::Request`, without any
+/// `ruma_client_api::keys::get_keys::v3::Request`, without any
 /// references.
 #[derive(Clone, Debug)]
 pub struct KeysQueryRequest {

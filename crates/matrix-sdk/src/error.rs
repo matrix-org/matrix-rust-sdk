@@ -28,7 +28,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::{
-            r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
+            uiaa::{UiaaInfo, UiaaResponse as UiaaError},
             Error as RumaClientApiError,
         },
         error::{FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError},

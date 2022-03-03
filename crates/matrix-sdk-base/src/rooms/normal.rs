@@ -20,7 +20,7 @@ use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::client::r0::sync::sync_events::RoomSummary as RumaSummary,
+    api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
         receipt::Receipt,
         room::{

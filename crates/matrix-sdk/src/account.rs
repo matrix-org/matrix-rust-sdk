@@ -19,7 +19,7 @@ use std::io::Read;
 use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaType};
 use mime::Mime;
 use ruma::{
-    api::client::r0::{
+    api::client::{
         account::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
             request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
@@ -70,7 +70,7 @@ impl Account {
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_display_name::Request::new(&user_id);
+        let request = get_display_name::v3::Request::new(&user_id);
         let response = self.client.send(request, None).await?;
         Ok(response.displayname)
     }
@@ -93,7 +93,7 @@ impl Account {
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = set_display_name::Request::new(&user_id, name);
+        let request = set_display_name::v3::Request::new(&user_id, name);
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -118,7 +118,7 @@ impl Account {
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<Box<MxcUri>>> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_avatar_url::Request::new(&user_id);
+        let request = get_avatar_url::v3::Request::new(&user_id);
 
         let config = Some(RequestConfig::new().force_auth());
 
@@ -131,7 +131,7 @@ impl Account {
     /// The avatar is unset if `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = set_avatar_url::Request::new(&user_id, url);
+        let request = set_avatar_url::v3::Request::new(&user_id, url);
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -231,9 +231,9 @@ impl Account {
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn get_profile(&self) -> Result<get_profile::Response> {
+    pub async fn get_profile(&self) -> Result<get_profile::v3::Response> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_profile::Request::new(&user_id);
+        let request = get_profile::v3::Request::new(&user_id);
         Ok(self.client.send(request, None).await?)
     }
 
@@ -260,8 +260,8 @@ impl Account {
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::{
-    /// #         account::change_password::{Request as ChangePasswordRequest},
+    /// #     api::client::{
+    /// #         account::change_password::v3::{Request as ChangePasswordRequest},
     /// #         uiaa::{AuthData, Dummy},
     /// #     },
     /// #     assign,
@@ -278,14 +278,14 @@ impl Account {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
-    /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
+    /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
     /// [`ErrorKind::WeakPassword`]: ruma::api::client::error::ErrorKind::WeakPassword
     pub async fn change_password(
         &self,
         new_password: &str,
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<change_password::Response> {
-        let request = assign!(change_password::Request::new(new_password), {
+    ) -> Result<change_password::v3::Response> {
+        let request = assign!(change_password::v3::Request::new(new_password), {
             auth: auth_data,
         });
         Ok(self.client.send(request, None).await?)
@@ -309,8 +309,8 @@ impl Account {
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::{
-    /// #         account::change_password::{Request as ChangePasswordRequest},
+    /// #     api::client::{
+    /// #         account::change_password::v3::{Request as ChangePasswordRequest},
     /// #         uiaa::{AuthData, Dummy},
     /// #     },
     /// #     assign,
@@ -329,13 +329,13 @@ impl Account {
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
-    /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
+    /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
     pub async fn deactivate(
         &self,
         id_server: Option<&str>,
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<deactivate::Response> {
-        let request = assign!(deactivate::Request::new(), {
+    ) -> Result<deactivate::v3::Response> {
+        let request = assign!(deactivate::v3::Request::new(), {
             id_server,
             auth: auth_data,
         });
@@ -364,8 +364,8 @@ impl Account {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    pub async fn get_3pids(&self) -> Result<get_3pids::Response> {
-        let request = get_3pids::Request::new();
+    pub async fn get_3pids(&self) -> Result<get_3pids::v3::Response> {
+        let request = get_3pids::v3::Request::new();
         Ok(self.client.send(request, None).await?)
     }
 
@@ -438,8 +438,8 @@ impl Account {
         client_secret: &ClientSecret,
         email: &str,
         send_attempt: UInt,
-    ) -> Result<request_3pid_management_token_via_email::Response> {
-        let request = request_3pid_management_token_via_email::Request::new(
+    ) -> Result<request_3pid_management_token_via_email::v3::Response> {
+        let request = request_3pid_management_token_via_email::v3::Request::new(
             client_secret,
             email,
             send_attempt,
@@ -521,8 +521,8 @@ impl Account {
         country: &str,
         phone_number: &str,
         send_attempt: UInt,
-    ) -> Result<request_3pid_management_token_via_msisdn::Response> {
-        let request = request_3pid_management_token_via_msisdn::Request::new(
+    ) -> Result<request_3pid_management_token_via_msisdn::v3::Response> {
+        let request = request_3pid_management_token_via_msisdn::v3::Request::new(
             client_secret,
             country,
             phone_number,
@@ -559,14 +559,14 @@ impl Account {
     ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
-    /// [`UiaaResponse`]: ruma::api::client::r0::uiaa::UiaaResponse
+    /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
     pub async fn add_3pid(
         &self,
         client_secret: &ClientSecret,
         sid: &SessionId,
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<add_3pid::Response> {
-        let request = assign!(add_3pid::Request::new(client_secret, sid), {
+    ) -> Result<add_3pid::v3::Response> {
+        let request = assign!(add_3pid::v3::Request::new(client_secret, sid), {
             auth: auth_data,
         });
         Ok(self.client.send(request, None).await?)
@@ -599,7 +599,7 @@ impl Account {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::thirdparty::Medium;
-    /// # use matrix_sdk::ruma::api::client::r0::account::ThirdPartyIdRemovalStatus;
+    /// # use matrix_sdk::ruma::api::client::account::ThirdPartyIdRemovalStatus;
     /// # use url::Url;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
@@ -619,15 +619,15 @@ impl Account {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    /// [`ThirdPartyIdRemovalStatus::Success`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::Success
-    /// [`ThirdPartyIdRemovalStatus::NoSupport`]: ruma::api::client::r0::account::ThirdPartyIdRemovalStatus::NoSupport
+    /// [`ThirdPartyIdRemovalStatus::Success`]: ruma::api::client::account::ThirdPartyIdRemovalStatus::Success
+    /// [`ThirdPartyIdRemovalStatus::NoSupport`]: ruma::api::client::account::ThirdPartyIdRemovalStatus::NoSupport
     pub async fn delete_3pid(
         &self,
         address: &str,
         medium: Medium,
         id_server: Option<&str>,
-    ) -> Result<delete_3pid::Response> {
-        let request = assign!(delete_3pid::Request::new(medium, address), {
+    ) -> Result<delete_3pid::v3::Response> {
+        let request = assign!(delete_3pid::v3::Request::new(medium, address), {
             id_server: id_server,
         });
         Ok(self.client.send(request, None).await?)

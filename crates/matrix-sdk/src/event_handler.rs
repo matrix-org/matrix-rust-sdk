@@ -552,39 +552,39 @@ mod test {
             .add_custom_invited_event(
                 room_id!("!test_invited:example.org"),
                 json!({
-                "content": {
-                  "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-                  "displayname": "Alice",
-                  "membership": "invite",
-                },
-                "event_id": "$143273582443PhrSn:example.org",
-                "origin_server_ts": 1432735824653u64,
-                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-                "sender": "@example:example.org",
-                "state_key": "@alice:example.org",
-                "type": "m.room.member",
-                "unsigned": {
-                  "age": 1234,
-                  "invite_room_state": [
-                    {
-                      "content": {
-                        "name": "Example Room"
-                      },
-                      "sender": "@bob:example.org",
-                      "state_key": "",
-                      "type": "m.room.name"
+                    "content": {
+                        "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+                        "displayname": "Alice",
+                        "membership": "invite",
                     },
-                    {
-                      "content": {
-                        "join_rule": "invite"
-                      },
-                      "sender": "@bob:example.org",
-                      "state_key": "",
-                      "type": "m.room.join_rules"
+                    "event_id": "$143273582443PhrSn:example.org",
+                    "origin_server_ts": 1432735824653u64,
+                    "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                    "sender": "@example:example.org",
+                    "state_key": "@alice:example.org",
+                    "type": "m.room.member",
+                    "unsigned": {
+                        "age": 1234,
+                        "invite_room_state": [
+                            {
+                                "content": {
+                                    "name": "Example Room"
+                                },
+                                "sender": "@bob:example.org",
+                                "state_key": "",
+                                "type": "m.room.name"
+                            },
+                            {
+                                "content": {
+                                    "join_rule": "invite"
+                                },
+                                "sender": "@bob:example.org",
+                                "state_key": "",
+                                "type": "m.room.join_rules"
+                            }
+                        ]
                     }
-                  ]
-                }
-                          }),
+                }),
             )
             .build_sync_response();
         client.process_sync(response).await?;

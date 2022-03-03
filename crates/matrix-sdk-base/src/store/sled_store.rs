@@ -30,10 +30,11 @@ use ruma::{
         receipt::Receipt,
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-        AnySyncStateEvent, EventType, Redact,
+        AnySyncStateEvent, EventType,
     },
     receipt::ReceiptType,
     serde::Raw,
+    signatures::{redact_in_place, CanonicalJsonObject},
     EventId, MxcUri, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -1181,11 +1182,11 @@ impl SledStore {
                                 })
                                 .transpose()?
                             {
-                                let inner_event = full_event.event.deserialize()?;
-
-                                full_event.event = Raw::new(&AnySyncRoomEvent::from(
-                                    inner_event.redact(redaction, &room_version),
-                                ))?;
+                                let mut event_json: CanonicalJsonObject =
+                                    full_event.event.deserialize_as()?;
+                                redact_in_place(&mut event_json, &room_version)
+                                    .map_err(StoreError::Redaction)?;
+                                full_event.event = Raw::new(&event_json)?.cast();
                                 timeline_batch
                                     .insert(position_key, self.serialize_event(&full_event)?);
                             }

@@ -28,10 +28,11 @@ use ruma::{
         receipt::Receipt,
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType, Redact,
+        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType,
     },
     receipt::ReceiptType,
     serde::Raw,
+    signatures::{redact_in_place, CanonicalJsonObject},
     EventId, MxcUri, RoomId, RoomVersionId, UserId,
 };
 #[allow(unused_imports)]
@@ -41,6 +42,7 @@ use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
+    StoreError,
 };
 
 #[allow(clippy::type_complexity)]
@@ -352,14 +354,13 @@ impl MemoryStore {
 
                         if let Some(position) = pos {
                             if let Some(mut full_event) = data.events.get_mut(&position.clone()) {
-                                let inner_event = full_event.event.deserialize()?;
-                                if room_version.is_none() {
-                                    room_version = Some(make_room_version());
-                                }
+                                let mut event_json: CanonicalJsonObject =
+                                    full_event.event.deserialize_as()?;
+                                let v = room_version.get_or_insert_with(make_room_version);
 
-                                full_event.event = Raw::new(&AnySyncRoomEvent::from(
-                                    inner_event.redact(redaction, room_version.as_ref().unwrap()),
-                                ))?;
+                                redact_in_place(&mut event_json, v)
+                                    .map_err(StoreError::Redaction)?;
+                                full_event.event = Raw::new(&event_json)?.cast();
                             }
                         }
                     }
