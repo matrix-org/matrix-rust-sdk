@@ -465,7 +465,7 @@ impl SasState<Created> {
     pub fn into_accepted(
         self,
         sender: &UserId,
-        content: &AcceptContent,
+        content: &AcceptContent<'_>,
     ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
@@ -514,7 +514,7 @@ impl SasState<Started> {
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         flow_id: FlowId,
-        content: &StartContent,
+        content: &StartContent<'_>,
         started_from_request: bool,
     ) -> Result<SasState<Started>, SasState<Cancelled>> {
         let flow_id = Arc::new(flow_id);
@@ -633,7 +633,7 @@ impl SasState<Started> {
     pub fn into_accepted(
         self,
         sender: &UserId,
-        content: &AcceptContent,
+        content: &AcceptContent<'_>,
     ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
@@ -717,7 +717,7 @@ impl SasState<WeAccepted> {
     pub fn into_key_received(
         self,
         sender: &UserId,
-        content: &KeyContent,
+        content: &KeyContent<'_>,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
@@ -757,7 +757,7 @@ impl SasState<Accepted> {
     pub fn into_key_received(
         self,
         sender: &UserId,
-        content: &KeyContent,
+        content: &KeyContent<'_>,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
@@ -898,7 +898,7 @@ impl SasState<KeyReceived> {
     pub fn into_mac_received(
         self,
         sender: &UserId,
-        content: &MacContent,
+        content: &MacContent<'_>,
     ) -> Result<SasState<MacReceived>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
@@ -958,7 +958,7 @@ impl SasState<Confirmed> {
     pub fn into_done(
         self,
         sender: &UserId,
-        content: &MacContent,
+        content: &MacContent<'_>,
     ) -> Result<SasState<Done>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
@@ -998,7 +998,7 @@ impl SasState<Confirmed> {
     pub fn into_waiting_for_done(
         self,
         sender: &UserId,
-        content: &MacContent,
+        content: &MacContent<'_>,
     ) -> Result<SasState<WaitingForDone>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
@@ -1153,7 +1153,7 @@ impl SasState<WaitingForDone> {
     pub fn into_done(
         self,
         sender: &UserId,
-        content: &DoneContent,
+        content: &DoneContent<'_>,
     ) -> Result<SasState<Done>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 

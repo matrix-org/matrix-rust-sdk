@@ -76,7 +76,7 @@ impl AnyEvent<'_> {
         matches!(self, AnyEvent::Room(_))
     }
 
-    pub fn verification_content(&self) -> Option<AnyVerificationContent> {
+    pub fn verification_content(&self) -> Option<AnyVerificationContent<'_>> {
         match self {
             AnyEvent::Room(e) => match e {
                 AnyMessageEvent::CallAnswer(_)

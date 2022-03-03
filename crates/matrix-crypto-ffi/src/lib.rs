@@ -109,7 +109,7 @@ pub struct BackupKeys {
     pub backup_version: String,
 }
 
-impl std::convert::TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
+impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
     type Error = ();
 
     fn try_from(keys: matrix_sdk_crypto::store::BackupKeys) -> Result<Self, Self::Error> {
@@ -161,4 +161,10 @@ fn parse_user_id(user_id: &str) -> Result<Box<ruma::UserId>, CryptoStoreError> {
         .map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 
-include!(concat!(env!("OUT_DIR"), "/olm.uniffi.rs"));
+#[allow(warnings)]
+mod generated {
+    use super::*;
+    include!(concat!(env!("OUT_DIR"), "/olm.uniffi.rs"));
+}
+
+pub use generated::*;

@@ -252,7 +252,7 @@ impl Client {
             room,
             events,
             |ev| (ev, None),
-            |raw| Ok((kind, raw.deserialize_as::<ExtractType>()?.event_type)),
+            |raw| Ok((kind, raw.deserialize_as::<ExtractType<'_>>()?.event_type)),
         )
         .await
     }

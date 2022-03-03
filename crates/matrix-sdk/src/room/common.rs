@@ -784,7 +784,7 @@ impl<'a> MessagesOptions<'a> {
         Self::new(from, Direction::Forward)
     }
 
-    fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request {
+    fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
         assign!(get_message_events::v3::Request::new(room_id, self.from, self.dir), {
             to: self.to,
             limit: self.limit,

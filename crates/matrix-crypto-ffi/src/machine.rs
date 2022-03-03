@@ -525,7 +525,7 @@ impl OlmMachine {
         let encryption_info =
             decrypted.encryption_info.expect("Decrypted event didn't contain any encryption info");
 
-        let event_json: Event = serde_json::from_str(decrypted.event.json().get())?;
+        let event_json: Event<'_> = serde_json::from_str(decrypted.event.json().get())?;
 
         Ok(match &encryption_info.algorithm_info {
             AlgorithmInfo::MegolmV1AesSha2 {
