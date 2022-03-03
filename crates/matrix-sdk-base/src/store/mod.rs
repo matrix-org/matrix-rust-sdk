@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Implementing the state store
+//! The state store holds the overall state for rooms, users and their
+//! profiles and their timelines. It is an overall cache for faster access
+//! and convenience- accessible through `Store`.
+//!
+//! Implementing the `StateStore` trait, you can plug any storage backend
+//! into the store for the actual storage. By default this brings an in-memory
+//! store.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
