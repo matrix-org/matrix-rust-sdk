@@ -137,12 +137,6 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
-      - name: Check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --manifest-path crates/matrix-sdk/Cargo.toml ${{ matrix.cargo_args }}
-
       - name: Test
         uses: actions-rs/cargo@v1
         with:
@@ -185,11 +179,6 @@ jobs:
 
       - name: Load cache
         uses: Swatinem/rust-cache@v1
-
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
 
       - name: Test
         uses: actions-rs/cargo@v1

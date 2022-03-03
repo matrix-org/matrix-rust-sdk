@@ -56,12 +56,6 @@ jobs:
           command: clippy
           args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }} -- -D warnings
 
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }}
-
       - name: Test
         uses: actions-rs/cargo@v1
         with:
