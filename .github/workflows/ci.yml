@@ -80,7 +80,7 @@ jobs:
         args: -p xtask -- ci clippy
 
   test-features:
-    name: ${{ matrix.name }}
+    name: linux / features-${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -88,39 +88,14 @@ jobs:
       fail-fast: true
       matrix:
         name:
-          - linux / features-no-encryption
-          - linux / features-no-sled
-          - linux / features-no-encryption-and-sled
-          - linux / features-sled_cryptostore
-          - linux / features-rustls-tls
-          - linux / features-markdown
-          - linux / features-socks
-          - linux / features-sso_login
-
-        include:
-          - name: linux / features-no-encryption
-            cargo_args: --no-default-features --features "sled_state_store, native-tls"
-
-          - name: linux / features-no-sled
-            cargo_args: --no-default-features --features "encryption, native-tls"
-
-          - name: linux / features-no-encryption-and-sled
-            cargo_args: --no-default-features --features "native-tls"
-
-          - name: linux / features-sled_cryptostore
-            cargo_args: --no-default-features --features "encryption, sled_cryptostore, native-tls"
-
-          - name: linux / features-rustls-tls
-            cargo_args: --no-default-features --features rustls-tls
-
-          - name: linux / features-markdown
-            cargo_args: --features markdown
-
-          - name: linux / features-socks
-            cargo_args: --features socks
-
-          - name: linux / features-sso_login
-            cargo_args: --features sso_login
+          - no-encryption
+          - no-sled
+          - no-encryption-and-sled
+          - sled-cryptostore
+          - rustls-tls
+          - markdown
+          - socks
+          - sso-login
 
     steps:
       - name: Checkout
@@ -139,8 +114,8 @@ jobs:
       - name: Test
         uses: actions-rs/cargo@v1
         with:
-          command: test
-          args: --manifest-path crates/matrix-sdk/Cargo.toml ${{ matrix.cargo_args }}
+          command: run
+          args: -p xtask -- ci test-features ${{ matrix.name }}
 
   test:
     name: ${{ matrix.name }}
