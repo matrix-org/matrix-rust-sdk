@@ -18,7 +18,15 @@ interface Message {
     string sender();
 };
 
+callback interface RoomDelegate {
+    void did_receive_messages(sequence<Message> messages);
+    void did_receive_message(Message message);
+};
+
 interface Room {
+
+    void set_delegate(RoomDelegate? delegate);
+
     string identifier();
     
     [Throws=ClientError]
@@ -43,6 +51,8 @@ interface Room {
 
     [Throws=ClientError]
     sequence<Message> messages();
+
+    void start_event_listener();
 };
 
 callback interface ClientDelegate {

@@ -1,13 +1,14 @@
 
 use std::{fs, path};
 use anyhow::Result;
+use futures::{pin_mut, StreamExt};
 use sanitize_filename_reader_friendly::sanitize;
 use std::collections::BTreeMap;
 
 use matrix_sdk::{
     Client as MatrixClient,
     room::Room as MatrixRoom,
-    deserialized_responses::Timeline,
+    deserialized_responses::{Timeline, SyncRoomEvent},
     config::{ClientConfig, SyncSettings},
     LoopCtrl,
     Session,
@@ -96,12 +97,30 @@ impl From<anyhow::Error> for ClientError {
     }
 }
 
+pub trait RoomDelegate: Sync + Send {
+    fn did_receive_messages(&self, events: Vec<Arc<Message>>);
+    fn did_receive_message(&self, messages: Arc<Message>);
+}
+
 pub struct Room {
     room: MatrixRoom,
     client_state: Arc<RwLock<ClientState>>,
+    delegate: Arc<RwLock<Option<Box<dyn RoomDelegate>>>>,
 }
 
 impl Room {
+    fn new(room: MatrixRoom, client_state: Arc<RwLock<ClientState>>) -> Self {
+        Room {
+            room,
+            client_state,
+            delegate: Arc::new(RwLock::new(None))
+        }
+    }
+
+    pub fn set_delegate(&self, delegate: Option<Box<dyn RoomDelegate>>) {
+        *self.delegate.write() = delegate;
+    }
+
     pub fn identifier(&self) -> String {
         self.room.room_id().to_string()
     }
@@ -169,6 +188,37 @@ impl Room {
             );
             msgs
         }))
+    }
+
+    pub fn start_event_listener(&self) {
+        let room = self.room.clone();
+        let delegate = self.delegate.clone();
+        RUNTIME.spawn(async move {
+            let (forward_stream, backward_stream) = room.timeline().await.expect("Failed acquiring timeline streams");
+
+            let historic_messages:Vec<Arc<Message>> = backward_stream
+                                                        .take(20)
+                                                        .map(|e| e.expect("Failed collecting backwards history"))
+                                                        .filter_map(sync_event_to_message_async)
+                                                        .collect()
+                                                        .await;
+
+            if let Some(delegate) = &*delegate.read() {
+                delegate.did_receive_messages(historic_messages)
+            }
+
+            pin_mut!(forward_stream);
+            
+            while let Some(sync_event) = forward_stream.next().await {
+                if let Some(delegate) = &*delegate.read() {
+                    if let Some(message) = sync_event_to_message(sync_event) {
+                        delegate.did_receive_message(message)
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
     }
 }
 
@@ -314,7 +364,7 @@ impl Client {
     }
 
     pub  fn conversations(&self) -> Vec<Arc<Room>> {
-        self.rooms().into_iter().map(|room| Arc::new(Room { room, client_state: self.state.clone() })).collect()
+        self.rooms().into_iter().map(|room| Arc::new(Room::new(room, self.state.clone()))).collect()
     }
 
     // pub fn get_mxcuri_media(&self, uri: String) -> Result<Vec<u8>> {
@@ -404,4 +454,23 @@ pub fn login_new_client(base_path: String, username: String, password: String) -
         let c = Client::new(client, ClientStateBuilder::default().is_guest(false).build()?);
         Ok(Arc::new(c))
     })
+}
+
+async fn sync_event_to_message_async(sync_event: SyncRoomEvent) -> Option<Arc<Message>> {
+    sync_event_to_message(sync_event)
+}
+
+fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<Message>> {
+    match sync_event.event.deserialize() {
+        Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => {
+            let message = Message { 
+                message_type: m.content.msgtype().to_string(), 
+                content: m.content.body().to_string(), 
+                sender: m.sender.to_string() 
+            };
+
+            Some(Arc::new(message))
+        }
+        _ => { None }
+    }   
 }
