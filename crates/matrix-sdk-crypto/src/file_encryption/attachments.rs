@@ -38,7 +38,7 @@ const VERSION: &str = "v2";
 
 /// A wrapper that transparently encrypts anything that implements `Read` as an
 /// Matrix attachment.
-pub struct AttachmentDecryptor<'a, R: 'a + Read> {
+pub struct AttachmentDecryptor<'a, R: Read> {
     inner: &'a mut R,
     expected_hash: Vec<u8>,
     sha: Sha256,
@@ -147,7 +147,7 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
 }
 
 /// A wrapper that transparently encrypts anything that implements `Read`.
-pub struct AttachmentEncryptor<'a, R: Read + ?Sized + 'a> {
+pub struct AttachmentEncryptor<'a, R: Read + ?Sized> {
     finished: bool,
     inner: &'a mut R,
     web_key: JsonWebKey,

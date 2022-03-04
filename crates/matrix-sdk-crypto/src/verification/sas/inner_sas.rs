@@ -157,7 +157,7 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         flow_id: FlowId,
-        content: &StartContent,
+        content: &StartContent<'_>,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
@@ -255,7 +255,7 @@ impl InnerSas {
     pub fn receive_any_event(
         self,
         sender: &UserId,
-        content: &AnyVerificationContent,
+        content: &AnyVerificationContent<'_>,
     ) -> (Self, Option<OutgoingContent>) {
         match content {
             AnyVerificationContent::Accept(c) => match self {

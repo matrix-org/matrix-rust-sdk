@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{collections::BTreeMap, env, path::PathBuf};
 
 use clap::{Args, Subcommand};
 use serde::Deserialize;
@@ -22,6 +22,26 @@ enum CiCommand {
     Clippy,
     /// Check documentation
     Docs,
+    /// Run default tests
+    Test,
+    /// Run tests with a specific feature set
+    TestFeatures {
+        #[clap(subcommand)]
+        cmd: Option<FeatureSet>,
+    },
+}
+
+#[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
+enum FeatureSet {
+    Default,
+    NoEncryption,
+    NoSled,
+    NoEncryptionAndSled,
+    SledCryptostore,
+    RustlsTls,
+    Markdown,
+    Socks,
+    SsoLogin,
 }
 
 impl CiArgs {
@@ -34,12 +54,16 @@ impl CiArgs {
                 CiCommand::Typos => check_typos(),
                 CiCommand::Clippy => check_clippy(),
                 CiCommand::Docs => check_docs(),
+                CiCommand::Test => run_tests(),
+                CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
             },
             None => {
                 check_style()?;
                 check_clippy()?;
                 check_typos()?;
                 check_docs()?;
+                run_tests()?;
+                run_feature_tests(None)?;
 
                 Ok(())
             }
@@ -72,6 +96,47 @@ fn check_clippy() -> Result<()> {
 
 fn check_docs() -> Result<()> {
     build_docs([], DenyWarnings::Yes)
+}
+
+fn run_tests() -> Result<()> {
+    cmd!("rustup run stable cargo test").run()?;
+    cmd!("rustup run beta cargo test").run()?;
+    Ok(())
+}
+
+fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
+    let args = BTreeMap::from([
+        (FeatureSet::NoEncryption, "--no-default-features --features sled_state_store,native-tls"),
+        (FeatureSet::NoSled, "--no-default-features --features encryption,native-tls"),
+        (FeatureSet::NoEncryptionAndSled, "--no-default-features --features native-tls"),
+        (
+            FeatureSet::SledCryptostore,
+            "--no-default-features --features encryption,sled_cryptostore,native-tls",
+        ),
+        (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls"),
+        (FeatureSet::Markdown, "--features markdown"),
+        (FeatureSet::Socks, "--features socks"),
+        (FeatureSet::SsoLogin, "--features sso_login"),
+    ]);
+
+    let run = |arg_set: &str| {
+        cmd!("rustup run stable cargo test --manifest-path crates/matrix-sdk/Cargo.toml")
+            .args(arg_set.split_whitespace())
+            .run()
+    };
+
+    match cmd {
+        Some(cmd) => {
+            run(args[&cmd])?;
+        }
+        None => {
+            for &arg_set in args.values() {
+                run(arg_set)?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn workspace_root() -> Result<PathBuf> {

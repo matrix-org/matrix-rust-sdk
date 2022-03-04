@@ -55,7 +55,7 @@ pub struct SasIds {
 ///
 /// * `content` - The `m.key.verification.start` event content that started the
 /// interactive verification process.
-pub fn calculate_commitment(public_key: &Base64, content: &StartContent) -> Base64 {
+pub fn calculate_commitment(public_key: &Base64, content: &StartContent<'_>) -> Base64 {
     let content = content.canonical_json();
     let content_string = content.to_string();
 
@@ -189,7 +189,7 @@ pub fn receive_mac_event(
     ids: &SasIds,
     flow_id: &str,
     sender: &UserId,
-    content: &MacContent,
+    content: &MacContent<'_>,
 ) -> Result<(Vec<ReadOnlyDevice>, Vec<ReadOnlyUserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();

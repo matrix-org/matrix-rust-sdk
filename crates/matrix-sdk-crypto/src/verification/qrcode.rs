@@ -384,7 +384,7 @@ impl QrVerification {
 
     pub(crate) fn receive_reciprocation(
         &self,
-        content: &StartContent,
+        content: &StartContent<'_>,
     ) -> Option<OutgoingVerificationRequest> {
         let mut state = self.state.lock().unwrap();
 
@@ -708,7 +708,7 @@ impl QrState<Cancelled> {
 impl QrState<Created> {
     fn receive_reciprocate(
         self,
-        content: &StartContent,
+        content: &StartContent<'_>,
     ) -> Result<QrState<Scanned>, QrState<Cancelled>> {
         match content.method() {
             start::StartMethod::ReciprocateV1(m) => {
@@ -737,7 +737,7 @@ impl QrState<Done> {
 impl QrState<Confirmed> {
     fn into_done(
         self,
-        _: &DoneContent,
+        _: &DoneContent<'_>,
         verified_device: Option<&ReadOnlyDevice>,
         verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {
@@ -776,7 +776,7 @@ impl QrState<Reciprocated> {
 
     fn into_done(
         self,
-        _: &DoneContent,
+        _: &DoneContent<'_>,
         verified_device: Option<&ReadOnlyDevice>,
         verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {

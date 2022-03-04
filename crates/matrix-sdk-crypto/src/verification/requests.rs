@@ -359,7 +359,7 @@ impl VerificationRequest {
         store: VerificationStore,
         sender: &UserId,
         flow_id: FlowId,
-        content: &RequestContent,
+        content: &RequestContent<'_>,
     ) -> Self {
         let account = store.account.clone();
 
@@ -549,7 +549,7 @@ impl VerificationRequest {
         }
     }
 
-    pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) {
+    pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent<'_>) {
         let mut inner = self.inner.lock().unwrap();
 
         match &*inner {
@@ -706,7 +706,7 @@ impl InnerRequest {
         }
     }
 
-    fn receive_done(&mut self, content: &DoneContent) {
+    fn receive_done(&mut self, content: &DoneContent<'_>) {
         *self = InnerRequest::Done(match self {
             InnerRequest::Ready(s) => s.clone().into_done(content),
             InnerRequest::Passive(s) => s.clone().into_done(content),
@@ -775,7 +775,7 @@ struct RequestState<S: Clone> {
 }
 
 impl<S: Clone> RequestState<S> {
-    fn into_done(self, _: &DoneContent) -> RequestState<Done> {
+    fn into_done(self, _: &DoneContent<'_>) -> RequestState<Done> {
         RequestState::<Done> {
             private_cross_signing_identity: self.private_cross_signing_identity,
             verification_cache: self.verification_cache,
@@ -823,7 +823,7 @@ impl RequestState<Created> {
         }
     }
 
-    fn into_ready(self, _sender: &UserId, content: &ReadyContent) -> RequestState<Ready> {
+    fn into_ready(self, _sender: &UserId, content: &ReadyContent<'_>) -> RequestState<Ready> {
         // TODO check the flow id, and that the methods match what we suggested.
         RequestState {
             flow_id: self.flow_id,
@@ -862,7 +862,7 @@ impl RequestState<Requested> {
         store: VerificationStore,
         sender: &UserId,
         flow_id: &FlowId,
-        content: &RequestContent,
+        content: &RequestContent<'_>,
     ) -> RequestState<Requested> {
         // TODO only create this if we support the methods
         RequestState {
@@ -878,7 +878,7 @@ impl RequestState<Requested> {
         }
     }
 
-    fn into_passive(self, content: &ReadyContent) -> RequestState<Passive> {
+    fn into_passive(self, content: &ReadyContent<'_>) -> RequestState<Passive> {
         RequestState {
             flow_id: self.flow_id,
             verification_cache: self.verification_cache,

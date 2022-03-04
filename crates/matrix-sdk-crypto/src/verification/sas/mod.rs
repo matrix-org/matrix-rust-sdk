@@ -273,7 +273,7 @@ impl Sas {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_start_event(
         flow_id: FlowId,
-        content: &StartContent,
+        content: &StartContent<'_>,
         store: VerificationStore,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
@@ -504,7 +504,7 @@ impl Sas {
     pub(crate) fn receive_any_event(
         &self,
         sender: &UserId,
-        content: &AnyVerificationContent,
+        content: &AnyVerificationContent<'_>,
     ) -> Option<OutgoingContent> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();

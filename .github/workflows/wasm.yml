@@ -65,7 +65,7 @@ jobs:
     - name: Install emscripten
       uses: mymindstorm/setup-emsdk@v11
       with:
-        version: ${{ matrix.emcc_version || 'latest'  }}
+        version: latest
 
     - name: check
       uses: actions-rs/cargo@v1
@@ -156,14 +156,14 @@ jobs:
         emcc -v
 
     - name: Default wasm-pack tests
-      if: ${{ !matrix.cmd }}
+      if: '!matrix.cmd'
       run: |
-        cd crates/${{matrix.base_dir}}
+        cd crates/${{ matrix.base_dir }}
         wasm-pack test --node -- ${{ matrix.cargo_args }}
         wasm-pack test --firefox --headless -- ${{ matrix.cargo_args }}
 
     - name: Testing with custom command
-      if: ${{ matrix.cmd }}
+      if: matrix.cmd
       run: |
-        cd crates/${{matrix.base_dir}}
-        ${{matrix.cmd}}
+        cd crates/${{ matrix.base_dir }}
+        ${{ matrix.cmd }}

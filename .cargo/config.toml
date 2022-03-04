@@ -3,3 +3,11 @@ xtask = "run --package xtask --"
 
 [doc.extern-map.registries]
 crates-io = "https://docs.rs/"
+
+[target.'cfg(all())']
+rustflags = [
+    "-Wrust_2018_idioms",
+    "-Wsemicolon_in_expressions_from_macros",
+    "-Wunused_import_braces",
+    "-Wunused_qualifications",
+]
