@@ -10,14 +10,20 @@ jobs:
     strategy:
       matrix:
         targets: [ {value: armv7-linux-androideabi, folder: armeabi-v7a}, {value: i686-linux-android, folder: x86}, {value: aarch64-linux-android, folder: arm64-v8a} ]
-    defaults:
-      run:
-        working-directory: ./rust-sdk-crypto
         
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-        
+    
+      - name: Checkout this repo
+        uses: actions/checkout@v3
+        with: 
+          path: main
+
+      - name: Checkout matrix rust sdk repo
+        uses: actions/checkout@v3
+        with:
+          repository: matrix-org/matrix-rust-sdk
+          path: rust-sdk  
+    
       - name: Install android sdk
         uses: malinskiy/action-android/install-sdk@release/0.1.2
         
@@ -75,16 +81,16 @@ jobs:
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
         with:
           command: build
-          args: --manifest-path ./rust-sdk-crypto/Cargo.toml --release --target=${{ matrix.targets.value }}
+          args: --manifest-path rust-sdk/crates/matrix-crypto-ffi/Cargo.toml --release --target=${{ matrix.targets.value }}
           
       - name: Move libmatrix_crypto.so to jniLibs folder
         run: |
-          mkdir -p ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}   
+          mkdir -p main/crypto/src/main/jniLibs/${{ matrix.targets.folder }}   
           cp target/${{ matrix.targets.value }}/release/libmatrix_crypto.so ../crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
           
       - name: Upload binary result
         uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.targets.folder }}_libuniffi_olm
-          path: crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
+          path: main/crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
       
