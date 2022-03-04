@@ -86,10 +86,7 @@ jobs:
       - name: Move libmatrix_crypto.so to jniLibs folder
         run: |
           mkdir -p main/crypto/src/main/jniLibs/${{ matrix.targets.folder }}   
-          ls main
-          ls rust-sdk
-          ls rust-sdk/crates/matrix-crypto-ffi
-          cp rust-sdk/crates/matrix-crypto-ffi/target/${{ matrix.targets.value }}/release/libmatrix_crypto.so main/crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
+          cp rust-sdk/target/${{ matrix.targets.value }}/release/libmatrix_crypto.so main/crypto/src/main/jniLibs/${{ matrix.targets.folder }}/libuniffi_olm.so
           
       - name: Upload binary result
         uses: actions/upload-artifact@v2
