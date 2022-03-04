@@ -98,16 +98,25 @@ jobs:
     needs: build_native
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout this repo
+      uses: actions/checkout@v3
+      with: 
+        path: main
+
+    - name: Checkout matrix rust sdk repo
+      uses: actions/checkout@v3
+      with:
+        repository: matrix-org/matrix-rust-sdk
+        path: rust-sdk  
     
     - name: Create jniLibs folder
       run: |
-          mkdir -p crypto/src/main/jniLibs   
+          mkdir -p main/crypto/src/main/jniLibs   
           
     - name: Download all binary result
       uses: actions/download-artifact@v2
       with:
-        path: crypto/src/main/jniLibs
+        path: main/crypto/src/main/jniLibs
     
     - name: set up JDK 11
       uses: actions/setup-java@v2
@@ -149,12 +158,13 @@ jobs:
       with:
         command: install
         args: uniffi_bindgen    
-        
+    
+    - name: Generate bindings
+      run: |
+        uniffi-bindgen generate rust-sdk/crates/matrix-crypto-ffi/src/olm.udl  --language kotlin --out-dir main/crypto/build/generated/source/uniffi/release/java
+    
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
-      
-    - name: Generate uniffi bindings 
-      run: ./gradlew :crypto:generateReleaseUniffiBindings
       
     - name: Build crypto module
       run: ./gradlew :crypto:assembleRelease 
@@ -163,6 +173,6 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: crypto-release
-        path: crypto/build/outputs/aar/crypto-release.aar
+        path: main/crypto/build/outputs/aar/crypto-release.aar
    
    
