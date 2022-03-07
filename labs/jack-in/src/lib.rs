@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use app::{App, AppReturn};
-use eyre::Result;
+use eyre::{eyre, Result};
 use inputs::events::Events;
 use inputs::InputEvent;
 use io::IoEvent;
@@ -15,6 +15,22 @@ use crate::app::ui;
 pub mod app;
 pub mod inputs;
 pub mod io;
+
+use matrix_sdk::Client;
+
+pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
+
+    let username = match client.account().get_display_name().await? {
+        Some(u) => u,
+        None => client.user_id().await.ok_or_else(||eyre!("Looks like you didn't login"))?.to_string()
+    };
+
+    let homeserver = client.homeserver().await;
+
+    let mut app = app.lock().await;
+    app.set_title(Some(format!("{} on {} via {}", username, homeserver, sliding_sync_proxy))).await;
+    Ok(())
+}
 
 pub async fn start_ui(app: &Arc<tokio::sync::Mutex<App>>) -> Result<()> {
     // Configure Crossterm backend for tui

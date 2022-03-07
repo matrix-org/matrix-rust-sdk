@@ -35,7 +35,7 @@ where
         .split(size);
 
     // Title
-    let title = draw_title();
+    let title = draw_title(app.title());
     rect.render_widget(title, chunks[0]);
 
     // Body & Help
@@ -61,8 +61,8 @@ where
     rect.render_widget(logs, chunks[3]);
 }
 
-fn draw_title<'a>() -> Paragraph<'a> {
-    Paragraph::new("Plop with TUI")
+fn draw_title<'a>(title: Option<String>) -> Paragraph<'a> {
+    Paragraph::new(title.map(|n| format!("Sliding Sync for: {}", n)).unwrap_or_else(||"loading...".to_owned()))
         .style(Style::default().fg(Color::LightCyan))
         .alignment(Alignment::Center)
         .block(

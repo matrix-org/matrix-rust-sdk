@@ -10,6 +10,7 @@ edition = "2021"
 tui = "0.17"
 crossterm = "0.22"
 matrix-sdk = { path = "../../crates/matrix-sdk" }
+matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 

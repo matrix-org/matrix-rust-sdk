@@ -7,6 +7,7 @@ pub enum AppState {
         duration: Duration,
         counter_sleep: u32,
         counter_tick: u64,
+        title: Option<String>,
     },
 }
 
@@ -16,6 +17,7 @@ impl AppState {
         let counter_sleep = 0;
         let counter_tick = 0;
         Self::Initialized {
+            title: None,
             duration,
             counter_sleep,
             counter_tick,
@@ -32,12 +34,25 @@ impl AppState {
         }
     }
 
+    pub fn set_title(&mut self, new_title: Option<String>) {
+        if let Self::Initialized { title, .. } = self {
+            *title = new_title;
+        }
+    }
+    pub fn title(&self) -> Option<String> {
+        if let Self::Initialized { title, .. } = self {
+            title.clone()
+        } else {
+            None
+        }
+    }
+
     pub fn incr_tick(&mut self) {
         if let Self::Initialized { counter_tick, .. } = self {
             *counter_tick += 1;
         }
     }
-
+ 
     pub fn count_sleep(&self) -> Option<u32> {
         if let Self::Initialized { counter_sleep, .. } = self {
             Some(*counter_sleep)

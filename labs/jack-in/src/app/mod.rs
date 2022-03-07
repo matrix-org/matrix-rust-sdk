@@ -71,6 +71,14 @@ impl App {
         }
     }
 
+    pub async fn set_title(&mut self, title: Option<String>) {
+        self.state.set_title(title);
+    }
+
+    pub fn title(&self) -> Option<String> {
+        self.state.title()
+    }
+
     /// We could update the app or dispatch event on tick
     pub async fn update_on_tick(&mut self) -> AppReturn {
         // here we just increment a counter
