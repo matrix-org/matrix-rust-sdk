@@ -1,4 +1,12 @@
 [workspace]
-members = ["crates/*", "xtask"]
-# xtask should only be compiled when invoked explicitly
+members = [
+    "crates/*",
+    "labs/*",
+    "xtask"
+]
+# xtask and labs should only be compiled when invoked explicitly
 default-members = ["crates/*"]
+
+
+[patch.crates-io]
+ruma = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
