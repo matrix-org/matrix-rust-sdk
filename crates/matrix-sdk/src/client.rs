@@ -925,9 +925,10 @@ impl Client {
     /// [`login_with_token`]: #method.login_with_token
     /// [`restore_login`]: #method.restore_login
     #[cfg(all(feature = "sso_login", not(target_arch = "wasm32")))]
+    #[deny(clippy::future_not_send)]
     pub async fn login_with_sso<C>(
         &self,
-        use_sso_login_url: impl Fn(String) -> C,
+        use_sso_login_url: impl FnOnce(String) -> C + Send,
         server_url: Option<&str>,
         server_response: Option<&str>,
         device_id: Option<&str>,
@@ -935,7 +936,7 @@ impl Client {
         idp_id: Option<&str>,
     ) -> Result<login::v3::Response>
     where
-        C: Future<Output = Result<()>>,
+        C: Future<Output = Result<()>> + Send,
     {
         use std::{
             collections::HashMap,
@@ -951,7 +952,6 @@ impl Client {
         /// The number of times the SSO server will try to bind to a random port
         const SSO_SERVER_BIND_TRIES: u8 = 10;
 
-        info!("Logging in to {}", self.homeserver().await);
         let (signal_tx, signal_rx) = tokio::sync::oneshot::channel();
         let (data_tx, data_rx) = tokio::sync::oneshot::channel();
         let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
@@ -992,10 +992,9 @@ impl Client {
                 let mut n = 0u8;
                 let mut port = 0u16;
                 let mut res = Err(IoError::new(IoErrorKind::Other, ""));
-                let mut rng = thread_rng();
 
                 while res.is_err() && n < SSO_SERVER_BIND_TRIES {
-                    port = rng.gen_range(SSO_SERVER_BIND_RANGE);
+                    port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
                     res = tokio::net::TcpListener::bind((host, port)).await;
                     n += 1;
                 }
@@ -1102,14 +1101,13 @@ impl Client {
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`restore_login`]: #method.restore_login
     #[instrument(skip(token))]
+    #[deny(clippy::future_not_send)]
     pub async fn login_with_token(
         &self,
         token: &str,
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::v3::Response> {
-        info!("Logging in to {}", self.homeserver().await);
-
         let request = assign!(
             login::v3::Request::new(
                 login::v3::LoginInfo::Token(login::v3::Token::new(token)),
