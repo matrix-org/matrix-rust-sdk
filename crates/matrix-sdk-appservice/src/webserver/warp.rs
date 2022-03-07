@@ -162,6 +162,8 @@ mod filters {
 }
 
 mod handlers {
+    use percent_encoding::percent_decode_str;
+
     use super::*;
 
     pub async fn user(
@@ -170,6 +172,7 @@ mod handlers {
         request: http::Request<Bytes>,
     ) -> Result<impl Reply, Rejection> {
         if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
+            let user_id = percent_decode_str(&user_id).decode_utf8().map_err(Error::from)?;
             let request = query_user::IncomingRequest::try_from_http_request(request, &[user_id])
                 .map_err(Error::from)?;
             return if user_exists(appservice.clone(), request).await {
@@ -187,6 +190,7 @@ mod handlers {
         request: http::Request<Bytes>,
     ) -> Result<impl Reply, Rejection> {
         if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
+            let room_id = percent_decode_str(&room_id).decode_utf8().map_err(Error::from)?;
             let request = query_room::IncomingRequest::try_from_http_request(request, &[room_id])
                 .map_err(Error::from)?;
             return if room_exists(appservice.clone(), request).await {

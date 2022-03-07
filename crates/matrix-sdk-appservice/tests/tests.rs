@@ -99,6 +99,7 @@ async fn test_put_transaction() -> Result<()> {
 #[async_test]
 async fn test_get_user() -> Result<()> {
     let appservice = appservice(None).await?;
+    appservice.register_user_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
     let uri = "/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token";
 
@@ -120,6 +121,7 @@ async fn test_get_user() -> Result<()> {
 #[async_test]
 async fn test_get_room() -> Result<()> {
     let appservice = appservice(None).await?;
+    appservice.register_room_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
     let uri = "/_matrix/app/v1/rooms/%23magicforest%3Aexample.com?access_token=hs_token";
 
