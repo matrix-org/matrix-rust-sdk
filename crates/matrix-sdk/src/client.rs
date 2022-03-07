@@ -952,6 +952,9 @@ impl Client {
         /// The number of times the SSO server will try to bind to a random port
         const SSO_SERVER_BIND_TRIES: u8 = 10;
 
+        let homeserver = self.homeserver().await;
+        info!("Logging in to {}", homeserver);
+
         let (signal_tx, signal_rx) = tokio::sync::oneshot::channel();
         let (data_tx, data_rx) = tokio::sync::oneshot::channel();
         let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
@@ -1108,6 +1111,9 @@ impl Client {
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::v3::Response> {
+        let homeserver = self.homeserver().await;
+        info!("Logging in to {}", homeserver);
+
         let request = assign!(
             login::v3::Request::new(
                 login::v3::LoginInfo::Token(login::v3::Token::new(token)),
