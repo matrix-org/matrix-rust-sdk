@@ -31,7 +31,7 @@ atomic = "0.5.0"
 base64 = "0.13.0"
 bs58 = "0.4.0"
 byteorder = "1.4.3"
-dashmap = "4.0.2"
+dashmap = "5.1.0"
 futures-util = { version = "0.3.15", default-features = false, features = ["alloc"] }
 getrandom = "0.2.3"
 hmac = "0.12.0"

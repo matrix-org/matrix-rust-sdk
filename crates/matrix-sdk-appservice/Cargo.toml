@@ -24,7 +24,7 @@ sso_login = ["matrix-sdk/sso_login"]
 docs = ["warp"]
 
 [dependencies]
-dashmap = "4"
+dashmap = "5.1.0"
 http = "0.2"
 matrix-sdk = { version = "0.4", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 regex = "1"

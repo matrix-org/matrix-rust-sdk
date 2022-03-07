@@ -23,7 +23,7 @@ wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"] }
 web-sys = { version = "0.3.35", features = ["IdbKeyRange"] }
 serde = { version = "1.0.126" }
 serde_json = "1.0.64"
-dashmap = "4.0.2"
+dashmap = "5.1.0"
 tracing = "0.1.26"
 
 

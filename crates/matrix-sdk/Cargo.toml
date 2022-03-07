@@ -52,7 +52,7 @@ docsrs = [
 anyhow = { version = "1.0.42", optional = true }
 anymap2 = "0.13.0"
 bytes = "1.0.1"
-dashmap = "4.0.2"
+dashmap = "5.1.0"
 event-listener = "2.5.1"
 eyre = { version = "0.6.5", optional = true }
 futures-core = "0.3.15"
