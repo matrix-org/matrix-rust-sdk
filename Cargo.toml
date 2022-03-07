@@ -10,3 +10,5 @@ default-members = ["crates/*"]
 
 [patch.crates-io]
 ruma = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
+ruma-serde = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
+ruma-identifiers = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
