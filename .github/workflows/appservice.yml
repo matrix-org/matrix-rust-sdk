@@ -53,10 +53,10 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }} -- -D warnings
+          args: -p matrix-sdk-appservice ${{ matrix.cargo_args }} -- -D warnings
 
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path crates/matrix-sdk-appservice/Cargo.toml ${{ matrix.cargo_args }}
+          args: -p matrix-sdk-appservice ${{ matrix.cargo_args }}

@@ -120,9 +120,7 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     ]);
 
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo test --manifest-path crates/matrix-sdk/Cargo.toml")
-            .args(arg_set.split_whitespace())
-            .run()
+        cmd!("rustup run stable cargo test -p matrix-sdk").args(arg_set.split_whitespace()).run()
     };
 
     match cmd {
