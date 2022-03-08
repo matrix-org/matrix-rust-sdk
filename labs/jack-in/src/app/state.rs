@@ -1,37 +1,68 @@
-use std::time::Duration;
+use std::time::{Instant, Duration};
+
+use log::warn;
+
+#[derive(Clone)]
+pub struct Syncv2State {
+    started: Instant,
+    first_render: Option<Instant>,
+    rooms_count: Option<u32>,
+}
+
+impl Syncv2State {
+    pub fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            first_render: None,
+            rooms_count: None,
+        }
+    }
+
+    pub fn started(&self) -> &Instant {
+        &self.started
+    }
+
+    pub fn time_to_first_render(&self) -> Option<Duration> {
+        self.first_render.map(|f| f - self.started)
+    }
+}
 
 #[derive(Clone)]
 pub enum AppState {
     Init,
     Initialized {
-        duration: Duration,
-        counter_sleep: u32,
-        counter_tick: u64,
         title: Option<String>,
+        v2: Option<Syncv2State>
     },
 }
 
 impl AppState {
     pub fn initialized() -> Self {
-        let duration = Duration::from_secs(1);
-        let counter_sleep = 0;
-        let counter_tick = 0;
         Self::Initialized {
             title: None,
-            duration,
-            counter_sleep,
-            counter_tick,
+            v2: None,
+        }
+    }
+
+    pub fn get_v2(&self) -> Option<&Syncv2State> {
+        if let Self::Initialized { ref v2, .. } = self {
+            v2.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn start_v2(&mut self) {
+        if let Self::Initialized { v2, .. } = self {
+            if let Some(pre) = v2 {
+                warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
+            }
+            *v2 = Some(Syncv2State::new());
         }
     }
 
     pub fn is_initialized(&self) -> bool {
         matches!(self, &Self::Initialized { .. })
-    }
-
-    pub fn incr_sleep(&mut self) {
-        if let Self::Initialized { counter_sleep, .. } = self {
-            *counter_sleep += 1;
-        }
     }
 
     pub fn set_title(&mut self, new_title: Option<String>) {
@@ -44,52 +75,6 @@ impl AppState {
             title.clone()
         } else {
             None
-        }
-    }
-
-    pub fn incr_tick(&mut self) {
-        if let Self::Initialized { counter_tick, .. } = self {
-            *counter_tick += 1;
-        }
-    }
- 
-    pub fn count_sleep(&self) -> Option<u32> {
-        if let Self::Initialized { counter_sleep, .. } = self {
-            Some(*counter_sleep)
-        } else {
-            None
-        }
-    }
-
-    pub fn count_tick(&self) -> Option<u64> {
-        if let Self::Initialized { counter_tick, .. } = self {
-            Some(*counter_tick)
-        } else {
-            None
-        }
-    }
-
-    pub fn duration(&self) -> Option<&Duration> {
-        if let Self::Initialized { duration, .. } = self {
-            Some(duration)
-        } else {
-            None
-        }
-    }
-
-    pub fn increment_delay(&mut self) {
-        if let Self::Initialized { duration, .. } = self {
-            // Set the duration, note that the duration is in 1s..10s
-            let secs = (duration.as_secs() + 1).clamp(1, 10);
-            *duration = Duration::from_secs(secs);
-        }
-    }
-
-    pub fn decrement_delay(&mut self) {
-        if let Self::Initialized { duration, .. } = self {
-            // Set the duration, note that the duration is in 1s..10s
-            let secs = (duration.as_secs() - 1).clamp(1, 10);
-            *duration = Duration::from_secs(secs);
         }
     }
 }

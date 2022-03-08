@@ -47,21 +47,7 @@ impl App {
             debug!("Run action [{:?}]", action);
             match action {
                 Action::Quit => AppReturn::Exit,
-                Action::Sleep => {
-                    if let Some(duration) = self.state.duration().cloned() {
-                        // Sleep is an I/O action, we dispatch on the IO channel that's run on another thread
-                        self.dispatch(IoEvent::Sleep(duration)).await
-                    }
-                    AppReturn::Continue
-                }
-                // IncrementDelay and DecrementDelay is handled in the UI thread
-                Action::IncrementDelay => {
-                    self.state.increment_delay();
-                    AppReturn::Continue
-                }
-                // Note, that we clamp the duration, so we stay >= 0
-                Action::DecrementDelay => {
-                    self.state.decrement_delay();
+                _ => {
                     AppReturn::Continue
                 }
             }
@@ -77,13 +63,6 @@ impl App {
 
     pub fn title(&self) -> Option<String> {
         self.state.title()
-    }
-
-    /// We could update the app or dispatch event on tick
-    pub async fn update_on_tick(&mut self) -> AppReturn {
-        // here we just increment a counter
-        self.state.incr_tick();
-        AppReturn::Continue
     }
 
     /// Send a network event to the IO thread
@@ -112,8 +91,6 @@ impl App {
         self.actions = vec![
             Action::Quit,
             Action::Sleep,
-            Action::IncrementDelay,
-            Action::DecrementDelay,
         ]
         .into();
         self.state = AppState::initialized()
@@ -124,6 +101,5 @@ impl App {
     }
 
     pub fn slept(&mut self) {
-        self.state.incr_sleep();
     }
 }

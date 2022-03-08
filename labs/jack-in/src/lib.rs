@@ -61,7 +61,7 @@ pub async fn start_ui(app: &Arc<tokio::sync::Mutex<App>>) -> Result<()> {
         // Handle inputs
         let result = match events.next().await {
             InputEvent::Input(key) => app.do_action(key).await,
-            InputEvent::Tick => app.update_on_tick().await,
+            InputEvent::Tick => AppReturn::Continue,
         };
         // Check if we should exit
         if result == AppReturn::Exit {
