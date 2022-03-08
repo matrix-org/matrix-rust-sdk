@@ -1,4 +1,4 @@
-package org.matrix.kotlin.rust.sdk.crypto
+package org.matrix.rustcomponents.crypto.android
 
 import org.junit.Test
 
