@@ -56,7 +56,6 @@ async fn login(
             let asked = asked_ref;
             let client = &client_ref;
             let user_id = &user_id;
-            let password = &password;
 
             // Wait for sync to be done then ask the user to bootstrap.
             if !asked.load(Ordering::SeqCst) {
