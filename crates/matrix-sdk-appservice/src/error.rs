@@ -77,7 +77,6 @@ pub enum Error {
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
 
-    #[cfg(feature = "warp")]
     #[error("warp rejection: {0}")]
     WarpRejection(String),
 }
@@ -102,10 +101,8 @@ impl Error {
     }
 }
 
-#[cfg(feature = "warp")]
 impl warp::reject::Reject for Error {}
 
-#[cfg(feature = "warp")]
 impl From<warp::Rejection> for Error {
     fn from(rejection: warp::Rejection) -> Self {
         Self::WarpRejection(format!("{:?}", rejection))

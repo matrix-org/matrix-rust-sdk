@@ -72,9 +72,6 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
-#[cfg(not(any(feature = "warp")))]
-compile_error!("one webserver feature must be enabled. available ones: `warp`");
-
 use std::{
     convert::{TryFrom, TryInto},
     fs::File,
@@ -533,10 +530,8 @@ impl AppService {
     /// functionality.
     ///
     /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
-    #[cfg(feature = "warp")]
-    #[cfg_attr(docs, doc(cfg(feature = "warp")))]
     pub fn warp_filter(&self) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
-        webserver::warp::warp_filter(self.clone())
+        webserver::warp_filter(self.clone())
     }
 
     /// Convenience method that runs an http server depending on the selected
@@ -549,14 +544,8 @@ impl AppService {
         let port = port.into();
         info!("Starting AppService on {}:{}", &host, &port);
 
-        #[cfg(feature = "warp")]
-        {
-            webserver::warp::run_server(self.clone(), host, port).await?;
-            Ok(())
-        }
-
-        #[cfg(not(any(feature = "warp",)))]
-        unreachable!()
+        webserver::run_server(self.clone(), host, port).await?;
+        Ok(())
     }
 }
 

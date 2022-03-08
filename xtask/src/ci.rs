@@ -141,9 +141,8 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
 }
 
 fn run_appservice_tests() -> Result<()> {
-    cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice --features warp -- -D warnings")
-        .run()?;
-    cmd!("rustup run stable cargo test -p matrix-sdk-appservice --features warp").run()?;
+    cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
+    cmd!("rustup run stable cargo test -p matrix-sdk-appservice").run()?;
 
     Ok(())
 }
