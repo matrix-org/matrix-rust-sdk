@@ -16,10 +16,11 @@ interface Message {
     string message_type();
     string content();
     string sender();
+    u64 origin_server_ts();
 };
 
 callback interface RoomDelegate {
-    void did_receive_messages(sequence<Message> messages);
+    void did_paginate_backwards(sequence<Message> messages);
     void did_receive_message(Message message);
 };
 
@@ -49,10 +50,11 @@ interface Room {
 
     string? topic();
 
-    [Throws=ClientError]
-    sequence<Message> messages();
+    void paginate_backwards(u8 from, u8 to);
 
-    void start_event_listener();
+    void start_live_event_listener();
+
+    void stop_live_event_listener();
 };
 
 callback interface ClientDelegate {

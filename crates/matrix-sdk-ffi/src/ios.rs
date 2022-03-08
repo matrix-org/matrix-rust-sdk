@@ -1,14 +1,13 @@
 
 use std::{fs, path};
-use anyhow::Result;
+use anyhow::{Result};
 use futures::{pin_mut, StreamExt};
 use sanitize_filename_reader_friendly::sanitize;
-use std::collections::BTreeMap;
 
 use matrix_sdk::{
     Client as MatrixClient,
     room::Room as MatrixRoom,
-    deserialized_responses::{Timeline, SyncRoomEvent},
+    deserialized_responses::{SyncRoomEvent},
     config::{ClientConfig, SyncSettings},
     LoopCtrl,
     Session,
@@ -40,7 +39,6 @@ use serde_json;
 use parking_lot::RwLock;
 use derive_builder::Builder;
 use std::sync::Arc;
-use anyhow::Context;
 
 use serde::{Serialize, Deserialize};
 
@@ -71,8 +69,6 @@ pub struct ClientState {
     is_syncing: bool,
     #[builder(default)]
     should_stop_syncing: bool,
-    #[builder(default)]
-    timelines: BTreeMap<Box<RoomId>, Vec<Timeline>>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,22 +94,22 @@ impl From<anyhow::Error> for ClientError {
 }
 
 pub trait RoomDelegate: Sync + Send {
-    fn did_receive_messages(&self, events: Vec<Arc<Message>>);
+    fn did_paginate_backwards(&self, messages: Vec<Arc<Message>>);
     fn did_receive_message(&self, messages: Arc<Message>);
 }
 
 pub struct Room {
     room: MatrixRoom,
-    client_state: Arc<RwLock<ClientState>>,
     delegate: Arc<RwLock<Option<Box<dyn RoomDelegate>>>>,
+    is_listening_to_live_events: Arc<RwLock<bool>>
 }
 
 impl Room {
-    fn new(room: MatrixRoom, client_state: Arc<RwLock<ClientState>>) -> Self {
+    fn new(room: MatrixRoom) -> Self {
         Room {
             room,
-            client_state,
-            delegate: Arc::new(RwLock::new(None))
+            delegate: Arc::new(RwLock::new(None)),
+            is_listening_to_live_events: Arc::new(RwLock::new(false))
         }
     }
 
@@ -167,65 +163,66 @@ impl Room {
         self.room.is_space()
     }
 
-    pub fn messages(&self) -> Result<Vec<Arc<Message>>> {
-        let r = self; //.room.clone();
-        let state = r.client_state.read();
-        let timelines = state.timelines.get(self.room.room_id()).context("No messages available yet")?;
-
-        Ok(timelines.iter().fold(Vec::new(), |mut msgs, t| {
-            t.events.iter().for_each(|e|
-                match e.event.deserialize() {
-                    Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => {
-                        let message = Message { 
-                            message_type: m.content.msgtype().to_string(), 
-                            content: m.content.body().to_string(), 
-                            sender: m.sender.to_string() 
-                        };
-                        msgs.push( Arc::new(message))
-                    }
-                    _ => {}
-                }
-            );
-            msgs
-        }))
-    }
-
-    pub fn start_event_listener(&self) {
+    pub fn paginate_backwards(&self, from: u8, to: u8) {
         let room = self.room.clone();
         let delegate = self.delegate.clone();
         RUNTIME.spawn(async move {
-            let (forward_stream, backward_stream) = room.timeline().await.expect("Failed acquiring timeline streams");
+            let (_, backward_stream) = room.timeline().await.expect("Failed acquiring timeline streams");
 
-            let historic_messages:Vec<Arc<Message>> = backward_stream
-                                                        .take(20)
-                                                        .map(|e| e.expect("Failed collecting backwards history"))
-                                                        .filter_map(sync_event_to_message_async)
-                                                        .collect()
-                                                        .await;
+            let messages:Vec<Arc<Message>> = backward_stream
+                                                .skip(from.into())
+                                                .take(to.into())
+                                                .map(|e| e.expect("Failed backwards pagination"))
+                                                .filter_map(sync_event_to_message_async)
+                                                .collect()
+                                                .await;
 
             if let Some(delegate) = &*delegate.read() {
-                delegate.did_receive_messages(historic_messages)
+                delegate.did_paginate_backwards(messages)
             }
+        });
+    }
+
+    pub fn start_live_event_listener(&self) {
+        if *self.is_listening_to_live_events.read() == true {
+            return
+        }
+
+        *self.is_listening_to_live_events.write() = true;
+
+        let room = self.room.clone();
+        let delegate = self.delegate.clone();
+        let is_listening_to_live_events = self.is_listening_to_live_events.clone();
+
+        RUNTIME.spawn(async move {
+            let (forward_stream, _) = room.timeline().await.expect("Failed acquiring timeline streams");
 
             pin_mut!(forward_stream);
             
             while let Some(sync_event) = forward_stream.next().await {
+                if *is_listening_to_live_events.read() == false {
+                    return
+                }
+
                 if let Some(delegate) = &*delegate.read() {
                     if let Some(message) = sync_event_to_message(sync_event) {
                         delegate.did_receive_message(message)
                     }
-                } else {
-                    break;
                 }
             }
         });
     }
+
+    pub fn stop_live_event_listener(&self) {
+        *self.is_listening_to_live_events.write() = false;
+    }   
 }
 
 pub struct Message {
     message_type: String,
     content: String,
     sender: String,
+    origin_server_ts: u64
 }
 
 impl Message {
@@ -239,6 +236,10 @@ impl Message {
 
     pub fn sender(&self) -> String {
         self.sender.clone()
+    }
+
+    pub fn origin_server_ts(&self) -> u64 {
+        self.origin_server_ts.clone()
     }
 }
 
@@ -306,7 +307,7 @@ impl Client {
             let sync_settings = SyncSettings::new()
                 .filter(Filter::FilterId(&filter_id));
 
-            client.sync_with_callback(sync_settings, |response| async {
+            client.sync_with_callback(sync_settings, |_| async {
                 if !state.read().has_first_synced {
                     state.write().has_first_synced = true
                 }
@@ -316,17 +317,6 @@ impl Client {
                     return LoopCtrl::Break
                 } else if !state.read().is_syncing {
                     state.write().is_syncing = true;
-                }
-
-                if !response.rooms.join.is_empty() {
-                    let mut state = state.write();
-                    for (room_id, details) in response.rooms.join {
-                        state.timelines.entry(room_id)
-                            // add to the beginning
-                            .and_modify(|l| l.insert(0, details.timeline.clone()))
-                            // or put in in the first place
-                            .or_insert_with(|| vec![details.timeline.clone()]);
-                    }
                 }
 
                 if let Some(ref delegate) = *delegate.read() {
@@ -364,16 +354,8 @@ impl Client {
     }
 
     pub  fn conversations(&self) -> Vec<Arc<Room>> {
-        self.rooms().into_iter().map(|room| Arc::new(Room::new(room, self.state.clone()))).collect()
+        self.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
-
-    // pub fn get_mxcuri_media(&self, uri: String) -> Result<Vec<u8>> {
-    //     let l = self.client.clone();
-    //     RUNTIME.block_on(async move {
-    //         let user_id = l.user_id().await.expect("No User ID found");
-    //         Ok(user_id.as_str().to_string())
-    //     }).await?
-    // }
 
     pub fn user_id(&self) -> Result<String> {
         let l = self.client.clone();
@@ -466,7 +448,8 @@ fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<Message>> {
             let message = Message { 
                 message_type: m.content.msgtype().to_string(), 
                 content: m.content.body().to_string(), 
-                sender: m.sender.to_string() 
+                sender: m.sender.to_string(),
+                origin_server_ts: m.origin_server_ts.as_secs().into()
             };
 
             Some(Arc::new(message))
