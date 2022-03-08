@@ -69,7 +69,12 @@ impl SlidingSyncState {
     pub fn time_to_full_sync(&self) -> Option<Duration> {
         self.full_sync.clone()
     }
-    pub fn rooms_count(&self) -> Option<u32> {
+
+    pub fn loaded_rooms_count(&self) -> Option<u32> {
+        self.current_rooms_count.clone()
+    }
+
+    pub fn total_rooms_count(&self) -> Option<u32> {
         self.total_rooms_count.clone()
     }
 

@@ -101,7 +101,7 @@ fn draw_sliding<'a>(state: Option<&SlidingSyncState>) -> List<'a> {
     .style(Style::default().fg(Color::LightCyan))
     .block(
         Block::default()
-            .title("Sliding Sync")
+            .title(" Sliding Sync ")
             .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),
@@ -119,18 +119,22 @@ fn calc_sliding<'a>(state: Option<&SlidingSyncState>) -> Vec<ListItem<'a>> {
 
     if let Some(dur) = state.time_to_first_render() {
         paras.push(ListItem::new(format!("First view took {}s", dur.as_secs())));
+
+        if let Some(dur) = state.time_to_full_sync() {
+            paras.push(ListItem::new(format!("Full sync took {}s", dur.as_secs())));
+            if let Some(count) = state.total_rooms_count() {
+                paras.push(ListItem::new(format!("loaded {} rooms", count)));
+            }
+        } else {
+            if let Some(count) = state.loaded_rooms_count() {
+                paras.push(ListItem::new(format!("loaded {:} in {}s", count, state.started().elapsed().as_secs())));
+            } else {
+                paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
+            }
+        }
+
     } else {
         paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
-    }
-
-    if let Some(dur) = state.time_to_full_sync() {
-        paras.push(ListItem::new(format!("Full sync took {}s", dur.as_secs())));
-    } else {
-        paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
-    }
-
-    if let Some(count) = state.rooms_count() {
-        paras.push(ListItem::new(format!("to load {} rooms", count)));
     }
 
     return paras;
@@ -143,7 +147,7 @@ fn draw_v2<'a>(state: Option<&Syncv2State>) -> List<'a> {
     .style(Style::default().fg(Color::LightCyan))
     .block(
         Block::default()
-            .title("Sync v2")
+            .title(" Sync v2 ")
             .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),
@@ -174,7 +178,7 @@ fn draw_logs<'a>() -> TuiLoggerWidget<'a> {
         .style_info(Style::default().fg(Color::Blue))
         .block(
             Block::default()
-                .title("Logs")
+                .title(" Logs ")
                 .border_style(Style::default().fg(Color::White).bg(Color::Black))
                 .borders(Borders::ALL),
         )

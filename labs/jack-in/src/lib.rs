@@ -45,12 +45,17 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
         let mut app = app.lock().await;
         app.state_mut().start_sliding();
     }
-    stream.next().await;
+    let first_poll = stream.next().await;
+    if  !matches!(first_poll, Some(Ok(SlidingSyncState::CatchingUp))) {
+        warn!("Sliding Query failed: {:#?}", first_poll);
+        return Ok(())
+    }
 
     {
         let mut app = app.lock().await;
         let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
         sliding.set_first_render_now();
+        sliding.set_total_rooms_count(view.rooms_count.lock_ref().expect("we know this at that point") as u32);
     }
     warn!("Done initial sliding sync");
 
@@ -66,6 +71,11 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
                 break
             }
             Some(_) => {
+                {
+                    let mut app = app.lock().await;
+                    let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
+                    sliding.set_loaded_rooms_count(view.rooms_list.lock_ref().len() as u32);
+                }
 
             }
             None => {
@@ -92,9 +102,10 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
 
     {
         let mut app = app.lock().await;
-        let mut v2 = app.state_mut().get_v2_mut().expect("we started this before!");
+        let v2 = app.state_mut().get_v2_mut().expect("we started this before!");
         v2.set_first_render_now();
-        // v2.set_rooms_count(res.rooms); 
+        let total_rooms = res.rooms.join.len() + res.rooms.leave.len() + res.rooms.invite.len();
+        v2.set_rooms_count(total_rooms as u32); 
     }
 
     Ok(())

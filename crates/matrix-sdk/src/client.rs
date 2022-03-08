@@ -158,6 +158,8 @@ impl Debug for Client {
     }
 }
 
+
+use ruma::api::client::sync::syncv3_events;
 /// Define the state the SlidingSync View is in
 /// 
 /// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
@@ -183,11 +185,12 @@ impl Default for SlidingSyncState {
     }
 }
 
+
 type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
 type PosState = futures_signals::signal::Mutable<Option<String>>;
 type RoomsCount = futures_signals::signal::Mutable<Option<u64>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
-type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, room::Room>>;
+type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, syncv3_events::Room>>;
 
 #[derive(Clone, Debug)]
 pub struct SlidingSyncView {
@@ -197,7 +200,7 @@ pub struct SlidingSyncView {
     /// The state this view is in 
     pub state: ViewState,
     /// The total known number of rooms, 
-    pub rooms_count: RoomsCount,
+    pub rooms_count: RoomsCount, 
     /// The rooms in order
     pub rooms_list: RoomsList,
     /// The rooms details
@@ -214,6 +217,43 @@ impl SlidingSyncView {
             rooms_list: RoomsList::default(),
             rooms: RoomsMap::default(),
         }
+    }
+
+    fn room_ops(&self, ops: Vec<Raw<syncv3_events::SyncOp>>) -> anyhow::Result<()> {
+        let mut rooms_list = self.rooms_list.lock_mut();
+        let mut rooms_map = self.rooms.lock_mut();
+        for raw in ops {
+            let op = raw.deserialize()?;
+
+            let mut room_ids = Vec::new();
+            {
+                for room in op.rooms {
+                    let r: Box<RoomId> = room.room_id.clone().expect("there is always a room id").parse()?;
+                    rooms_map.insert_cloned(r.clone(), room);
+                    room_ids.push(r);
+                }
+            }
+
+            match op.op {
+                syncv3_events::SlidingOp::Sync => {
+                    let start: u32 = op.range.0.try_into()?;
+                    room_ids.into_iter().enumerate().map(|(i, r)|{
+                        let idx = start as usize + i;
+                        if idx >= rooms_list.len() {
+                            rooms_list.push_cloned(r);
+                        } else {
+                            rooms_list.set_cloned(idx, r);
+                        }
+                    }).count();
+                },
+                _ => {
+
+                }
+            }
+        }
+
+        Ok(())
+
     }
     
     /// get inner Stream
@@ -237,8 +277,6 @@ impl SlidingSyncView {
         let mut start = 0u32;
         let mut end = batch_size;
 
-        use ruma::api::client::sync::syncv3_events;
-
         async_stream::try_stream! {
             loop {
                 let pos = self.pos.get_cloned();
@@ -247,16 +285,65 @@ impl SlidingSyncView {
                 });
                 req.body.lists = vec![Raw::new(&assign!(syncv3_events::SyncRequestList::default(), {
                     ranges: vec![(start.into(), end.into())],
-                    required_state, sort, timeline_limit, filters,
+                    required_state: required_state.clone(),
+                    sort: sort.clone(),
+                    timeline_limit: timeline_limit.clone(),
+                    filters: filters.clone(),
                 })).expect("hard coded")];
 
                 warn!("requesting: {:#?}", req);
                 let resp = inner_client.send(req, None).await?;
                 warn!("response: {:#?}", resp);
 
-                self.state.replace(SlidingSyncState::CatchingUp);
+                if let Some(ops) = resp.ops {
+                    self.room_ops(ops)?;
+                } 
+                self.pos.replace(Some(resp.pos));
+
+                let rooms_count: u64 = resp.counts[0].try_into().expect("conversion always works");
+                self.rooms_count.replace(Some(rooms_count));
+
+                if resp.initial == Some(true) {
+                    // switch state after initial sync only
+                    self.state.replace(SlidingSyncState::CatchingUp);
+                }
+
+                if end as u64 > rooms_count {
+                    self.state.replace(SlidingSyncState::Live);
+                    yield SlidingSyncState::Live;
+                    break
+
+                }
+                start += batch_size;
+                end += batch_size;
+
                 yield SlidingSyncState::CatchingUp;
-                break
+            }
+
+            loop {
+                let pos = self.pos.get_cloned();
+                let end = self.rooms_count.get_cloned().expect("has been set above");
+                let mut req = assign!(syncv3_events::Request::new(), {
+                    pos: pos.as_deref(),
+                });
+                req.body.lists = vec![Raw::new(&assign!(syncv3_events::SyncRequestList::default(), {
+                    ranges: vec![(0u32.into(), end.try_into().expect("works because it came from there"))],
+                    required_state: required_state.clone(),
+                    sort: sort.clone(),
+                    timeline_limit: timeline_limit.clone(),
+                    filters: filters.clone(),
+                })).expect("hard coded")];
+
+                let resp = inner_client.send(req, None).await?;
+                warn!("response: {:#?}", resp);
+                if let Some(ops) = resp.ops {
+                    self.room_ops(ops)?;
+                } 
+                self.pos.replace(Some(resp.pos));
+                let rooms_count: u64 = resp.counts[0].try_into().expect("conversion always works");
+                self.rooms_count.replace(Some(rooms_count));
+                yield SlidingSyncState::Live;
+                
             }
         }
     }
