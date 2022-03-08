@@ -38,6 +38,12 @@ async fn main() -> Result<()> {
     let user_id: Box<UserId> = opt.user.clone().parse()?;
     let device_id: Box<DeviceId> = "XdftAsd".into();
 
+    // Configure log
+    
+    //tracing_subscriber::fmt::init();
+    tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
+    tui_logger::set_default_level(log::LevelFilter::Warn);
+    tui_logger::set_level_for_target("matrix_sdk::client", log::LevelFilter::Warn);
 
     let (sync_io_tx, mut sync_io_rx) = tokio::sync::mpsc::channel::<IoEvent>(100);
 
@@ -46,10 +52,6 @@ async fn main() -> Result<()> {
     let app_ui = Arc::clone(&app);
     let client_app = Arc::clone(&app);
 
-    // Configure log
-    tui_logger::init_logger(LevelFilter::Debug).expect("Could not set up logging");
-    tui_logger::set_default_level(log::LevelFilter::Warn);
-    tui_logger::set_level_for_target("matrix_sdk", log::LevelFilter::Debug);
 
     let client = Client::new_from_user_id(&user_id).await?;
     let session = Session {

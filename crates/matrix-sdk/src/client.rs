@@ -58,6 +58,8 @@ use ruma::{
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
+    events::EventType,
+    serde::Raw,
     assign,
     presence::PresenceState,
     DeviceId, MxcUri, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
@@ -155,6 +157,111 @@ impl Debug for Client {
         write!(fmt, "Client")
     }
 }
+
+/// Define the state the SlidingSync View is in
+/// 
+/// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
+/// response for the first given number of Rooms, then switches into `CatchingUp`
+/// during which the view fetches the remaining rooms, usually in order, some times
+/// in batches. Once that is ready, it switches into `Live`.
+/// 
+/// If the client has been offline for a while, though, the SlidingSync might return
+/// back to `CatchingUp` at any point.
+#[derive(Debug)]
+pub enum SlidingSyncState {
+    /// We are quickly preloading a preview of the most important rooms
+    Preload,
+    /// We are trying to load all remaining rooms, might be in batches
+    CatchingUp,
+    /// We are all caught up and now only sync the live responses.
+    Live,
+}
+
+impl Default for SlidingSyncState {
+    fn default() -> Self {
+        SlidingSyncState::Preload
+    }
+}
+
+type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
+type PosState = futures_signals::signal::Mutable<Option<String>>;
+type RoomsCount = futures_signals::signal::Mutable<Option<u64>>;
+type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
+type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, room::Room>>;
+
+#[derive(Clone, Debug)]
+pub struct SlidingSyncView {
+    client: Client,
+    //filter: String,
+    pos: PosState,
+    /// The state this view is in 
+    pub state: ViewState,
+    /// The total known number of rooms, 
+    pub rooms_count: RoomsCount,
+    /// The rooms in order
+    pub rooms_list: RoomsList,
+    /// The rooms details
+    pub rooms: RoomsMap,
+}
+
+impl SlidingSyncView {
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            pos: PosState::default(),
+            state: ViewState::default(),
+            rooms_count: RoomsCount::default(),
+            rooms_list: RoomsList::default(),
+            rooms: RoomsMap::default(),
+        }
+    }
+    
+    /// get inner Stream
+    pub fn stream<'a>(&'a self) -> impl Stream<Item = anyhow::Result<SlidingSyncState>> + 'a {
+        // FIXME: these will come from the filter later
+        let batch_size = 20u32;
+        let sort = Some(vec!["by_recency".to_string(), "by_name".to_string()]);
+        let required_state = Some(vec![(EventType::RoomAvatar, "".to_string()), (EventType::RoomTombstone, "".to_string())]);
+        let timeline_limit = None;
+        let filters = None;
+
+        let mut inner_client = self.client.inner.http_client.clone();
+        inner_client.homeserver = Arc::new(RwLock::new("http://localhost:8008".parse().expect("hardcoded")));
+
+        let state = self.state.clone();
+        let pos = self.pos.clone();
+        let rooms_count = self.rooms_count.clone();
+        let rooms_list = self.rooms_list.clone();
+        let rooms = self.rooms.clone();
+
+        let mut start = 0u32;
+        let mut end = batch_size;
+
+        use ruma::api::client::sync::syncv3_events;
+
+        async_stream::try_stream! {
+            loop {
+                let pos = self.pos.get_cloned();
+                let mut req = assign!(syncv3_events::Request::new(), {
+                    pos: pos.as_deref(),
+                });
+                req.body.lists = vec![Raw::new(&assign!(syncv3_events::SyncRequestList::default(), {
+                    ranges: vec![(start.into(), end.into())],
+                    required_state, sort, timeline_limit, filters,
+                })).expect("hard coded")];
+
+                warn!("requesting: {:#?}", req);
+                let resp = inner_client.send(req, None).await?;
+                warn!("response: {:#?}", resp);
+
+                self.state.replace(SlidingSyncState::CatchingUp);
+                yield SlidingSyncState::CatchingUp;
+                break
+            }
+        }
+    }
+}
+
 
 impl Client {
     /// Create a new [`Client`] that will use the given homeserver.
@@ -1817,6 +1924,11 @@ impl Client {
         Ok(response)
     }
 
+    /// returns sliding sync set up, but not yet running.
+    pub fn sliding_sync(&self) -> SlidingSyncView {
+        SlidingSyncView::new(self.clone())
+    }
+
     /// Repeatedly synchronize the client state with the server.
     ///
     /// This method will never return, if cancellation is needed the method
@@ -2351,6 +2463,7 @@ pub(crate) mod test {
             },
             error::{FromHttpResponseError, ServerError},
         },
+        serde::Raw,
         assign, device_id,
         directory::Filter,
         event_id,

@@ -21,7 +21,8 @@ default = [
     "qrcode",
     "sled_cryptostore",
     "sled_state_store",
-    "native-tls"
+    "native-tls",
+    "anyhow",
 ]
 
 indexeddb_stores = ["matrix-sdk-indexeddb"]
@@ -71,6 +72,9 @@ async-stream = "0.3.2"
 
 matrix-sdk-sled = { path = "../matrix-sdk-sled", optional = true }
 matrix-sdk-indexeddb = { path = "../matrix-sdk-indexeddb", optional = true }
+
+# sliding sync
+futures-signals = "0.3.24"
 
 [dependencies.image]
 version = "0.24.0"

@@ -39,11 +39,63 @@ impl Syncv2State {
 }
 
 #[derive(Clone)]
+pub struct SlidingSyncState {
+    started: Instant,
+    first_render: Option<Duration>,
+    full_sync: Option<Duration>,
+    current_rooms_count: Option<u32>,
+    total_rooms_count: Option<u32>,
+}
+
+impl SlidingSyncState {
+    pub fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            first_render: None,
+            full_sync: None,
+            current_rooms_count: None,
+            total_rooms_count: None,
+        }
+    }
+
+    pub fn started(&self) -> &Instant {
+        &self.started
+    }
+
+    pub fn time_to_first_render(&self) -> Option<Duration> {
+        self.first_render.clone()
+    }
+
+    pub fn time_to_full_sync(&self) -> Option<Duration> {
+        self.full_sync.clone()
+    }
+    pub fn rooms_count(&self) -> Option<u32> {
+        self.total_rooms_count.clone()
+    }
+
+    pub fn set_first_render_now(&mut self) {
+        self.first_render = Some(self.started.elapsed())
+    }
+
+    pub fn set_full_sync_now(&mut self) {
+        self.full_sync = Some(self.started.elapsed())
+    }
+
+    pub fn set_loaded_rooms_count(&mut self, counter: u32) {
+        self.current_rooms_count = Some(counter)
+    }
+
+    pub fn set_total_rooms_count(&mut self, counter: u32) {
+        self.total_rooms_count = Some(counter)
+    }
+}
+#[derive(Clone)]
 pub enum AppState {
     Init,
     Initialized {
         title: Option<String>,
-        v2: Option<Syncv2State>
+        v2: Option<Syncv2State>,
+        sliding: Option<SlidingSyncState>,
     },
 }
 
@@ -52,6 +104,7 @@ impl AppState {
         Self::Initialized {
             title: None,
             v2: None,
+            sliding: None,
         }
     }
 
@@ -77,6 +130,31 @@ impl AppState {
                 warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
             }
             *v2 = Some(Syncv2State::new());
+        }
+    }
+
+    pub fn get_sliding(&self) -> Option<&SlidingSyncState> {
+        if let Self::Initialized { ref sliding, .. } = self {
+            sliding.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_sliding_mut<'a>(&'a mut self) -> Option<&'a mut SlidingSyncState> {
+        if let Self::Initialized { sliding, .. } = self {
+            sliding.as_mut()
+        } else {
+            None
+        }
+    }
+
+    pub fn start_sliding(&mut self) {
+        if let Self::Initialized { sliding, .. } = self {
+            if let Some(pre) = sliding {
+                warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
+            }
+            *sliding = Some(SlidingSyncState::new());
         }
     }
 

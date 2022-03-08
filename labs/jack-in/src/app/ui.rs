@@ -10,7 +10,7 @@ use tui::{symbols, Frame};
 use tui_logger::TuiLoggerWidget;
 
 use super::actions::Actions;
-use super::state::{AppState, Syncv2State};
+use super::state::{AppState, Syncv2State, SlidingSyncState};
 use crate::app::App;
 
 pub fn draw<B>(rect: &mut Frame<B>, app: &App)
@@ -44,14 +44,11 @@ where
         .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)].as_ref())
         .split(chunks[1]);
 
-    let body = draw_body(app.is_loading(), app.state());
-    rect.render_widget(body, body_chunks[0]);
+    let bodyv3 = draw_sliding(app.state().get_sliding());
+    rect.render_widget(bodyv3, body_chunks[0]);
+
     let bodyv2 = draw_v2(app.state().get_v2());
     rect.render_widget(bodyv2, body_chunks[1]);
-
-    // let help = draw_help(app.actions());
-    // rect.render_widget(help, body_chunks[1]);
-
     // Logs
     let logs = draw_logs();
     rect.render_widget(logs, chunks[2]);
@@ -99,26 +96,54 @@ fn calc_v2<'a>(state: Option<&Syncv2State>) -> Vec<ListItem<'a>> {
 }
 
 
-fn draw_v2<'a>(state: Option<&Syncv2State>) -> List<'a> {
-    List::new(calc_v2(state))
+fn draw_sliding<'a>(state: Option<&SlidingSyncState>) -> List<'a> {
+    List::new(calc_sliding(state))
     .style(Style::default().fg(Color::LightCyan))
     .block(
         Block::default()
-            .title("Sync v2")
+            .title("Sliding Sync")
             .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),
     )
 }
 
-fn draw_body<'a>(loading: bool, state: &AppState) -> Paragraph<'a> {
-    Paragraph::new(vec![
-    ])
+
+fn calc_sliding<'a>(state: Option<&SlidingSyncState>) -> Vec<ListItem<'a>> {
+    if state.is_none() {
+        return vec![ListItem::new("Sliding sync hasn't started yet")]
+    }
+
+    let state = state.expect("We've tested before");
+    let mut paras = vec![];
+
+    if let Some(dur) = state.time_to_first_render() {
+        paras.push(ListItem::new(format!("First view took {}s", dur.as_secs())));
+    } else {
+        paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
+    }
+
+    if let Some(dur) = state.time_to_full_sync() {
+        paras.push(ListItem::new(format!("Full sync took {}s", dur.as_secs())));
+    } else {
+        paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
+    }
+
+    if let Some(count) = state.rooms_count() {
+        paras.push(ListItem::new(format!("to load {} rooms", count)));
+    }
+
+    return paras;
+
+}
+
+
+fn draw_v2<'a>(state: Option<&Syncv2State>) -> List<'a> {
+    List::new(calc_v2(state))
     .style(Style::default().fg(Color::LightCyan))
-    .alignment(Alignment::Left)
     .block(
         Block::default()
-            // .title("Body")
+            .title("Sync v2")
             .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),

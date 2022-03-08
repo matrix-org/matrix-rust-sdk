@@ -2,6 +2,8 @@ use std::io::stdout;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::{StreamExt, pin_mut};
+
 use app::{App, AppReturn};
 use eyre::{eyre, Result};
 use inputs::events::Events;
@@ -18,7 +20,7 @@ pub mod app;
 pub mod inputs;
 pub mod io;
 
-use matrix_sdk::Client;
+use matrix_sdk::{Client, SlidingSyncState};
 
 pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
 
@@ -32,6 +34,51 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
     {
         let mut app = app.lock().await;
         app.set_title(Some(format!("{} on {} via {}", username, homeserver, sliding_sync_proxy))).await;
+    }
+
+
+    warn!("Starting sliding sync now");
+    let view = client.sliding_sync();
+    let stream = view.stream();
+    pin_mut!(stream);
+    {
+        let mut app = app.lock().await;
+        app.state_mut().start_sliding();
+    }
+    stream.next().await;
+
+    {
+        let mut app = app.lock().await;
+        let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
+        sliding.set_first_render_now();
+    }
+    warn!("Done initial sliding sync");
+
+    loop {
+        match stream.next().await {
+            Some(Ok(SlidingSyncState::Live)) => {
+                // we are switching into live updates mode next. ignoring
+                warn!("Reached live sync");
+                break
+            }
+            Some(Err(e)) => {
+                warn!("Error: {:}", e);
+                break
+            }
+            Some(_) => {
+
+            }
+            None => {
+                warn!("Never reached live state");
+                break;
+            }
+        }
+    }
+
+    {
+        let mut app = app.lock().await;
+        let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
+        sliding.set_full_sync_now();
     }
 
     {

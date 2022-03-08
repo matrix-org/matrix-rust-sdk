@@ -13,6 +13,8 @@ matrix-sdk = { path = "../../crates/matrix-sdk" }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures = { version = "0.3.1" }
+tracing-subscriber = { version = "0.3" }
 
 eyre = "0.6"
 
