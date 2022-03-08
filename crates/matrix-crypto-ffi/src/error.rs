@@ -4,7 +4,7 @@ use matrix_sdk_crypto::{
     store::CryptoStoreError as InnerStoreError, KeyExportError, MegolmError, OlmError,
     SecretImportError as RustSecretImportError, SignatureError as InnerSignatureError,
 };
-use ruma::identifiers::Error as RumaIdentifierError;
+use ruma::{identifiers::Error as RumaIdentifierError, UserId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum KeyImportError {
@@ -33,7 +33,7 @@ pub enum SignatureError {
     #[error(transparent)]
     CryptoStore(#[from] InnerStoreError),
     #[error("Unknown device {0} {1}")]
-    UnknownDevice(String, String),
+    UnknownDevice(Box<UserId>, String),
     #[error("Unknown user identity {0}")]
     UnknownUserIdentity(String),
 }
