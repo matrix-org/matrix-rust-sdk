@@ -5,12 +5,12 @@ use tui::backend::Backend;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, BorderType, Borders, Cell, LineGauge, Paragraph, Row, Tabs, Table};
+use tui::widgets::{Block, BorderType, Borders, Cell, LineGauge, Paragraph, Row, Tabs, List, ListItem, Table};
 use tui::{symbols, Frame};
 use tui_logger::TuiLoggerWidget;
 
 use super::actions::Actions;
-use super::state::AppState;
+use super::state::{AppState, Syncv2State};
 use crate::app::App;
 
 pub fn draw<B>(rect: &mut Frame<B>, app: &App)
@@ -19,7 +19,7 @@ where
 {
 
     let size = rect.size();
-    
+
     // Vertical layout
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -44,8 +44,8 @@ where
         .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)].as_ref())
         .split(chunks[1]);
 
-    let body = draw_body(app.is_loading(), app.state());
-    rect.render_widget(body, body_chunks[0]);
+    let bodyv2 = draw_v2(app.state().get_v2());
+    rect.render_widget(bodyv2, body_chunks[0]);
     let body = draw_body(app.is_loading(), app.state());
     rect.render_widget(body, body_chunks[1]);
 
@@ -74,6 +74,44 @@ fn draw_title<'a>(title: Option<String>) -> Paragraph<'a> {
         )
 }
 
+
+fn calc_v2<'a>(state: Option<&Syncv2State>) -> Vec<ListItem<'a>> {
+    if state.is_none() {
+        return vec![ListItem::new("Sync v2 hasn't started yet")]
+    }
+
+    let state = state.expect("We've tested before");
+    let mut paras = vec![
+        ListItem::new(format!("Started: {:#?}", state.started()))
+    ];
+
+    if let Some(dur) = state.time_to_first_render() {
+        paras.push(ListItem::new(format!("took {}s", dur.as_secs())));
+    } else {
+        paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
+
+    }
+
+    if let Some(count) = state.rooms_count() {
+        paras.push(ListItem::new(format!("to load {} rooms", count)));
+    }
+
+    return paras;
+
+}
+
+
+fn draw_v2<'a>(state: Option<&Syncv2State>) -> List<'a> {
+    List::new(calc_v2(state))
+    .style(Style::default().fg(Color::LightCyan))
+    .block(
+        Block::default()
+            .title("Sync v2")
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::White))
+            .border_type(BorderType::Plain),
+    )
+}
 
 fn draw_body<'a>(loading: bool, state: &AppState) -> Paragraph<'a> {
     Paragraph::new(vec![

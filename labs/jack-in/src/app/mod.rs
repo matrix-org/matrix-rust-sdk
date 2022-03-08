@@ -81,6 +81,9 @@ impl App {
     pub fn state(&self) -> &AppState {
         &self.state
     }
+    pub fn state_mut(&mut self) -> &mut AppState {
+        &mut self.state
+    }
 
     pub fn is_loading(&self) -> bool {
         self.is_loading

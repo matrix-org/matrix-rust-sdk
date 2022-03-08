@@ -5,7 +5,7 @@ use log::warn;
 #[derive(Clone)]
 pub struct Syncv2State {
     started: Instant,
-    first_render: Option<Instant>,
+    first_render: Option<Duration>,
     rooms_count: Option<u32>,
 }
 
@@ -23,7 +23,18 @@ impl Syncv2State {
     }
 
     pub fn time_to_first_render(&self) -> Option<Duration> {
-        self.first_render.map(|f| f - self.started)
+        self.first_render.clone()
+    }
+
+    pub fn rooms_count(&self) -> Option<u32> {
+        self.rooms_count.clone()
+    }
+
+    pub fn set_first_render_now(&mut self) {
+        self.first_render = Some(self.started.elapsed())
+    }
+    pub fn set_rooms_count(&mut self, counter: u32) {
+        self.rooms_count = Some(counter)
     }
 }
 
@@ -47,6 +58,14 @@ impl AppState {
     pub fn get_v2(&self) -> Option<&Syncv2State> {
         if let Self::Initialized { ref v2, .. } = self {
             v2.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_v2_mut<'a>(&'a mut self) -> Option<&'a mut Syncv2State> {
+        if let Self::Initialized { v2, .. } = self {
+            v2.as_mut()
         } else {
             None
         }

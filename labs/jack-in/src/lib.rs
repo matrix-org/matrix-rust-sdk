@@ -10,6 +10,8 @@ use io::IoEvent;
 use tui::backend::CrosstermBackend;
 use tui::Terminal;
 
+use log::warn;
+
 use crate::app::ui;
 
 pub mod app;
@@ -27,8 +29,27 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
 
     let homeserver = client.homeserver().await;
 
-    let mut app = app.lock().await;
-    app.set_title(Some(format!("{} on {} via {}", username, homeserver, sliding_sync_proxy))).await;
+    {
+        let mut app = app.lock().await;
+        app.set_title(Some(format!("{} on {} via {}", username, homeserver, sliding_sync_proxy))).await;
+    }
+
+    {
+        let mut app = app.lock().await;
+        app.state_mut().start_v2();
+    }
+
+    warn!("Starting v2 sync now");
+    let res = client.sync_once(Default::default()).await?;
+    warn!("Done v2 sync");
+
+    {
+        let mut app = app.lock().await;
+        let mut v2 = app.state_mut().get_v2_mut().expect("we started this before!");
+        v2.set_first_render_now();
+        // v2.set_rooms_count(res.rooms); 
+    }
+
     Ok(())
 }
 
@@ -42,7 +63,7 @@ pub async fn start_ui(app: &Arc<tokio::sync::Mutex<App>>) -> Result<()> {
     terminal.hide_cursor()?;
 
     // User event handler
-    let tick_rate = Duration::from_millis(200);
+    let tick_rate = Duration::from_millis(450); // render twice per second
     let mut events = Events::new(tick_rate);
 
     // Trigger state change from Init to Initialized
