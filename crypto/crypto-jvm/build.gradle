@@ -9,5 +9,5 @@ java {
 }
 
 dependencies {
-    runtimeOnly 'net.java.dev.jna:jna:5.10.0@aar'
+    implementation 'net.java.dev.jna:jna:5.10.0@aar'
 }
