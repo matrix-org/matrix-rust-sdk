@@ -44,10 +44,10 @@ where
         .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)].as_ref())
         .split(chunks[1]);
 
-    let bodyv2 = draw_v2(app.state().get_v2());
-    rect.render_widget(bodyv2, body_chunks[0]);
     let body = draw_body(app.is_loading(), app.state());
-    rect.render_widget(body, body_chunks[1]);
+    rect.render_widget(body, body_chunks[0]);
+    let bodyv2 = draw_v2(app.state().get_v2());
+    rect.render_widget(bodyv2, body_chunks[1]);
 
     // let help = draw_help(app.actions());
     // rect.render_widget(help, body_chunks[1]);
@@ -81,9 +81,7 @@ fn calc_v2<'a>(state: Option<&Syncv2State>) -> Vec<ListItem<'a>> {
     }
 
     let state = state.expect("We've tested before");
-    let mut paras = vec![
-        ListItem::new(format!("Started: {:#?}", state.started()))
-    ];
+    let mut paras = vec![];
 
     if let Some(dur) = state.time_to_first_render() {
         paras.push(ListItem::new(format!("took {}s", dur.as_secs())));
