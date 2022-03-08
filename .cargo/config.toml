@@ -10,4 +10,5 @@ rustflags = [
     "-Wsemicolon_in_expressions_from_macros",
     "-Wunused_import_braces",
     "-Wunused_qualifications",
+    "-Wclippy::str_to_string",
 ]

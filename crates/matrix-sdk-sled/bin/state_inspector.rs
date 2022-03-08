@@ -288,7 +288,7 @@ impl Inspector {
                     RoomId::parse(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::new("event-type").required(true).validator(|e| {
-                    EventType::try_from(e).map(|_| ()).map_err(|_| "Invalid event type".to_string())
+                    EventType::try_from(e).map(|_| ()).map_err(|_| "Invalid event type".to_owned())
                 })),
         ]
     }

@@ -96,7 +96,7 @@ impl From<SdkVerificationRequest> for OutgoingVerificationRequest {
                 room_id: r.room_id.to_string(),
                 content: serde_json::to_string(&r.content)
                     .expect("Can't serialize message content"),
-                event_type: r.content.event_type().to_string(),
+                event_type: r.content.event_type().to_owned(),
             },
         }
     }
@@ -207,7 +207,7 @@ impl From<&RoomMessageRequest> for Request {
         Self::RoomMessage {
             request_id: r.txn_id.to_string(),
             room_id: r.room_id.to_string(),
-            event_type: r.content.event_type().to_string(),
+            event_type: r.content.event_type().to_owned(),
             content: serde_json::to_string(&r.content).expect("Can't serialize message content"),
         }
     }

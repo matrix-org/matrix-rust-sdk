@@ -582,9 +582,9 @@ impl StateChanges {
         self.state
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
-            .entry(event.content().event_type().to_string())
+            .entry(event.content().event_type().to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(event.state_key().to_string(), raw_event);
+            .insert(event.state_key().to_owned(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new

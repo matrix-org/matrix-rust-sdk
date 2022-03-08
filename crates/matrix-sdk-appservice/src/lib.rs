@@ -571,7 +571,7 @@ pub(crate) fn transform_request_path(
 ) -> Result<http::Request<Bytes>> {
     let uri = request.uri();
     // remove trailing slash from path
-    let path = uri.path().trim_end_matches('/').to_string();
+    let path = uri.path().trim_end_matches('/').to_owned();
 
     if !path.starts_with("/_matrix/app/v1/") {
         let path = match path {

@@ -84,10 +84,10 @@ impl Utility {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
 
         if let Some(u) = unsigned {
-            json_object.insert("unsigned".to_string(), u);
+            json_object.insert("unsigned".to_owned(), u);
         }
 
-        json_object.insert("signatures".to_string(), signatures);
+        json_object.insert("signatures".to_owned(), signatures);
 
         ret
     }

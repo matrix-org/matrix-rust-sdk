@@ -213,7 +213,7 @@ impl StoreKey {
     pub fn decrypt<T: for<'b> Deserialize<'b>>(&self, event: EncryptedEvent) -> Result<T, Error> {
         if event.version != VERSION {
             return Err(Error::Encryption(
-                "Error decrypting: Unknown ciphertext version".to_string(),
+                "Error decrypting: Unknown ciphertext version".to_owned(),
             ));
         }
 

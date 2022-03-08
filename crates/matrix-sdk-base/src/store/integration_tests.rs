@@ -112,13 +112,13 @@ macro_rules! statestore_integration_tests {
                     let device_id = device_id!("device");
 
                     let session = Session {
-                        access_token: "token".to_string(),
+                        access_token: "token".to_owned(),
                         user_id: user_id.to_owned(),
                         device_id: device_id.to_owned(),
                     };
                     store.restore_session(session).await.unwrap();
 
-                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_string());
+                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned());
 
                     let presence_json: &JsonValue = &test_json::PRESENCE;
                     let presence_raw =
@@ -671,10 +671,10 @@ macro_rules! statestore_integration_tests {
                     check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
 
                     // Check if limited sync removes the stored timeline
-                    let end_token = Some("end token".to_string());
+                    let end_token = Some("end token".to_owned());
                     let timeline_slice = TimelineSlice::new(
                         Vec::new(),
-                        "start token".to_string(),
+                        "start token".to_owned(),
                         end_token.clone(),
                         true,
                         true,

@@ -112,7 +112,7 @@ impl MemoryStore {
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.filters.insert(filter_name.to_string(), filter_id.to_string());
+        self.filters.insert(filter_name.to_owned(), filter_id.to_owned());
 
         Ok(())
     }

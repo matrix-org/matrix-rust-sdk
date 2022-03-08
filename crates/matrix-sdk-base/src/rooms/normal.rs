@@ -330,10 +330,10 @@ impl Room {
 
             if let Some(name) = &inner.base_info.name {
                 let name = name.trim();
-                return Ok(name.to_string());
+                return Ok(name.to_owned());
             } else if let Some(alias) = &inner.base_info.canonical_alias {
                 let alias = alias.alias().trim();
-                return Ok(alias.to_string());
+                return Ok(alias.to_owned());
             }
             inner.summary.clone()
         };
@@ -638,7 +638,7 @@ impl RoomInfo {
     /// `false` means no update was applied as the were the same
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
-            self.last_prev_batch = prev_batch.map(|p| p.to_string());
+            self.last_prev_batch = prev_batch.map(|p| p.to_owned());
             true
         } else {
             false

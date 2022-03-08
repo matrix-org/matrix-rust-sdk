@@ -173,13 +173,13 @@ fn calculate_room_name(
         // the `else`?
         format!("{}, and {} others", names.join(", "), (invited_joined - heroes_count))
     } else {
-        "".to_string()
+        "".to_owned()
     };
 
     // User is alone.
     if invited_joined <= 1 {
         if names.is_empty() {
-            "Empty room".to_string()
+            "Empty room".to_owned()
         } else {
             format!("Empty room (was {})", names)
         }
