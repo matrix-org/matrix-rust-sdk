@@ -117,7 +117,7 @@ impl Room {
         *self.delegate.write() = delegate;
     }
 
-    pub fn identifier(&self) -> String {
+    pub fn id(&self) -> String {
         self.room.room_id().to_string()
     }
 
@@ -219,6 +219,7 @@ impl Room {
 }
 
 pub struct Message {
+    id: String,
     message_type: String,
     content: String,
     sender: String,
@@ -226,6 +227,10 @@ pub struct Message {
 }
 
 impl Message {
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+
     pub fn message_type(&self) -> String {
         self.message_type.clone()
     }
@@ -446,6 +451,7 @@ fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<Message>> {
     match sync_event.event.deserialize() {
         Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => {
             let message = Message { 
+                id: m.event_id.to_string(),
                 message_type: m.content.msgtype().to_string(), 
                 content: m.content.body().to_string(), 
                 sender: m.sender.to_string(),

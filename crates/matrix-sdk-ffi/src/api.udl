@@ -13,6 +13,7 @@ interface ClientError {
 };
 
 interface Message {
+    string id();
     string message_type();
     string content();
     string sender();
@@ -28,7 +29,7 @@ interface Room {
 
     void set_delegate(RoomDelegate? delegate);
 
-    string identifier();
+    string id();
     
     [Throws=ClientError]
     string display_name();
