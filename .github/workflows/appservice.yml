@@ -17,23 +17,13 @@ env:
 jobs:
   test-appservice:
     if: github.event_name == 'push' || !github.event.pull_request.draft
-    name: ${{ matrix.name }}
+    name: ${{ matrix.os }} / appservice / stable
 
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}-latest
     strategy:
       fail-fast: true
       matrix:
-        name:
-          - linux / appservice / stable / warp
-          - macOS / appservice / stable / warp
-
-        include:
-          - name: linux / appservice / stable / warp
-            cargo_args: --features warp
-
-          - name: macOS / appservice / stable / warp
-            os: macOS-latest
-            cargo_args: --features warp
+        os: [ubuntu, macOS]
 
     steps:
       - name: Checkout
@@ -42,21 +32,15 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.rust || 'stable' }}
+          toolchain: stable
           profile: minimal
           override: true
 
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
-      - name: Clippy
+      - name: Run checks
         uses: actions-rs/cargo@v1
         with:
-          command: clippy
-          args: -p matrix-sdk-appservice ${{ matrix.cargo_args }} -- -D warnings
-
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p matrix-sdk-appservice ${{ matrix.cargo_args }}
+          command: run
+          args: -p xtask -- ci test-appservice

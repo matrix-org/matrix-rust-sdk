@@ -29,6 +29,7 @@ enum CiCommand {
         #[clap(subcommand)]
         cmd: Option<FeatureSet>,
     },
+    TestAppservice,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,6 +57,7 @@ impl CiArgs {
                 CiCommand::Docs => check_docs(),
                 CiCommand::Test => run_tests(),
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
+                CiCommand::TestAppservice => run_appservice_tests(),
             },
             None => {
                 check_style()?;
@@ -64,6 +66,7 @@ impl CiArgs {
                 check_docs()?;
                 run_tests()?;
                 run_feature_tests(None)?;
+                run_appservice_tests()?;
 
                 Ok(())
             }
@@ -133,6 +136,14 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn run_appservice_tests() -> Result<()> {
+    cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice --features warp -- -D warnings")
+        .run()?;
+    cmd!("rustup run stable cargo test -p matrix-sdk-appservice --features warp").run()?;
 
     Ok(())
 }
