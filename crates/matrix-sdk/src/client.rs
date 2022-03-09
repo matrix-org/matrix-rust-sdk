@@ -19,7 +19,6 @@ use std::{
     future::Future,
     io::Read,
     pin::Pin,
-    result::Result as StdResult,
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -151,7 +150,7 @@ pub(crate) struct ClientInner {
 
 #[cfg(not(tarpaulin_include))]
 impl Debug for Client {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> StdResult<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "Client")
     }
 }

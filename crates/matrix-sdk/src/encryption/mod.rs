@@ -252,7 +252,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     io::{Read, Write},
     path::PathBuf,
-    result::Result as StdResult, iter,
+    iter,
 };
 
 use futures_util::stream::{self, StreamExt};
@@ -389,7 +389,7 @@ impl Client {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> StdResult<Option<Device>, CryptoStoreError> {
+    ) -> Result<Option<Device>, CryptoStoreError> {
         let device = self.base_client().get_device(user_id, device_id).await?;
 
         Ok(device.map(|d| Device { inner: d, client: self.clone() }))
@@ -426,7 +426,7 @@ impl Client {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> StdResult<UserDevices, CryptoStoreError> {
+    ) -> Result<UserDevices, CryptoStoreError> {
         let devices = self.base_client().get_user_devices(user_id).await?;
 
         Ok(UserDevices { inner: devices, client: self.clone() })
@@ -467,7 +467,7 @@ impl Client {
     pub async fn get_user_identity(
         &self,
         user_id: &UserId,
-    ) -> StdResult<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
+    ) -> Result<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
         use crate::encryption::identities::UserIdentity;
 
         if let Some(olm) = self.olm_machine().await {
@@ -671,7 +671,7 @@ impl Client {
         &self,
         path: PathBuf,
         passphrase: &str,
-    ) -> StdResult<RoomKeyImportResult, RoomKeyImportError> {
+    ) -> Result<RoomKeyImportResult, RoomKeyImportError> {
         let olm = self.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 

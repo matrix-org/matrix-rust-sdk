@@ -20,7 +20,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
     fmt,
-    result::Result as StdResult,
     sync::Arc,
 };
 
@@ -121,7 +120,7 @@ pub struct BaseClientConfig {
 
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for BaseClientConfig {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         fmt.debug_struct("BaseClientConfig").finish()
     }
 }
@@ -1120,7 +1119,7 @@ impl BaseClient {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> StdResult<Option<Device>, CryptoStoreError> {
+    ) -> Result<Option<Device>, CryptoStoreError> {
         if let Some(olm) = self.olm_machine().await {
             olm.get_device(user_id, device_id).await
         } else {
@@ -1175,7 +1174,7 @@ impl BaseClient {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> StdResult<UserDevices, CryptoStoreError> {
+    ) -> Result<UserDevices, CryptoStoreError> {
         if let Some(olm) = self.olm_machine().await {
             Ok(olm.get_user_devices(user_id).await?)
         } else {
