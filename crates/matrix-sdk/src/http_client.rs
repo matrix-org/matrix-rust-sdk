@@ -136,26 +136,27 @@ impl HttpClient {
         session: Arc<RwLock<Option<Session>>>,
         config: RequestConfig,
     ) -> Result<http::Request<Bytes>, HttpError> {
+        let auth_scheme = Request::METADATA.authentication;
+        if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
+            return Err(HttpError::NotClientRequest);
+        }
+
         let access_token;
-        let send_access_token = if config.force_auth {
-            if let Some(session) = session.read().await.as_ref() {
-                access_token = session.access_token.clone();
-                SendAccessToken::Always(access_token.as_str())
-            } else {
-                SendAccessToken::None
-            }
+        let send_access_token = if matches!(auth_scheme, AuthScheme::None) && !config.force_auth {
+            // Small optimization: Don't take the session lock if we know the auth token
+            // isn't going to be used anyways.
+            SendAccessToken::None
         } else {
-            match Request::METADATA.authentication {
-                AuthScheme::AccessToken => {
-                    if let Some(session) = session.read().await.as_ref() {
-                        access_token = session.access_token.clone();
-                        SendAccessToken::IfRequired(access_token.as_str())
+            match session.read().await.as_ref() {
+                Some(session) => {
+                    access_token = session.access_token.clone();
+                    if config.force_auth {
+                        SendAccessToken::Always(&access_token)
                     } else {
-                        return Err(HttpError::AuthenticationRequired);
+                        SendAccessToken::IfRequired(&access_token)
                     }
                 }
-                AuthScheme::None => SendAccessToken::None,
-                _ => return Err(HttpError::NotClientRequest),
+                None => SendAccessToken::None,
             }
         };
 
