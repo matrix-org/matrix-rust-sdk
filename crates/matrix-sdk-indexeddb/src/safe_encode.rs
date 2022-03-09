@@ -46,7 +46,7 @@ pub trait SafeEncode {
             &JsValue::from([&key, KEY_SEPARATOR].concat()),
             &JsValue::from([&key, RANGE_END].concat()),
         )
-        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_string()))
+        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_owned()))
     }
 }
 

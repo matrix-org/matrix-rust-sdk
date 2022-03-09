@@ -256,7 +256,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
             .or_insert_with(|| Base64::new(hash.as_slice().to_owned()));
 
         MediaEncryptionInfo {
-            version: VERSION.to_string(),
+            version: VERSION.to_owned(),
             hashes: self.hashes,
             iv: self.iv,
             web_key: self.web_key,

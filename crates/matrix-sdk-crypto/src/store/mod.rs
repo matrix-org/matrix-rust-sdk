@@ -304,7 +304,7 @@ impl Store {
             .inner
             .get_device(self.user_id(), self.device_id())
             .await?
-            .and_then(|d| d.display_name().map(|d| d.to_string())))
+            .and_then(|d| d.display_name().map(|d| d.to_owned())))
     }
 
     /// Get the read-only device associated with `device_id` for `user_id`

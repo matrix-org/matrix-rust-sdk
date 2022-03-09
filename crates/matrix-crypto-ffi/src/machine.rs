@@ -200,7 +200,7 @@ impl OlmMachine {
         if let Some(device) = device {
             Ok(self.runtime.block_on(device.verify())?.into())
         } else {
-            Err(SignatureError::UnknownDevice(user_id.to_string(), device_id.to_string()))
+            Err(SignatureError::UnknownDevice(user_id, device_id.to_owned()))
         }
     }
 

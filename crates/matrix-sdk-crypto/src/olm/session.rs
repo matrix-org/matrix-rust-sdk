@@ -152,7 +152,7 @@ impl Session {
 
         Ok(EncryptedEventScheme::OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content::new(
             content,
-            self.our_identity_keys.curve25519().to_string(),
+            self.our_identity_keys.curve25519().to_owned(),
         ))
         .into())
     }

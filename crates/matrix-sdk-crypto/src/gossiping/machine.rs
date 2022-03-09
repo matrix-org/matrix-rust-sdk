@@ -1313,7 +1313,7 @@ mod test {
         own_device.set_trust_state(LocalTrust::Unset);
 
         for _ in 1..=3 {
-            other_outbound.encrypt_helper("foo".to_string()).await;
+            other_outbound.encrypt_helper("foo".to_owned()).await;
         }
         other_outbound
             .mark_shared_with(

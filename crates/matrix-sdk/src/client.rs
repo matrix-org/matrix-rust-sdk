@@ -510,7 +510,7 @@ impl Client {
     /// }).await;
     ///
     /// // Adding your custom data to the handler can be done as well
-    /// let data = "MyCustomIdentifier".to_string();
+    /// let data = "MyCustomIdentifier".to_owned();
     ///
     /// client.register_event_handler({
     ///     let data = data.clone();
@@ -2411,7 +2411,7 @@ pub(crate) mod test {
     async fn successful_discovery() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
         let _m_well_known = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2433,7 +2433,7 @@ pub(crate) mod test {
     async fn discovery_broken_server() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
         let _m = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2533,8 +2533,8 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
         let idp = crate::client::get_login_types::v3::IdentityProvider::new(
-            "some-id".to_string(),
-            "idp-name".to_string(),
+            "some-id".to_owned(),
+            "idp-name".to_owned(),
         );
         client
             .login_with_sso(
@@ -2615,7 +2615,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .create();
@@ -2648,7 +2648,7 @@ pub(crate) mod test {
         let room = joined_client.get_joined_room(room_id);
         assert!(room.is_some());
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
             .create();
@@ -2666,7 +2666,7 @@ pub(crate) mod test {
     async fn account_data() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -2718,7 +2718,7 @@ pub(crate) mod test {
                 } else {
                     panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
                 }
-                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(message, "Invalid password".to_owned());
                 assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
             } else {
                 panic!("found the wrong `Error` type {:?}, expected `Error::RumaResponse", err);
@@ -2733,7 +2733,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_owned()))
             .with_status(403)
             .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
             .create();
@@ -2756,7 +2756,7 @@ pub(crate) mod test {
                 } else {
                     panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
                 }
-                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(message, "Invalid password".to_owned());
                 assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
             } else {
                 panic!("found the wrong `Error` type {:#?}, expected `UiaaResponse`", err);
@@ -2770,7 +2770,7 @@ pub(crate) mod test {
     async fn join_room_by_id() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join".to_owned()))
             .with_status(200)
             .with_body(test_json::ROOM_ID.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -2790,7 +2790,7 @@ pub(crate) mod test {
     async fn join_room_by_id_or_alias() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/join/".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/join/".to_owned()))
             .with_status(200)
             .with_body(test_json::ROOM_ID.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -2814,13 +2814,13 @@ pub(crate) mod test {
     async fn invite_user_by_id() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_owned()))
             .with_status(200)
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -2840,14 +2840,14 @@ pub(crate) mod test {
     async fn invite_user_by_3pid() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_owned()))
             .with_status(200)
             // empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -2877,7 +2877,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).await.unwrap();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
             .with_status(200)
             .with_body(test_json::PUBLIC_ROOMS.to_string())
             .create();
@@ -2891,7 +2891,7 @@ pub(crate) mod test {
     async fn room_search_filtered() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
             .with_status(200)
             .with_body(test_json::PUBLIC_ROOMS.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -2910,14 +2910,14 @@ pub(crate) mod test {
     async fn leave_room() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/leave".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/leave".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -2936,14 +2936,14 @@ pub(crate) mod test {
     async fn ban_user() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/ban".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/ban".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -2963,14 +2963,14 @@ pub(crate) mod test {
     async fn kick_user() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/kick".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/kick".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -2990,14 +2990,14 @@ pub(crate) mod test {
     async fn forget_room() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/forget".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/forget".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::LEAVE_SYNC.to_string())
@@ -3016,14 +3016,14 @@ pub(crate) mod test {
     async fn read_receipt() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/receipt".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/receipt".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3044,14 +3044,14 @@ pub(crate) mod test {
         let client = logged_in_client().await;
 
         let _m =
-            mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/read_markers".to_string()))
+            mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/read_markers".to_owned()))
                 .with_status(200)
                 // this is an empty JSON object
                 .with_body(test_json::LOGOUT.to_string())
                 .match_header("authorization", "Bearer 1234")
                 .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3071,14 +3071,14 @@ pub(crate) mod test {
     async fn typing_notice() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/typing".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/typing".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3099,13 +3099,13 @@ pub(crate) mod test {
 
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state/.*".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state/.*".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3131,13 +3131,13 @@ pub(crate) mod test {
     async fn room_message_send() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3160,7 +3160,7 @@ pub(crate) mod test {
     async fn room_attachment_send() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3171,7 +3171,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3182,7 +3182,7 @@ pub(crate) mod test {
             )
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3208,7 +3208,7 @@ pub(crate) mod test {
     async fn room_attachment_send_info() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3221,7 +3221,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3232,7 +3232,7 @@ pub(crate) mod test {
             )
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3264,7 +3264,7 @@ pub(crate) mod test {
     async fn room_attachment_send_wrong_info() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3277,7 +3277,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3288,7 +3288,7 @@ pub(crate) mod test {
             )
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3319,7 +3319,7 @@ pub(crate) mod test {
     async fn room_attachment_send_info_thumbnail() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3339,7 +3339,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3351,7 +3351,7 @@ pub(crate) mod test {
             .expect(2)
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3395,13 +3395,13 @@ pub(crate) mod test {
         let client = logged_in_client().await;
 
         let _m =
-            mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?".to_string()))
+            mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?".to_owned()))
                 .with_status(200)
                 .match_header("authorization", "Bearer 1234")
                 .with_body(test_json::EVENT_ID.to_string())
                 .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3426,13 +3426,13 @@ pub(crate) mod test {
     async fn user_presence() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::MEMBERS.to_string())
@@ -3453,7 +3453,7 @@ pub(crate) mod test {
     async fn calculate_room_names_from_summary() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::DEFAULT_SYNC_SUMMARY.to_string())
@@ -3470,7 +3470,7 @@ pub(crate) mod test {
     async fn invited_rooms() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::INVITE_SYNC.to_string())
@@ -3489,7 +3489,7 @@ pub(crate) mod test {
     async fn left_rooms() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::LEAVE_SYNC.to_string())
@@ -3508,7 +3508,7 @@ pub(crate) mod test {
     async fn sync() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -3527,7 +3527,7 @@ pub(crate) mod test {
     async fn room_names() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3541,9 +3541,9 @@ pub(crate) mod test {
         assert_eq!(client.rooms().len(), 1);
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!("tutorial".to_string(), room.display_name().await.unwrap());
+        assert_eq!("tutorial".to_owned(), room.display_name().await.unwrap());
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::INVITE_SYNC.to_string())
@@ -3555,7 +3555,7 @@ pub(crate) mod test {
         assert_eq!(client.rooms().len(), 1);
         let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
 
-        assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());
+        assert_eq!("My Room Name".to_owned(), invited_room.display_name().await.unwrap());
     }
 
     #[async_test]
@@ -3689,7 +3689,7 @@ pub(crate) mod test {
 
         let m = mock(
             "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_string()),
+            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_owned()),
         )
         .with_status(200)
         .with_body("Some very interesting text.")
@@ -3719,7 +3719,7 @@ pub(crate) mod test {
 
         let m = mock(
             "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_string()),
+            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_owned()),
         )
         .with_status(200)
         .with_body("binaryjpegdata")
@@ -3731,7 +3731,7 @@ pub(crate) mod test {
 
         let m = mock(
             "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_string()),
+            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_owned()),
         )
         .with_status(200)
         .with_body("smallerbinaryjpegdata")
@@ -3829,7 +3829,7 @@ pub(crate) mod test {
             }
         });
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(sync.to_string())
             .create();
@@ -3872,7 +3872,7 @@ pub(crate) mod test {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -3889,7 +3889,7 @@ pub(crate) mod test {
         let sync_2 = mock(
             "GET",
             Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_string(),
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_owned(),
             ),
         )
         .with_status(200)
@@ -3900,7 +3900,7 @@ pub(crate) mod test {
         let sync_3 = mock(
             "GET",
             Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_string(),
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
             ),
         )
         .with_status(200)
@@ -3912,7 +3912,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -3924,7 +3924,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -3932,7 +3932,7 @@ pub(crate) mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_string()));
+        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_owned()));
         let sync_settings = SyncSettings::new()
             .timeout(Duration::from_millis(3000))
             .token("s526_47314_0_7_1_1_1_11444_1");
@@ -3996,7 +3996,7 @@ pub(crate) mod test {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::MORE_SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -4011,7 +4011,7 @@ pub(crate) mod test {
         let sync_2 = mock(
             "GET",
             Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_string(),
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
             ),
         )
         .with_status(200)
@@ -4023,7 +4023,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -4035,7 +4035,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -4043,7 +4043,7 @@ pub(crate) mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_2".to_string()));
+        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_2".to_owned()));
         let sync_settings = SyncSettings::new()
             .timeout(Duration::from_millis(3000))
             .token("s526_47314_0_7_1_1_1_11444_2");

@@ -56,15 +56,10 @@ async fn login(
             let asked = asked_ref;
             let client = &client_ref;
             let user_id = &user_id;
-            let password = &password;
 
             // Wait for sync to be done then ask the user to bootstrap.
             if !asked.load(Ordering::SeqCst) {
-                tokio::spawn(bootstrap(
-                    (*client).clone(),
-                    (*user_id).clone(),
-                    password.to_string(),
-                ));
+                tokio::spawn(bootstrap((*client).clone(), (*user_id).clone(), password.to_owned()));
             }
 
             asked.store(true, Ordering::SeqCst);

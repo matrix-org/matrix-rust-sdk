@@ -55,7 +55,7 @@ impl WasmBot {
     }
 
     async fn on_sync_response(&self, response: SyncResponse) -> LoopCtrl {
-        console::log_1(&"Synced".to_string().into());
+        console::log_1(&"Synced".to_owned().into());
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
