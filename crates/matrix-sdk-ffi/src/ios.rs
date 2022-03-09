@@ -36,11 +36,11 @@ use lazy_static::lazy_static;
 use tokio::runtime;
 use url::Url;
 use serde_json;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 use derive_builder::Builder;
 use std::sync::Arc;
-
 use serde::{Serialize, Deserialize};
+use core::pin::Pin;
 
 lazy_static! {
     static ref RUNTIME: runtime::Runtime =
@@ -104,6 +104,56 @@ pub struct Room {
     is_listening_to_live_events: Arc<RwLock<bool>>
 }
 
+type LockedRDelegate = Arc<RwLock<Option<Box<dyn RoomDelegate>>>>;
+type MsgStream = Pin<Box<dyn futures::Stream<Item = Result<SyncRoomEvent, matrix_sdk::Error>>>>;
+
+pub struct BackwardsStream {
+    delegate: LockedRDelegate,
+    stream: Arc<Mutex<MsgStream>>,
+}
+
+unsafe impl Send for BackwardsStream { }
+unsafe impl Sync for BackwardsStream { }
+
+impl BackwardsStream {
+
+    pub fn new(delegate: LockedRDelegate, stream: MsgStream) -> Self {
+        BackwardsStream {
+            delegate,
+            stream: Arc::new(Mutex::new(Box::pin(stream)))
+        }
+    }
+    pub fn paginate_backwards(&self, mut count: u8) -> Vec<Arc<Message>> {
+        let delegate = self.delegate.clone();
+        let stream = self.stream.clone();
+        RUNTIME.block_on(async move {
+            let stream = stream.lock();
+            pin_mut!(stream);
+            let mut messages: Vec<Arc<Message>> = Vec::new();
+            
+            while count > 0 {
+                match stream.next().await {
+                    Some(Ok(e)) => {
+                        if let Some(inner) = sync_event_to_message(e) {
+                            messages.push(inner);
+                            count -= 1;
+                        }
+                    }
+                    None => {
+                        // end of stream
+                        break;
+                    }
+                    _ => {
+                        // error cases, skipping
+                    }
+                }
+            }
+
+            messages
+        })
+    }
+}
+
 impl Room {
     fn new(room: MatrixRoom) -> Self {
         Room {
@@ -163,29 +213,9 @@ impl Room {
         self.room.is_space()
     }
 
-    pub fn paginate_backwards(&self, from: u8, to: u8) {
-        let room = self.room.clone();
-        let delegate = self.delegate.clone();
-        RUNTIME.spawn(async move {
-            let (_, backward_stream) = room.timeline().await.expect("Failed acquiring timeline streams");
-
-            let messages:Vec<Arc<Message>> = backward_stream
-                                                .skip(from.into())
-                                                .take(to.into())
-                                                .map(|e| e.expect("Failed backwards pagination"))
-                                                .filter_map(sync_event_to_message_async)
-                                                .collect()
-                                                .await;
-
-            if let Some(delegate) = &*delegate.read() {
-                delegate.did_paginate_backwards(messages)
-            }
-        });
-    }
-
-    pub fn start_live_event_listener(&self) {
+    pub fn start_live_event_listener(&self) -> Option<Arc<BackwardsStream>> {
         if *self.is_listening_to_live_events.read() == true {
-            return
+            return None
         }
 
         *self.is_listening_to_live_events.write() = true;
@@ -194,9 +224,11 @@ impl Room {
         let delegate = self.delegate.clone();
         let is_listening_to_live_events = self.is_listening_to_live_events.clone();
 
-        RUNTIME.spawn(async move {
-            let (forward_stream, _) = room.timeline().await.expect("Failed acquiring timeline streams");
+        let (forward_stream, backwards) = RUNTIME.block_on(async move {
+            room.timeline().await.expect("Failed acquiring timeline streams")
+        });
 
+        RUNTIME.spawn(async move {
             pin_mut!(forward_stream);
             
             while let Some(sync_event) = forward_stream.next().await {
@@ -211,6 +243,7 @@ impl Room {
                 }
             }
         });
+        Some(Arc::new(BackwardsStream::new(self.delegate.clone(), Box::pin(backwards))))
     }
 
     pub fn stop_live_event_listener(&self) {

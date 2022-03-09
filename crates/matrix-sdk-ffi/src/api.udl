@@ -25,6 +25,10 @@ callback interface RoomDelegate {
     void did_receive_message(Message message);
 };
 
+interface BackwardsStream {
+    sequence<Message> paginate_backwards(u8 count);
+};
+
 interface Room {
 
     void set_delegate(RoomDelegate? delegate);
@@ -51,9 +55,7 @@ interface Room {
 
     string? topic();
 
-    void paginate_backwards(u8 from, u8 to);
-
-    void start_live_event_listener();
+    BackwardsStream? start_live_event_listener();
 
     void stop_live_event_listener();
 };
