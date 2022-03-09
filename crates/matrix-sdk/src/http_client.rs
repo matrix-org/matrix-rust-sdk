@@ -121,13 +121,14 @@ impl HttpClient {
             None => self.request_config,
         };
 
-        let request = if !self.request_config.assert_identity {
-            let auth_scheme = Request::METADATA.authentication;
-            if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
-                return Err(HttpError::NotClientRequest);
-            }
+        let auth_scheme = Request::METADATA.authentication;
+        if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
+            return Err(HttpError::NotClientRequest);
+        }
 
-            let access_token;
+        let access_token;
+
+        let request = if !self.request_config.assert_identity {
             let send_access_token = if matches!(auth_scheme, AuthScheme::None) && !config.force_auth
             {
                 // Small optimization: Don't take the session lock if we know the auth token
@@ -147,39 +148,31 @@ impl HttpClient {
                 }
             };
 
-            request
-                .try_into_http_request::<BytesMut>(
-                    &self.homeserver.read().await.to_string(),
-                    send_access_token,
-                    // FIXME: Use versions reported by server
-                    &[MatrixVersion::V1_0],
-                )?
-                .map(|body| body.freeze())
+            request.try_into_http_request::<BytesMut>(
+                &self.homeserver.read().await.to_string(),
+                send_access_token,
+                // FIXME: Use versions reported by server
+                &[MatrixVersion::V1_0],
+            )?
         } else {
-            let read_guard = session.read().await;
-            let access_token = if let Some(session) = read_guard.as_ref() {
-                SendAccessToken::Always(session.access_token.as_str())
-            } else {
-                return Err(HttpError::AuthenticationRequired);
+            let (send_access_token, user_id) = {
+                let session = session.read().await;
+                let session = session.as_ref().ok_or(HttpError::UserIdRequired)?;
+
+                access_token = session.access_token.clone();
+                (SendAccessToken::Always(&access_token), session.user_id.clone())
             };
 
-            let user_id = if let Some(session) = read_guard.as_ref() {
-                session.user_id.clone()
-            } else {
-                return Err(HttpError::UserIdRequired);
-            };
-
-            request
-                .try_into_http_request_with_user_id::<BytesMut>(
-                    &self.homeserver.read().await.to_string(),
-                    access_token,
-                    &user_id,
-                    // FIXME: Use versions reported by server
-                    &[MatrixVersion::V1_0],
-                )?
-                .map(|body| body.freeze())
+            request.try_into_http_request_with_user_id::<BytesMut>(
+                &self.homeserver.read().await.to_string(),
+                send_access_token,
+                &user_id,
+                // FIXME: Use versions reported by server
+                &[MatrixVersion::V1_0],
+            )?
         };
 
+        let request = request.map(|body| body.freeze());
         self.inner.send_request(request, config).await
     }
 
