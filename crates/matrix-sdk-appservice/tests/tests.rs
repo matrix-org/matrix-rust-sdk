@@ -11,7 +11,6 @@ use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
 use ruma::room_id;
 use serde_json::json;
-#[cfg(feature = "warp")]
 use warp::{Filter, Reply};
 
 fn registration_string() -> String {
@@ -80,7 +79,6 @@ async fn test_put_transaction() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("PUT")
         .path(uri)
@@ -103,7 +101,6 @@ async fn test_get_user() -> Result<()> {
 
     let uri = "/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token";
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("GET")
         .path(uri)
@@ -125,7 +122,6 @@ async fn test_get_room() -> Result<()> {
 
     let uri = "/_matrix/app/v1/rooms/%23magicforest%3Aexample.com?access_token=hs_token";
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("GET")
         .path(uri)
@@ -150,7 +146,6 @@ async fn test_invalid_access_token() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("PUT")
         .path(uri)
@@ -176,7 +171,6 @@ async fn test_no_access_token() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     {
         let status = warp::test::request()
             .method("PUT")
@@ -216,7 +210,6 @@ async fn test_event_handler() -> Result<()> {
     transaction_builder.add_room_event(EventsJson::Member);
     let transaction = transaction_builder.build_json_transaction();
 
-    #[cfg(feature = "warp")]
     warp::test::request()
         .method("PUT")
         .path(uri)
@@ -235,7 +228,6 @@ async fn test_event_handler() -> Result<()> {
 async fn test_unrelated_path() -> Result<()> {
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     let status = {
         let consumer_filter = warp::any()
             .and(appservice.warp_filter())
@@ -272,7 +264,6 @@ async fn test_appservice_on_sub_path() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     {
         warp::test::request()
             .method("PUT")
