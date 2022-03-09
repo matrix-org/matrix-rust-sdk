@@ -122,86 +122,65 @@ impl HttpClient {
         };
 
         let request = if !self.request_config.assert_identity {
-            self.try_into_http_request(request, session, config).await?
+            let auth_scheme = Request::METADATA.authentication;
+            if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
+                return Err(HttpError::NotClientRequest);
+            }
+
+            let access_token;
+            let send_access_token = if matches!(auth_scheme, AuthScheme::None) && !config.force_auth
+            {
+                // Small optimization: Don't take the session lock if we know the auth token
+                // isn't going to be used anyways.
+                SendAccessToken::None
+            } else {
+                match session.read().await.as_ref() {
+                    Some(session) => {
+                        access_token = session.access_token.clone();
+                        if config.force_auth {
+                            SendAccessToken::Always(&access_token)
+                        } else {
+                            SendAccessToken::IfRequired(&access_token)
+                        }
+                    }
+                    None => SendAccessToken::None,
+                }
+            };
+
+            request
+                .try_into_http_request::<BytesMut>(
+                    &self.homeserver.read().await.to_string(),
+                    send_access_token,
+                    // FIXME: Use versions reported by server
+                    &[MatrixVersion::V1_0],
+                )?
+                .map(|body| body.freeze())
         } else {
-            self.try_into_http_request_with_identity_assertion(request, session, config).await?
+            let read_guard = session.read().await;
+            let access_token = if let Some(session) = read_guard.as_ref() {
+                SendAccessToken::Always(session.access_token.as_str())
+            } else {
+                return Err(HttpError::AuthenticationRequired);
+            };
+
+            let user_id = if let Some(session) = read_guard.as_ref() {
+                session.user_id.clone()
+            } else {
+                return Err(HttpError::UserIdRequired);
+            };
+
+            request
+                .try_into_http_request_with_user_id::<BytesMut>(
+                    &self.homeserver.read().await.to_string(),
+                    access_token,
+                    &user_id,
+                    // FIXME: Use versions reported by server
+                    &[MatrixVersion::V1_0],
+                )?
+                .map(|body| body.freeze())
         };
 
         self.inner.send_request(request, config).await
-    }
-
-    async fn try_into_http_request<Request: OutgoingRequest>(
-        &self,
-        request: Request,
-        session: Arc<RwLock<Option<Session>>>,
-        config: RequestConfig,
-    ) -> Result<http::Request<Bytes>, HttpError> {
-        let auth_scheme = Request::METADATA.authentication;
-        if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
-            return Err(HttpError::NotClientRequest);
-        }
-
-        let access_token;
-        let send_access_token = if matches!(auth_scheme, AuthScheme::None) && !config.force_auth {
-            // Small optimization: Don't take the session lock if we know the auth token
-            // isn't going to be used anyways.
-            SendAccessToken::None
-        } else {
-            match session.read().await.as_ref() {
-                Some(session) => {
-                    access_token = session.access_token.clone();
-                    if config.force_auth {
-                        SendAccessToken::Always(&access_token)
-                    } else {
-                        SendAccessToken::IfRequired(&access_token)
-                    }
-                }
-                None => SendAccessToken::None,
-            }
-        };
-
-        let http_request = request
-            .try_into_http_request::<BytesMut>(
-                &self.homeserver.read().await.to_string(),
-                send_access_token,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
-            )?
-            .map(|body| body.freeze());
-
-        Ok(http_request)
-    }
-
-    async fn try_into_http_request_with_identity_assertion<Request: OutgoingRequest>(
-        &self,
-        request: Request,
-        session: Arc<RwLock<Option<Session>>>,
-        _: RequestConfig,
-    ) -> Result<http::Request<Bytes>, HttpError> {
-        let read_guard = session.read().await;
-        let access_token = if let Some(session) = read_guard.as_ref() {
-            SendAccessToken::Always(session.access_token.as_str())
-        } else {
-            return Err(HttpError::AuthenticationRequired);
-        };
-
-        let user_id = if let Some(session) = read_guard.as_ref() {
-            session.user_id.clone()
-        } else {
-            return Err(HttpError::UserIdRequired);
-        };
-
-        let http_request = request
-            .try_into_http_request_with_user_id::<BytesMut>(
-                &self.homeserver.read().await.to_string(),
-                access_token,
-                &user_id,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
-            )?
-            .map(|body| body.freeze());
-
-        Ok(http_request)
     }
 
     pub async fn upload(
