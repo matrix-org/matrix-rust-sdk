@@ -74,6 +74,9 @@ pub enum Error {
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
+
     #[cfg(feature = "warp")]
     #[error("warp rejection: {0}")]
     WarpRejection(String),

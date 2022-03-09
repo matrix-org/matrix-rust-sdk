@@ -27,6 +27,7 @@ docs = ["warp"]
 dashmap = "5.1.0"
 http = "0.2"
 matrix-sdk = { version = "0.4", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
+percent-encoding = "2.1.0"
 regex = "1"
 ruma = { version = "0.5.0", features = ["client-api-c", "appservice-api-s"] }
 serde = "1"
