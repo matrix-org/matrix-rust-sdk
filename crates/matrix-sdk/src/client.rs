@@ -192,6 +192,7 @@ type RoomsCount = futures_signals::signal::Mutable<Option<u64>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
 type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, syncv3_events::Room>>;
 
+/// Holding a specific filtered view within the concept of sliding sync
 #[derive(Clone, Debug)]
 pub struct SlidingSyncView {
     client: Client,
@@ -217,6 +218,15 @@ impl SlidingSyncView {
             rooms_list: RoomsList::default(),
             rooms: RoomsMap::default(),
         }
+    }
+
+    /// Return the subset of rooms, starting at offset (default 0) returning count (or to the end) items
+    pub fn get_rooms(&self, offset: Option<usize>, count: Option<usize>) -> Vec<syncv3_events::Room> {
+        let start = offset.unwrap_or(0);
+        let rooms = self.rooms.lock_ref();
+        let listing = self.rooms_list.lock_ref();
+        let count = count.unwrap_or_else(|| listing.len() - start);
+        listing.iter().skip(start).filter_map(|id| rooms.get(id)).take(count).cloned().collect()
     }
 
     fn room_ops(&self, ops: Vec<Raw<syncv3_events::SyncOp>>) -> anyhow::Result<()> {

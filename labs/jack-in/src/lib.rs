@@ -43,7 +43,7 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
     pin_mut!(stream);
     {
         let mut app = app.lock().await;
-        app.state_mut().start_sliding();
+        app.state_mut().start_sliding(view.clone());
     }
     let first_poll = stream.next().await;
     if  !matches!(first_poll, Some(Ok(SlidingSyncState::CatchingUp))) {
@@ -55,7 +55,6 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
         let mut app = app.lock().await;
         let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
         sliding.set_first_render_now();
-        sliding.set_total_rooms_count(view.rooms_count.lock_ref().expect("we know this at that point") as u32);
     }
     warn!("Done initial sliding sync");
 
@@ -70,14 +69,7 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
                 warn!("Error: {:}", e);
                 break
             }
-            Some(_) => {
-                {
-                    let mut app = app.lock().await;
-                    let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
-                    sliding.set_loaded_rooms_count(view.rooms_list.lock_ref().len() as u32);
-                }
-
-            }
+            Some(_) => { }
             None => {
                 warn!("Never reached live state");
                 break;

@@ -1,5 +1,5 @@
 use std::time::{Instant, Duration};
-
+use matrix_sdk::{Client, SlidingSyncView};
 use log::warn;
 
 #[derive(Clone)]
@@ -41,6 +41,7 @@ impl Syncv2State {
 #[derive(Clone)]
 pub struct SlidingSyncState {
     started: Instant,
+    view: SlidingSyncView,
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
@@ -48,9 +49,10 @@ pub struct SlidingSyncState {
 }
 
 impl SlidingSyncState {
-    pub fn new() -> Self {
+    pub fn new(view: SlidingSyncView) -> Self {
         Self {
             started: Instant::now(),
+            view,
             first_render: None,
             full_sync: None,
             current_rooms_count: None,
@@ -70,29 +72,26 @@ impl SlidingSyncState {
         self.full_sync.clone()
     }
 
-    pub fn loaded_rooms_count(&self) -> Option<u32> {
-        self.current_rooms_count.clone()
+    pub fn loaded_rooms_count(&self) -> usize {
+        self.view.rooms.lock_ref().len()
     }
 
-    pub fn total_rooms_count(&self) -> Option<u32> {
-        self.total_rooms_count.clone()
+    pub fn total_rooms_count(&self) -> Option<u64> {
+        self.view.rooms_count.get()
     }
 
     pub fn set_first_render_now(&mut self) {
         self.first_render = Some(self.started.elapsed())
     }
 
+    pub fn view(&self) -> &SlidingSyncView {
+        &self.view
+    }
+
     pub fn set_full_sync_now(&mut self) {
         self.full_sync = Some(self.started.elapsed())
     }
 
-    pub fn set_loaded_rooms_count(&mut self, counter: u32) {
-        self.current_rooms_count = Some(counter)
-    }
-
-    pub fn set_total_rooms_count(&mut self, counter: u32) {
-        self.total_rooms_count = Some(counter)
-    }
 }
 #[derive(Clone)]
 pub enum AppState {
@@ -154,12 +153,12 @@ impl AppState {
         }
     }
 
-    pub fn start_sliding(&mut self) {
+    pub fn start_sliding(&mut self, view: SlidingSyncView) {
         if let Self::Initialized { sliding, .. } = self {
             if let Some(pre) = sliding {
                 warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
             }
-            *sliding = Some(SlidingSyncState::new());
+            *sliding = Some(SlidingSyncState::new(view));
         }
     }
 

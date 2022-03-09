@@ -126,15 +126,15 @@ fn calc_sliding<'a>(state: Option<&SlidingSyncState>) -> Vec<ListItem<'a>> {
                 paras.push(ListItem::new(format!("loaded {} rooms", count)));
             }
         } else {
-            if let Some(count) = state.loaded_rooms_count() {
-                paras.push(ListItem::new(format!("loaded {:} in {}s", count, state.started().elapsed().as_secs())));
-            } else {
-                paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
-            }
+            paras.push(ListItem::new(format!("loaded {:} in {}s", state.loaded_rooms_count(), state.started().elapsed().as_secs())));
         }
 
     } else {
         paras.push(ListItem::new(format!("loading for {}s", state.started().elapsed().as_secs())));
+    }
+
+    for r in state.view().get_rooms(None, None) {
+        paras.push(ListItem::new(format!("{} ({:?})", r.name.unwrap_or("unknown".to_string()), r.notification_count)));
     }
 
     return paras;
