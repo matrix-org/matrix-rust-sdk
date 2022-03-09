@@ -136,21 +136,20 @@ impl HttpClient {
         session: Arc<RwLock<Option<Session>>>,
         config: RequestConfig,
     ) -> Result<http::Request<Bytes>, HttpError> {
-        let read_guard;
-        let access_token = if config.force_auth {
-            read_guard = session.read().await;
-            if let Some(session) = read_guard.as_ref() {
-                SendAccessToken::Always(session.access_token.as_str())
+        let access_token;
+        let send_access_token = if config.force_auth {
+            if let Some(session) = session.read().await.as_ref() {
+                access_token = session.access_token.clone();
+                SendAccessToken::Always(access_token.as_str())
             } else {
                 SendAccessToken::None
             }
         } else {
             match Request::METADATA.authentication {
                 AuthScheme::AccessToken => {
-                    read_guard = session.read().await;
-
-                    if let Some(session) = read_guard.as_ref() {
-                        SendAccessToken::IfRequired(session.access_token.as_str())
+                    if let Some(session) = session.read().await.as_ref() {
+                        access_token = session.access_token.clone();
+                        SendAccessToken::IfRequired(access_token.as_str())
                     } else {
                         return Err(HttpError::AuthenticationRequired);
                     }
@@ -163,7 +162,7 @@ impl HttpClient {
         let http_request = request
             .try_into_http_request::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
-                access_token,
+                send_access_token,
                 // FIXME: Use versions reported by server
                 &[MatrixVersion::V1_0],
             )?
