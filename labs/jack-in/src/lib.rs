@@ -22,20 +22,7 @@ pub mod io;
 
 use matrix_sdk::{Client, SlidingSyncState};
 
-pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
-
-    let username = match client.account().get_display_name().await? {
-        Some(u) => u,
-        None => client.user_id().await.ok_or_else(||eyre!("Looks like you didn't login"))?.to_string()
-    };
-
-    let homeserver = client.homeserver().await;
-
-    {
-        let mut app = app.lock().await;
-        app.set_title(Some(format!("{} on {} via {}", username, homeserver, sliding_sync_proxy))).await;
-    }
-
+pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
 
     warn!("Starting sliding sync now");
     let mut view = client.sliding_sync();
@@ -83,7 +70,28 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
         let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
         sliding.set_full_sync_now();
     }
+    Ok(())
+}
 
+pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
+
+    let username = match client.account().get_display_name().await? {
+        Some(u) => u,
+        None => client.user_id().await.ok_or_else(||eyre!("Looks like you didn't login"))?.to_string()
+    };
+
+    let homeserver = client.homeserver().await;
+
+    {
+        let mut app = app.lock().await;
+        app.set_title(Some(format!("{} on {} via {}", username, homeserver, sliding_sync_proxy))).await;
+    }
+
+    run_sliding_sync(client, sliding_sync_proxy, app).await?;
+    Ok(())
+}
+
+pub async fn run_syncv2(client: Client,  app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
     {
         let mut app = app.lock().await;
         app.state_mut().start_v2();
