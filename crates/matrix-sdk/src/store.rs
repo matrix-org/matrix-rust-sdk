@@ -1,5 +1,4 @@
-// Copyright 2021 The Matrix.org Foundation C.I.C.
-//
+// Copyright 2022 Kévin Commaille
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -12,15 +11,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Configuration to change the behaviour of the [`Client`].
+//! Functions and types to initialize a store.
 //!
-//! [`Client`]: #crate.Client
+//! The re-exports present here depend on the store-related features that are
+//! enabled.
 
-mod client;
-mod request;
-mod sync;
-
-pub use client::ClientConfig;
-pub use matrix_sdk_base::store::StoreConfig;
-pub use request::RequestConfig;
-pub use sync::SyncSettings;
+#[cfg(feature = "indexeddb_stores")]
+pub use matrix_sdk_indexeddb::*;
+#[cfg(any(feature = "sled_state_store", feature = "sled_cryptostore"))]
+pub use matrix_sdk_sled::*;

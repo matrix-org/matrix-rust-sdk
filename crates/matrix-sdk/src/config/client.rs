@@ -20,9 +20,12 @@ use std::{
 };
 
 use http::header::InvalidHeaderValue;
-use matrix_sdk_base::{store::StoreConfig, BaseClientConfig, StateStore};
+use matrix_sdk_base::{BaseClientConfig, StateStore};
 
-use crate::{config::RequestConfig, HttpSend, Result};
+use crate::{
+    config::{RequestConfig, StoreConfig},
+    HttpSend, Result,
+};
 
 /// Configuration for the creation of the `Client`.
 ///
