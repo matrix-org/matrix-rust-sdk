@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures::{StreamExt, pin_mut};
 
 use app::{App, AppReturn};
-use eyre::{eyre, Result};
+use eyre::{eyre, WrapErr, Result};
 use inputs::events::Events;
 use inputs::InputEvent;
 use io::IoEvent;
@@ -38,8 +38,9 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, app: Arc<tok
 
 
     warn!("Starting sliding sync now");
-    let view = client.sliding_sync();
-    let stream = view.stream();
+    let mut view = client.sliding_sync();
+    view.set_homeserver(Some(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?));
+    let stream = view.stream().expect("we can build the stream");
     pin_mut!(stream);
     {
         let mut app = app.lock().await;

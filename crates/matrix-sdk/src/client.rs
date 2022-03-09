@@ -21,6 +21,7 @@ use std::{
     pin::Pin,
     result::Result as StdResult,
     sync::{Arc, RwLock as StdRwLock},
+    ops::Deref,
 };
 
 use anymap2::any::CloneAnySendSync;
@@ -67,6 +68,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
 use url::Url;
+use anyhow::bail;
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -169,8 +171,10 @@ use ruma::api::client::sync::syncv3_events;
 /// 
 /// If the client has been offline for a while, though, the SlidingSync might return
 /// back to `CatchingUp` at any point.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SlidingSyncState {
+    /// Hasn't started yet
+    Cold,
     /// We are quickly preloading a preview of the most important rooms
     Preload,
     /// We are trying to load all remaining rooms, might be in batches
@@ -181,7 +185,7 @@ pub enum SlidingSyncState {
 
 impl Default for SlidingSyncState {
     fn default() -> Self {
-        SlidingSyncState::Preload
+        SlidingSyncState::Cold
     }
 }
 
@@ -198,6 +202,7 @@ pub struct SlidingSyncView {
     client: Client,
     //filter: String,
     pos: PosState,
+    homeserver: Option<Url>,
     /// The state this view is in 
     pub state: ViewState,
     /// The total known number of rooms, 
@@ -212,6 +217,7 @@ impl SlidingSyncView {
     fn new(client: Client) -> Self {
         Self {
             client,
+            homeserver: None,
             pos: PosState::default(),
             state: ViewState::default(),
             rooms_count: RoomsCount::default(),
@@ -265,9 +271,23 @@ impl SlidingSyncView {
         Ok(())
 
     }
-    
-    /// get inner Stream
-    pub fn stream<'a>(&'a self) -> impl Stream<Item = anyhow::Result<SlidingSyncState>> + 'a {
+
+    /// Allows you to set a customised target homeserver to use for this features. This is deprecated and will be removed
+    /// as soon as the standard is adopted.
+    pub fn set_homeserver(&mut self, url: Option<Url>) {
+        self.homeserver = url;
+    }
+
+    /// Create the inne stream for the view
+    pub fn stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<SlidingSyncState>> + 'a> {
+        {
+            let mut state = self.state.lock_mut(); 
+            if *state.deref() != SlidingSyncState::Cold {
+                bail!("You can only create the stream once per view.");
+            }
+            *state = SlidingSyncState::Preload;
+        }
+
         // FIXME: these will come from the filter later
         let batch_size = 20u32;
         let sort = Some(vec!["by_recency".to_string(), "by_name".to_string()]);
@@ -276,7 +296,9 @@ impl SlidingSyncView {
         let filters = None;
 
         let mut inner_client = self.client.inner.http_client.clone();
-        inner_client.homeserver = Arc::new(RwLock::new("http://localhost:8008".parse().expect("hardcoded")));
+        if let Some(hs) = &self.homeserver {
+            inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
+        }
 
         let state = self.state.clone();
         let pos = self.pos.clone();
@@ -287,7 +309,7 @@ impl SlidingSyncView {
         let mut start = 0u32;
         let mut end = batch_size;
 
-        async_stream::try_stream! {
+        Ok(async_stream::try_stream! {
             loop {
                 let pos = self.pos.get_cloned();
                 let mut req = assign!(syncv3_events::Request::new(), {
@@ -355,7 +377,7 @@ impl SlidingSyncView {
                 yield SlidingSyncState::Live;
                 
             }
-        }
+        })
     }
 }
 
