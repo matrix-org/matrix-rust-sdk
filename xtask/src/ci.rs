@@ -36,6 +36,8 @@ enum CiCommand {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
     },
+    /// Run tests for the different crypto crate features
+    TestCrypto,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,6 +78,7 @@ impl CiArgs {
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
                 CiCommand::TestAppservice => run_appservice_tests(),
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
+                CiCommand::TestCrypto => run_crypto_tests(),
             },
             None => {
                 check_style()?;
@@ -86,6 +89,7 @@ impl CiArgs {
                 run_feature_tests(None)?;
                 run_appservice_tests()?;
                 run_wasm_checks(None)?;
+                run_crypto_tests()?;
 
                 Ok(())
             }
@@ -155,6 +159,16 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn run_crypto_tests() -> Result<()> {
+    cmd!(
+        "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
+    )
+    .run()?;
+    cmd!("rustup run stable cargo test -p matrix-sdk-crypto --features=backups_v1").run()?;
 
     Ok(())
 }
