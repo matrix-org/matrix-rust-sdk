@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(rustfmt, rustfmt_skip)]
 #![doc = include_str!("../docs/encryption.md")]
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 
@@ -22,12 +21,12 @@ pub mod verification;
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Read, Write},
-    path::PathBuf,
     iter,
+    path::PathBuf,
 };
 
 use futures_util::stream::{self, StreamExt};
-pub use matrix_sdk_base::crypto::{MediaEncryptionInfo, LocalTrust, RoomKeyImportResult};
+pub use matrix_sdk_base::crypto::{LocalTrust, MediaEncryptionInfo, RoomKeyImportResult};
 use matrix_sdk_base::{
     crypto::{
         store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
@@ -39,7 +38,9 @@ use matrix_sdk_common::instant::Duration;
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
-        keys::{get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest},
+        keys::{
+            get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest,
+        },
         message::send_message_event,
         to_device::send_event_to_device::v3::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
@@ -309,7 +310,9 @@ impl Client {
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
 
         let to_raw = |k| {
-            Raw::from_json(to_raw_value(&k).expect("Can't serialize newly created cross signing keys"))
+            Raw::from_json(
+                to_raw_value(&k).expect("Can't serialize newly created cross signing keys"),
+            )
         };
 
         let request = assign!(UploadSigningKeysRequest::new(), {
@@ -460,10 +463,7 @@ impl Client {
     /// Tries to decrypt a `AnyRoomEvent`. Returns undecrypted room event when
     /// decryption fails.
     #[cfg(feature = "encryption")]
-    pub(crate) async fn decrypt_room_event(
-        &self,
-        event: Raw<AnyRoomEvent>,
-    ) -> RoomEvent {
+    pub(crate) async fn decrypt_room_event(&self, event: Raw<AnyRoomEvent>) -> RoomEvent {
         if let Some(machine) = self.olm_machine().await {
             if let Ok(AnyRoomEvent::Message(event)) = event.deserialize() {
                 if let AnyMessageEvent::RoomEncrypted(_) = event {
@@ -515,34 +515,33 @@ impl Client {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail<'_, T>>,
     ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_file, thumbnail_info) =
-            if let Some(thumbnail) = thumbnail {
-                let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
+        let (thumbnail_file, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+            let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
 
-                let response = self.upload(thumbnail.content_type, &mut reader).await?;
+            let response = self.upload(thumbnail.content_type, &mut reader).await?;
 
-                let file: ruma::events::room::EncryptedFile = {
-                    let keys = reader.finish();
-                    ruma::events::room::EncryptedFileInit {
-                        url: response.content_uri,
-                        key: keys.web_key,
-                        iv: keys.iv,
-                        hashes: keys.hashes,
-                        v: keys.version,
-                    }
-                    .into()
-                };
-
-                use ruma::events::room::ThumbnailInfo;
-                let thumbnail_info = assign!(
-                    thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
-                    { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-                );
-
-                (Some(Box::new(file)), Some(Box::new(thumbnail_info)))
-            } else {
-                (None, None)
+            let file: ruma::events::room::EncryptedFile = {
+                let keys = reader.finish();
+                ruma::events::room::EncryptedFileInit {
+                    url: response.content_uri,
+                    key: keys.web_key,
+                    iv: keys.iv,
+                    hashes: keys.hashes,
+                    v: keys.version,
+                }
+                .into()
             };
+
+            use ruma::events::room::ThumbnailInfo;
+            let thumbnail_info = assign!(
+                thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
+                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
+            );
+
+            (Some(Box::new(file)), Some(Box::new(thumbnail_info)))
+        } else {
+            (None, None)
+        };
 
         let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
 
@@ -571,10 +570,10 @@ impl Client {
                         thumbnail_info
                     }
                 );
-                let content = assign!(
-                    message::ImageMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::ImageMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::Image(content)
             }
             mime::AUDIO => {
@@ -584,10 +583,10 @@ impl Client {
                         mimetype: Some(content_type.as_ref().to_owned()),
                     }
                 );
-                let content = assign!(
-                    message::AudioMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::AudioMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::Audio(content)
             }
             mime::VIDEO => {
@@ -599,10 +598,10 @@ impl Client {
                         thumbnail_info
                     }
                 );
-                let content = assign!(
-                    message::VideoMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::VideoMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::Video(content)
             }
             _ => {
@@ -614,10 +613,10 @@ impl Client {
                         thumbnail_info
                     }
                 );
-                let content = assign!(
-                    message::FileMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::FileMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::File(content)
             }
         })
@@ -642,7 +641,10 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    pub(crate) async fn create_dm_room(&self, user_id: Box<UserId>) -> Result<Option<room::Joined>> {
+    pub(crate) async fn create_dm_room(
+        &self,
+        user_id: Box<UserId>,
+    ) -> Result<Option<room::Joined>> {
         use ruma::{
             api::client::room::create_room::v3::RoomPreset,
             events::AnyGlobalAccountDataEventContent,

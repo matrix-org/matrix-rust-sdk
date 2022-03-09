@@ -89,7 +89,8 @@ impl SasVerification {
         Ok(())
     }
 
-    /// Cancel the interactive verification flow because the short auth strings didn't match on both sides.
+    /// Cancel the interactive verification flow because the short auth strings
+    /// didn't match on both sides.
     pub async fn mismatch(&self) -> Result<()> {
         if let Some(request) = self.inner.cancel_with_code(CancelCode::MismatchedSas) {
             self.client.send_verification_request(request).await?;
