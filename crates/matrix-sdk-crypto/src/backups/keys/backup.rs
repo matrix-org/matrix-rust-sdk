@@ -20,6 +20,7 @@ use std::{
 use olm_rs::pk::OlmPkEncryption;
 use ruma::{
     api::client::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
+    serde::Base64,
     DeviceKeyId, UserId,
 };
 use zeroize::Zeroizing;
@@ -127,9 +128,11 @@ impl MegolmV1BackupKey {
         let message = pk.encrypt(&key);
 
         let session_data = SessionDataInit {
-            ephemeral: message.ephemeral_key,
-            ciphertext: message.ciphertext,
-            mac: message.mac,
+            ephemeral: Base64::parse(message.ephemeral_key)
+                .expect("Can't decode the base64 encoded ephemeral backup key"),
+            ciphertext: Base64::parse(message.ciphertext)
+                .expect("Can't decode a base64 encoded libolm ciphertext"),
+            mac: Base64::parse(message.mac).expect("Can't decode a base64 encoded MAC"),
         }
         .into();
 

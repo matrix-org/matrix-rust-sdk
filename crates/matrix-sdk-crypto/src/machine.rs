@@ -376,7 +376,7 @@ impl OlmMachine {
             }
             IncomingResponse::KeysBackup(_) => {
                 #[cfg(feature = "backups_v1")]
-                self.backup_machine.mark_request_as_sent(*request_id).await?;
+                self.backup_machine.mark_request_as_sent(request_id).await?;
             }
         };
 

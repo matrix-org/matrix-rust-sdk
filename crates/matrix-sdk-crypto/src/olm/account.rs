@@ -696,6 +696,7 @@ impl ReadOnlyAccount {
         self.inner.lock().await.sign(string)
     }
 
+    /// Check that the given json value is signed by this account.
     #[cfg(feature = "backups_v1")]
     pub fn is_signed(&self, json: &mut Value) -> Result<(), SignatureError> {
         let signing_key = self.identity_keys.ed25519();
