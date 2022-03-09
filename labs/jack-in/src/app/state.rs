@@ -1,6 +1,6 @@
 use std::time::{Instant, Duration};
 use matrix_sdk::{Client, SlidingSyncView};
-use tui::widgets::ListState;
+use tui::widgets::TableState;
 use log::warn;
 
 #[derive(Clone)]
@@ -44,7 +44,7 @@ pub struct SlidingSyncState {
     started: Instant,
     view: SlidingSyncView,
     /// the current list selector for the room
-    pub rooms_state: ListState,
+    pub rooms_state: TableState,
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
@@ -56,7 +56,7 @@ impl SlidingSyncState {
         Self {
             started: Instant::now(),
             view,
-            rooms_state: ListState::default(),
+            rooms_state: TableState::default(),
             first_render: None,
             full_sync: None,
             current_rooms_count: None,

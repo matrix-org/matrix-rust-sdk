@@ -5,7 +5,7 @@ use tui::backend::Backend;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, BorderType, Borders, Cell, LineGauge, Paragraph, Row, Tabs, List, ListItem, Table};
+use tui::widgets::{Block, BorderType, Borders, Cell, LineGauge, Paragraph, Table, Row, Tabs, List, ListItem};
 use tui::{symbols, Frame};
 use tui_logger::TuiLoggerWidget;
 
@@ -24,6 +24,7 @@ where
 
     let mut areas = vec![
         Constraint::Length(3),   // header
+        Constraint::Length(2),   // help
         Constraint::Min(10),     // body
         Constraint::Length(3),   // body-footer
     ];
@@ -32,10 +33,6 @@ where
             Constraint::Length(12),  // logs 
         );
     }
-
-    areas.push(
-        Constraint::Length(3),   // footer
-    );
 
     // Vertical layout
     let chunks = Layout::default()
@@ -47,14 +44,18 @@ where
     let title = draw_title(app.title());
     rect.render_widget(title, chunks[0]);
 
+    // help
+    let footer = draw_help(app.actions());
+    rect.render_widget(footer, chunks[1]);
+
     // Body
     let body_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)].as_ref())
-        .split(chunks[1]);
+        .constraints([Constraint::Length(35), Constraint::Min(23)].as_ref())
+        .split(chunks[2]);
 
     let sliding = app.state().get_sliding();
-    let rooms = draw_sliding(sliding);
+    let rooms = draw_rooms(sliding);
     if let Some(sliding) = app.state().get_sliding() {
         rect.render_stateful_widget(rooms, body_chunks[0], &mut sliding.rooms_state.clone());
     } else {
@@ -64,37 +65,23 @@ where
     let bodyv2 = draw_v2(app.state().get_v2());
     rect.render_widget(bodyv2, body_chunks[1]);
 
-    // Body
-    let body_footer_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)].as_ref())
-        .split(chunks[2]);
+    let v3_footer = draw_status(app.state().get_sliding());
+    rect.render_widget(v3_footer, chunks[3]);
 
-
-    let v3_footer = draw_sliding_footer(app.state().get_sliding());
-    rect.render_widget(v3_footer, body_footer_chunks[0]);
-
-
-    let footer_num = if show_logs {
+    if show_logs {
         // Logs
         let logs = draw_logs();
-        rect.render_widget(logs, chunks[3]);
-        4
-    } else { 3 };
-
-    // Footer
-    let footer = draw_footer(app.actions());
-    rect.render_widget(footer, chunks[footer_num]);
-
+        rect.render_widget(logs, chunks[4]);
+    };
 }
 
 fn draw_title<'a>(title: Option<String>) -> Paragraph<'a> {
     Paragraph::new(title.map(|n| format!("Sliding Sync for: {}", n)).unwrap_or_else(||"loading...".to_owned()))
-        .style(Style::default().fg(Color::LightCyan))
+        .style(Style::default().fg(Color::Green))
         .alignment(Alignment::Center)
         .block(
             Block::default()
-                .borders(Borders::ALL)
+                .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
                 .style(Style::default().fg(Color::White))
                 .border_type(BorderType::Plain),
         )
@@ -125,22 +112,23 @@ fn calc_v2<'a>(state: Option<&Syncv2State>) -> Vec<ListItem<'a>> {
 }
 
 
-fn draw_sliding<'a>(state: Option<&SlidingSyncState>) -> List<'a> {
-    List::new(calc_sliding(state))
+fn draw_rooms<'a>(state: Option<&SlidingSyncState>) -> Table<'a> {
+    Table::new(calc_sliding(state))
     .style(Style::default().fg(Color::White))
     .highlight_style(Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC))
     .highlight_symbol(">>")
+    .widths(&[Constraint::Min(30), Constraint::Max(4)])
     .block(
         Block::default()
             .title(" Rooms ")
-            .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+            .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain)
             
     )
 }
 
-fn draw_sliding_footer<'a>(state: Option<&SlidingSyncState>) -> Tabs<'a> {
+fn draw_status<'a>(state: Option<&SlidingSyncState>) -> Tabs<'a> {
     let tabs = if let Some(state) = state {
         let mut tabs = vec![];
         if let Some(dur) = state.time_to_first_render() {
@@ -167,24 +155,34 @@ fn draw_sliding_footer<'a>(state: Option<&SlidingSyncState>) -> Tabs<'a> {
     .style(Style::default().fg(Color::LightCyan))
     .block(
         Block::default()
-            .title(" Status ")
-            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+            .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),
     )
 }
 
 
-fn calc_sliding<'a>(state: Option<&SlidingSyncState>) -> Vec<ListItem<'a>> {
+fn calc_sliding<'a>(state: Option<&SlidingSyncState>) -> Vec<Row<'a>> {
     if state.is_none() {
-        return vec![ListItem::new("Sliding sync hasn't started yet")]
+        return vec![
+            Row::new(vec![Cell::from("Sliding sync hasn't started yet")])
+            ]
     }
 
     let state = state.expect("We've tested before");
     let mut paras = vec![];
 
     for r in state.view().get_rooms(None, None) {
-        paras.push(ListItem::new(format!("{} ({:?})", r.name.unwrap_or("unknown".to_string()), r.notification_count)));
+        let mut cells = vec![
+            Cell::from(r.name.unwrap_or("unknown".to_string()))
+        ];
+        if let Some(c) = r.notification_count {
+            let count: u32 = c.try_into().unwrap_or_default();
+            if count > 0 {
+                cells.push(Cell::from(c.to_string()))
+            }
+        } 
+        paras.push(Row::new(cells));
     }
 
     return paras;
@@ -204,7 +202,7 @@ fn draw_v2<'a>(state: Option<&Syncv2State>) -> List<'a> {
     )
 }
 
-fn draw_footer<'a>(actions: &Actions) -> Tabs<'a> {
+fn draw_help<'a>(actions: &Actions) -> Tabs<'a> {
     Tabs::new(actions.actions().iter().map(|a| {
         Spans::from(
             format!("{}: {}",
@@ -212,11 +210,11 @@ fn draw_footer<'a>(actions: &Actions) -> Tabs<'a> {
                 a.to_string()
         ))
     }).collect())
-    .style(Style::default().fg(Color::LightCyan))
+    .style(Style::default().fg(Color::LightGreen))
     .block(
         Block::default()
             // .title("Body")
-            .borders(Borders::ALL)
+            .borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),
     )
