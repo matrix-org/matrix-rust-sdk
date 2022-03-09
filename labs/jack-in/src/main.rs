@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
     tui_logger::set_default_level(log::LevelFilter::Warn);
     tui_logger::set_level_for_target("matrix_sdk::client", log::LevelFilter::Warn);
 
-    let (sync_io_tx, mut sync_io_rx) = tokio::sync::mpsc::channel::<IoEvent>(100);
+    let (sync_io_tx, mut sync_io_rx) = tokio::sync::mpsc::channel::<IoEvent>(10);
 
     // We need to share the App between thread
     let app = Arc::new(tokio::sync::Mutex::new(App::new(sync_io_tx.clone())));

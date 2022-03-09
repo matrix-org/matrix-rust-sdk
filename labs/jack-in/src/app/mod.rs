@@ -47,6 +47,10 @@ impl App {
             debug!("Run action [{:?}]", action);
             match action {
                 Action::Quit => AppReturn::Exit,
+                Action::ToggleLogs => {
+                    self.state.toggle_show_logs();
+                    AppReturn::Continue
+                }
                 _ => {
                     AppReturn::Continue
                 }
@@ -93,7 +97,7 @@ impl App {
         // Update contextual actions
         self.actions = vec![
             Action::Quit,
-            Action::Sleep,
+            Action::ToggleLogs,
         ]
         .into();
         self.state = AppState::initialized()

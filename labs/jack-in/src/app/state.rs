@@ -100,6 +100,7 @@ pub enum AppState {
         title: Option<String>,
         v2: Option<Syncv2State>,
         sliding: Option<SlidingSyncState>,
+        show_logs: bool
     },
 }
 
@@ -109,6 +110,7 @@ impl AppState {
             title: None,
             v2: None,
             sliding: None,
+            show_logs: true
         }
     }
 
@@ -166,6 +168,18 @@ impl AppState {
         matches!(self, &Self::Initialized { .. })
     }
 
+    pub fn show_logs(&self) -> bool {
+        if let Self::Initialized { show_logs, .. } = self {
+            *show_logs
+        } else {
+            true
+        }
+    }
+    pub fn toggle_show_logs(&mut self) {
+        if let Self::Initialized { show_logs, .. } = self {
+            *show_logs = !*show_logs
+        }
+    }
     pub fn set_title(&mut self, new_title: Option<String>) {
         if let Self::Initialized { title, .. } = self {
             *title = new_title;
