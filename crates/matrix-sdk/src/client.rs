@@ -203,6 +203,9 @@ pub struct SlidingSyncView {
     //filter: String,
     pos: PosState,
     homeserver: Option<Url>,
+    /// number of items to fetch per batch, ideally the length of your list + 1
+    /// can only be set prior to calling `stream`, changes after have no effect
+    pub batch_size: u32,
     /// The state this view is in 
     pub state: ViewState,
     /// The total known number of rooms, 
@@ -218,6 +221,7 @@ impl SlidingSyncView {
         Self {
             client,
             homeserver: None,
+            batch_size: 20,
             pos: PosState::default(),
             state: ViewState::default(),
             rooms_count: RoomsCount::default(),
@@ -289,9 +293,14 @@ impl SlidingSyncView {
         }
 
         // FIXME: these will come from the filter later
-        let batch_size = 20u32;
+        let batch_size = self.batch_size.clone();
         let sort = Some(vec!["by_recency".to_string(), "by_name".to_string()]);
-        let required_state = Some(vec![(EventType::RoomAvatar, "".to_string()), (EventType::RoomTombstone, "".to_string())]);
+        let required_state = Some(vec![
+                (EventType::RoomAvatar, "".to_string()),
+                (EventType::RoomMember, "*".to_string()),
+                (EventType::RoomEncryption, "".to_string()),
+                (EventType::RoomTombstone, "".to_string())
+            ]);
         let timeline_limit = None;
         let filters = None;
 
