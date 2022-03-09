@@ -1,5 +1,6 @@
-#[cfg(feature = "encryption")]
 use std::path::Path;
+
+use matrix_sdk_base::store::StoreConfig;
 
 #[cfg(feature = "encryption")]
 mod cryptostore;
@@ -25,4 +26,34 @@ pub fn open_stores_with_path(
         let crypto_store = state_store.get_crypto_store(None)?;
         Ok((Box::new(state_store), Box::new(crypto_store)))
     }
+}
+
+/// Create a [`StoreConfig`] with an opened sled [`StateStore`] that uses the
+/// given path and passphrase. If `encryption` is enabled, a [`CryptoStore`]
+/// with the same parameters is also opened.
+pub fn make_config(
+    path: impl AsRef<Path>,
+    passphrase: Option<&str>,
+) -> Result<StoreConfig, anyhow::Error> {
+    let mut config = StoreConfig::new();
+
+    #[cfg(feature = "encryption")]
+    {
+        let (state_store, crypto_store) = open_stores_with_path(path, passphrase)?;
+        config = config.state_store(state_store);
+        config = config.crypto_store(crypto_store);
+    }
+
+    #[cfg(not(feature = "encryption"))]
+    {
+        let state_store = if let Some(passphrase) = passphrase {
+            StateStore::open_with_passphrase(path, passphrase)?
+        } else {
+            StateStore::open_with_path(path)?
+        };
+
+        config = config.state_store(Box::new(state_store));
+    }
+
+    Ok(config)
 }
