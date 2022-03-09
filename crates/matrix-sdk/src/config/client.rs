@@ -37,7 +37,7 @@ use crate::{config::RequestConfig, HttpSend, Result};
 /// // verification
 ///
 /// # futures::executor::block_on(async {
-/// let client_config = ClientConfig::new().await?
+/// let client_config = ClientConfig::new()
 ///     .proxy("http://localhost:8080")?
 ///     .disable_ssl_verification();
 /// # matrix_sdk::Result::<()>::Ok(())
@@ -61,7 +61,7 @@ use crate::{config::RequestConfig, HttpSend, Result};
 ///     .user_agent("MyApp/v3.0");
 ///
 /// # futures::executor::block_on(async {
-/// let client_config = ClientConfig::new().await?
+/// let client_config = ClientConfig::new()
 ///     .client(Arc::new(builder.build()?));
 /// # matrix_sdk::Result::<()>::Ok(())
 /// # });
@@ -94,89 +94,10 @@ impl Debug for ClientConfig {
     }
 }
 
-#[cfg(feature = "sled_state_store")]
-mod store_helpers {
-    use matrix_sdk_sled::StateStore;
-
-    use super::Result;
-
-    /// Build the sled Store with the default settings - as a temporary storage
-    pub async fn default_store() -> Result<Box<StateStore>> {
-        Ok(Box::new(StateStore::open()?))
-    }
-
-    /// Build a sled store at `name` (being a relative or full path), and open
-    /// the store with the given passphrase (if given) for encryption
-    pub async fn default_store_with_name(
-        name: &str,
-        passphrase: Option<&str>,
-    ) -> Result<Box<StateStore>> {
-        Ok(Box::new(match passphrase {
-            Some(pass) => StateStore::open_with_passphrase(name, pass)?,
-            _ => StateStore::open_with_path(&name)?,
-        }))
-    }
-}
-
-#[cfg(feature = "indexeddb_stores")]
-mod store_helpers {
-    use matrix_sdk_indexeddb::StateStore;
-
-    use super::Result;
-
-    /// Open the IndexedDB store with the default name, unencrypted
-    pub async fn default_store() -> Result<Box<StateStore>> {
-        Ok(Box::new(StateStore::open().await?))
-    }
-
-    /// Open the indexeddb store at `name` (IndexedDB Database name), and open
-    /// the store with the given passphrase (if given) for encryption
-    pub async fn default_store_with_name(
-        name: &str,
-        passphrase: Option<&str>,
-    ) -> Result<Box<StateStore>> {
-        Ok(Box::new(match passphrase {
-            Some(pass) => StateStore::open_with_passphrase(name.to_owned(), pass).await?,
-            _ => StateStore::open_with_name(name.to_owned()).await?,
-        }))
-    }
-}
-
-#[cfg(not(any(feature = "indexeddb_stores", feature = "sled_state_store")))]
-mod store_helpers {
-    use matrix_sdk_base::store::MemoryStore as StateStore;
-
-    use super::Result;
-    /// Open a new in-memory StateStore
-    pub async fn default_store() -> Result<Box<StateStore>> {
-        Ok(Box::new(StateStore::new()))
-    }
-
-    /// Alias for `default_store` - in Memory Stores are never named
-    pub async fn default_store_with_name(
-        _name: &str,
-        _passphrase: Option<&str>,
-    ) -> Result<Box<StateStore>> {
-        Ok(Box::new(StateStore::new()))
-    }
-}
-
-pub use store_helpers::{default_store, default_store_with_name};
-
 impl ClientConfig {
     /// Create a new default `ClientConfig`.
-    pub async fn new() -> Result<Self> {
-        let mut d = Self::default();
-        d.base_config = d.base_config.state_store(default_store().await?);
-        Ok(d)
-    }
-
-    /// Create a new ClientConfig with a named state store, encrypted with the
-    /// given passphrase (if any)
-    pub async fn with_named_store(name: &str, passphrase: Option<&str>) -> Result<Self> {
-        let mut d = Self::default();
-        d.base_config = d.base_config.state_store(default_store_with_name(name, passphrase).await?);
-        Ok(d)
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Set the proxy through which all the HTTP requests should go.
@@ -193,7 +114,7 @@ impl ClientConfig {
     /// # futures::executor::block_on(async {
     /// use matrix_sdk::{Client, config::ClientConfig};
     ///
-    /// let client_config = ClientConfig::new().await?
+    /// let client_config = ClientConfig::new()
     ///     .proxy("http://localhost:8080")?;
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(())

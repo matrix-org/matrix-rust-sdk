@@ -45,12 +45,22 @@ async fn login_and_sync(
     username: &str,
     password: &str,
 ) -> Result<(), matrix_sdk::Error> {
-    let mut home = dirs::home_dir().expect("no home directory found");
-    home.push("autojoin_bot");
+    let mut client_config = ClientConfig::new();
 
-    let client_config =
-        ClientConfig::with_named_store(home.to_str().expect("home dir path must be utf-8"), None)
-            .await?;
+    #[cfg(feature = "sled_state_store")]
+    {
+        // The location to save files to
+        let mut home = dirs::home_dir().expect("no home directory found");
+        home.push("autojoin_bot");
+        let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
+        client_config = client_config.state_store(Box::new(state_store));
+    }
+
+    #[cfg(feature = "indexeddb_stores")]
+    {
+        let state_store = matrix_sdk_indexeddb::StateStore::open();
+        client_config = client_config.state_store(Box::new(state_store));
+    }
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new_with_config(homeserver_url, client_config).await.unwrap();

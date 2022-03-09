@@ -162,7 +162,7 @@ impl Client {
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
     pub async fn new(homeserver_url: Url) -> Result<Self> {
-        let config = ClientConfig::new().await?;
+        let config = ClientConfig::new();
         Client::new_with_config(homeserver_url, config).await
     }
 
@@ -241,7 +241,7 @@ impl Client {
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
     pub async fn new_from_user_id(user_id: &UserId) -> Result<Self> {
-        let config = ClientConfig::new().await?;
+        let config = ClientConfig::new();
         Client::new_from_user_id_with_config(user_id, config).await
     }
 
@@ -2385,8 +2385,7 @@ pub(crate) mod test {
             device_id: device_id!("DEVICEID").to_owned(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let config =
-            ClientConfig::new().await.unwrap().request_config(RequestConfig::new().disable_retry());
+        let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
         let client = Client::new_with_config(homeserver, config).await.unwrap();
         client.restore_login(session).await.unwrap();
 
@@ -2484,7 +2483,7 @@ pub(crate) mod test {
     #[async_test]
     async fn login_with_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new().await.unwrap().use_discovery_response();
+        let config = ClientConfig::new().use_discovery_response();
 
         let client = Client::new_with_config(homeserver, config).await.unwrap();
 
@@ -2504,7 +2503,7 @@ pub(crate) mod test {
     #[async_test]
     async fn login_no_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new().await.unwrap().use_discovery_response();
+        let config = ClientConfig::new().use_discovery_response();
 
         let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
 
@@ -2633,12 +2632,8 @@ pub(crate) mod test {
         let room = client.get_joined_room(room_id);
         assert!(room.is_some());
 
-        // test store reloads with correct room state from the sled store
-        let path = tempfile::tempdir().unwrap();
-        let config = ClientConfig::with_named_store(path.into_path().to_str().unwrap(), None)
-            .await
-            .unwrap()
-            .request_config(RequestConfig::new().disable_retry());
+        // test store reloads with correct room state from the state store
+        let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
         let joined_client = Client::new_with_config(homeserver, config).await.unwrap();
         joined_client.restore_login(session).await.unwrap();
 
