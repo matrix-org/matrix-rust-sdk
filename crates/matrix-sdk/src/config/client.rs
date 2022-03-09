@@ -103,7 +103,33 @@ impl ClientConfig {
         Self::default()
     }
 
-    /// Create a new `ClientConfig` with the given `StoreConfig`.
+    /// Create a new `ClientConfig` with the given [`StoreConfig`].
+    ///
+    /// The easiest way to get a [`StoreConfig`] is to use the [`make_config`]
+    /// method from the [`store`] module or directly from one of the store
+    /// crates.
+    ///
+    /// # Arguments
+    ///
+    /// * `store_config` - The configuration of the store.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # futures::executor::block_on(async {
+    /// # use matrix_sdk_base::store::MemoryStore;
+    /// # let custom_state_store = Box::new(MemoryStore::new());
+    /// use matrix_sdk::{Client, config::{ClientConfig, StoreConfig}};
+    ///
+    /// let store_config = StoreConfig::new().state_store(custom_state_store);
+    /// let client_config = ClientConfig::with_store_config(store_config)
+    ///     .use_discovery_response();
+    ///
+    /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # });
+    /// ```
+    /// [`make_config`]: crate::store::make_config
+    /// [`store`]: crate::store
     pub fn with_store_config(store_config: StoreConfig) -> Self {
         Self {
             base_config: BaseClientConfig::with_store_config(store_config),

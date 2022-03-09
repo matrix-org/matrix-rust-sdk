@@ -14,7 +14,20 @@
 //! Functions and types to initialize a store.
 //!
 //! The re-exports present here depend on the store-related features that are
-//! enabled.
+//! enabled:
+//!
+//! 1. `sled_state_store` provides a `StateStore`, while
+//! `sled_cryptostore` provides also a `CryptoStore` for encryption data. This
+//! is the default persistent store implementation for non-WebAssembly.
+//! 2. `indexeddb_store` provides both a `StateStore` and a `CryptoStore` if
+//! `encryption` is also enabled. This is the default persistent store
+//! implementation for WebAssembly.
+//!
+//! Both options provide a `make_config` convenience method to create a
+//! [`StoreConfig`] for [`ClientConfig::with_store_config()`].
+//!
+//! [`StoreConfig`]: crate::config::StoreConfig
+//! [`ClientConfig::with_store_config()`]: crate::config::ClientConfig::with_store_config()
 
 #[cfg(feature = "indexeddb_stores")]
 pub use matrix_sdk_indexeddb::*;
