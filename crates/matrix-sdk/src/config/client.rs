@@ -20,7 +20,7 @@ use std::{
 };
 
 use http::header::InvalidHeaderValue;
-use matrix_sdk_base::{BaseClientConfig, StateStore};
+use matrix_sdk_base::{store::StoreConfig, BaseClientConfig, StateStore};
 
 use crate::{config::RequestConfig, HttpSend, Result};
 
@@ -98,6 +98,14 @@ impl ClientConfig {
     /// Create a new default `ClientConfig`.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new `ClientConfig` with the given `StoreConfig`.
+    pub fn with_store_config(store_config: StoreConfig) -> Self {
+        Self {
+            base_config: BaseClientConfig::with_store_config(store_config),
+            ..Default::default()
+        }
     }
 
     /// Set the proxy through which all the HTTP requests should go.

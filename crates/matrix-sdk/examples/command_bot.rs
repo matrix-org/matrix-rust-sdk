@@ -37,6 +37,9 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> Result<(), matrix_sdk::Error> {
+    #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_stores")))]
+    let client_config = ClientConfig::new();
+    #[cfg(any(feature = "sled_state_store", feature = "indexeddb_stores"))]
     let mut client_config = ClientConfig::new();
 
     #[cfg(feature = "sled_state_store")]

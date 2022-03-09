@@ -24,6 +24,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
     pin::Pin,
+    result::Result as StdResult,
     sync::Arc,
 };
 
@@ -33,6 +34,8 @@ pub mod integration_tests;
 
 use dashmap::DashMap;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
+#[cfg(feature = "encryption")]
+use matrix_sdk_crypto::store::CryptoStore;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
@@ -604,5 +607,52 @@ impl StateChanges {
     /// `TimelineSlice`.
     pub fn add_timeline(&mut self, room_id: &RoomId, timeline: TimelineSlice) {
         self.timeline.insert(room_id.to_owned(), timeline);
+    }
+}
+
+/// Configuration for the state store and, when `encryption` is enabled, for the
+/// crypto store.
+///
+/// # Example
+///
+/// ```
+/// # use matrix_sdk_base::store::StoreConfig;
+///
+/// let store_config = StoreConfig::new();
+/// ```
+#[derive(Default)]
+pub struct StoreConfig {
+    #[cfg(feature = "encryption")]
+    pub(crate) crypto_store: Option<Box<dyn CryptoStore>>,
+    pub(crate) state_store: Option<Box<dyn StateStore>>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for StoreConfig {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        fmt.debug_struct("StoreConfig").finish()
+    }
+}
+
+impl StoreConfig {
+    /// Create a new default `StoreConfig`.
+    #[must_use]
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set a custom implementation of a `CryptoStore`.
+    ///
+    /// The crypto store should be opened before being set.
+    #[cfg(feature = "encryption")]
+    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
+        self.crypto_store = Some(store);
+        self
+    }
+
+    /// Set a custom implementation of a `StateStore`.
+    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+        self.state_store = Some(store);
+        self
     }
 }

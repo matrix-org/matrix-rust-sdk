@@ -70,6 +70,7 @@ use crate::{
     session::Session,
     store::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStore, Store,
+        StoreConfig,
     },
 };
 
@@ -113,9 +114,7 @@ impl fmt::Debug for BaseClient {
 /// ```
 #[derive(Default)]
 pub struct BaseClientConfig {
-    #[cfg(feature = "encryption")]
-    crypto_store: Option<Box<dyn CryptoStore>>,
-    state_store: Option<Box<dyn StateStore>>,
+    store_config: StoreConfig,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -132,18 +131,30 @@ impl BaseClientConfig {
         Default::default()
     }
 
+    /// Create a new `BaseClientConfig` with the given `StoreConfig`.
+    #[must_use]
+    pub fn with_store_config(store_config: StoreConfig) -> Self {
+        Self { store_config }
+    }
+
+    /// Get the `StoreConfig` used by this `BaseClientConfig`.
+    #[cfg(feature = "encryption")]
+    pub fn get_store_config(&self) -> &StoreConfig {
+        &self.store_config
+    }
+
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store should be opened before being set.
     #[cfg(feature = "encryption")]
     pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
-        self.crypto_store = Some(store);
+        self.store_config = self.store_config.crypto_store(store);
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
     pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-        self.state_store = Some(store);
+        self.store_config = self.store_config.state_store(store);
         self
     }
 }
@@ -200,9 +211,13 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
+        let store = config
+            .store_config
+            .state_store
+            .map(Store::new)
+            .unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "encryption")]
-        let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
+        let holder = config.store_config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 
         Ok(BaseClient {
             session: store.session.clone(),
