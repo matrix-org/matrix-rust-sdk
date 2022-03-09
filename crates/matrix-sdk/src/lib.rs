@@ -14,7 +14,7 @@
 // limitations under the License.
 
 #![doc = include_str!("../README.md")]
-#![deny(missing_debug_implementations, missing_docs, dead_code)]
+#![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(not(any(feature = "native-tls", feature = "rustls-tls",)))]

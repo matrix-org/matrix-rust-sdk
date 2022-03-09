@@ -14,7 +14,7 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-#![deny(missing_debug_implementations, dead_code, missing_docs)]
+#![warn(missing_debug_implementations, missing_docs)]
 
 mod error;
 mod types;

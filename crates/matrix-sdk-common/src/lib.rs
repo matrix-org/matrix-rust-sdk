@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-#![deny(missing_debug_implementations)]
+#![warn(missing_debug_implementations)]
 
 pub use async_trait::async_trait;
 pub use instant;

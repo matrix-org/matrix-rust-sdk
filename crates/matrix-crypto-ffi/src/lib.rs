@@ -1,4 +1,4 @@
-#![deny(dead_code, missing_docs)]
+#![warn(missing_docs)]
 
 //! Uniffi based bindings for the `matrix-sdk-crypto` crate.
 //!
