@@ -59,6 +59,10 @@ impl App {
                     self.state.get_sliding_mut().map(|s| s.next_room());
                     AppReturn::Continue
                 }
+                Action::SelectRoom => {
+                    self.state.get_sliding_mut().map(|s| s.select_room());
+                    AppReturn::Continue
+                }
                 _ => {
                     AppReturn::Continue
                 }
@@ -108,6 +112,7 @@ impl App {
             Action::ToggleLogs,
             Action::PrevRoom,
             Action::NextRoom,
+            Action::SelectRoom,
         ]
         .into();
         self.state = AppState::initialized()

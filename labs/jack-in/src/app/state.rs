@@ -49,6 +49,7 @@ pub struct SlidingSyncState {
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
     total_rooms_count: Option<u32>,
+    selected_room: Option<Box<matrix_sdk::ruma::RoomId>>
 }
 
 impl SlidingSyncState {
@@ -59,6 +60,7 @@ impl SlidingSyncState {
             rooms_state: TableState::default(),
             first_render: None,
             full_sync: None,
+            selected_room: None,
             current_rooms_count: None,
             total_rooms_count: None,
         }
@@ -82,6 +84,9 @@ impl SlidingSyncState {
 
     pub fn total_rooms_count(&self) -> Option<u64> {
         self.view.rooms_count.get()
+    }
+    pub fn selected_room(&self) -> Option<Box<matrix_sdk::ruma::RoomId>> {
+        self.selected_room.clone()
     }
 
     pub fn set_first_render_now(&mut self) {
@@ -126,6 +131,21 @@ impl SlidingSyncState {
 
     pub fn unselect_room(&mut self) {
         self.rooms_state.select(None);
+    }
+
+    pub fn select_room(&mut self) {
+        let next_id = if let Some(idx) = self.rooms_state.selected() {
+            if let Some(r) = self.view.rooms_list.lock_ref().get(idx) {
+                Some(r.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
+
+        self.selected_room = next_id;
     }
 }
 #[derive(Clone)]

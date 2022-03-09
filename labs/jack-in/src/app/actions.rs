@@ -11,16 +11,18 @@ pub enum Action {
     ToggleLogs,
     PrevRoom,
     NextRoom,
+    SelectRoom,
 }
 
 impl Action {
     /// All available actions
     pub fn iterator() -> Iter<'static, Action> {
-        static ACTIONS: [Action; 4] = [
+        static ACTIONS: [Action; 5] = [
             Action::Quit,
             Action::ToggleLogs,
             Action::PrevRoom,
             Action::NextRoom,
+            Action::SelectRoom,
         ];
         ACTIONS.iter()
     }
@@ -32,6 +34,7 @@ impl Action {
             Action::ToggleLogs => &[Key::Char('l')],
             Action::PrevRoom => &[Key::Up],
             Action::NextRoom => &[Key::Down],
+            Action::SelectRoom => &[Key::Enter, Key::Right],
         }
     }
 }
@@ -44,6 +47,7 @@ impl Display for Action {
             Action::ToggleLogs => "Toggle Logs",
             Action::PrevRoom => "Prev Room",
             Action::NextRoom => "Next Room",
+            Action::SelectRoom => "Select Room",
         };
         write!(f, "{}", str)
     }

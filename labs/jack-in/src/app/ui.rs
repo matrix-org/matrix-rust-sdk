@@ -62,8 +62,8 @@ where
         rect.render_widget(rooms, body_chunks[0]);
     }
 
-    let bodyv2 = draw_v2(app.state().get_v2());
-    rect.render_widget(bodyv2, body_chunks[1]);
+    let body_details = draw_details(sliding);
+    rect.render_widget(body_details, body_chunks[1]);
 
     let v3_footer = draw_status(app.state().get_sliding());
     rect.render_widget(v3_footer, chunks[3]);
@@ -189,6 +189,33 @@ fn calc_sliding<'a>(state: Option<&SlidingSyncState>) -> Vec<Row<'a>> {
 
 }
 
+
+fn draw_details<'a>(state: Option<&SlidingSyncState>) -> Table<'a> {
+    let selected_room = if let Some(r) = state.and_then(|s|
+        s.selected_room().as_ref().and_then(|id| {
+            let l = s.view().rooms.lock_ref();
+            l.get(id).cloned()
+        }))
+    {
+        r
+    } else {
+        return Table::new(vec![
+            Row::new(vec![Cell::from("Choose a room with up/down and press <enter> to select")])
+        ])
+    };
+
+    let name = selected_room.name.clone().unwrap_or_else(|| "unkown".to_owned());
+
+    Table::new(vec![])
+    .style(Style::default().fg(Color::LightCyan))
+    .block(
+        Block::default()
+            .title(name)
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::White))
+            .border_type(BorderType::Plain),
+    )
+}
 
 fn draw_v2<'a>(state: Option<&Syncv2State>) -> List<'a> {
     List::new(calc_v2(state))
