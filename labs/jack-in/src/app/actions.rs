@@ -9,18 +9,18 @@ use crate::inputs::key::Key;
 pub enum Action {
     Quit,
     ToggleLogs,
-    IncrementDelay,
-    DecrementDelay,
+    PrevRoom,
+    NextRoom,
 }
 
 impl Action {
     /// All available actions
     pub fn iterator() -> Iter<'static, Action> {
-        static ACTIONS: [Action; 2] = [
+        static ACTIONS: [Action; 4] = [
             Action::Quit,
             Action::ToggleLogs,
-            // Action::IncrementDelay,
-            // Action::DecrementDelay,
+            Action::PrevRoom,
+            Action::NextRoom,
         ];
         ACTIONS.iter()
     }
@@ -30,8 +30,8 @@ impl Action {
         match self {
             Action::Quit => &[Key::Ctrl('c'), Key::Char('q')],
             Action::ToggleLogs => &[Key::Char('l')],
-            Action::IncrementDelay => &[Key::Char('+')],
-            Action::DecrementDelay => &[Key::Char('-')],
+            Action::PrevRoom => &[Key::Up],
+            Action::NextRoom => &[Key::Down],
         }
     }
 }
@@ -42,8 +42,8 @@ impl Display for Action {
         let str = match self {
             Action::Quit => "Quit",
             Action::ToggleLogs => "Toggle Logs",
-            Action::IncrementDelay => "Increment delay",
-            Action::DecrementDelay => "Decrement delay",
+            Action::PrevRoom => "Prev Room",
+            Action::NextRoom => "Next Room",
         };
         write!(f, "{}", str)
     }
@@ -131,8 +131,8 @@ mod tests {
         let _actions: Actions = vec![
             Action::Quit,
             Action::ToggleLogs,
-            Action::IncrementDelay,
-            Action::DecrementDelay,
+            Action::PrevRoom,
+            Action::NextRoom,
         ]
         .into();
     }
@@ -142,12 +142,12 @@ mod tests {
     fn should_panic_when_create_actions_conflict_key() {
         let _actions: Actions = vec![
             Action::Quit,
-            Action::DecrementDelay,
+            Action::NextRoom,
             Action::ToggleLogs,
-            Action::IncrementDelay,
-            Action::IncrementDelay,
+            Action::PrevRoom,
+            Action::PrevRoom,
             Action::Quit,
-            Action::DecrementDelay,
+            Action::NextRoom,
         ]
         .into();
     }

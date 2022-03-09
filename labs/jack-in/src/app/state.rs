@@ -1,5 +1,6 @@
 use std::time::{Instant, Duration};
 use matrix_sdk::{Client, SlidingSyncView};
+use tui::widgets::ListState;
 use log::warn;
 
 #[derive(Clone)]
@@ -42,6 +43,8 @@ impl Syncv2State {
 pub struct SlidingSyncState {
     started: Instant,
     view: SlidingSyncView,
+    /// the current list selector for the room
+    pub rooms_state: ListState,
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
@@ -53,6 +56,7 @@ impl SlidingSyncState {
         Self {
             started: Instant::now(),
             view,
+            rooms_state: ListState::default(),
             first_render: None,
             full_sync: None,
             current_rooms_count: None,
@@ -92,6 +96,37 @@ impl SlidingSyncState {
         self.full_sync = Some(self.started.elapsed())
     }
 
+    pub fn next_room(&mut self) {
+        let i = match self.rooms_state.selected() {
+            Some(i) => {
+                if i >= self.loaded_rooms_count() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.rooms_state.select(Some(i));
+    }
+
+    pub fn previous_room(&mut self) {
+        let i = match self.rooms_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.loaded_rooms_count() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.rooms_state.select(Some(i));
+    }
+
+    pub fn unselect_room(&mut self) {
+        self.rooms_state.select(None);
+    }
 }
 #[derive(Clone)]
 pub enum AppState {
@@ -110,7 +145,7 @@ impl AppState {
             title: None,
             v2: None,
             sliding: None,
-            show_logs: true
+            show_logs: false
         }
     }
 
@@ -172,7 +207,7 @@ impl AppState {
         if let Self::Initialized { show_logs, .. } = self {
             *show_logs
         } else {
-            true
+            false
         }
     }
     pub fn toggle_show_logs(&mut self) {

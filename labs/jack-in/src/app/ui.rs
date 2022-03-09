@@ -50,11 +50,16 @@ where
     // Body
     let body_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)].as_ref())
+        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)].as_ref())
         .split(chunks[1]);
 
-    let bodyv3 = draw_sliding(app.state().get_sliding());
-    rect.render_widget(bodyv3, body_chunks[0]);
+    let sliding = app.state().get_sliding();
+    let rooms = draw_sliding(sliding);
+    if let Some(sliding) = app.state().get_sliding() {
+        rect.render_stateful_widget(rooms, body_chunks[0], &mut sliding.rooms_state.clone());
+    } else {
+        rect.render_widget(rooms, body_chunks[0]);
+    }
 
     let bodyv2 = draw_v2(app.state().get_v2());
     rect.render_widget(bodyv2, body_chunks[1]);
@@ -62,7 +67,7 @@ where
     // Body
     let body_footer_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)].as_ref())
+        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)].as_ref())
         .split(chunks[2]);
 
 
@@ -122,13 +127,16 @@ fn calc_v2<'a>(state: Option<&Syncv2State>) -> Vec<ListItem<'a>> {
 
 fn draw_sliding<'a>(state: Option<&SlidingSyncState>) -> List<'a> {
     List::new(calc_sliding(state))
-    .style(Style::default().fg(Color::LightCyan))
+    .style(Style::default().fg(Color::White))
+    .highlight_style(Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC))
+    .highlight_symbol(">>")
     .block(
         Block::default()
-            .title(" Sliding Sync ")
+            .title(" Rooms ")
             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
             .style(Style::default().fg(Color::White))
-            .border_type(BorderType::Plain),
+            .border_type(BorderType::Plain)
+            
     )
 }
 
@@ -136,10 +144,10 @@ fn draw_sliding_footer<'a>(state: Option<&SlidingSyncState>) -> Tabs<'a> {
     let tabs = if let Some(state) = state {
         let mut tabs = vec![];
         if let Some(dur) = state.time_to_first_render() {
-            tabs.push(Spans::from(format!("Time to first view: {}s", dur.as_secs())));
+            tabs.push(Spans::from(format!("First view: {}s", dur.as_secs())));
 
             if let Some(dur) = state.time_to_full_sync() {
-                tabs.push(Spans::from(format!("Time to full sync: {}s", dur.as_secs())));
+                tabs.push(Spans::from(format!("Full sync: {}s", dur.as_secs())));
                 if let Some(count) = state.total_rooms_count() {
                     tabs.push(Spans::from(format!("{} rooms", count)));
                 }

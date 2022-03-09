@@ -51,6 +51,14 @@ impl App {
                     self.state.toggle_show_logs();
                     AppReturn::Continue
                 }
+                Action::PrevRoom => {
+                    self.state.get_sliding_mut().map(|s| s.previous_room());
+                    AppReturn::Continue
+                }
+                Action::NextRoom => {
+                    self.state.get_sliding_mut().map(|s| s.next_room());
+                    AppReturn::Continue
+                }
                 _ => {
                     AppReturn::Continue
                 }
@@ -98,6 +106,8 @@ impl App {
         self.actions = vec![
             Action::Quit,
             Action::ToggleLogs,
+            Action::PrevRoom,
+            Action::NextRoom,
         ]
         .into();
         self.state = AppState::initialized()
