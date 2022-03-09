@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["encryption"]
-encryption = ["matrix-sdk-crypto"]
+encryption = ["matrix-sdk-base/encryption", "matrix-sdk-crypto"]
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
