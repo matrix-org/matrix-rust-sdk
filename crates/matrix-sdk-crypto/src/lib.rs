@@ -15,15 +15,7 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs)]
-#![deny(
-    missing_debug_implementations,
-    dead_code,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications
-)]
+#![deny(missing_debug_implementations, dead_code)]
 
 #[cfg(all(feature = "indexeddb_cryptostore", not(target_arch = "wasm32")))]
 compile_error!("indexeddb_cryptostore only works for wasm32 target");
