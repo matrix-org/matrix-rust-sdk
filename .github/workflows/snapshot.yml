@@ -93,9 +93,17 @@ jobs:
           path: rust-sdk/target/${{ matrix.targets.value }}/release/libuniffi_olm.so
    
   build_android:
-    name: Build android library 
+    name: Build and publish android library 
     runs-on: ubuntu-latest
     needs: build_native
+    env:
+        OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+        OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+        SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+        SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        SONATYPE_STAGING_PROFILE_ID: ${{ secrets.SONATYPE_STAGING_PROFILE_ID }}
+        SNAPSHOT: true
 
     steps:
     - name: Checkout this repo
@@ -175,12 +183,3 @@ jobs:
   
     - name: Publish to MavenCentral
       run: ./gradlew publishReleasePublicationToSonatypeRepository
-      env:
-        OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-        OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
-        SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
-        SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-        SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-        SONATYPE_STAGING_PROFILE_ID: ${{ secrets.SONATYPE_STAGING_PROFILE_ID }}
-        SNAPSHOT: 'true'
-   
