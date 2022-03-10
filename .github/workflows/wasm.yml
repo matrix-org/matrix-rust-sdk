@@ -16,7 +16,7 @@ env:
 
 jobs:
   check-wasm:
-    name: Build test
+    name: Build test / ${{ matrix.name }}
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -25,27 +25,15 @@ jobs:
       matrix:
         name:
           - matrix-qrcode
-          - matrix-sdk (no-default, wasm-flags)
           - matrix-sdk-base
           - matrix-sdk-common
           - matrix-sdk-crypto
-          - matrix-sdk / indexeddb_stores
 
         include:
-          - name: matrix-qrcode
-            cargo_args: --package matrix-qrcode
           - name: matrix-sdk (no-default, wasm-flags)
-            cargo_args: --no-default-features --features qrcode,encryption,indexeddb_stores,rustls-tls --package matrix-sdk --lib
-          - name: matrix-sdk-base
-            cargo_args: --package matrix-sdk-base
-          - name: matrix-sdk-common
-            cargo_args: --package matrix-sdk-common
-          - name: matrix-sdk-crypto
-            cargo_args: --package matrix-sdk-crypto
-
-          # special check for specific features
+            cmd: matrix-sdk-no-default
           - name: matrix-sdk / indexeddb_stores
-            cargo_args: --package matrix-sdk --no-default-features --features indexeddb_stores,encryption,rustls-tls --lib
+            cmd: matrix-sdk-indexeddb-stores
 
     steps:
     - name: Checkout the repo
@@ -61,6 +49,7 @@ jobs:
 
     - name: Load cache
       uses: Swatinem/rust-cache@v1
+
     # needed for libolm-sys compilation
     - name: Install emscripten
       uses: mymindstorm/setup-emsdk@v11
@@ -70,8 +59,8 @@ jobs:
     - name: check
       uses: actions-rs/cargo@v1
       with:
-        command: check
-        args: --target wasm32-unknown-unknown ${{ matrix.cargo_args }}
+        command: run
+        args: -p xtask -- ci wasm ${{ matrix.cmd || matrix.name }}
 
   test-wasm:
     # building wasm is not enough, we've seen runtime errors before,
