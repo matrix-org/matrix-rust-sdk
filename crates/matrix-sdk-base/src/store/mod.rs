@@ -643,7 +643,7 @@ impl StoreConfig {
 
     /// Set a custom implementation of a `CryptoStore`.
     ///
-    /// The crypto store should be opened before being set.
+    /// The crypto store must be opened before being set.
     #[cfg(feature = "encryption")]
     pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
         self.crypto_store = Some(store);
