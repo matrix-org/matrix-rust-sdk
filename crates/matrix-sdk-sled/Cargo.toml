@@ -27,6 +27,7 @@ futures-util = { version = "0.3.15", default-features = false }
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"] }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
+matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }
 async-stream = "0.3.2"
 serde = "1"
 serde_json = "1.0.64"
