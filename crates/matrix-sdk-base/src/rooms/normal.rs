@@ -32,7 +32,8 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
-        AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
+        AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, RoomAccountDataEventType,
+        StateEventType,
     },
     receipt::ReceiptType,
     EventId, MxcUri, RoomAliasId, RoomId, UserId,
@@ -415,7 +416,7 @@ impl Room {
 
         let power =
             self.store
-                .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
+                .get_state_event(self.room_id(), StateEventType::RoomPowerLevels, "")
                 .await?
                 .and_then(|e| e.deserialize().ok())
                 .and_then(|e| {
@@ -451,7 +452,7 @@ impl Room {
     pub async fn tags(&self) -> StoreResult<Option<Tags>> {
         if let Some(AnyRoomAccountDataEvent::Tag(event)) = self
             .store
-            .get_room_account_data_event(self.room_id(), EventType::Tag)
+            .get_room_account_data_event(self.room_id(), RoomAccountDataEventType::Tag)
             .await?
             .and_then(|r| r.deserialize().ok())
         {

@@ -54,7 +54,7 @@ use ruma::{
     events::{
         room::member::MembershipState, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        EventContent, EventType,
+        EventContent, GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -1197,13 +1197,13 @@ impl BaseClient {
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = changes
             .account_data
-            .get(EventType::PushRules.as_str())
+            .get(GlobalAccountDataEventType::PushRules.as_str())
             .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
         } else if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = self
             .store
-            .get_account_data_event(EventType::PushRules)
+            .get_account_data_event(GlobalAccountDataEventType::PushRules)
             .await?
             .and_then(|e| e.deserialize().ok())
         {
@@ -1246,14 +1246,14 @@ impl BaseClient {
         let room_power_levels = if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(room_id)
-            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
             event.content
         } else if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = self
             .store
-            .get_state_event(room_id, EventType::RoomPowerLevels, "")
+            .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
             .await?
             .and_then(|e| e.deserialize().ok())
         {
@@ -1296,7 +1296,7 @@ impl BaseClient {
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(&**room_id)
-            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {

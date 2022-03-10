@@ -2362,7 +2362,7 @@ pub(crate) mod test {
                 message::{ImageMessageEventContent, RoomMessageEventContent},
                 ImageInfo,
             },
-            AnySyncStateEvent, EventType,
+            AnySyncStateEvent, StateEventType,
         },
         mxc_uri, room_id, thirdparty, uint, user_id, TransactionId, UserId,
     };
@@ -3844,14 +3844,14 @@ pub(crate) mod test {
 
         let room = client.get_joined_room(room_id).unwrap();
 
-        let state_events = room.get_state_events(EventType::RoomEncryption).await.unwrap();
+        let state_events = room.get_state_events(StateEventType::RoomEncryption).await.unwrap();
         assert_eq!(state_events.len(), 1);
 
         let state_events = room.get_state_events("m.custom.note".into()).await.unwrap();
         assert_eq!(state_events.len(), 2);
 
         let encryption_event = room
-            .get_state_event(EventType::RoomEncryption, "")
+            .get_state_event(StateEventType::RoomEncryption, "")
             .await
             .unwrap()
             .unwrap()

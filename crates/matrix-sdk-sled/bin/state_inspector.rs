@@ -4,7 +4,7 @@ use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
 use matrix_sdk_base::{RoomInfo, Store};
-use matrix_sdk_common::ruma::{events::EventType, RoomId, UserId};
+use matrix_sdk_common::ruma::{events::StateEventType, RoomId, UserId};
 use matrix_sdk_sled::StateStore;
 use rustyline::{
     completion::{Completer, Pair},
@@ -228,7 +228,8 @@ impl Inspector {
             }
             Some(("get-state", args)) => {
                 let room_id = RoomId::parse(args.value_of("room-id").unwrap()).unwrap();
-                let event_type = EventType::try_from(args.value_of("event-type").unwrap()).unwrap();
+                let event_type =
+                    StateEventType::try_from(args.value_of("event-type").unwrap()).unwrap();
                 self.get_state(room_id, event_type).await;
             }
             _ => unreachable!(),
@@ -263,7 +264,7 @@ impl Inspector {
         }
     }
 
-    async fn get_state(&self, room_id: Box<RoomId>, event_type: EventType) {
+    async fn get_state(&self, room_id: Box<RoomId>, event_type: StateEventType) {
         self.printer.pretty_print_struct(
             &self.store.get_state_event(&room_id, event_type, "").await.unwrap(),
         );
@@ -288,7 +289,9 @@ impl Inspector {
                     RoomId::parse(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::new("event-type").required(true).validator(|e| {
-                    EventType::try_from(e).map(|_| ()).map_err(|_| "Invalid event type".to_owned())
+                    StateEventType::try_from(e)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid event type".to_owned())
                 })),
         ]
     }
