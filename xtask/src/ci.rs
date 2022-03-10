@@ -29,6 +29,7 @@ enum CiCommand {
         #[clap(subcommand)]
         cmd: Option<FeatureSet>,
     },
+    /// Run tests for the appservice crate
     TestAppservice,
 }
 
