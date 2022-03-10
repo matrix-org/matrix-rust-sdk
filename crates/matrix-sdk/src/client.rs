@@ -118,6 +118,8 @@ pub(crate) struct ClientInner {
     http_client: HttpClient,
     /// User session data.
     base_client: BaseClient,
+    /// The Matrix versions the server supports (well-known ones only)
+    server_versions: Arc<[MatrixVersion]>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
@@ -189,10 +191,17 @@ impl Client {
         let http_client =
             HttpClient::new(client, homeserver.clone(), session, config.request_config);
 
+        let server_versions = http_client
+            .send(get_supported_versions::Request::new(), None, vec![MatrixVersion::V1_0].into())
+            .await?
+            .known_versions()
+            .collect();
+
         let inner = Arc::new(ClientInner {
             homeserver,
             http_client,
             base_client,
+            server_versions,
             #[cfg(feature = "encryption")]
             group_session_locks: Default::default(),
             #[cfg(feature = "encryption")]
@@ -751,15 +760,13 @@ impl Client {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    // FIXME: Use versions reported by server
-                    &[MatrixVersion::V1_0],
+                    &self.inner.server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
+                &self.inner.server_versions,
             )
         };
 
@@ -1542,7 +1549,11 @@ impl Client {
         });
 
         let request_config = self.inner.http_client.request_config.timeout(timeout);
-        Ok(self.inner.http_client.upload(request, Some(request_config)).await?)
+        Ok(self
+            .inner
+            .http_client
+            .upload(request, Some(request_config), self.inner.server_versions.clone())
+            .await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1594,7 +1605,7 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config).await
+        self.inner.http_client.send(request, config, self.inner.server_versions.clone()).await
     }
 
     /// Get information of all our own devices.

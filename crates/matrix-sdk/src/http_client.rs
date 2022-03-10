@@ -115,6 +115,7 @@ impl HttpClient {
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
         config: Option<RequestConfig>,
+        server_versions: Arc<[MatrixVersion]>,
     ) -> Result<http::Response<Bytes>, HttpError> {
         let config = match config {
             Some(config) => config,
@@ -150,8 +151,7 @@ impl HttpClient {
             request.try_into_http_request::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
                 send_access_token,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
+                &server_versions,
             )?
         } else {
             let (send_access_token, user_id) = {
@@ -166,8 +166,7 @@ impl HttpClient {
                 &self.homeserver.read().await.to_string(),
                 send_access_token,
                 &user_id,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
+                &server_versions,
             )?
         };
 
@@ -179,8 +178,10 @@ impl HttpClient {
         &self,
         request: create_content::v3::Request<'_>,
         config: Option<RequestConfig>,
+        server_versions: Arc<[MatrixVersion]>,
     ) -> Result<create_content::v3::Response, HttpError> {
-        let response = self.send_request(request, self.session.clone(), config).await?;
+        let response =
+            self.send_request(request, self.session.clone(), config, server_versions).await?;
         Ok(create_content::v3::Response::try_from_http_response(response)?)
     }
 
@@ -188,12 +189,14 @@ impl HttpClient {
         &self,
         request: Request,
         config: Option<RequestConfig>,
+        server_versions: Arc<[MatrixVersion]>,
     ) -> Result<Request::IncomingResponse, HttpError>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let response = self.send_request(request, self.session.clone(), config).await?;
+        let response =
+            self.send_request(request, self.session.clone(), config, server_versions).await?;
 
         trace!("Got response: {:?}", response);
 
