@@ -112,9 +112,15 @@ fn check_typos() -> Result<()> {
 fn check_clippy() -> Result<()> {
     cmd!("rustup run nightly cargo clippy --all-targets -- -D warnings").run()?;
     cmd!(
-        "rustup run nightly cargo clippy --all-targets
+        "rustup run nightly cargo clippy --workspace --all-targets
+            --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features --features native-tls,warp
             -- -D warnings"
+    )
+    .run()?;
+    cmd!(
+        "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
+            --no-default-features -- -D warnings"
     )
     .run()?;
     Ok(())
