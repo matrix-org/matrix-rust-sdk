@@ -29,7 +29,7 @@
 //! [`StoreConfig`]: crate::config::StoreConfig
 //! [`ClientConfig::with_store_config()`]: crate::config::ClientConfig::with_store_config()
 
-#[cfg(feature = "indexeddb_stores")]
+#[cfg(any(feature = "indexeddb_state_store", feature = "indexeddb_cryptostore"))]
 pub use matrix_sdk_indexeddb::*;
 #[cfg(any(feature = "sled_state_store", feature = "sled_cryptostore"))]
 pub use matrix_sdk_sled::*;

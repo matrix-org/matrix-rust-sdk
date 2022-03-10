@@ -45,9 +45,9 @@ async fn login_and_sync(
     username: &str,
     password: &str,
 ) -> Result<(), matrix_sdk::Error> {
-    #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_stores")))]
+    #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
     let client_config = ClientConfig::new();
-    #[cfg(any(feature = "sled_state_store", feature = "indexeddb_stores"))]
+    #[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
     let mut client_config = ClientConfig::new();
 
     #[cfg(feature = "sled_state_store")]
@@ -59,7 +59,7 @@ async fn login_and_sync(
         client_config = client_config.state_store(Box::new(state_store));
     }
 
-    #[cfg(feature = "indexeddb_stores")]
+    #[cfg(feature = "indexeddb_state_store")]
     {
         let state_store = matrix_sdk_indexeddb::StateStore::open();
         client_config = client_config.state_store(Box::new(state_store));

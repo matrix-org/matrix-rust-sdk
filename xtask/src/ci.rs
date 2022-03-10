@@ -187,14 +187,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk \
              --no-default-features \
-             --features qrcode,encryption,indexeddb_stores,rustls-tls",
+             --features qrcode,encryption,indexeddb_state_store,indexeddb_cryptostore,rustls-tls",
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
         (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
-            "-p matrix-sdk --no-default-features --features indexeddb_stores,encryption,rustls-tls",
+            "-p matrix-sdk --no-default-features --features indexeddb_state_store,indexeddb_cryptostore,encryption,rustls-tls",
         ),
     ]);
 
