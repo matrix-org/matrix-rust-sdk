@@ -21,6 +21,7 @@ use std::{
 
 use http::header::InvalidHeaderValue;
 use matrix_sdk_base::{BaseClientConfig, StateStore};
+use ruma::api::MatrixVersion;
 
 use crate::{config::RequestConfig, HttpSend, Result};
 
@@ -77,6 +78,7 @@ pub struct ClientConfig {
     pub(crate) client: Option<Arc<dyn HttpSend>>,
     pub(crate) appservice_mode: bool,
     pub(crate) use_discovery_response: bool,
+    pub(crate) server_versions: Option<Arc<[MatrixVersion]>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -277,6 +279,15 @@ impl ClientConfig {
     #[must_use]
     pub fn use_discovery_response(mut self) -> Self {
         self.use_discovery_response = true;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn server_versions(
+        mut self,
+        server_versions: impl IntoIterator<Item = MatrixVersion>,
+    ) -> Self {
+        self.server_versions = Some(server_versions.into_iter().collect());
         self
     }
 }

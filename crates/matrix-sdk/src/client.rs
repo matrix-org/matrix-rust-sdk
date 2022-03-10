@@ -191,11 +191,18 @@ impl Client {
         let http_client =
             HttpClient::new(client, homeserver.clone(), session, config.request_config);
 
-        let server_versions = http_client
-            .send(get_supported_versions::Request::new(), None, vec![MatrixVersion::V1_0].into())
-            .await?
-            .known_versions()
-            .collect();
+        let server_versions = match config.server_versions {
+            Some(vs) => vs,
+            None => http_client
+                .send(
+                    get_supported_versions::Request::new(),
+                    None,
+                    vec![MatrixVersion::V1_0].into(),
+                )
+                .await?
+                .known_versions()
+                .collect(),
+        };
 
         let inner = Arc::new(ClientInner {
             homeserver,
@@ -2365,6 +2372,7 @@ pub(crate) mod test {
                 uiaa::{self, UiaaResponse},
             },
             error::{FromHttpResponseError, ServerError},
+            MatrixVersion,
         },
         assign, device_id,
         directory::Filter,
@@ -2397,8 +2405,11 @@ pub(crate) mod test {
             device_id: device_id!("DEVICEID").to_owned(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let config =
-            ClientConfig::new().await.unwrap().request_config(RequestConfig::new().disable_retry());
+        let config = ClientConfig::new()
+            .await
+            .unwrap()
+            .request_config(RequestConfig::new().disable_retry())
+            .server_versions([MatrixVersion::V1_0]);
         let client = Client::new_with_config(homeserver, config).await.unwrap();
         client.restore_login(session).await.unwrap();
 
@@ -2464,7 +2475,8 @@ pub(crate) mod test {
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let client = Client::new(homeserver.clone()).await.unwrap();
+        let config = ClientConfig::new().await.unwrap().server_versions([MatrixVersion::V1_0]);
+        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
 
         let _m_types = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2496,7 +2508,11 @@ pub(crate) mod test {
     #[async_test]
     async fn login_with_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new().await.unwrap().use_discovery_response();
+        let config = ClientConfig::new()
+            .await
+            .unwrap()
+            .use_discovery_response()
+            .server_versions([MatrixVersion::V1_0]);
 
         let client = Client::new_with_config(homeserver, config).await.unwrap();
 
@@ -2516,7 +2532,11 @@ pub(crate) mod test {
     #[async_test]
     async fn login_no_discovery() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new().await.unwrap().use_discovery_response();
+        let config = ClientConfig::new()
+            .await
+            .unwrap()
+            .use_discovery_response()
+            .server_versions([MatrixVersion::V1_0]);
 
         let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
 
@@ -2542,7 +2562,8 @@ pub(crate) mod test {
             .create();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let config = ClientConfig::new().await.unwrap().server_versions([MatrixVersion::V1_0]);
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
         let idp = crate::client::get_login_types::v3::IdentityProvider::new(
             "some-id".to_owned(),
             "idp-name".to_owned(),
@@ -2579,7 +2600,8 @@ pub(crate) mod test {
     async fn login_with_sso_token() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let client = Client::new(homeserver).await.unwrap();
+        let config = ClientConfig::new().await.unwrap().server_versions([MatrixVersion::V1_0]);
+        let client = Client::new_with_config(homeserver, config).await.unwrap();
 
         let _m = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
