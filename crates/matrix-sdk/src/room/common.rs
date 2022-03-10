@@ -18,7 +18,7 @@ use ruma::{
     events::{
         room::history_visibility::HistoryVisibility,
         tag::{TagInfo, TagName},
-        AnyStateEvent, AnySyncStateEvent, EventType,
+        AnyStateEvent, AnySyncStateEvent, StateEventType,
     },
     serde::Raw,
     uint, EventId, RoomId, UInt, UserId,
@@ -640,7 +640,7 @@ impl Common {
     /// Get all state events of a given type in this room.
     pub async fn get_state_events(
         &self,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
     }
@@ -648,7 +648,7 @@ impl Common {
     /// Get a specific state event in this room.
     pub async fn get_state_event(
         &self,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.client

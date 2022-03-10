@@ -40,7 +40,8 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent},
         room::member::RoomMemberEventContent,
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, EventContent, EventType,
+        AnySyncStateEvent, EventContent, GlobalAccountDataEventType, RoomAccountDataEventType,
+        StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -145,11 +146,11 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>>;
 
-    /// Get a list of state events for a given room and `EventType`.
+    /// Get a list of state events for a given room and `StateEventType`.
     ///
     /// # Arguments
     ///
@@ -159,7 +160,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>>;
 
     /// Get the current profile for the given user in the given room.
@@ -226,7 +227,7 @@ pub trait StateStore: AsyncTraitDeps {
     /// * `event_type` - The event type of the account data event.
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>>;
 
     /// Get an event out of the room account data store.
@@ -241,7 +242,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>>;
 
     /// Get an event out of the user room receipt store.

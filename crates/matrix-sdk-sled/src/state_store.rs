@@ -42,7 +42,8 @@ use matrix_sdk_common::{
             receipt::Receipt,
             room::member::{MembershipState, RoomMemberEventContent},
             AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent,
-            AnySyncRoomEvent, AnySyncStateEvent, EventType,
+            AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+            RoomAccountDataEventType, StateEventType,
         },
         receipt::ReceiptType,
         serde::Raw,
@@ -186,11 +187,23 @@ impl EncodeKey for (&str, &str, &str, &str) {
     }
 }
 
-impl EncodeKey for EventType {
+impl EncodeKey for StateEventType {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
 }
+
+impl EncodeKey for GlobalAccountDataEventType {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+}
+
+/* impl EncodeKey for RoomAccountDataEventType {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+} */
 
 impl EncodeKey for EventId {
     fn encode(&self) -> Vec<u8> {
@@ -649,7 +662,7 @@ impl SledStore {
     pub async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         let db = self.clone();
@@ -663,7 +676,7 @@ impl SledStore {
     pub async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         let db = self.clone();
         let key = (room_id.as_str(), event_type.as_str()).encode();
@@ -809,7 +822,7 @@ impl SledStore {
 
     pub async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         let db = self.clone();
         let key = event_type.encode();
@@ -822,7 +835,7 @@ impl SledStore {
     pub async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         let db = self.clone();
         let key = (room_id.as_str(), event_type.as_str()).encode();
@@ -1300,7 +1313,7 @@ impl StateStore for SledStore {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> StoreResult<Option<Raw<AnySyncStateEvent>>> {
         self.get_state_event(room_id, event_type, state_key).await.map_err(Into::into)
@@ -1309,7 +1322,7 @@ impl StateStore for SledStore {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> StoreResult<Vec<Raw<AnySyncStateEvent>>> {
         self.get_state_events(room_id, event_type).await.map_err(Into::into)
     }
@@ -1370,7 +1383,7 @@ impl StateStore for SledStore {
 
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> StoreResult<Option<Raw<AnyGlobalAccountDataEvent>>> {
         self.get_account_data_event(event_type).await.map_err(Into::into)
     }
@@ -1378,7 +1391,7 @@ impl StateStore for SledStore {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> StoreResult<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await.map_err(Into::into)
     }

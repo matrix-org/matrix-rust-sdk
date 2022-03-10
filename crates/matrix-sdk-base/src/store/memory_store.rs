@@ -28,7 +28,8 @@ use ruma::{
         receipt::Receipt,
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType,
+        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -408,7 +409,7 @@ impl MemoryStore {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         Ok(self.room_state.get(room_id).and_then(|e| {
@@ -419,7 +420,7 @@ impl MemoryStore {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         Ok(self
             .room_state
@@ -477,7 +478,7 @@ impl MemoryStore {
 
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         Ok(self.account_data.get(event_type.as_ref()).map(|e| e.clone()))
     }
@@ -485,7 +486,7 @@ impl MemoryStore {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         Ok(self
             .room_account_data
@@ -631,7 +632,7 @@ impl StateStore for MemoryStore {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.get_state_event(room_id, event_type, state_key).await
@@ -640,7 +641,7 @@ impl StateStore for MemoryStore {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         self.get_state_events(room_id, event_type).await
     }
@@ -695,7 +696,7 @@ impl StateStore for MemoryStore {
 
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         self.get_account_data_event(event_type).await
     }
@@ -703,7 +704,7 @@ impl StateStore for MemoryStore {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
     }

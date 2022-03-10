@@ -24,7 +24,7 @@ use matrix_sdk_common::executor::spawn;
 use ruma::{
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyToDeviceEventContent, EventType,
+        AnyToDeviceEventContent, ToDeviceEventType,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -300,7 +300,7 @@ impl GroupSessionManager {
 
         let txn_id = TransactionId::new();
         let request = ToDeviceRequest {
-            event_type: EventType::RoomEncrypted,
+            event_type: ToDeviceEventType::RoomEncrypted,
             txn_id: txn_id.clone(),
             messages,
         };

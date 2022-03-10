@@ -48,7 +48,7 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType},
+    events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, GlobalAccountDataEventType},
     serde::Raw,
     DeviceId, TransactionId, UserId,
 };
@@ -666,7 +666,7 @@ impl Client {
         // have with this user.
         let mut content = self
             .store()
-            .get_account_data_event(EventType::Direct)
+            .get_account_data_event(GlobalAccountDataEventType::Direct)
             .await?
             .map(|e| e.deserialize())
             .transpose()?
