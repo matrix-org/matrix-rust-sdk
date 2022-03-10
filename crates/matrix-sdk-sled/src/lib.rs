@@ -35,13 +35,10 @@ pub fn make_store_config(
     path: impl AsRef<Path>,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, anyhow::Error> {
-    let mut config = StoreConfig::new();
-
     #[cfg(feature = "encryption")]
     {
         let (state_store, crypto_store) = open_stores_with_path(path, passphrase)?;
-        config = config.state_store(state_store);
-        config = config.crypto_store(crypto_store);
+        Ok(StoreConfig::new_with_state_and_crypto_store(state_store, crypto_store))
     }
 
     #[cfg(not(feature = "encryption"))]
@@ -52,8 +49,6 @@ pub fn make_store_config(
             StateStore::open_with_path(path)?
         };
 
-        config = config.state_store(Box::new(state_store));
+        Ok(StoreConfig::new_with_state_store(Box::new(state_store)))
     }
-
-    Ok(config)
 }

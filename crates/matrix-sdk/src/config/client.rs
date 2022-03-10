@@ -121,7 +121,7 @@ impl ClientConfig {
     /// # let custom_state_store = Box::new(MemoryStore::new());
     /// use matrix_sdk::{Client, config::{ClientConfig, StoreConfig}};
     ///
-    /// let store_config = StoreConfig::new().state_store(custom_state_store);
+    /// let store_config = StoreConfig::new_with_state_store(custom_state_store);
     /// let client_config = ClientConfig::with_store_config(store_config)
     ///     .use_discovery_response();
     ///

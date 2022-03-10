@@ -45,14 +45,12 @@ async fn make_store_config(
     name: impl Into<String>,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, anyhow::Error> {
-    let mut config = StoreConfig::new();
     let name = name.into();
 
     #[cfg(feature = "encryption")]
     {
         let (state_store, crypto_store) = open_stores_with_name(name, passphrase).await?;
-        config = config.state_store(state_store);
-        config = config.crypto_store(crypto_store);
+        Ok(StoreConfig::new_with_state_and_crypto_store(state_store, crypto_store))
     }
 
     #[cfg(not(feature = "encryption"))]
@@ -63,8 +61,6 @@ async fn make_store_config(
             StateStore::open_with_name(name).await?
         };
 
-        config = config.state_store(Box::new(state_store));
+        Ok(StoreConfig::new_with_state_store(Box::new(state_store)))
     }
-
-    Ok(config)
 }

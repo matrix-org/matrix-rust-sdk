@@ -641,6 +641,24 @@ impl StoreConfig {
         Default::default()
     }
 
+    /// Create a new store config wrapping the given state store
+    pub fn new_with_state_store(state_store: Box<dyn StateStore>) -> Self {
+        StoreConfig {
+            state_store: Some(state_store),
+            #[cfg(feature = "encryption")]
+            crypto_store: Default::default(),
+        }
+    }
+
+    /// Create a new store config wrapping the given state and crypto store
+    #[cfg(feature = "encryption")]
+    pub fn new_with_state_and_crypto_store(
+        state_store: Box<dyn StateStore>,
+        crypto_store: Box<dyn CryptoStore>,
+    ) -> Self {
+        StoreConfig { state_store: Some(state_store), crypto_store: Some(crypto_store) }
+    }
+
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store must be opened before being set.
