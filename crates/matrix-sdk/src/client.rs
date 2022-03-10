@@ -1104,7 +1104,7 @@ impl Client {
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`restore_login`]: #method.restore_login
     #[instrument(skip(token))]
-    #[deny(clippy::future_not_send)]
+    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn login_with_token(
         &self,
         token: &str,

@@ -185,8 +185,9 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     ]);
 
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo check --target wasm32-unknown-unknown")
+        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(arg_set.split_whitespace())
+            .args(["--", "-D", "warnings"])
             .run()
     };
 

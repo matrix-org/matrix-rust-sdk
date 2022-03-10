@@ -44,6 +44,7 @@ jobs:
       with:
         toolchain: stable
         target: wasm32-unknown-unknown
+        components: clippy
         profile: minimal
         override: true
 
