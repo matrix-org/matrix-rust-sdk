@@ -13,7 +13,7 @@ pub use state_store::SledStore as StateStore;
 #[cfg(feature = "encryption")]
 /// Create a [`StateStore`] and a [`CryptoStore`] that use the same database and
 /// passphrase.
-pub fn open_stores_with_path(
+fn open_stores_with_path(
     path: impl AsRef<Path>,
     passphrase: Option<&str>,
 ) -> Result<(Box<StateStore>, Box<CryptoStore>), anyhow::Error> {
@@ -31,7 +31,7 @@ pub fn open_stores_with_path(
 /// Create a [`StoreConfig`] with an opened sled [`StateStore`] that uses the
 /// given path and passphrase. If `encryption` is enabled, a [`CryptoStore`]
 /// with the same parameters is also opened.
-pub fn make_config(
+pub fn make_store_config(
     path: impl AsRef<Path>,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, anyhow::Error> {

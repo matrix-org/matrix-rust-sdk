@@ -23,7 +23,7 @@
 //! `encryption` is also enabled. This is the default persistent store
 //! implementation for WebAssembly.
 //!
-//! Both options provide a `make_config` convenience method to create a
+//! Both options provide a `make_store_config` convenience method to create a
 //! [`StoreConfig`] for [`ClientConfig::with_store_config()`].
 //!
 //! [`StoreConfig`]: crate::config::StoreConfig

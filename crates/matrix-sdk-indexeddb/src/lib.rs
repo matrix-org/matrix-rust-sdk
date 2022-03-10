@@ -20,7 +20,7 @@ pub use state_store::IndexeddbStore as StateStore;
 #[cfg(feature = "encryption")]
 /// Create a [`StateStore`] and a [`CryptoStore`] that use the same name and
 /// passphrase.
-pub async fn open_stores_with_name(
+async fn open_stores_with_name(
     name: impl Into<String>,
     passphrase: Option<&str>,
 ) -> Result<(Box<StateStore>, Box<CryptoStore>), anyhow::Error> {
@@ -41,7 +41,7 @@ pub async fn open_stores_with_name(
 /// Create a [`StoreConfig`] with an opened indexeddb [`StateStore`] that uses
 /// the given name and passphrase. If `encryption` is enabled, a [`CryptoStore`]
 /// with the same parameters is also opened.
-pub async fn make_config(
+async fn make_store_config(
     name: impl Into<String>,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, anyhow::Error> {

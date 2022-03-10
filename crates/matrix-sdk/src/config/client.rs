@@ -105,9 +105,9 @@ impl ClientConfig {
 
     /// Create a new `ClientConfig` with the given [`StoreConfig`].
     ///
-    /// The easiest way to get a [`StoreConfig`] is to use the [`make_config`]
-    /// method from the [`store`] module or directly from one of the store
-    /// crates.
+    /// The easiest way to get a [`StoreConfig`] is to use the
+    /// [`make_store_config`] method from the [`store`] module or directly from
+    /// one of the store crates.
     ///
     /// # Arguments
     ///
@@ -128,7 +128,7 @@ impl ClientConfig {
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
-    /// [`make_config`]: crate::store::make_config
+    /// [`make_store_config`]: crate::store::make_store_config
     /// [`store`]: crate::store
     pub fn with_store_config(store_config: StoreConfig) -> Self {
         Self { store_config, ..Default::default() }
