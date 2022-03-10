@@ -341,8 +341,7 @@ impl BaseClient {
                             }
                             _ => {
                                 room_info.handle_state_event(&s.content());
-                                let raw_event: Raw<AnySyncStateEvent> =
-                                    Raw::from_json(event.event.clone().into_json());
+                                let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
                                 changes.add_state_event(room_id, s.clone(), raw_event);
                             }
                         },
