@@ -37,7 +37,7 @@ use matrix_sdk_crypto::{
     },
     store::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, IdentityKeys,
-        PickleKey, PicklingMode, Result, RoomKeyCounts,
+        PickleKey, PicklingMode, RecoveryKey, Result, RoomKeyCounts,
     },
     GossipRequest, LocalTrust, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
@@ -518,7 +518,6 @@ impl SledStore {
             None
         };
 
-        #[cfg(feature = "backups_v1")]
         let recovery_key_pickle = changes.recovery_key.map(|r| r.pickle(self.get_pickle_key()));
 
         let device_changes = changes.devices;
@@ -559,7 +558,6 @@ impl SledStore {
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
-        #[cfg(feature = "backups_v1")]
         let backup_version = changes.backup_version;
 
         let ret: Result<(), TransactionError<serde_json::Error>> = (
@@ -603,7 +601,6 @@ impl SledStore {
                         )?;
                     }
 
-                    #[cfg(feature = "backups_v1")]
                     if let Some(r) = &recovery_key_pickle {
                         account.insert(
                             "recovery_key_v1".encode(),
@@ -611,7 +608,6 @@ impl SledStore {
                         )?;
                     }
 
-                    #[cfg(feature = "backups_v1")]
                     if let Some(b) = &backup_version {
                         account.insert(
                             "backup_version_v1".encode(),
@@ -1071,21 +1067,22 @@ impl CryptoStore for SledStore {
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        #[cfg(feature = "backups_v1")]
         let key = {
             let backup_version = self
                 .account
-                .get("backup_version_v1".encode())?
+                .get("backup_version_v1".encode())
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
                 .map(|v| serde_json::from_slice(&v))
                 .transpose()?;
 
             let recovery_key = {
                 self.account
-                    .get("recovery_key_v1".encode())?
+                    .get("recovery_key_v1".encode())
+                    .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
                     .map(|p| serde_json::from_slice(&p))
                     .transpose()?
                     .map(|p| {
-                        crate::backups::RecoveryKey::from_pickle(p, self.get_pickle_key())
+                        RecoveryKey::from_pickle(p, self.get_pickle_key())
                             .map_err(|_| CryptoStoreError::UnpicklingError)
                     })
                     .transpose()?
@@ -1093,9 +1090,6 @@ impl CryptoStore for SledStore {
 
             BackupKeys { backup_version, recovery_key }
         };
-
-        #[cfg(not(feature = "backups_v1"))]
-        let key = BackupKeys {};
 
         Ok(key)
     }

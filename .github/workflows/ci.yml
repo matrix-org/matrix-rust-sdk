@@ -117,6 +117,32 @@ jobs:
           command: run
           args: -p xtask -- ci test-features ${{ matrix.name }}
 
+  test-crypto-features:
+    name: linux / crypto-crate features
+    needs: [style]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
+
+    - name: Clippy
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci test-crypto
+
   test:
     name: ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
