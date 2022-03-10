@@ -29,7 +29,13 @@ enum CiCommand {
         #[clap(subcommand)]
         cmd: Option<FeatureSet>,
     },
+    /// Run tests for the appservice crate
     TestAppservice,
+    /// Run checks for the wasm target
+    Wasm {
+        #[clap(subcommand)]
+        cmd: Option<WasmFeatureSet>,
+    },
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -45,6 +51,17 @@ enum FeatureSet {
     SsoLogin,
 }
 
+#[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(clippy::enum_variant_names)]
+enum WasmFeatureSet {
+    MatrixQrcode,
+    MatrixSdkNoDefault,
+    MatrixSdkBase,
+    MatrixSdkCommon,
+    MatrixSdkCrypto,
+    MatrixSdkIndexeddbStores,
+}
+
 impl CiArgs {
     pub fn run(self) -> Result<()> {
         let _p = pushd(&workspace_root()?)?;
@@ -58,6 +75,7 @@ impl CiArgs {
                 CiCommand::Test => run_tests(),
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
                 CiCommand::TestAppservice => run_appservice_tests(),
+                CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
             },
             None => {
                 check_style()?;
@@ -67,6 +85,7 @@ impl CiArgs {
                 run_tests()?;
                 run_feature_tests(None)?;
                 run_appservice_tests()?;
+                run_wasm_checks(None)?;
 
                 Ok(())
             }
@@ -143,6 +162,45 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
 fn run_appservice_tests() -> Result<()> {
     cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
     cmd!("rustup run stable cargo test -p matrix-sdk-appservice").run()?;
+
+    Ok(())
+}
+
+fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    let args = BTreeMap::from([
+        (WasmFeatureSet::MatrixQrcode, "-p matrix-qrcode"),
+        (
+            WasmFeatureSet::MatrixSdkNoDefault,
+            "-p matrix-sdk \
+             --no-default-features \
+             --features qrcode,encryption,indexeddb_stores,rustls-tls",
+        ),
+        (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
+        (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
+        (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
+        (
+            WasmFeatureSet::MatrixSdkIndexeddbStores,
+            "-p matrix-sdk --no-default-features --features indexeddb_stores,encryption,rustls-tls",
+        ),
+    ]);
+
+    let run = |arg_set: &str| {
+        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
+            .args(arg_set.split_whitespace())
+            .args(["--", "-D", "warnings"])
+            .run()
+    };
+
+    match cmd {
+        Some(cmd) => {
+            run(args[&cmd])?;
+        }
+        None => {
+            for &arg_set in args.values() {
+                run(arg_set)?;
+            }
+        }
+    }
 
     Ok(())
 }
