@@ -178,7 +178,7 @@ jobs:
     - name: Upload library file (aar)
       uses: actions/upload-artifact@v2
       with:
-        name: crypto-debug
+        name: crypto-release
         path: crypto/crypto-android/build/outputs/aar/crypto-android-release.aar
   
     - name: Publish to MavenCentral
