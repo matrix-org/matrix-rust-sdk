@@ -1406,6 +1406,7 @@ impl Client {
     /// client.public_rooms(limit, since, server).await;
     /// # });
     /// ```
+    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn public_rooms(
         &self,
         limit: Option<u32>,
