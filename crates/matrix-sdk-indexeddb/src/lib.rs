@@ -41,7 +41,7 @@ async fn open_stores_with_name(
 /// Create a [`StoreConfig`] with an opened indexeddb [`StateStore`] that uses
 /// the given name and passphrase. If `encryption` is enabled, a [`CryptoStore`]
 /// with the same parameters is also opened.
-async fn make_store_config(
+pub async fn make_store_config(
     name: impl Into<String>,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, anyhow::Error> {
