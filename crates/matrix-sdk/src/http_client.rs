@@ -129,8 +129,7 @@ impl HttpClient {
         let access_token;
 
         let request = if !self.request_config.assert_identity {
-            let send_access_token = if matches!(auth_scheme, AuthScheme::None) && !config.force_auth
-            {
+            let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
                 // Small optimization: Don't take the session lock if we know the auth token
                 // isn't going to be used anyways.
                 SendAccessToken::None
