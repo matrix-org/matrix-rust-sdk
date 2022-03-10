@@ -66,7 +66,7 @@ mod sync;
 pub mod encryption;
 
 pub use account::Account;
-pub use client::{Client, SlidingSyncView, SlidingSyncState, LoopCtrl};
+pub use client::{Client, SlidingSyncView, SlidingSyncState, SlidingSyncRoom, LoopCtrl};
 #[cfg(feature = "image_proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};

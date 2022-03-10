@@ -1,6 +1,8 @@
 use std::time::{Instant, Duration};
-use matrix_sdk::{Client, SlidingSyncView};
+use matrix_sdk::{Client, SlidingSyncView, SlidingSyncRoom};
 use tui::widgets::TableState;
+use std::collections::btree_map::BTreeMap;
+use futures_signals::signal::Mutable;
 use log::warn;
 
 #[derive(Clone)]
@@ -39,10 +41,18 @@ impl Syncv2State {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct CurrentRoomSummary {
+    pub name: String,
+    pub state_events_counts: Vec<(String, usize)>,
+    //pub state_events: BTreeMap<String, Vec<SlidingSyncRoom>>,
+}
+
 #[derive(Clone)]
 pub struct SlidingSyncState {
     started: Instant,
     view: SlidingSyncView,
+    current_room_summary: Mutable<Option<CurrentRoomSummary>>,
     /// the current list selector for the room
     pub rooms_state: TableState,
     first_render: Option<Duration>,
@@ -57,6 +67,7 @@ impl SlidingSyncState {
         Self {
             started: Instant::now(),
             view,
+            current_room_summary: Mutable::new(None),
             rooms_state: TableState::default(),
             first_render: None,
             full_sync: None,
@@ -95,6 +106,42 @@ impl SlidingSyncState {
 
     pub fn view(&self) -> &SlidingSyncView {
         &self.view
+    }
+
+    pub fn current_room_summary(&self) -> Option<CurrentRoomSummary> {
+        if self.current_room_summary.lock_ref().is_none() {
+
+            let room_id = if let Some(id) = &self.selected_room {
+                id
+            } else {
+                return None;
+            };
+
+            let room_data = {
+                let l = self.view().rooms.lock_ref();
+                if let Some(room) = l.get(room_id) {
+                    room.clone()
+                } else {
+                    return None
+                }
+            };
+
+            let name = room_data.name.clone().unwrap_or_else(|| "unkown".to_owned());
+
+            let state_events = room_data.required_state.iter().filter_map(|r| r.deserialize().ok()).fold(BTreeMap::<String, Vec<_>>::new(), |mut b, r| {
+                let event_name = r.event_type().to_owned();
+                b.entry(event_name).and_modify(|l| l.push(r.clone())).or_insert_with(|| vec![r.clone()]);
+                b
+            });
+
+            let mut state_events_counts: Vec<(String, usize)> = state_events.iter().map(|(k, l)| (k.clone(), l.len())).collect();
+            state_events_counts.sort_by_key(|(_, count)| *count);
+
+            self.current_room_summary.set(Some(CurrentRoomSummary {
+                name, state_events_counts
+            }));
+        }
+        return self.current_room_summary.get_cloned()
     }
 
     pub fn set_full_sync_now(&mut self) {
@@ -146,6 +193,7 @@ impl SlidingSyncState {
         
 
         self.selected_room = next_id;
+        self.current_room_summary.set(None);
     }
 }
 #[derive(Clone)]

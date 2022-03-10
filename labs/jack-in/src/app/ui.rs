@@ -8,7 +8,6 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Block, BorderType, Borders, Cell, LineGauge, Paragraph, Table, Row, Tabs, List, ListItem};
 use tui::{symbols, Frame};
 use tui_logger::TuiLoggerWidget;
-use itertools::Itertools;
 
 use super::actions::{Actions, Action};
 use super::state::{AppState, Syncv2State, SlidingSyncState};
@@ -63,7 +62,7 @@ where
         rect.render_widget(rooms, body_chunks[0]);
     }
 
-    let body_details = draw_details(sliding);
+    let body_details = draw_details(app.state().get_sliding());
     rect.render_widget(body_details, body_chunks[1]);
 
     let v3_footer = draw_status(app.state().get_sliding());
@@ -192,11 +191,7 @@ fn calc_sliding<'a>(state: Option<&SlidingSyncState>) -> Vec<Row<'a>> {
 
 
 fn draw_details<'a>(state: Option<&SlidingSyncState>) -> Table<'a> {
-    let selected_room = if let Some(r) = state.and_then(|s|
-        s.selected_room().as_ref().and_then(|id| {
-            let l = s.view().rooms.lock_ref();
-            l.get(id).cloned()
-        }))
+    let selected_room = if let Some(r) = state.and_then(|i| i.current_room_summary())
     {
         r
     } else {
@@ -205,15 +200,13 @@ fn draw_details<'a>(state: Option<&SlidingSyncState>) -> Table<'a> {
         ])
     };
 
-    let name = selected_room.name.clone().unwrap_or_else(|| "unkown".to_owned());
-
     let mut details = vec![
         Row::new(vec![Cell::from("-- Status Events")])
     ];
 
-    for (title, items) in &selected_room.required_state.iter().filter_map(|r| r.deserialize().ok()).group_by(|r| r.event_type().to_owned()) {
+    for (title, count) in selected_room.state_events_counts {
         details.push(
-            Row::new(vec![Cell::from(title), Cell::from(format!("{}", items.count()))])
+            Row::new(vec![Cell::from(title), Cell::from(format!("{}", count))])
         )
     }
 
@@ -222,7 +215,7 @@ fn draw_details<'a>(state: Option<&SlidingSyncState>) -> Table<'a> {
     .widths(&[Constraint::Min(30), Constraint::Min(6), Constraint::Min(30)])
     .block(
         Block::default()
-            .title(format!(" {} ", name))
+            .title(format!(" {} ", selected_room.name))
             .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),

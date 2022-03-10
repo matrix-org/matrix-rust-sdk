@@ -189,12 +189,15 @@ impl Default for SlidingSyncState {
     }
 }
 
+/// Room info as giving by the SlidingSync Feature
+pub type SlidingSyncRoom = syncv3_events::Room;
+
 
 type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
 type PosState = futures_signals::signal::Mutable<Option<String>>;
 type RoomsCount = futures_signals::signal::Mutable<Option<u64>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
-type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, syncv3_events::Room>>;
+type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, SlidingSyncRoom>>;
 
 /// Holding a specific filtered view within the concept of sliding sync
 #[derive(Clone, Debug)]
