@@ -20,7 +20,7 @@ use std::{
 };
 
 use http::header::InvalidHeaderValue;
-use matrix_sdk_base::{BaseClientConfig, StateStore};
+use matrix_sdk_base::StateStore;
 
 use crate::{
     config::{RequestConfig, StoreConfig},
@@ -75,7 +75,7 @@ pub struct ClientConfig {
     pub(crate) proxy: Option<reqwest::Proxy>,
     pub(crate) user_agent: Option<String>,
     pub(crate) disable_ssl_verification: bool,
-    pub(crate) base_config: BaseClientConfig,
+    pub(crate) store_config: StoreConfig,
     pub(crate) request_config: RequestConfig,
     pub(crate) client: Option<Arc<dyn HttpSend>>,
     pub(crate) appservice_mode: bool,
@@ -131,10 +131,7 @@ impl ClientConfig {
     /// [`make_config`]: crate::store::make_config
     /// [`store`]: crate::store
     pub fn with_store_config(store_config: StoreConfig) -> Self {
-        Self {
-            base_config: BaseClientConfig::with_store_config(store_config),
-            ..Default::default()
-        }
+        Self { store_config, ..Default::default() }
     }
 
     /// Set the proxy through which all the HTTP requests should go.
@@ -180,7 +177,7 @@ impl ClientConfig {
     ///
     /// The state store should be opened before being set.
     pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-        self.base_config = self.base_config.state_store(store);
+        self.store_config = self.store_config.state_store(store);
         self
     }
 
@@ -226,7 +223,7 @@ impl ClientConfig {
         mut self,
         store: Box<dyn matrix_sdk_base::crypto::store::CryptoStore>,
     ) -> Self {
-        self.base_config = self.base_config.crypto_store(store);
+        self.store_config = self.store_config.crypto_store(store);
         self
     }
 

@@ -33,7 +33,7 @@ mod session;
 pub mod store;
 mod timeline_stream;
 
-pub use client::{BaseClient, BaseClientConfig};
+pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
 pub use http;
 #[cfg(feature = "encryption")]

@@ -183,7 +183,7 @@ impl Client {
             Arc::new(client_with_config(&config)?)
         };
 
-        let base_client = BaseClient::new_with_config(config.base_config).await?;
+        let base_client = BaseClient::new_with_store_config(config.store_config);
         let session = base_client.session().clone();
 
         let http_client =
