@@ -8,6 +8,7 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Block, BorderType, Borders, Cell, LineGauge, Paragraph, Table, Row, Tabs, List, ListItem};
 use tui::{symbols, Frame};
 use tui_logger::TuiLoggerWidget;
+use itertools::Itertools;
 
 use super::actions::{Actions, Action};
 use super::state::{AppState, Syncv2State, SlidingSyncState};
@@ -206,11 +207,22 @@ fn draw_details<'a>(state: Option<&SlidingSyncState>) -> Table<'a> {
 
     let name = selected_room.name.clone().unwrap_or_else(|| "unkown".to_owned());
 
-    Table::new(vec![])
+    let mut details = vec![
+        Row::new(vec![Cell::from("-- Status Events")])
+    ];
+
+    for (title, items) in &selected_room.required_state.iter().filter_map(|r| r.deserialize().ok()).group_by(|r| r.event_type().to_owned()) {
+        details.push(
+            Row::new(vec![Cell::from(title), Cell::from(format!("{}", items.count()))])
+        )
+    }
+
+    Table::new(details)
     .style(Style::default().fg(Color::LightCyan))
+    .widths(&[Constraint::Min(30), Constraint::Min(6), Constraint::Min(30)])
     .block(
         Block::default()
-            .title(name)
+            .title(format!(" {} ", name))
             .borders(Borders::ALL)
             .style(Style::default().fg(Color::White))
             .border_type(BorderType::Plain),
