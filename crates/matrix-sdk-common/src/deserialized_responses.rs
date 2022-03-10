@@ -116,7 +116,7 @@ impl From<RoomEvent> for SyncRoomEvent {
         // RoomEvent without the room_id. By converting the raw value in this
         // way, we simply cause the `room_id` field in the json to be ignored by
         // a subsequent deserialization.
-        Self { encryption_info: o.encryption_info, event: Raw::from_json(o.event.into_json()) }
+        Self { encryption_info: o.encryption_info, event: o.event.cast() }
     }
 }
 

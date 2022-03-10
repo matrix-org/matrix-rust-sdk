@@ -46,11 +46,7 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{
-    json,
-    value::{to_raw_value, RawValue as RawJsonValue},
-    Value,
-};
+use serde_json::{json, value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 
@@ -905,10 +901,8 @@ impl ReadOnlyAccount {
                     DeviceKeyAlgorithm::SignedCurve25519,
                     key_id.as_str().into(),
                 ),
-                Raw::from_json(
-                    to_raw_value(&OneTimeKey::SignedKey(signed_key))
-                        .expect("Couldn't serialize a new signed key"),
-                ),
+                Raw::new(&OneTimeKey::SignedKey(signed_key))
+                    .expect("Couldn't serialize a new signed key"),
             );
         }
 

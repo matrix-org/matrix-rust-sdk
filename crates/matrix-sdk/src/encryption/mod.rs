@@ -13,250 +13,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(rustfmt, rustfmt_skip)]
-//! End-to-end encryption related types
-//!
-//! Matrix has support for end-to-end encrypted messaging, this module contains
-//! types related to end-to-end encryption, describes a bit how E2EE works in
-//! the matrix-sdk, and how to set your [`Client`] up to support E2EE.
-//!
-//! Jump to the [Client Setup](#client-setup) section if you don't care how E2EE
-//! works under the hood.
-//!
-//! # End-to-end encryption
-//!
-//! While all messages in Matrix land are transferred to the server in an
-//! encrypted manner, rooms can be marked as end-to-end encrypted. If a room is
-//! marked as end-to-end encrypted, using a `m.room.encrypted` state event, all
-//! messages that are sent to this room will be encrypted for the individual
-//! room members. This means that the server won't be able to read messages that
-//! get sent to such a room.
-//!
-//! ```text
-//!                               ┌──────────────┐
-//!                               │  Homeserver  │
-//!      ┌───────┐                │              │                ┌───────┐
-//!      │ Alice │═══════════════►│  unencrypted │═══════════════►│  Bob  │
-//!      └───────┘   encrypted    │              │   encrypted    └───────┘
-//!                               └──────────────┘
-//! ```
-//!
-//! ```text
-//!                               ┌──────────────┐
-//!                               │  Homeserver  │
-//!      ┌───────┐                │              │                ┌───────┐
-//!      │ Alice │≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡►│─────────────►│≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡►│  Bob  │
-//!      └───────┘   encrypted    │   encrypted  │   encrypted    └───────┘
-//!                               └──────────────┘
-//! ```
-//!
-//! ## Encrypting for each end
-//!
-//! We already mentioned that a message in a end-to-end encrypted world needs to
-//! be encrypted for each individual member, though that isn't completely
-//! correct. A message needs to be encrypted for each individual *end*. An *end*
-//! in Matrix land is a client that communicates with the homeserver. The spec
-//! calls an *end* a Device, while other clients might call an *end* a Session.
-//!
-//! The matrix-sdk represents an *end* as a [`Device`] object. Each individual
-//! message should be encrypted for each individual [`Device`] of each
-//! individual room member.
-//!
-//! Since rooms might grow quite big, encrypting each message for every
-//! [`Device`] becomes quickly unsustainable. Because of that room keys have
-//! been introduced.
-//!
-//! ## Room keys
-//!
-//! Room keys remove the need to encrypt each message for each *end*.
-//! Instead a room key needs to be shared with each *end*, after that a message
-//! can be encrypted in a single, O(1), step.
-//!
-//! A room key is backed by a [Megolm] session, which in turn consists two
-//! parts. The first part, the outbound group session is used for encryption,
-//! this one never leaves your device. The second part is the inbound group
-//! session, which is shared with each *end*.
-//!
-//! ```text
-//!             ┌────────────────────────┬───────────────────────┐
-//!             │       Encryption       │      Decryption       │
-//!             ├────────────────────────┼───────────────────────┤
-//!             │ Outbound group session │ Inbound group session │
-//!             └────────────────────────┴───────────────────────┘
-//! ```
-//!
-//! ### Lifetime of a room key
-//!
-//! 1. Create a room key
-//! 2. Share the room key with each participant
-//! 3. Encrypt messages using the room key
-//! 4. If needed, rotate the room key and go back to 1
-//!
-//! The `m.room.encryption` state event of the room decides how long a room key
-//! should be used. By default this is for 100 messages or for 1 week, whichever
-//! comes first.
-//!
-//! ### Decrypting the room history
-//!
-//! Since room keys get relatively often rotated, each room key will need to be
-//! stored, otherwise we won't be able to decrypt historical messages. The SDK
-//! stores all room keys locally in a encrypted manner.
-//!
-//! Besides storing them as part of the SDK store, users can export room keys
-//! using the [`Client::export_keys`] method.
-//!
-//! # Verification
-//!
-//! One important aspect of end-to-end encryption is to check that the *end* you
-//! are communicating with is indeed the person you expect. This checking is
-//! done in Matrix via interactive verification. While interactively verifying,
-//! we'll need to exchange some critical piece of information over another
-//! communication channel, over the phone, or in person are good candidates
-//! for such a channel.
-//!
-//! Usually each *end* will need to verify every *end* it communicates with. An
-//! *end* is represented as a [`Device`] in the matrix-sdk. This gets rather
-//! complicated quickly as is shown bellow, with Alice and Bob each having two
-//! devices. Each arrow represents who needs to verify whom for the
-//! communication between Alice and Bob to be considered secure.
-//!
-//! ```text
-//!
-//!               ┌───────────────────────────────────────────┐
-//!               ▼                                           │
-//!         ┌───────────┐                                ┌────┴────┐
-//!       ┌►│Alice Phone├───────────────────────────────►│Bob Phone│◄──┐
-//!       │ └─────┬─────┘                                └─────┬───┘   │
-//!       │       ▼                                            ▼       │
-//!       │ ┌────────────┐                               ┌───────────┐ │
-//!       └─┤Alice Laptop├──────────────────────────────►│Bob Desktop├─┘
-//!         └────────────┘                               └─────┬─────┘
-//!               ▲                                            │
-//!               └────────────────────────────────────────────┘
-//!
-//! ```
-//!
-//! To simplify things and lower the amount of devices a user needs to verify
-//! cross signing has been introduced. Cross signing adds a concept of a user
-//! identity which is represented in the matrix-sdk using the [`UserIdentity`]
-//! struct. This way Alice and Bob only need to verify their own devices and
-//! each others user identity for the communication to be considered secure.
-//!
-//! ```text
-//!
-//!            ┌─────────────────────────────────────────────────┐
-//!            │   ┌─────────────────────────────────────────┐   │
-//!            ▼   │                                         ▼   │
-//!     ┌──────────┴─────────┐                   ┌───────────────┴──────┐
-//!     │┌──────────────────┐│                   │  ┌────────────────┐  │
-//!     ││Alice UserIdentity││                   │  │Bob UserIdentity│  │
-//!     │└───┬─────────┬────┘│                   │  └─┬───────────┬──┘  │
-//!     │    │         │     │                   │    │           │     │
-//!     │    ▼         ▼     │                   │    ▼           ▼     │
-//!     │┌───────┐ ┌────────┐│                   │┌───────┐  ┌─────────┐│
-//!     ││ Alice │ │ Alice  ││                   ││  Bob  │  │   Bob   ││
-//!     ││ Phone │ │ Laptop ││                   ││ Phone │  │ Desktop ││
-//!     │└───────┘ └────────┘│                   │└───────┘  └─────────┘│
-//!     └────────────────────┘                   └──────────────────────┘
-//!
-//! ```
-//!
-//! More info about devices and identities can be found in the [`identities`]
-//! module.
-//!
-//! To add interactive verification support to your client please see the
-//! [`verification`] module, also check out the documentation for the
-//! [`Device::verified()`] method, which explains in more detail what it means
-//! for a [`Device`] to be verified.
-//!
-//! # Client setup
-//!
-//! The matrix-sdk aims to provide encryption support transparently. If
-//! encryption is enabled and correctly set up, events that need to be encrypted
-//! will be encrypted automatically. Events will also be decrypted
-//! automatically.
-//!
-//! Please note that, unless a client is specifically set up to ignore
-//! unverified devices, verifying devices is **not** necessary for encryption
-//! to work.
-//!
-//! 1. Make sure the `encryption` feature is enabled.
-//! 2. Ensure you have a persistent storage backend, either by activating the
-//!    `sled_state_store`-feature or providing one via [`ClientConfig.state_store`]
-//!
-//! ## Restoring a client
-//!
-//! Restoring a Client is relatively easy, still some things need to be kept in
-//! mind before doing so.
-//!
-//! There are two ways one might wish to restore a [`Client`]:
-//! 1. Using an access token
-//! 2. Using the password
-//!
-//! Initially, logging in creates a device ID and access token on the server,
-//! those two are directly connected to each other, more on this relationship
-//! can be found in the [spec].
-//!
-//! After we log in the client will upload the end-to-end encryption related
-//! [device keys] to the server. Those device keys cannot be replaced once they
-//! have been uploaded and tied to a device ID.
-//!
-//! ### Using an access token
-//!
-//! 1. Log in with the password using [`Client::login()`] setting the
-//!    `device_id` argument to `None`.
-//! 2. Store the access token, preferably somewhere secure.
-//! 3. Use [`Client::restore_login()`] the next time the client starts.
-//!
-//! **Note** that the access token is directly connected to a device ID that
-//! lives on a server. If you're skipping step one of this method, remember that
-//! you **can't** use an access token that already has some device keys tied to
-//! the device ID.
-//!
-//! ### Using a password.
-//!
-//! 1. Log in using [`Client::login()`] setting the `device_id` argument to `None`.
-//! 2. Store the `device_id` that was returned in the login response from the
-//! server.
-//! 3. Use [`Client::login()`] the next time the client starts, make sure to
-//! **set** `device_id` this time to the stored `device_id` from the previous
-//! step. This will replace the access token from the previous login call but
-//! won't create a new device.
-//!
-//! **Note** that the default store supports only a single device, logging in
-//! with a different device id (either `None` or a device ID of another client)
-//! is **not** supported using the default store.
-//!
-//! ## Common pitfalls
-//!
-//! | Failure | Cause | Fix |
-//! | ------------------- | ----- | ----------- |
-//! | No messages get encrypted nor decrypted | The `encryption` feature is disabled | [Enable the feature in your `Cargo.toml` file] |
-//! | Messages that were decryptable aren't after a restart | Storage isn't setup to be persistent | Ensure you've activated the persistent storage backend feature, e.g. `sled_state_store` |
-//! | Messages are encrypted but can't be decrypted | The access token that the client is using is tied to another device | Clear storage to create a new device, read the [Restoring a Client] section |
-//! | Messages don't get encrypted but get decrypted | The `m.room.encryption` event is missing | Make sure encryption is [enabled] for the room and the event isn't [filtered] out, otherwise it might be a deserialization bug |
-//!
-//! [Enable the feature in your `Cargo.toml` file]: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#choosing-features
-//! [Megolm]: https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/megolm.md
-//! [`UserIdentity`]: #struct.verification.UserIdentity
-//! [filtered]: crate::config::SyncSettings::filter
-//! [enabled]: crate::room::Joined::enable_encryption
-//! [Restoring a Client]: #restoring-a-client
-//! [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
-//! [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
-
+#![doc = include_str!("../docs/encryption.md")]
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
+
 pub mod identities;
 pub mod verification;
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Read, Write},
+    iter,
     path::PathBuf,
-    result::Result as StdResult, iter,
 };
 
 use futures_util::stream::{self, StreamExt};
-pub use matrix_sdk_base::crypto::{MediaEncryptionInfo, LocalTrust, RoomKeyImportResult};
+pub use matrix_sdk_base::crypto::{LocalTrust, MediaEncryptionInfo, RoomKeyImportResult};
 use matrix_sdk_base::{
     crypto::{
         store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
@@ -268,7 +38,9 @@ use matrix_sdk_common::instant::Duration;
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
-        keys::{get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest},
+        keys::{
+            get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest,
+        },
         message::send_message_event,
         to_device::send_event_to_device::v3::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
@@ -389,7 +161,7 @@ impl Client {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> StdResult<Option<Device>, CryptoStoreError> {
+    ) -> Result<Option<Device>, CryptoStoreError> {
         let device = self.base_client().get_device(user_id, device_id).await?;
 
         Ok(device.map(|d| Device { inner: d, client: self.clone() }))
@@ -426,7 +198,7 @@ impl Client {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> StdResult<UserDevices, CryptoStoreError> {
+    ) -> Result<UserDevices, CryptoStoreError> {
         let devices = self.base_client().get_user_devices(user_id).await?;
 
         Ok(UserDevices { inner: devices, client: self.clone() })
@@ -467,7 +239,7 @@ impl Client {
     pub async fn get_user_identity(
         &self,
         user_id: &UserId,
-    ) -> StdResult<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
+    ) -> Result<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
         use crate::encryption::identities::UserIdentity;
 
         if let Some(olm) = self.olm_machine().await {
@@ -531,15 +303,11 @@ impl Client {
     /// # anyhow::Result::<()>::Ok(()) });
     #[cfg(feature = "encryption")]
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
-        use serde_json::value::to_raw_value;
-
         let olm = self.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
 
-        let to_raw = |k| {
-            Raw::from_json(to_raw_value(&k).expect("Can't serialize newly created cross signing keys"))
-        };
+        let to_raw = |k| Raw::new(&k).expect("Can't serialize newly created cross signing keys");
 
         let request = assign!(UploadSigningKeysRequest::new(), {
             auth: auth_data,
@@ -671,7 +439,7 @@ impl Client {
         &self,
         path: PathBuf,
         passphrase: &str,
-    ) -> StdResult<RoomKeyImportResult, RoomKeyImportError> {
+    ) -> Result<RoomKeyImportResult, RoomKeyImportError> {
         let olm = self.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 
@@ -689,10 +457,7 @@ impl Client {
     /// Tries to decrypt a `AnyRoomEvent`. Returns undecrypted room event when
     /// decryption fails.
     #[cfg(feature = "encryption")]
-    pub(crate) async fn decrypt_room_event(
-        &self,
-        event: Raw<AnyRoomEvent>,
-    ) -> RoomEvent {
+    pub(crate) async fn decrypt_room_event(&self, event: Raw<AnyRoomEvent>) -> RoomEvent {
         if let Some(machine) = self.olm_machine().await {
             if let Ok(AnyRoomEvent::Message(event)) = event.deserialize() {
                 if let AnyMessageEvent::RoomEncrypted(_) = event {
@@ -744,34 +509,33 @@ impl Client {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail<'_, T>>,
     ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_file, thumbnail_info) =
-            if let Some(thumbnail) = thumbnail {
-                let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
+        let (thumbnail_file, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+            let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
 
-                let response = self.upload(thumbnail.content_type, &mut reader).await?;
+            let response = self.upload(thumbnail.content_type, &mut reader).await?;
 
-                let file: ruma::events::room::EncryptedFile = {
-                    let keys = reader.finish();
-                    ruma::events::room::EncryptedFileInit {
-                        url: response.content_uri,
-                        key: keys.web_key,
-                        iv: keys.iv,
-                        hashes: keys.hashes,
-                        v: keys.version,
-                    }
-                    .into()
-                };
-
-                use ruma::events::room::ThumbnailInfo;
-                let thumbnail_info = assign!(
-                    thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
-                    { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-                );
-
-                (Some(Box::new(file)), Some(Box::new(thumbnail_info)))
-            } else {
-                (None, None)
+            let file: ruma::events::room::EncryptedFile = {
+                let keys = reader.finish();
+                ruma::events::room::EncryptedFileInit {
+                    url: response.content_uri,
+                    key: keys.web_key,
+                    iv: keys.iv,
+                    hashes: keys.hashes,
+                    v: keys.version,
+                }
+                .into()
             };
+
+            use ruma::events::room::ThumbnailInfo;
+            let thumbnail_info = assign!(
+                thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
+                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
+            );
+
+            (Some(Box::new(file)), Some(Box::new(thumbnail_info)))
+        } else {
+            (None, None)
+        };
 
         let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
 
@@ -800,10 +564,10 @@ impl Client {
                         thumbnail_info
                     }
                 );
-                let content = assign!(
-                    message::ImageMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::ImageMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::Image(content)
             }
             mime::AUDIO => {
@@ -813,10 +577,10 @@ impl Client {
                         mimetype: Some(content_type.as_ref().to_owned()),
                     }
                 );
-                let content = assign!(
-                    message::AudioMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::AudioMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::Audio(content)
             }
             mime::VIDEO => {
@@ -828,10 +592,10 @@ impl Client {
                         thumbnail_info
                     }
                 );
-                let content = assign!(
-                    message::VideoMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::VideoMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::Video(content)
             }
             _ => {
@@ -843,10 +607,10 @@ impl Client {
                         thumbnail_info
                     }
                 );
-                let content = assign!(
-                    message::FileMessageEventContent::encrypted(body.to_owned(), file),
-                    { info: Some(Box::new(info)) }
-                );
+                let content =
+                    assign!(message::FileMessageEventContent::encrypted(body.to_owned(), file), {
+                        info: Some(Box::new(info))
+                    });
                 message::MessageType::File(content)
             }
         })
@@ -871,7 +635,10 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    pub(crate) async fn create_dm_room(&self, user_id: Box<UserId>) -> Result<Option<room::Joined>> {
+    pub(crate) async fn create_dm_room(
+        &self,
+        user_id: Box<UserId>,
+    ) -> Result<Option<room::Joined>> {
         use ruma::{
             api::client::room::create_room::v3::RoomPreset,
             events::AnyGlobalAccountDataEventContent,

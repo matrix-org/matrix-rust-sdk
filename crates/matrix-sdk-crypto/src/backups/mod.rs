@@ -370,10 +370,7 @@ impl BackupMachine {
                 .or_default()
                 .insert(session_id.clone());
 
-            let session = Raw::from_json(
-                serde_json::value::to_raw_value(&session)
-                    .expect("Can't serialize a backed up room key"),
-            );
+            let session = Raw::new(&session).expect("Can't serialize a backed up room key");
 
             backup
                 .entry(room_id)

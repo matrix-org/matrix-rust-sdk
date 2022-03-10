@@ -8,8 +8,11 @@ crates-io = "https://docs.rs/"
 rustflags = [
     "-Wrust_2018_idioms",
     "-Wsemicolon_in_expressions_from_macros",
+    "-Wunused_extern_crates",
     "-Wunused_import_braces",
     "-Wunused_qualifications",
+    "-Wtrivial_casts",
+    "-Wtrivial_numeric_casts",
     "-Wclippy::cloned_instead_of_copied",
     "-Wclippy::dbg_macro",
     "-Wclippy::inefficient_to_string",
