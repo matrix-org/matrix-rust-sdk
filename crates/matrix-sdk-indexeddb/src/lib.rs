@@ -50,7 +50,7 @@ pub async fn make_store_config(
     #[cfg(feature = "encryption")]
     {
         let (state_store, crypto_store) = open_stores_with_name(name, passphrase).await?;
-        Ok(StoreConfig::new_with_state_and_crypto_store(state_store, crypto_store))
+        Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
     }
 
     #[cfg(not(feature = "encryption"))]
@@ -61,6 +61,6 @@ pub async fn make_store_config(
             StateStore::open_with_name(name).await?
         };
 
-        Ok(StoreConfig::new_with_state_store(Box::new(state_store)))
+        Ok(StoreConfig::new().state_store(Box::new(state_store)))
     }
 }
