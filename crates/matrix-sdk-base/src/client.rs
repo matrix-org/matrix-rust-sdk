@@ -147,6 +147,11 @@ impl CryptoHolder {
 }
 
 impl BaseClient {
+    /// Create a new default client.
+    pub fn new() -> Self {
+        BaseClient::with_store_config(StoreConfig::default())
+    }
+
     /// Create a new client.
     ///
     /// # Arguments
@@ -166,13 +171,7 @@ impl BaseClient {
             olm: Mutex::new(holder).into(),
         }
     }
-}
 
-impl BaseClient {
-    /// Create a new default client.
-    pub fn new() -> Self {
-        BaseClient::with_store_config(StoreConfig::default())
-    }
     /// The current client session containing our user id, device id and access
     /// token.
     pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
