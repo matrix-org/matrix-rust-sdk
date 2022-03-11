@@ -1,13 +1,9 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    config::{ClientConfig, SyncSettings},
-    room::Room,
-    ruma::events::room::member::StrippedRoomMemberEvent,
-    Client,
+    config::SyncSettings, room::Room, ruma::events::room::member::StrippedRoomMemberEvent, Client,
 };
 use tokio::time::{sleep, Duration};
-use url::Url;
 
 async fn on_stripped_state_member(
     room_member: StrippedRoomMemberEvent,
@@ -44,11 +40,9 @@ async fn login_and_sync(
     homeserver_url: String,
     username: &str,
     password: &str,
-) -> Result<(), matrix_sdk::Error> {
-    #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
-    let client_config = ClientConfig::new();
-    #[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
-    let mut client_config = ClientConfig::new();
+) -> anyhow::Result<()> {
+    #[allow(unused_mut)]
+    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
     #[cfg(feature = "sled_state_store")]
     {
@@ -56,17 +50,16 @@ async fn login_and_sync(
         let mut home = dirs::home_dir().expect("no home directory found");
         home.push("autojoin_bot");
         let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
-        client_config = client_config.state_store(Box::new(state_store));
+        client_builder = client_builder.state_store(Box::new(state_store));
     }
 
     #[cfg(feature = "indexeddb_state_store")]
     {
         let state_store = matrix_sdk_indexeddb::StateStore::open();
-        client_config = client_config.state_store(Box::new(state_store));
+        client_builder = client_builder.state_store(Box::new(state_store));
     }
 
-    let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::with_config(homeserver_url, client_config).await.unwrap();
+    let client = client_builder.build().await?;
 
     client.login(username, password, None, Some("autojoin bot")).await?;
 
@@ -80,7 +73,7 @@ async fn login_and_sync(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), matrix_sdk::Error> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let (homeserver_url, username, password) =

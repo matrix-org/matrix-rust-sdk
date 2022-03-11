@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 
 /// Configuration for requests the `Client` makes.
 ///

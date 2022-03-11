@@ -57,7 +57,7 @@ mod sync;
 pub mod encryption;
 
 pub use account::Account;
-pub use client::{Client, LoopCtrl};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl};
 #[cfg(feature = "image_proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};

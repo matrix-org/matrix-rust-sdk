@@ -168,7 +168,7 @@ to work.
 2. To persist the encryption keys, you can use one of the provided backend
 constructors as described in the documentation of the [`store`] module or you
 can provide your own backend that implements [`CryptoStore`] in a
-[`StoreConfig`] or via [`ClientConfig::crypto_store()`].
+[`StoreConfig`] or via [`ClientBuilder::crypto_store()`].
 
 ## Restoring a client
 
@@ -233,4 +233,4 @@ is **not** supported using the default store.
 [`store`]: crate::store
 [`CryptoStore`]: matrix_sdk_base::crypto::store::CryptoStore
 [`StoreConfig`]: crate::config::StoreConfig
-[`ClientConfig::crypto_store()`]: crate::config::ClientConfig::crypto_store()
+[`ClientBuilder::crypto_store()`]: crate::ClientBuilder::crypto_store()
