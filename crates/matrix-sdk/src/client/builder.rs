@@ -25,7 +25,7 @@ use crate::{
 /// // verification
 ///
 /// let client_builder = Client::builder()
-///     .proxy("http://localhost:8080")?
+///     .proxy("http://localhost:8080")
 ///     .disable_ssl_verification();
 /// ```
 ///
@@ -165,10 +165,10 @@ impl ClientBuilder {
     ///
     /// ```
     /// # futures::executor::block_on(async {
-    /// use matrix_sdk::{Client, config::ClientConfig};
+    /// use matrix_sdk::Client;
     ///
-    /// let client_config = ClientConfig::new()
-    ///     .proxy("http://localhost:8080")?;
+    /// let client_config = Client::builder()
+    ///     .proxy("http://localhost:8080");
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });

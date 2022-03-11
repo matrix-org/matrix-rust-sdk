@@ -195,7 +195,7 @@ impl Client {
     /// let alice = UserId::parse("@alice:example.org")?;
     ///
     /// // Now let's try to discover the homeserver and create a client object.
-    /// let client = Client::new_from_user_id(&alice).await?;
+    /// let client = Client::for_user_id(&alice).await?;
     ///
     /// // Finally let's try to login.
     /// client.login(alice, "password", None, None).await?;
@@ -203,7 +203,7 @@ impl Client {
     /// ```
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
-    pub async fn new_from_user_id(user_id: &UserId) -> Result<Self, HttpError> {
+    pub async fn for_user_id(user_id: &UserId) -> Result<Self, HttpError> {
         Self::builder()
             .user_id(user_id)
             .build()
@@ -2368,7 +2368,7 @@ pub(crate) mod test {
             .with_status(200)
             .with_body(test_json::VERSIONS.to_string())
             .create();
-        let client = Client::new_from_user_id(&alice).await.unwrap();
+        let client = Client::for_user_id(&alice).await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2387,7 +2387,7 @@ pub(crate) mod test {
             .create();
 
         assert!(
-            Client::new_from_user_id(&alice).await.is_err(),
+            Client::for_user_id(&alice).await.is_err(),
             "Creating a client from a user ID should fail when the \
                 .well-known server returns no version information."
         );
