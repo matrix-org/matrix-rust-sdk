@@ -163,7 +163,7 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     pub async fn new(homeserver_url: Url) -> Result<Self> {
         let config = ClientConfig::new();
-        Client::new_with_config(homeserver_url, config).await
+        Client::with_config(homeserver_url, config).await
     }
 
     /// Create a new [`Client`] for the given homeserver and use the given
@@ -174,7 +174,7 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     ///
     /// * `config` - Configuration for the client.
-    pub async fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
+    pub async fn with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
         let homeserver = Arc::new(RwLock::new(homeserver_url));
 
         let client = if let Some(client) = config.client {
@@ -264,7 +264,7 @@ impl Client {
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = Client::homeserver_from_user_id(user_id)?;
-        let client = Client::new_with_config(homeserver, config).await?;
+        let client = Client::with_config(homeserver, config).await?;
 
         let well_known = client.discover_homeserver().await?;
         let well_known = Url::parse(well_known.homeserver.base_url.as_ref())?;
@@ -2386,7 +2386,7 @@ pub(crate) mod test {
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = Client::with_config(homeserver, config).await.unwrap();
         client.restore_login(session).await.unwrap();
 
         client
@@ -2485,7 +2485,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
 
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = Client::with_config(homeserver, config).await.unwrap();
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2505,7 +2505,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::new().use_discovery_response();
 
-        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
+        let client = Client::with_config(homeserver.clone(), config).await.unwrap();
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2634,7 +2634,7 @@ pub(crate) mod test {
 
         // test store reloads with correct room state from the state store
         let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
-        let joined_client = Client::new_with_config(homeserver, config).await.unwrap();
+        let joined_client = Client::with_config(homeserver, config).await.unwrap();
         joined_client.restore_login(session).await.unwrap();
 
         // joined room reloaded from state store
@@ -2696,7 +2696,7 @@ pub(crate) mod test {
     async fn login_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = Client::with_config(homeserver, config).await.unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
@@ -3613,7 +3613,7 @@ pub(crate) mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
         assert!(config.request_config.retry_limit.unwrap() == 3);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = Client::with_config(homeserver, config).await.unwrap();
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
@@ -3632,7 +3632,7 @@ pub(crate) mod test {
         let config = ClientConfig::default()
             .request_config(RequestConfig::new().retry_timeout(retry_timeout));
         assert!(config.request_config.retry_timeout.unwrap() == retry_timeout);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = Client::with_config(homeserver, config).await.unwrap();
 
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
@@ -3829,7 +3829,7 @@ pub(crate) mod test {
             .create();
 
         let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
-        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
+        let client = Client::with_config(homeserver.clone(), config).await.unwrap();
         client.restore_login(session.clone()).await.unwrap();
 
         let room = client.get_joined_room(room_id);

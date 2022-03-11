@@ -66,7 +66,7 @@ async fn login_and_sync(
     }
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::new_with_config(homeserver_url, client_config).await.unwrap();
+    let client = Client::with_config(homeserver_url, client_config).await.unwrap();
 
     client.login(username, password, None, Some("autojoin bot")).await?;
 
