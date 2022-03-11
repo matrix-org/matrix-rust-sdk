@@ -153,7 +153,7 @@ impl BaseClient {
     ///
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    pub fn new_with_store_config(config: StoreConfig) -> Self {
+    pub fn with_store_config(config: StoreConfig) -> Self {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
@@ -171,7 +171,7 @@ impl BaseClient {
 impl BaseClient {
     /// Create a new default client.
     pub fn new() -> Self {
-        BaseClient::new_with_store_config(StoreConfig::default())
+        BaseClient::with_store_config(StoreConfig::default())
     }
     /// The current client session containing our user id, device id and access
     /// token.
