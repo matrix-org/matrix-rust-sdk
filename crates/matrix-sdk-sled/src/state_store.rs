@@ -59,6 +59,9 @@ use sled::{
 use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
+#[cfg(feature = "encryption")]
+pub use crate::CryptoStore;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
     Unencrypted,
@@ -375,6 +378,14 @@ impl SledStore {
         let db = Config::new().temporary(false).path(&path).open()?;
 
         SledStore::open_helper(db, Some(path), None)
+    }
+
+    #[cfg(feature = "encryption")]
+    /// Open a `CryptoStore` that uses the same database as this store.
+    ///
+    /// The given passphrase will be used to encrypt private data.
+    pub fn get_crypto_store(&self, passphrase: Option<&str>) -> Result<CryptoStore, anyhow::Error> {
+        CryptoStore::open_with_database(self.inner.clone(), passphrase)
     }
 
     fn serialize_event(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {

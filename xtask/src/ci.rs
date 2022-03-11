@@ -112,9 +112,15 @@ fn check_typos() -> Result<()> {
 fn check_clippy() -> Result<()> {
     cmd!("rustup run nightly cargo clippy --all-targets -- -D warnings").run()?;
     cmd!(
-        "rustup run nightly cargo clippy --all-targets
+        "rustup run nightly cargo clippy --workspace --all-targets
+            --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features --features native-tls,warp
             -- -D warnings"
+    )
+    .run()?;
+    cmd!(
+        "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
+            --no-default-features -- -D warnings"
     )
     .run()?;
     Ok(())
@@ -187,14 +193,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk \
              --no-default-features \
-             --features qrcode,encryption,indexeddb_stores,rustls-tls",
+             --features qrcode,encryption,indexeddb_state_store,indexeddb_cryptostore,rustls-tls",
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
         (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
-            "-p matrix-sdk --no-default-features --features indexeddb_stores,encryption,rustls-tls",
+            "-p matrix-sdk --no-default-features --features indexeddb_state_store,indexeddb_cryptostore,encryption,rustls-tls",
         ),
     ]);
 

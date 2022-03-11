@@ -13,15 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(unused_imports)]
-#[cfg(feature = "encryption")]
-use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
     fmt,
     sync::Arc,
 };
+#[allow(unused_imports)]
+#[cfg(feature = "encryption")]
+use std::{ops::Deref, result::Result as StdResult};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
@@ -69,7 +69,7 @@ use crate::{
     rooms::{Room, RoomInfo, RoomType},
     session::Session,
     store::{
-        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStore, Store,
+        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store, StoreConfig,
     },
 };
 
@@ -99,52 +99,6 @@ impl fmt::Debug for BaseClient {
             .field("session", &self.session)
             .field("sync_token", &self.sync_token)
             .finish()
-    }
-}
-
-/// Configuration for the creation of the `BaseClient`.
-///
-/// # Example
-///
-/// ```
-/// # use matrix_sdk_base::BaseClientConfig;
-///
-/// let client_config = BaseClientConfig::new();
-/// ```
-#[derive(Default)]
-pub struct BaseClientConfig {
-    #[cfg(feature = "encryption")]
-    crypto_store: Option<Box<dyn CryptoStore>>,
-    state_store: Option<Box<dyn StateStore>>,
-}
-
-#[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for BaseClientConfig {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        fmt.debug_struct("BaseClientConfig").finish()
-    }
-}
-
-impl BaseClientConfig {
-    /// Create a new default `BaseClientConfig`.
-    #[must_use]
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    /// Set a custom implementation of a `CryptoStore`.
-    ///
-    /// The crypto store should be opened before being set.
-    #[cfg(feature = "encryption")]
-    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
-        self.crypto_store = Some(store);
-        self
-    }
-
-    /// Set a custom implementation of a `StateStore`.
-    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-        self.state_store = Some(store);
-        self
     }
 }
 
@@ -199,25 +153,25 @@ impl BaseClient {
     ///
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+    pub fn new_with_store_config(config: StoreConfig) -> Self {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 
-        Ok(BaseClient {
+        BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
             store,
             #[cfg(feature = "encryption")]
             olm: Mutex::new(holder).into(),
-        })
+        }
     }
 }
 
 impl BaseClient {
     /// Create a new default client.
-    pub async fn new() -> Result<Self> {
-        BaseClient::new_with_config(BaseClientConfig::default()).await
+    pub fn new() -> Self {
+        BaseClient::new_with_store_config(StoreConfig::default())
     }
     /// The current client session containing our user id, device id and access
     /// token.
@@ -1107,7 +1061,7 @@ impl BaseClient {
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # block_on(async {
-    /// # let client = BaseClient::new().await.unwrap();
+    /// # let client = BaseClient::new();
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await;
     ///
     /// println!("{:?}", device);
@@ -1161,7 +1115,7 @@ impl BaseClient {
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # block_on(async {
-    /// # let client = BaseClient::new().await.unwrap();
+    /// # let client = BaseClient::new();
     /// let devices = client.get_user_devices(alice).await.unwrap();
     ///
     /// for device in devices.devices() {
@@ -1306,6 +1260,12 @@ impl BaseClient {
             push_rules.default_power_level = room_power_levels.users_default;
             push_rules.notification_power_levels = room_power_levels.notifications;
         }
+    }
+}
+
+impl Default for BaseClient {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -37,13 +37,25 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> Result<(), matrix_sdk::Error> {
-    // the location for `JsonStore` to save files to
-    let mut home = dirs::home_dir().expect("no home directory found");
-    home.push("party_bot");
+    #[cfg(not(any(feature = "sled_state_store", feature = "indexeddb_state_store")))]
+    let client_config = ClientConfig::new();
+    #[cfg(any(feature = "sled_state_store", feature = "indexeddb_state_store"))]
+    let mut client_config = ClientConfig::new();
 
-    let client_config =
-        ClientConfig::with_named_store(home.to_str().expect("home dir path must be utf-8"), None)
-            .await?;
+    #[cfg(feature = "sled_state_store")]
+    {
+        // The location to save files to
+        let mut home = dirs::home_dir().expect("no home directory found");
+        home.push("party_bot");
+        let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
+        client_config = client_config.state_store(Box::new(state_store));
+    }
+
+    #[cfg(feature = "indexeddb_state_store")]
+    {
+        let state_store = matrix_sdk_indexeddb::StateStore::open();
+        client_config = client_config.state_store(Box::new(state_store));
+    }
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     // create a new Client with the given homeserver url and config

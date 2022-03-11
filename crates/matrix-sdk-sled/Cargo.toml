@@ -11,7 +11,7 @@ required-features = ["binary-build"]
 [features]
 default = ["encryption"]
 
-encryption = ["matrix-sdk-crypto"]
+encryption = ["matrix-sdk-base/encryption", "matrix-sdk-crypto"]
 binary-build = [
     "atty",
     "clap",
