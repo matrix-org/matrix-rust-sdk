@@ -311,19 +311,16 @@ impl AppService {
     async fn create_and_cache_client(
         &self,
         localpart: &str,
-        config: ClientConfig,
+        mut config: ClientConfig,
     ) -> Result<Client> {
         let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
 
         // The `as_token` in the `Session` maps to the [`MainUser`]
         // (`sender_localpart`) by default, so we don't need to assert identity
         // in that case
-        let config = if localpart != self.registration.sender_localpart {
-            let request_config = config.get_request_config().assert_identity();
-            config.request_config(request_config)
-        } else {
-            config
-        };
+        if localpart != self.registration.sender_localpart {
+            config = config.assert_identity();
+        }
 
         let client =
             Client::with_config(self.homeserver_url.clone(), config.appservice_mode()).await?;
