@@ -123,7 +123,7 @@ impl CryptoHolder {
     async fn convert_to_olm(&mut self, session: &Session) -> Result<()> {
         if let CryptoHolder::PreSetupStore(store) = self {
             *self = CryptoHolder::Olm(Box::new(
-                OlmMachine::new_with_store(
+                OlmMachine::with_store(
                     session.user_id.to_owned(),
                     session.device_id.as_str().into(),
                     store.take().expect("We always exist"),

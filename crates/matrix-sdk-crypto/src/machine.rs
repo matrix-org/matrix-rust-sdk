@@ -220,7 +220,7 @@ impl OlmMachine {
     /// the encryption keys.
     ///
     /// [`Cryptostore`]: trait.CryptoStore.html
-    pub async fn new_with_store(
+    pub async fn with_store(
         user_id: Box<UserId>,
         device_id: Box<DeviceId>,
         store: Box<dyn CryptoStore>,
@@ -272,7 +272,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     #[cfg(feature = "sled_cryptostore")]
-    pub async fn new_with_default_store(
+    pub async fn with_default_store(
         user_id: &UserId,
         device_id: &DeviceId,
         path: impl AsRef<Path>,
@@ -280,7 +280,7 @@ impl OlmMachine {
     ) -> StoreResult<Self> {
         let store = SledStore::open_with_passphrase(path, passphrase)?;
 
-        OlmMachine::new_with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
+        OlmMachine::with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
     }
 
     /// The unique user id that owns this `OlmMachine` instance.
@@ -2036,7 +2036,7 @@ pub(crate) mod test {
 
         let tmpdir = tempdir().unwrap();
 
-        let machine = OlmMachine::new_with_default_store(
+        let machine = OlmMachine::with_default_store(
             user_id(),
             alice_device_id(),
             tmpdir.as_ref(),
@@ -2053,7 +2053,7 @@ pub(crate) mod test {
 
         drop(machine);
 
-        let machine = OlmMachine::new_with_default_store(
+        let machine = OlmMachine::with_default_store(
             &user_id,
             alice_device_id(),
             tmpdir.as_ref(),

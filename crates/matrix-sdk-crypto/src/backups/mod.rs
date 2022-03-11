@@ -470,13 +470,9 @@ mod test {
         use tempfile::tempdir;
 
         let tmpdir = tempdir().expect("Can't create a temporary dir");
-        let machine = OlmMachine::new_with_default_store(
-            alice_id(),
-            alice_device_id(),
-            tmpdir.as_ref(),
-            None,
-        )
-        .await?;
+        let machine =
+            OlmMachine::with_default_store(alice_id(), alice_device_id(), tmpdir.as_ref(), None)
+                .await?;
 
         backup_flow(machine).await
     }
@@ -487,7 +483,7 @@ mod test {
         use tempfile::tempdir;
 
         let tmpdir = tempdir().expect("Can't create a temporary dir");
-        let machine = OlmMachine::new_with_default_store(
+        let machine = OlmMachine::with_default_store(
             alice_id(),
             alice_device_id(),
             tmpdir.as_ref(),
