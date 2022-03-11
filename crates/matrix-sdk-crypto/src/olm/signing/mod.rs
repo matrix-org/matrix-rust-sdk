@@ -476,7 +476,7 @@ impl PrivateCrossSigningIdentity {
     /// * `account` - The Olm account that is creating the new identity. The
     /// account will sign the master key and the self signing key will sign the
     /// account.
-    pub(crate) async fn new_with_account(
+    pub(crate) async fn with_account(
         account: &ReadOnlyAccount,
     ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
         let master = Signing::new();
@@ -739,7 +739,7 @@ mod test {
     #[async_test]
     async fn private_identity_signed_by_account() {
         let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
-        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
 
@@ -749,7 +749,7 @@ mod test {
     #[async_test]
     async fn sign_device() {
         let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
-        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let mut device = ReadOnlyDevice::from_account(&account).await;
         let self_signing = identity.self_signing_key.lock().await;
@@ -766,10 +766,10 @@ mod test {
     #[async_test]
     async fn sign_user_identity() {
         let account = ReadOnlyAccount::new(user_id(), device_id!("DEVICEID"));
-        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let bob_account = ReadOnlyAccount::new(user_id!("@bob:localhost"), device_id!("DEVICEID"));
-        let (bob_private, _, _) = PrivateCrossSigningIdentity::new_with_account(&bob_account).await;
+        let (bob_private, _, _) = PrivateCrossSigningIdentity::with_account(&bob_account).await;
         let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
 
         let user_signing = identity.user_signing_key.lock().await;

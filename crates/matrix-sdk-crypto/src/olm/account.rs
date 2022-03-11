@@ -808,7 +808,7 @@ impl ReadOnlyAccount {
     pub async fn bootstrap_cross_signing(
         &self,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
-        PrivateCrossSigningIdentity::new_with_account(self).await
+        PrivateCrossSigningIdentity::with_account(self).await
     }
 
     /// Sign the given CrossSigning Key in place
