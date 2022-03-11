@@ -94,7 +94,6 @@ impl From<anyhow::Error> for ClientError {
 }
 
 pub trait RoomDelegate: Sync + Send {
-    fn did_paginate_backwards(&self, messages: Vec<Arc<Message>>);
     fn did_receive_message(&self, messages: Arc<Message>);
 }
 
@@ -104,11 +103,9 @@ pub struct Room {
     is_listening_to_live_events: Arc<RwLock<bool>>
 }
 
-type LockedRDelegate = Arc<RwLock<Option<Box<dyn RoomDelegate>>>>;
 type MsgStream = Pin<Box<dyn futures::Stream<Item = Result<SyncRoomEvent, matrix_sdk::Error>>>>;
 
 pub struct BackwardsStream {
-    delegate: LockedRDelegate,
     stream: Arc<Mutex<MsgStream>>,
 }
 
@@ -117,14 +114,12 @@ unsafe impl Sync for BackwardsStream { }
 
 impl BackwardsStream {
 
-    pub fn new(delegate: LockedRDelegate, stream: MsgStream) -> Self {
+    pub fn new(stream: MsgStream) -> Self {
         BackwardsStream {
-            delegate,
             stream: Arc::new(Mutex::new(Box::pin(stream)))
         }
     }
-    pub fn paginate_backwards(&self, mut count: u8) -> Vec<Arc<Message>> {
-        let delegate = self.delegate.clone();
+    pub fn paginate_backwards(&self, mut count: u64) -> Vec<Arc<Message>> {
         let stream = self.stream.clone();
         RUNTIME.block_on(async move {
             let stream = stream.lock();
@@ -243,7 +238,7 @@ impl Room {
                 }
             }
         });
-        Some(Arc::new(BackwardsStream::new(self.delegate.clone(), Box::pin(backwards))))
+        Some(Arc::new(BackwardsStream::new(Box::pin(backwards))))
     }
 
     pub fn stop_live_event_listener(&self) {
@@ -474,10 +469,6 @@ pub fn login_new_client(base_path: String, username: String, password: String) -
         let c = Client::new(client, ClientStateBuilder::default().is_guest(false).build()?);
         Ok(Arc::new(c))
     })
-}
-
-async fn sync_event_to_message_async(sync_event: SyncRoomEvent) -> Option<Arc<Message>> {
-    sync_event_to_message(sync_event)
 }
 
 fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<Message>> {

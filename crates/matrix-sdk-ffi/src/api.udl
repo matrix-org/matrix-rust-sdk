@@ -21,12 +21,11 @@ interface Message {
 };
 
 callback interface RoomDelegate {
-    void did_paginate_backwards(sequence<Message> messages);
     void did_receive_message(Message message);
 };
 
 interface BackwardsStream {
-    sequence<Message> paginate_backwards(u8 count);
+    sequence<Message> paginate_backwards(u64 count);
 };
 
 interface Room {
