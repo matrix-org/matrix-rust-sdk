@@ -164,7 +164,7 @@ impl VerificationRequest {
             milli_seconds_since_unix_epoch(),
         );
 
-        ToDeviceRequest::new_for_recipients(
+        ToDeviceRequest::for_recipients(
             self.other_user(),
             self.recipient_devices.to_vec(),
             AnyToDeviceEventContent::KeyVerificationRequest(content),
@@ -442,7 +442,7 @@ impl VerificationRequest {
         let request = content.map(|c| match c {
             OutgoingContent::ToDevice(content) => {
                 if send_to_everyone {
-                    ToDeviceRequest::new_for_recipients(
+                    ToDeviceRequest::for_recipients(
                         self.other_user(),
                         self.recipient_devices.to_vec(),
                         content,
@@ -537,7 +537,7 @@ impl VerificationRequest {
             if recipients.is_empty() && filter_device.is_some() {
                 None
             } else {
-                Some(ToDeviceRequest::new_for_recipients(
+                Some(ToDeviceRequest::for_recipients(
                     self.other_user(),
                     recipients,
                     c,
