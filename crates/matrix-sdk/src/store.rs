@@ -24,10 +24,10 @@
 //! implementation for WebAssembly.
 //!
 //! Both options provide a `make_store_config` convenience method to create a
-//! [`StoreConfig`] for [`ClientConfig::with_store_config()`].
+//! [`StoreConfig`] for [`ClientConfig::store_config()`].
 //!
 //! [`StoreConfig`]: crate::config::StoreConfig
-//! [`ClientConfig::with_store_config()`]: crate::config::ClientConfig::with_store_config()
+//! [`ClientConfig::store_config()`]: crate::config::ClientConfig::store_config()
 
 #[cfg(any(feature = "indexeddb_state_store", feature = "indexeddb_cryptostore"))]
 pub use matrix_sdk_indexeddb::*;

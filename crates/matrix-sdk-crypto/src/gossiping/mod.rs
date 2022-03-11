@@ -150,7 +150,7 @@ impl GossipRequest {
             }
         };
 
-        let request = ToDeviceRequest::new_with_id(
+        let request = ToDeviceRequest::with_id(
             &self.request_recipient,
             DeviceIdOrAllDevices::AllDevices,
             content,

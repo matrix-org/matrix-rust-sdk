@@ -211,7 +211,7 @@ impl AppService {
     ///
     /// Also creates and caches a [`Client`] for the [`MainUser`].
     /// The default [`ClientConfig`] is used, if you want to customize it
-    /// use [`Self::new_with_config()`] instead.
+    /// use [`Self::with_config()`] instead.
     ///
     /// # Arguments
     ///
@@ -227,20 +227,16 @@ impl AppService {
         server_name: impl TryInto<Box<ServerName>, Error = identifiers::Error>,
         registration: AppServiceRegistration,
     ) -> Result<Self> {
-        let appservice = Self::new_with_config(
-            homeserver_url,
-            server_name,
-            registration,
-            ClientConfig::default(),
-        )
-        .await?;
+        let appservice =
+            Self::with_config(homeserver_url, server_name, registration, ClientConfig::default())
+                .await?;
 
         Ok(appservice)
     }
 
     /// Same as [`Self::new()`] but lets you provide a [`ClientConfig`] for the
     /// [`Client`]
-    pub async fn new_with_config(
+    pub async fn with_config(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
         server_name: impl TryInto<Box<ServerName>, Error = identifiers::Error>,
         registration: AppServiceRegistration,
@@ -330,7 +326,7 @@ impl AppService {
         };
 
         let client =
-            Client::new_with_config(self.homeserver_url.clone(), config.appservice_mode()).await?;
+            Client::with_config(self.homeserver_url.clone(), config.appservice_mode()).await?;
 
         let session = Session {
             access_token: self.registration.as_token.clone(),

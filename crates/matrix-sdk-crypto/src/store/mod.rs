@@ -31,7 +31,7 @@
 //! # let device_id = device_id!("TEST").to_owned();
 //! let store = Box::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::new_with_store(user_id, device_id, store);
+//! let machine = OlmMachine::with_store(user_id, device_id, store);
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html

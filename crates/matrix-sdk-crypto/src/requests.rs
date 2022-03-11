@@ -75,10 +75,10 @@ impl ToDeviceRequest {
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
     ) -> Self {
-        Self::new_with_id(recipient, recipient_device, content, TransactionId::new())
+        Self::with_id(recipient, recipient_device, content, TransactionId::new())
     }
 
-    pub(crate) fn new_for_recipients(
+    pub(crate) fn for_recipients(
         recipient: &UserId,
         recipient_devices: Vec<Box<DeviceId>>,
         content: AnyToDeviceEventContent,
@@ -102,7 +102,7 @@ impl ToDeviceRequest {
         }
     }
 
-    pub(crate) fn new_with_id(
+    pub(crate) fn with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,

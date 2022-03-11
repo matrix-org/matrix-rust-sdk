@@ -123,7 +123,7 @@ impl CryptoHolder {
     async fn convert_to_olm(&mut self, session: &Session) -> Result<()> {
         if let CryptoHolder::PreSetupStore(store) = self {
             *self = CryptoHolder::Olm(Box::new(
-                OlmMachine::new_with_store(
+                OlmMachine::with_store(
                     session.user_id.to_owned(),
                     session.device_id.as_str().into(),
                     store.take().expect("We always exist"),
@@ -147,13 +147,18 @@ impl CryptoHolder {
 }
 
 impl BaseClient {
+    /// Create a new default client.
+    pub fn new() -> Self {
+        BaseClient::with_store_config(StoreConfig::default())
+    }
+
     /// Create a new client.
     ///
     /// # Arguments
     ///
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    pub fn new_with_store_config(config: StoreConfig) -> Self {
+    pub fn with_store_config(config: StoreConfig) -> Self {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
@@ -166,13 +171,7 @@ impl BaseClient {
             olm: Mutex::new(holder).into(),
         }
     }
-}
 
-impl BaseClient {
-    /// Create a new default client.
-    pub fn new() -> Self {
-        BaseClient::new_with_store_config(StoreConfig::default())
-    }
     /// The current client session containing our user id, device id and access
     /// token.
     pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
