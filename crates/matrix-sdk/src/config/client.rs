@@ -122,7 +122,8 @@ impl ClientConfig {
     /// use matrix_sdk::{Client, config::{ClientConfig, StoreConfig}};
     ///
     /// let store_config = StoreConfig::new().state_store(custom_state_store);
-    /// let client_config = ClientConfig::with_store_config(store_config)
+    /// let client_config = ClientConfig::new()
+    ///     .store_config(store_config)
     ///     .use_discovery_response();
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(())
@@ -130,8 +131,9 @@ impl ClientConfig {
     /// ```
     /// [`make_store_config`]: crate::store::make_store_config
     /// [`store`]: crate::store
-    pub fn with_store_config(store_config: StoreConfig) -> Self {
-        Self { store_config, ..Default::default() }
+    pub fn store_config(mut self, store_config: StoreConfig) -> Self {
+        self.store_config = store_config;
+        self
     }
 
     /// Set the proxy through which all the HTTP requests should go.
