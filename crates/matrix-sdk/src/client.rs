@@ -65,6 +65,8 @@ use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
+#[cfg(feature = "encryption")]
+use crate::encryption::Encryption;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     config::{ClientConfig, RequestConfig},
@@ -427,6 +429,12 @@ impl Client {
     /// Get the account of the current owner of the client.
     pub fn account(&self) -> Account {
         Account::new(self.clone())
+    }
+
+    /// Get the encryption manager of the client.
+    #[cfg(feature = "encryption")]
+    pub fn encryption(&self) -> Encryption {
+        Encryption::new(self.clone())
     }
 
     /// Register a handler for a specific event type.

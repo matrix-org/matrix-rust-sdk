@@ -54,7 +54,7 @@ fn print_result(sas: &SasVerification) {
 async fn print_devices(user_id: &UserId, client: &Client) {
     println!("Devices of user {}", user_id);
 
-    for device in client.get_user_devices(user_id).await.unwrap().devices() {
+    for device in client.encryption().get_user_devices(user_id).await.unwrap().devices() {
         println!(
             "   {:<10} {:<30} {:<}",
             device.device_id(),
@@ -87,6 +87,7 @@ async fn login(
                 match event {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
                         if let Some(Verification::SasV1(sas)) = client
+                            .encryption()
                             .get_verification(&e.sender, e.content.transaction_id.as_str())
                             .await
                         {
@@ -102,6 +103,7 @@ async fn login(
 
                     AnyToDeviceEvent::KeyVerificationKey(e) => {
                         if let Some(Verification::SasV1(sas)) = client
+                            .encryption()
                             .get_verification(&e.sender, e.content.transaction_id.as_str())
                             .await
                         {
@@ -111,6 +113,7 @@ async fn login(
 
                     AnyToDeviceEvent::KeyVerificationMac(e) => {
                         if let Some(Verification::SasV1(sas)) = client
+                            .encryption()
                             .get_verification(&e.sender, e.content.transaction_id.as_str())
                             .await
                         {
@@ -136,6 +139,7 @@ async fn login(
                                     if let MessageType::VerificationRequest(_) = &m.content.msgtype
                                     {
                                         let request = client
+                                            .encryption()
                                             .get_verification_request(&m.sender, &m.event_id)
                                             .await
                                             .expect("Request object wasn't created");
@@ -148,6 +152,7 @@ async fn login(
                                 }
                                 AnySyncMessageEvent::KeyVerificationKey(e) => {
                                     if let Some(Verification::SasV1(sas)) = client
+                                        .encryption()
                                         .get_verification(
                                             &e.sender,
                                             e.content.relates_to.event_id.as_str(),
@@ -159,6 +164,7 @@ async fn login(
                                 }
                                 AnySyncMessageEvent::KeyVerificationMac(e) => {
                                     if let Some(Verification::SasV1(sas)) = client
+                                        .encryption()
                                         .get_verification(
                                             &e.sender,
                                             e.content.relates_to.event_id.as_str(),
