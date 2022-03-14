@@ -369,6 +369,7 @@ impl SlidingSyncView {
         let filters = None;
 
         let mut inner_client = self.client.inner.http_client.clone();
+        let server_versions = self.client.inner.server_versions.clone();
         if let Some(hs) = &self.homeserver {
             inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
         }
@@ -415,7 +416,7 @@ impl SlidingSyncView {
                 })).expect("hard coded")];
 
                 warn!("requesting: {:#?}", req);
-                let resp = inner_client.send(req, None).await?;
+                let resp = inner_client.send(req, None, server_versions.clone()).await?;
                 warn!("response: {:#?}", resp);
                 start += batch_size;
                 end += batch_size;
@@ -440,6 +441,7 @@ impl SlidingSyncView {
         let filters = None;
 
         let mut inner_client = self.client.inner.http_client.clone();
+        let server_versions = self.client.inner.server_versions.clone();
         if let Some(hs) = &self.homeserver {
             inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
         }
@@ -465,7 +467,7 @@ impl SlidingSyncView {
                     filters: filters.clone(),
                 })).expect("hard coded")];
 
-                let resp = inner_client.send(req, None).await?;
+                let resp = inner_client.send(req, None, server_versions.clone()).await?;
                 warn!("response: {:#?}", resp);
                 yield resp
             }

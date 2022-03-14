@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
     let client_app = Arc::clone(&app);
 
 
-    let client = Client::new_from_user_id(&user_id).await?;
+    let client = Client::builder().user_id(&user_id).build().await?;
     let session = Session {
         access_token: opt.token.clone(),
         user_id,
