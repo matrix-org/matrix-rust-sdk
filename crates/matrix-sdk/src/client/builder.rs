@@ -326,7 +326,7 @@ impl ClientBuilder {
             None => http_client
                 .send(
                     get_supported_versions::Request::new(),
-                    None,
+                    Some(RequestConfig::short_retry()),
                     [MatrixVersion::V1_0].into_iter().collect(),
                 )
                 .await?
