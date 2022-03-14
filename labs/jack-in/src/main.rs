@@ -13,6 +13,7 @@ use jack_in::io::IoEvent;
 use jack_in::{start_ui, run_client};
 use matrix_sdk::{Client, Session};
 use matrix_sdk_common::ruma::{ UserId, DeviceId };
+use log::warn;
 
 
 #[derive(Debug, StructOpt)]
@@ -61,7 +62,11 @@ async fn main() -> Result<()> {
     };
     client.restore_login(session).await?;
 
-    tokio::spawn(run_client(client, opt.sliding_sync_proxy.clone(), client_app));
+    tokio::spawn(async move {
+        if let Err(e) = run_client(client, opt.sliding_sync_proxy.clone(), client_app).await {
+            warn!("Running the client failed: {:#?}", e);
+        }
+    });
 
     // Handle IO in a specifc thread
     tokio::spawn(async move {

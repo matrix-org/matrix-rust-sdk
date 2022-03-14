@@ -76,6 +76,7 @@ matrix-sdk-indexeddb = { path = "../matrix-sdk-indexeddb", default-features = fa
 
 # sliding sync
 futures-signals = "0.3.24"
+derive_builder = "0.10.2"
 
 [dependencies.image]
 version = "0.24.0"

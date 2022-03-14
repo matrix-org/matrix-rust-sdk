@@ -93,7 +93,7 @@ impl SlidingSyncState {
         self.view.rooms.lock_ref().len()
     }
 
-    pub fn total_rooms_count(&self) -> Option<u64> {
+    pub fn total_rooms_count(&self) -> Option<u32> {
         self.view.rooms_count.get()
     }
     pub fn selected_room(&self) -> Option<Box<matrix_sdk::ruma::RoomId>> {

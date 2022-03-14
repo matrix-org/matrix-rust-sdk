@@ -25,8 +25,8 @@ use matrix_sdk::{Client, SlidingSyncState};
 pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
 
     warn!("Starting sliding sync now");
-    let mut view = client.sliding_sync();
-    view.set_homeserver(Some(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?));
+    let mut builder = client.sliding_sync();
+    let view = builder.homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?).build()?;
     let (cancel, stream) = view.stream().expect("we can build the stream");
     pin_mut!(stream);
     {

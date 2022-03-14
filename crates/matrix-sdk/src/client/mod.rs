@@ -204,15 +204,15 @@ impl Default for SlidingSyncState {
 /// Define the mode by which the the SlidingSyncView is in fetching the data
 #[derive(Debug, PartialEq)]
 pub enum SlidingSyncMode {
-    /// SyncUp all rooms in the background
-    SyncUp,
+    /// FullSync all rooms in the background, configured with batch size
+    FullSync,
     /// Only sync the specific windows defined
     Selective,
 }
 
 impl Default for SlidingSyncMode {
     fn default() -> Self {
-        SlidingSyncMode::SyncUp
+        SlidingSyncMode::FullSync
     }
 }
 
@@ -223,64 +223,124 @@ pub type SlidingSyncRoom = syncv3_events::Room;
 type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
 type SyncMode = futures_signals::signal::Mutable<SlidingSyncMode>;
 type PosState = futures_signals::signal::Mutable<Option<String>>;
-type RoomsCount = futures_signals::signal::Mutable<Option<u64>>;
+type RangeState = futures_signals::signal::Mutable<Vec<(UInt, UInt)>>;
+type RoomsCount = futures_signals::signal::Mutable<Option<u32>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Option<Box<RoomId>>>>;
 type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, SlidingSyncRoom>>;
 pub type Cancel = futures_signals::signal::Mutable<bool>;
 
+use derive_builder::Builder;
 
 /// Holding a specific filtered view within the concept of sliding sync
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Builder)]
 pub struct SlidingSyncView {
+    #[builder(private)]
     client: Client,
-    //filter: String,
-    pos: PosState,
+
+    #[builder(setter(strip_option))]
     homeserver: Option<Url>,
+
     #[allow(dead_code)]
+    #[builder(setter(strip_option), default)]
     sync_mode: SyncMode,
-    /// number of items to fetch per batch, ideally the length of your list + 1
-    /// can only be set prior to calling `stream`, changes after have no effect
-    pub batch_size: u32,
-    /// The state this view is in 
+
+    #[builder(default = "self.default_sort()")]
+    sort: Vec<String>,
+
+    #[builder(default = "self.default_required_state()")]
+    required_state: Vec<(EventType, String)>,
+
+    #[builder(default = "20")]
+    batch_size: u32,
+
+    // ----- Public state
+    /// The state this view is in
+    #[builder(default)]
     pub state: ViewState,
     /// The total known number of rooms, 
+    #[builder(default)]
     pub rooms_count: RoomsCount, 
     /// The rooms in order
+    #[builder(default)]
     pub rooms_list: RoomsList,
     /// The rooms details
+    #[builder(default)]
     pub rooms: RoomsMap,
+
+    // ------ Inernal state
+    #[builder(private, default)]
+    pos: PosState,
+    #[builder(setter(name = "ranges_raw"), default)]
+    ranges: RangeState,
+}
+
+impl SlidingSyncViewBuilder {
+
+    // defaults
+    fn default_sort(&self) -> Vec<String> {
+        vec!["by_recency".to_string(), "by_name".to_string()]
+    }
+
+    fn default_required_state(&self) -> Vec<(EventType, String)> {
+        vec![
+            (EventType::RoomAvatar, "".to_string()),
+            (EventType::RoomMember, "*".to_string()),
+            (EventType::RoomEncryption, "".to_string()),
+            (EventType::RoomTombstone, "".to_string())
+        ]
+    }
+
+    /// Set the ranges to fetch
+    pub fn ranges<U: Into<UInt>>(&mut self, range: Vec<(U, U)>) -> &mut Self {
+        let mut new = self;
+        new.ranges = Some(RangeState::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
+        new
+    }
+
 }
 
 impl SlidingSyncView {
-    fn new(client: Client) -> Self {
-        Self {
-            client,
-            homeserver: None,
-            batch_size: 20,
-            sync_mode: SyncMode::default(),
-            pos: PosState::default(),
-            state: ViewState::default(),
-            rooms_count: RoomsCount::default(),
-            rooms_list: RoomsList::default(),
-            rooms: RoomsMap::default(),
-        }
+
+    /// Return a new fresh builder using the same client, but clean otherwise
+    pub fn fresh_builder(&self) -> SlidingSyncViewBuilder {
+        SlidingSyncViewBuilder::default()
+            .client(self.client.clone())
+            .to_owned()
     }
 
-    #[allow(dead_code)]
-    /// Create a new SlidingSyncView with the given sync_mode
-    fn with_sync_mode(client: Client, sync_mode: SlidingSyncMode) -> Self {
-        Self {
-            client,
-            homeserver: None,
-            batch_size: 20,
-            sync_mode: SyncMode::new(sync_mode),
-            pos: PosState::default(),
-            state: ViewState::default(),
-            rooms_count: RoomsCount::default(),
-            rooms_list: RoomsList::default(),
-            rooms: RoomsMap::default(),
+    /// Return a builder with the same settings as before
+    pub fn builder(&self) -> SlidingSyncViewBuilder {
+        let mut builder = self.fresh_builder()
+            .sync_mode(self.sync_mode.clone())
+            .sort(self.sort.clone())
+            .required_state(self.required_state.clone())
+            .batch_size(self.batch_size)
+            .ranges(self.ranges.read_only().get_cloned())
+            .to_owned();
+
+        if let Some(ref homeserver) = self.homeserver {
+            builder.homeserver(homeserver.clone());
         }
+        builder
     }
+
+    /// Set the ranges to fetch
+    /// 
+    /// Remember to cancel the existing stream and fetch a new one as this will only be applied on
+    /// the next request.
+    pub fn set_ranges(&mut self, range: Vec<(u32, u32)>) -> &mut Self {
+        *self.ranges.lock_mut() = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
+        self
+    }
+
+    /// Set the ranges to fetch
+    /// 
+    /// Remember to cancel the existing stream and fetch a new one as this will only be applied on
+    /// the next request.
+    pub fn add_range(&mut self, start: u32, end: u32) {
+        self.ranges.lock_mut().push((start.into(), end.into()));
+    }
+
     /// Return the subset of rooms, starting at offset (default 0) returning count (or to the end) items
     pub fn get_rooms(&self, offset: Option<usize>, count: Option<usize>) -> Vec<syncv3_events::Room> {
         let start = offset.unwrap_or(0);
@@ -299,7 +359,7 @@ impl SlidingSyncView {
             let mut room_ids = Vec::new();
             {
                 for room in op.rooms {
-                    let r: Box<RoomId> = room.room_id.clone().expect("there is always a room id").parse()?;
+                    let r: Box<RoomId> = room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
                     rooms_map.insert_cloned(r.clone(), room);
                     room_ids.push(r);
                 }
@@ -327,8 +387,8 @@ impl SlidingSyncView {
 
         self.pos.replace(Some(resp.pos));
 
-        let rooms_count: u64 = resp.counts[0].try_into().context("conversion always works")?;
-        let mut missing = rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u64).unwrap_or_default();
+        let rooms_count: u32 = resp.counts[0].try_into().context("conversion always works")?;
+        let mut missing = rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
         if  missing > 0  {
             let mut list = self.rooms_list.lock_mut();
             list.reserve_exact(missing as usize);
@@ -346,23 +406,12 @@ impl SlidingSyncView {
         Ok(())
 
     }
-
-    /// Allows you to set a customised target homeserver to use for this features. This is deprecated and will be removed
-    /// as soon as the standard is adopted.
-    pub fn set_homeserver(&mut self, url: Option<Url>) {
-        self.homeserver = url;
-    }
     
     fn prefetch_stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<syncv3_events::Response>> + 'a> {
         // FIXME: these will come from the filter later
         let batch_size = self.batch_size.clone();
-        let sort = Some(vec!["by_recency".to_string(), "by_name".to_string()]);
-        let required_state = Some(vec![
-                (EventType::RoomAvatar, "".to_string()),
-                (EventType::RoomMember, "*".to_string()),
-                (EventType::RoomEncryption, "".to_string()),
-                (EventType::RoomTombstone, "".to_string())
-            ]);
+        let sort = Some(self.sort.clone());
+        let required_state = Some(self.required_state.clone());
         let timeline_limit = None;
         let filters = None;
 
@@ -372,20 +421,12 @@ impl SlidingSyncView {
             inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
         }
 
-        // FIXME: make this optional
-
-        let state = self.state.clone();
-        let pos = self.pos.clone();
-        let rooms_count = self.rooms_count.clone();
-        let rooms_list = self.rooms_list.clone();
-        let rooms = self.rooms.clone();
-
         let mut start = 0u32;
         let mut end = batch_size;
 
         Ok(async_stream::try_stream! {
             {
-                let mut state = state.lock_mut(); 
+                let mut state = self.state.lock_mut(); 
                 if *state.deref() != SlidingSyncState::Cold {
                     return // we only do this on a fresh state
                 }
@@ -393,7 +434,7 @@ impl SlidingSyncView {
             }
             loop {
                 if let Some(count) = self.rooms_count.get_cloned() {
-                    if count >= start.into() {
+                    if count <= start.into() {
                         // we are done pre-fetching
                         break
                     }
@@ -408,7 +449,7 @@ impl SlidingSyncView {
                     sort: sort.clone(),
                     timeline_limit: timeline_limit.clone(),
                     filters: filters.clone(),
-                })).expect("hard coded")];
+                })).expect("Generting request data is known")];
 
                 warn!("requesting: {:#?}", req);
                 let resp = inner_client.send(req, None, server_versions.clone()).await?;
@@ -422,16 +463,9 @@ impl SlidingSyncView {
 
 
     /// Create the inne stream for the view
-    pub fn live_stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<syncv3_events::Response>> + 'a> {
-        // FIXME: these will come from the filter later
-        let batch_size = self.batch_size.clone();
-        let sort = Some(vec!["by_recency".to_string(), "by_name".to_string()]);
-        let required_state = Some(vec![
-                (EventType::RoomAvatar, "".to_string()),
-                (EventType::RoomMember, "*".to_string()),
-                (EventType::RoomEncryption, "".to_string()),
-                (EventType::RoomTombstone, "".to_string())
-            ]);
+    fn live_stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<syncv3_events::Response>> + 'a> {
+        let sort = Some(self.sort.clone());
+        let required_state = Some(self.required_state.clone());
         let timeline_limit = None;
         let filters = None;
 
@@ -441,26 +475,20 @@ impl SlidingSyncView {
             inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
         }
 
-        let state = self.state.clone();
-        let pos = self.pos.clone();
-        let rooms_count = self.rooms_count.clone();
-        let rooms_list = self.rooms_list.clone();
-        let rooms = self.rooms.clone();
-
         Ok(async_stream::try_stream! {
             loop {
                 let pos = self.pos.get_cloned();
-                let end = self.rooms_count.get_cloned().expect("has been set above");
+                let ranges = self.ranges.read_only().get_cloned();
                 let mut req = assign!(syncv3_events::Request::new(), {
                     pos: pos.as_deref(),
                 });
                 req.body.lists = vec![Raw::new(&assign!(syncv3_events::SyncRequestList::default(), {
-                    ranges: vec![(0u32.into(), end.try_into().expect("works because it came from there"))],
+                    ranges: ranges.clone(),
                     required_state: required_state.clone(),
                     sort: sort.clone(),
                     timeline_limit: timeline_limit.clone(),
                     filters: filters.clone(),
-                })).expect("hard coded")];
+                })).expect("Generting request data is known")];
 
                 let resp = inner_client.send(req, None, server_versions.clone()).await?;
                 warn!("response: {:#?}", resp);
@@ -472,32 +500,41 @@ impl SlidingSyncView {
 
     /// Create the inner stream for the view
     pub fn stream<'a>(&'a self) -> anyhow::Result<(Cancel, impl Stream<Item = anyhow::Result<SlidingSyncState>> + 'a)> {
-        let prefetch_stream = self.prefetch_stream()?;
+        let maybe_prefetch_stream = if *self.sync_mode.lock_ref() == SlidingSyncMode::FullSync && *self.state.lock_ref() == SlidingSyncState::Cold {
+            Some(self.prefetch_stream()?)
+        } else {
+            None
+        };
         let live_stream = self.live_stream()?;
         let cancel = Cancel::new(false);
         let ret_cancel = cancel.clone();
         let state = self.state.clone();
 
         let final_stream = async_stream::try_stream! {
-            pin_mut!(prefetch_stream);
-            while let Some(resp) = prefetch_stream.next().await {
-                let resp = resp?;
-                if cancel.get() {
-                    return
+            if let Some(prefetch_stream) = maybe_prefetch_stream {
+                pin_mut!(prefetch_stream);
+                while let Some(resp) = prefetch_stream.next().await {
+                    let resp = resp?;
+                    if cancel.get() {
+                        return
+                    }
+                    self.handle_response(resp)?;
+                    state.set_if(SlidingSyncState::CatchingUp, |state, _| *state == SlidingSyncState::Preload);
+                    yield self.state.read_only().get_cloned();
                 }
-                self.handle_response(resp)?;
-                state.set_if(SlidingSyncState::CatchingUp, |state, _| *state == SlidingSyncState::Preload);
-                yield self.state.read_only().get_cloned();
-            }
-            {
-                let mut updated = false;
-                state.set_if(SlidingSyncState::Live, |v, _| {
-                    updated = *v == SlidingSyncState::Preload;
-                    updated
-                });
+                
+                {
+                    let mut updated = false;
+                    state.set_if(SlidingSyncState::Live, |v, _| {
+                        updated = *v == SlidingSyncState::CatchingUp;
+                        updated
+                    });
 
-                if updated {
-                    yield SlidingSyncState::Live;
+                    if updated {
+                        let count = self.rooms_count.get_cloned().expect("count is known now");
+                        self.ranges.set_if(vec![(UInt::from(0u32), count.into())], |v, _| v.is_empty());
+                        yield SlidingSyncState::Live;
+                    }
                 }
             }
 
@@ -2064,8 +2101,8 @@ impl Client {
     }
 
     /// returns sliding sync set up, but not yet running.
-    pub fn sliding_sync(&self) -> SlidingSyncView {
-        SlidingSyncView::new(self.clone())
+    pub fn sliding_sync(&self) -> SlidingSyncViewBuilder {
+        SlidingSyncViewBuilder::default().client(self.clone()).to_owned()
     }
 
     /// Repeatedly synchronize the client state with the server.
