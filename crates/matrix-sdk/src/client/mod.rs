@@ -173,44 +173,6 @@ impl Client {
             .map_err(ClientBuildError::assert_valid_builder_args)
     }
 
-    /// Create a new [`Client`] using homeserver auto discovery.
-    ///
-    /// This method will create a [`Client`] object that will attempt to
-    /// discover and configure the homeserver for the given user. Follows the
-    /// homeserver discovery directions described in the [spec].
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The id of the user whose homeserver the client should
-    ///   connect to.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// use matrix_sdk::{Client, ruma::UserId};
-    ///
-    /// // First let's try to construct an user id, presumably from user input.
-    /// let alice = UserId::parse("@alice:example.org")?;
-    ///
-    /// // Now let's try to discover the homeserver and create a client object.
-    /// let client = Client::for_user_id(&alice).await?;
-    ///
-    /// // Finally let's try to login.
-    /// client.login(alice, "password", None, None).await?;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
-    /// ```
-    ///
-    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
-    pub async fn for_user_id(user_id: &UserId) -> Result<Self, HttpError> {
-        Self::builder()
-            .user_id(user_id)
-            .build()
-            .await
-            .map_err(ClientBuildError::assert_valid_builder_args)
-    }
-
     /// Create a new [`ClientBuilder`].
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
@@ -2368,7 +2330,7 @@ pub(crate) mod test {
             .with_status(200)
             .with_body(test_json::VERSIONS.to_string())
             .create();
-        let client = Client::for_user_id(&alice).await.unwrap();
+        let client = Client::builder().user_id(&alice).build().await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2387,7 +2349,7 @@ pub(crate) mod test {
             .create();
 
         assert!(
-            Client::for_user_id(&alice).await.is_err(),
+            Client::builder().user_id(&alice).build().await.is_err(),
             "Creating a client from a user ID should fail when the \
                 .well-known server returns no version information."
         );

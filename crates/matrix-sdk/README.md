@@ -27,14 +27,14 @@ This is demonstrated in the example below.
 ```rust,no_run
 use std::convert::TryFrom;
 use matrix_sdk::{
-    Client, config::SyncSettings, Result,
+    Client, config::SyncSettings,
     ruma::{user_id, events::room::message::SyncRoomMessageEvent},
 };
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     let alice = user_id!("@alice:example.org");
-    let client = Client::for_user_id(alice).await?;
+    let client = Client::builder().user_id(alice).build().await?;
 
     // First we need to log in.
     client.login(alice, "password", None, None).await?;
