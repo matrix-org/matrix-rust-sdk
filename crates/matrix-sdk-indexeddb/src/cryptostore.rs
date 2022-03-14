@@ -204,7 +204,7 @@ impl IndexeddbStore {
 
         let db: IdbDatabase = db_req.into_future().await?;
 
-        let tx: IdbTransaction =
+        let tx: IdbTransaction<'_> =
             db.transaction_on_one_with_mode("matrix-sdk-crypto", IdbTransactionMode::Readwrite)?;
         let ob = tx.object_store("matrix-sdk-crypto")?;
 
@@ -918,6 +918,7 @@ impl CryptoStore for IndexeddbStore {
         self.users_for_key_query()
     }
 
+    #[allow(clippy::todo)]
     async fn load_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
         todo!()
     }

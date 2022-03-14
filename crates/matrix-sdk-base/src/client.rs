@@ -13,16 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(unused_imports)]
-#[cfg(feature = "encryption")]
-use std::ops::Deref;
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
     fmt,
-    result::Result as StdResult,
     sync::Arc,
 };
+#[allow(unused_imports)]
+#[cfg(feature = "encryption")]
+use std::{ops::Deref, result::Result as StdResult};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
@@ -55,7 +54,7 @@ use ruma::{
     events::{
         room::member::MembershipState, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        EventContent, EventType,
+        EventContent, GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -70,7 +69,7 @@ use crate::{
     rooms::{Room, RoomInfo, RoomType},
     session::Session,
     store::{
-        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStore, Store,
+        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store, StoreConfig,
     },
 };
 
@@ -103,52 +102,6 @@ impl fmt::Debug for BaseClient {
     }
 }
 
-/// Configuration for the creation of the `BaseClient`.
-///
-/// # Example
-///
-/// ```
-/// # use matrix_sdk_base::BaseClientConfig;
-///
-/// let client_config = BaseClientConfig::new();
-/// ```
-#[derive(Default)]
-pub struct BaseClientConfig {
-    #[cfg(feature = "encryption")]
-    crypto_store: Option<Box<dyn CryptoStore>>,
-    state_store: Option<Box<dyn StateStore>>,
-}
-
-#[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for BaseClientConfig {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
-        fmt.debug_struct("BaseClientConfig").finish()
-    }
-}
-
-impl BaseClientConfig {
-    /// Create a new default `BaseClientConfig`.
-    #[must_use]
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    /// Set a custom implementation of a `CryptoStore`.
-    ///
-    /// The crypto store should be opened before being set.
-    #[cfg(feature = "encryption")]
-    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
-        self.crypto_store = Some(store);
-        self
-    }
-
-    /// Set a custom implementation of a `StateStore`.
-    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-        self.state_store = Some(store);
-        self
-    }
-}
-
 #[cfg(feature = "encryption")]
 enum CryptoHolder {
     PreSetupStore(Option<Box<dyn CryptoStore>>),
@@ -170,7 +123,7 @@ impl CryptoHolder {
     async fn convert_to_olm(&mut self, session: &Session) -> Result<()> {
         if let CryptoHolder::PreSetupStore(store) = self {
             *self = CryptoHolder::Olm(Box::new(
-                OlmMachine::new_with_store(
+                OlmMachine::with_store(
                     session.user_id.to_owned(),
                     session.device_id.as_str().into(),
                     store.take().expect("We always exist"),
@@ -194,32 +147,31 @@ impl CryptoHolder {
 }
 
 impl BaseClient {
+    /// Create a new default client.
+    pub fn new() -> Self {
+        BaseClient::with_store_config(StoreConfig::default())
+    }
+
     /// Create a new client.
     ///
     /// # Arguments
     ///
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    pub async fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+    pub fn with_store_config(config: StoreConfig) -> Self {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 
-        Ok(BaseClient {
+        BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
             store,
             #[cfg(feature = "encryption")]
             olm: Mutex::new(holder).into(),
-        })
+        }
     }
-}
 
-impl BaseClient {
-    /// Create a new default client.
-    pub async fn new() -> Result<Self> {
-        BaseClient::new_with_config(BaseClientConfig::default()).await
-    }
     /// The current client session containing our user id, device id and access
     /// token.
     pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
@@ -342,8 +294,7 @@ impl BaseClient {
                             }
                             _ => {
                                 room_info.handle_state_event(&s.content());
-                                let raw_event: Raw<AnySyncStateEvent> =
-                                    Raw::from_json(event.event.clone().into_json());
+                                let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
                                 changes.add_state_event(room_id, s.clone(), raw_event);
                             }
                         },
@@ -1109,7 +1060,7 @@ impl BaseClient {
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # block_on(async {
-    /// # let client = BaseClient::new().await.unwrap();
+    /// # let client = BaseClient::new();
     /// let device = client.get_device(&alice, device_id!("DEVICEID")).await;
     ///
     /// println!("{:?}", device);
@@ -1120,7 +1071,7 @@ impl BaseClient {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> StdResult<Option<Device>, CryptoStoreError> {
+    ) -> Result<Option<Device>, CryptoStoreError> {
         if let Some(olm) = self.olm_machine().await {
             olm.get_device(user_id, device_id).await
         } else {
@@ -1163,7 +1114,7 @@ impl BaseClient {
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # block_on(async {
-    /// # let client = BaseClient::new().await.unwrap();
+    /// # let client = BaseClient::new();
     /// let devices = client.get_user_devices(alice).await.unwrap();
     ///
     /// for device in devices.devices() {
@@ -1175,7 +1126,7 @@ impl BaseClient {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> StdResult<UserDevices, CryptoStoreError> {
+    ) -> Result<UserDevices, CryptoStoreError> {
         if let Some(olm) = self.olm_machine().await {
             Ok(olm.get_user_devices(user_id).await?)
         } else {
@@ -1199,13 +1150,13 @@ impl BaseClient {
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = changes
             .account_data
-            .get(EventType::PushRules.as_str())
+            .get(GlobalAccountDataEventType::PushRules.as_str())
             .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
         } else if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = self
             .store
-            .get_account_data_event(EventType::PushRules)
+            .get_account_data_event(GlobalAccountDataEventType::PushRules)
             .await?
             .and_then(|e| e.deserialize().ok())
         {
@@ -1248,14 +1199,14 @@ impl BaseClient {
         let room_power_levels = if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(room_id)
-            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
             event.content
         } else if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = self
             .store
-            .get_state_event(room_id, EventType::RoomPowerLevels, "")
+            .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
             .await?
             .and_then(|e| e.deserialize().ok())
         {
@@ -1298,7 +1249,7 @@ impl BaseClient {
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(&**room_id)
-            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
@@ -1308,6 +1259,12 @@ impl BaseClient {
             push_rules.default_power_level = room_power_levels.users_default;
             push_rules.notification_power_levels = room_power_levels.notifications;
         }
+    }
+}
+
+impl Default for BaseClient {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

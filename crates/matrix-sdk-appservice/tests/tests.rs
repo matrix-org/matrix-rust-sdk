@@ -4,14 +4,14 @@ use std::{
 };
 
 use matrix_sdk::{
-    config::{ClientConfig, RequestConfig},
+    config::RequestConfig,
     ruma::{api::appservice::Registration, events::room::member::SyncRoomMemberEvent},
+    Client,
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
-use ruma::room_id;
+use ruma::{api::MatrixVersion, room_id};
 use serde_json::json;
-#[cfg(feature = "warp")]
 use warp::{Filter, Reply};
 
 fn registration_string() -> String {
@@ -33,11 +33,17 @@ async fn appservice(registration: Option<Registration>) -> Result<AppService> {
     let homeserver_url = mockito::server_url();
     let server_name = "localhost";
 
-    let client_config =
-        ClientConfig::default().request_config(RequestConfig::default().disable_retry());
+    let client_builder = Client::builder()
+        .request_config(RequestConfig::default().disable_retry())
+        .server_versions([MatrixVersion::V1_0]);
 
-    AppService::new_with_config(homeserver_url.as_ref(), server_name, registration, client_config)
-        .await
+    AppService::with_client_builder(
+        homeserver_url.as_ref(),
+        server_name,
+        registration,
+        client_builder,
+    )
+    .await
 }
 
 #[async_test]
@@ -80,7 +86,6 @@ async fn test_put_transaction() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("PUT")
         .path(uri)
@@ -99,10 +104,10 @@ async fn test_put_transaction() -> Result<()> {
 #[async_test]
 async fn test_get_user() -> Result<()> {
     let appservice = appservice(None).await?;
+    appservice.register_user_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
     let uri = "/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token";
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("GET")
         .path(uri)
@@ -120,10 +125,10 @@ async fn test_get_user() -> Result<()> {
 #[async_test]
 async fn test_get_room() -> Result<()> {
     let appservice = appservice(None).await?;
+    appservice.register_room_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
     let uri = "/_matrix/app/v1/rooms/%23magicforest%3Aexample.com?access_token=hs_token";
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("GET")
         .path(uri)
@@ -148,7 +153,6 @@ async fn test_invalid_access_token() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     let status = warp::test::request()
         .method("PUT")
         .path(uri)
@@ -174,7 +178,6 @@ async fn test_no_access_token() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     {
         let status = warp::test::request()
             .method("PUT")
@@ -214,7 +217,6 @@ async fn test_event_handler() -> Result<()> {
     transaction_builder.add_room_event(EventsJson::Member);
     let transaction = transaction_builder.build_json_transaction();
 
-    #[cfg(feature = "warp")]
     warp::test::request()
         .method("PUT")
         .path(uri)
@@ -233,7 +235,6 @@ async fn test_event_handler() -> Result<()> {
 async fn test_unrelated_path() -> Result<()> {
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     let status = {
         let consumer_filter = warp::any()
             .and(appservice.warp_filter())
@@ -270,7 +271,6 @@ async fn test_appservice_on_sub_path() -> Result<()> {
 
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "warp")]
     {
         warp::test::request()
             .method("PUT")

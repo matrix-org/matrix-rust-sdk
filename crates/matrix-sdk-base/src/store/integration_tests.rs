@@ -51,9 +51,10 @@ macro_rules! statestore_integration_tests {
                             member::{MembershipState, RoomMemberEventContent},
                             power_levels::RoomPowerLevelsEventContent,
                         },
-                        AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent, AnyStrippedStateEvent,
-                        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-                        AnySyncStateEvent, EventType, Unsigned,
+                        AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent,
+                        AnyStrippedStateEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
+                        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
+                        StateEventType, Unsigned,
                     },
                     mxc_uri,
                     receipt::ReceiptType,
@@ -112,13 +113,13 @@ macro_rules! statestore_integration_tests {
                     let device_id = device_id!("device");
 
                     let session = Session {
-                        access_token: "token".to_string(),
+                        access_token: "token".to_owned(),
                         user_id: user_id.to_owned(),
                         device_id: device_id.to_owned(),
                     };
                     store.restore_session(session).await.unwrap();
 
-                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_string());
+                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned());
 
                     let presence_json: &JsonValue = &test_json::PRESENCE;
                     let presence_raw =
@@ -279,10 +280,10 @@ macro_rules! statestore_integration_tests {
                     assert!(store.get_presence_event(user_id).await?.is_some());
                     assert_eq!(store.get_room_infos().await?.len(), 1);
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
-                    assert!(store.get_account_data_event(EventType::PushRules).await?.is_some());
+                    assert!(store.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some());
 
-                    assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_some());
-                    assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await?.len(), 1);
+                    assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
+                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 1);
                     assert!(store.get_profile(room_id, user_id).await?.is_some());
                     assert!(store.get_member_event(room_id, user_id).await?.is_some());
                     assert_eq!(store.get_user_ids(room_id).await?.len(), 2);
@@ -290,7 +291,7 @@ macro_rules! statestore_integration_tests {
                     assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1);
                     assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2);
                     assert!(store
-                        .get_room_account_data_event(room_id, EventType::Tag)
+                        .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
                         .is_some());
                     assert!(store
@@ -337,7 +338,7 @@ macro_rules! statestore_integration_tests {
                     let event = raw_event.deserialize().unwrap();
 
                     assert!(store
-                        .get_state_event(room_id, EventType::RoomPowerLevels, "")
+                        .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
                         .await
                         .unwrap()
                         .is_none());
@@ -346,7 +347,7 @@ macro_rules! statestore_integration_tests {
 
                     store.save_changes(&changes).await.unwrap();
                     assert!(store
-                        .get_state_event(room_id, EventType::RoomPowerLevels, "")
+                        .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
                         .await
                         .unwrap()
                         .is_some());
@@ -527,8 +528,8 @@ macro_rules! statestore_integration_tests {
                     assert_eq!(store.get_room_infos().await?.len(), 0);
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
 
-                    assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_none());
-                    assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await?.len(), 0);
+                    assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_none());
+                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 0);
                     assert!(store.get_profile(room_id, user_id).await?.is_none());
                     assert!(store.get_member_event(room_id, user_id).await?.is_none());
                     assert_eq!(store.get_user_ids(room_id).await?.len(), 0);
@@ -536,7 +537,7 @@ macro_rules! statestore_integration_tests {
                     assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 0);
                     assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 0);
                     assert!(store
-                        .get_room_account_data_event(room_id, EventType::Tag)
+                        .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
                         .is_none());
                     assert!(store
@@ -671,10 +672,10 @@ macro_rules! statestore_integration_tests {
                     check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
 
                     // Check if limited sync removes the stored timeline
-                    let end_token = Some("end token".to_string());
+                    let end_token = Some("end token".to_owned());
                     let timeline_slice = TimelineSlice::new(
                         Vec::new(),
-                        "start token".to_string(),
+                        "start token".to_owned(),
                         end_token.clone(),
                         true,
                         true,

@@ -15,15 +15,7 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-#![warn(missing_docs)]
-#![deny(
-    missing_debug_implementations,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications
-)]
+#![warn(missing_docs, missing_debug_implementations)]
 
 pub use matrix_sdk_common::*;
 
@@ -41,7 +33,7 @@ mod session;
 pub mod store;
 mod timeline_stream;
 
-pub use client::{BaseClient, BaseClientConfig};
+pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
 pub use http;
 #[cfg(feature = "encryption")]

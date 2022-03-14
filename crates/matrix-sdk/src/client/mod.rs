@@ -19,7 +19,6 @@ use std::{
     future::Future,
     io::Read,
     pin::Pin,
-    result::Result as StdResult,
     sync::{Arc, RwLock as StdRwLock},
     ops::Deref,
 };
@@ -47,7 +46,6 @@ use ruma::{
             capabilities::{get_capabilities, Capabilities},
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discover::{discover_homeserver, get_supported_versions},
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -71,14 +69,20 @@ use tracing::{error, info, instrument, warn};
 use url::Url;
 use anyhow::{Context, bail};
 
+#[cfg(feature = "encryption")]
+use crate::encryption::Encryption;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    config::{ClientConfig, RequestConfig},
+    config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
-    http_client::{client_with_config, HttpClient},
+    http_client::HttpClient,
     room, Account, Error, Result,
 };
+
+mod builder;
+
+pub use self::builder::{ClientBuildError, ClientBuilder};
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
@@ -124,6 +128,8 @@ pub(crate) struct ClientInner {
     http_client: HttpClient,
     /// User session data.
     base_client: BaseClient,
+    /// The Matrix versions the server supports (well-known ones only)
+    server_versions: Arc<[MatrixVersion]>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
@@ -145,7 +151,7 @@ pub(crate) struct ClientInner {
     appservice_mode: bool,
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
-    use_discovery_response: bool,
+    respect_login_well_known: bool,
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -156,7 +162,7 @@ pub(crate) struct ClientInner {
 
 #[cfg(not(tarpaulin_include))]
 impl Debug for Client {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> StdResult<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "Client")
     }
 }
@@ -508,116 +514,17 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    pub async fn new(homeserver_url: Url) -> Result<Self> {
-        let config = ClientConfig::new().await?;
-        Client::new_with_config(homeserver_url, config).await
+    pub async fn new(homeserver_url: Url) -> Result<Self, HttpError> {
+        Self::builder()
+            .homeserver_url(homeserver_url)
+            .build()
+            .await
+            .map_err(ClientBuildError::assert_valid_builder_args)
     }
 
-    /// Create a new [`Client`] for the given homeserver and use the given
-    /// configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `homeserver_url` - The homeserver that the client should connect to.
-    ///
-    /// * `config` - Configuration for the client.
-    pub async fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
-        let homeserver = Arc::new(RwLock::new(homeserver_url));
-
-        let client = if let Some(client) = config.client {
-            client
-        } else {
-            Arc::new(client_with_config(&config)?)
-        };
-
-        let base_client = BaseClient::new_with_config(config.base_config).await?;
-        let session = base_client.session().clone();
-
-        let http_client =
-            HttpClient::new(client, homeserver.clone(), session, config.request_config);
-
-        let inner = Arc::new(ClientInner {
-            homeserver,
-            http_client,
-            base_client,
-            #[cfg(feature = "encryption")]
-            group_session_locks: Default::default(),
-            #[cfg(feature = "encryption")]
-            key_claim_lock: Default::default(),
-            members_request_locks: Default::default(),
-            typing_notice_times: Default::default(),
-            event_handlers: Default::default(),
-            event_handler_data: Default::default(),
-            notification_handlers: Default::default(),
-            appservice_mode: config.appservice_mode,
-            use_discovery_response: config.use_discovery_response,
-            sync_beat: event_listener::Event::new(),
-        });
-
-        Ok(Self { inner })
-    }
-
-    /// Create a new [`Client`] using homeserver auto discovery.
-    ///
-    /// This method will create a [`Client`] object that will attempt to
-    /// discover and configure the homeserver for the given user. Follows the
-    /// homeserver discovery directions described in the [spec].
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The id of the user whose homeserver the client should
-    ///   connect to.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// use matrix_sdk::{Client, ruma::UserId};
-    ///
-    /// // First let's try to construct an user id, presumably from user input.
-    /// let alice = UserId::parse("@alice:example.org")?;
-    ///
-    /// // Now let's try to discover the homeserver and create a client object.
-    /// let client = Client::new_from_user_id(&alice).await?;
-    ///
-    /// // Finally let's try to login.
-    /// client.login(alice, "password", None, None).await?;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
-    /// ```
-    ///
-    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
-    pub async fn new_from_user_id(user_id: &UserId) -> Result<Self> {
-        let config = ClientConfig::new().await?;
-        Client::new_from_user_id_with_config(user_id, config).await
-    }
-
-    /// Create a new [`Client`] using homeserver auto discovery.
-    ///
-    /// This method will create a [`Client`] object that will attempt to
-    /// discover and configure the homeserver for the given user. Follows the
-    /// homeserver discovery directions described in the [spec].
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The id of the user whose homeserver the client should
-    ///   connect to.
-    ///
-    /// * `config` - Configuration for the client.
-    ///
-    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
-    pub async fn new_from_user_id_with_config(
-        user_id: &UserId,
-        config: ClientConfig,
-    ) -> Result<Self> {
-        let homeserver = Client::homeserver_from_user_id(user_id)?;
-        let client = Client::new_with_config(homeserver, config).await?;
-
-        let well_known = client.discover_homeserver().await?;
-        let well_known = Url::parse(well_known.homeserver.base_url.as_ref())?;
-        client.set_homeserver(well_known).await;
-        client.get_supported_versions().await?;
-        Ok(client)
+    /// Create a new [`ClientBuilder`].
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 
     pub(crate) fn base_client(&self) -> &BaseClient {
@@ -638,22 +545,6 @@ impl Client {
         self.base_client().mark_request_as_sent(request_id, response).await
     }
 
-    fn homeserver_from_user_id(user_id: &UserId) -> Result<Url> {
-        let homeserver = format!("https://{}", user_id.server_name());
-        #[allow(unused_mut)]
-        let mut result = Url::parse(homeserver.as_str())?;
-        // Mockito only knows how to test http endpoints:
-        // https://github.com/lipanski/mockito/issues/127
-        #[cfg(test)]
-        let _ = result.set_scheme("http");
-        Ok(result)
-    }
-
-    async fn discover_homeserver(&self) -> HttpResult<discover_homeserver::Response> {
-        self.send(discover_homeserver::Request::new(), Some(RequestConfig::new().disable_retry()))
-            .await
-    }
-
     /// Change the homeserver URL used by this client.
     ///
     /// # Arguments
@@ -662,29 +553,6 @@ impl Client {
     pub async fn set_homeserver(&self, homeserver_url: Url) {
         let mut homeserver = self.inner.homeserver.write().await;
         *homeserver = homeserver_url;
-    }
-
-    /// Get the versions supported by the homeserver.
-    ///
-    /// This method should be used to check that a server is a valid Matrix
-    /// homeserver.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// use matrix_sdk::{Client};
-    /// use url::Url;
-    ///
-    /// let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver).await?;
-    ///
-    /// // Check that it is a valid homeserver.
-    /// client.get_supported_versions().await?;
-    /// # Result::<_, anyhow::Error>::Ok(()) });
-    /// ```
-    pub async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
-        self.send(get_supported_versions::Request::new(), Some(RequestConfig::short_retry())).await
     }
 
     /// Get the capabilities of the homeserver.
@@ -776,6 +644,12 @@ impl Client {
         Account::new(self.clone())
     }
 
+    /// Get the encryption manager of the client.
+    #[cfg(feature = "encryption")]
+    pub fn encryption(&self) -> Encryption {
+        Encryption::new(self.clone())
+    }
+
     /// Register a handler for a specific event type.
     ///
     /// The handler is a function or closure with one or more arguments. The
@@ -819,7 +693,12 @@ impl Client {
     /// use serde::{Deserialize, Serialize};
     ///
     /// # block_on(async {
-    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let client = matrix_sdk::Client::builder()
+    /// #     .homeserver_url(homeserver)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
+    /// #     .build()
+    /// #     .await
+    /// #     .unwrap();
     /// client
     ///     .register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
@@ -856,7 +735,7 @@ impl Client {
     /// }).await;
     ///
     /// // Adding your custom data to the handler can be done as well
-    /// let data = "MyCustomIdentifier".to_string();
+    /// let data = "MyCustomIdentifier".to_owned();
     ///
     /// client.register_event_handler({
     ///     let data = data.clone();
@@ -933,7 +812,12 @@ impl Client {
     /// # fn obtain_gui_handle() -> SomeType { SomeType }
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
     /// # block_on(async {
-    /// # let client = matrix_sdk::Client::new(homeserver).await.unwrap();
+    /// # let client = matrix_sdk::Client::builder()
+    /// #     .homeserver_url(homeserver)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
+    /// #     .build()
+    /// #     .await
+    /// #     .unwrap();
     ///
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
@@ -1098,15 +982,13 @@ impl Client {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    // FIXME: Use versions reported by server
-                    &[MatrixVersion::V1_0],
+                    &self.inner.server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
+                &self.inner.server_versions,
             )
         };
 
@@ -1271,9 +1153,10 @@ impl Client {
     /// [`login_with_token`]: #method.login_with_token
     /// [`restore_login`]: #method.restore_login
     #[cfg(all(feature = "sso_login", not(target_arch = "wasm32")))]
+    #[deny(clippy::future_not_send)]
     pub async fn login_with_sso<C>(
         &self,
-        use_sso_login_url: impl Fn(String) -> C,
+        use_sso_login_url: impl FnOnce(String) -> C + Send,
         server_url: Option<&str>,
         server_response: Option<&str>,
         device_id: Option<&str>,
@@ -1281,7 +1164,7 @@ impl Client {
         idp_id: Option<&str>,
     ) -> Result<login::v3::Response>
     where
-        C: Future<Output = Result<()>>,
+        C: Future<Output = Result<()>> + Send,
     {
         use std::{
             collections::HashMap,
@@ -1297,7 +1180,9 @@ impl Client {
         /// The number of times the SSO server will try to bind to a random port
         const SSO_SERVER_BIND_TRIES: u8 = 10;
 
-        info!("Logging in to {}", self.homeserver().await);
+        let homeserver = self.homeserver().await;
+        info!("Logging in to {}", homeserver);
+
         let (signal_tx, signal_rx) = tokio::sync::oneshot::channel();
         let (data_tx, data_rx) = tokio::sync::oneshot::channel();
         let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
@@ -1338,10 +1223,9 @@ impl Client {
                 let mut n = 0u8;
                 let mut port = 0u16;
                 let mut res = Err(IoError::new(IoErrorKind::Other, ""));
-                let mut rng = thread_rng();
 
                 while res.is_err() && n < SSO_SERVER_BIND_TRIES {
-                    port = rng.gen_range(SSO_SERVER_BIND_RANGE);
+                    port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
                     res = tokio::net::TcpListener::bind((host, port)).await;
                     n += 1;
                 }
@@ -1448,13 +1332,15 @@ impl Client {
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`restore_login`]: #method.restore_login
     #[instrument(skip(token))]
+    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn login_with_token(
         &self,
         token: &str,
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::v3::Response> {
-        info!("Logging in to {}", self.homeserver().await);
+        let homeserver = self.homeserver().await;
+        info!("Logging in to {}", homeserver);
 
         let request = assign!(
             login::v3::Request::new(
@@ -1478,7 +1364,7 @@ impl Client {
     ///
     /// * `response` - A successful login response.
     async fn receive_login_response(&self, response: &login::v3::Response) -> Result<()> {
-        if self.inner.use_discovery_response {
+        if self.inner.respect_login_well_known {
             if let Some(well_known) = &response.well_known {
                 if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
                     self.set_homeserver(homeserver).await;
@@ -1742,6 +1628,7 @@ impl Client {
     /// client.public_rooms(limit, since, server).await;
     /// # });
     /// ```
+    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn public_rooms(
         &self,
         limit: Option<u32>,
@@ -1885,7 +1772,11 @@ impl Client {
         });
 
         let request_config = self.inner.http_client.request_config.timeout(timeout);
-        Ok(self.inner.http_client.upload(request, Some(request_config)).await?)
+        Ok(self
+            .inner
+            .http_client
+            .upload(request, Some(request_config), self.inner.server_versions.clone())
+            .await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1937,7 +1828,7 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config).await
+        self.inner.http_client.send(request, config, self.inner.server_versions.clone()).await
     }
 
     /// Get information of all our own devices.
@@ -2673,6 +2564,7 @@ impl Client {
         })
     }
 }
+
 // mockito (the http mocking library) is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod test {
@@ -2701,6 +2593,7 @@ pub(crate) mod test {
                 uiaa::{self, UiaaResponse},
             },
             error::{FromHttpResponseError, ServerError},
+            MatrixVersion,
         },
         serde::Raw,
         assign, device_id,
@@ -2711,21 +2604,35 @@ pub(crate) mod test {
                 message::{ImageMessageEventContent, RoomMessageEventContent},
                 ImageInfo,
             },
-            AnySyncStateEvent, EventType,
+            AnySyncStateEvent, StateEventType,
         },
         mxc_uri, room_id, thirdparty, uint, user_id, TransactionId, UserId,
     };
     use serde_json::json;
+    use url::Url;
 
-    use super::{Client, Session, Url};
+    use super::{Client, ClientBuilder, Session};
     use crate::{
         attachment::{
             AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
             Thumbnail,
         },
-        config::{ClientConfig, RequestConfig, SyncSettings},
+        config::{RequestConfig, SyncSettings},
         HttpError, RoomMember,
     };
+
+    fn test_client_builder() -> ClientBuilder {
+        let homeserver = Url::parse(&mockito::server_url()).unwrap();
+        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
+    }
+
+    async fn no_retry_test_client() -> Client {
+        test_client_builder()
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .unwrap()
+    }
 
     pub(crate) async fn logged_in_client() -> Client {
         let session = Session {
@@ -2733,10 +2640,7 @@ pub(crate) mod test {
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         };
-        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let config =
-            ClientConfig::new().await.unwrap().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
         client.restore_login(session).await.unwrap();
 
         client
@@ -2744,12 +2648,8 @@ pub(crate) mod test {
 
     #[async_test]
     async fn set_homeserver() {
+        let client = no_retry_test_client().await;
         let homeserver = Url::from_str("http://example.com/").unwrap();
-
-        let client = Client::new(homeserver).await.unwrap();
-
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
         client.set_homeserver(homeserver.clone()).await;
 
         assert_eq!(client.homeserver().await, homeserver);
@@ -2759,7 +2659,7 @@ pub(crate) mod test {
     async fn successful_discovery() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
         let _m_well_known = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2772,7 +2672,7 @@ pub(crate) mod test {
             .with_status(200)
             .with_body(test_json::VERSIONS.to_string())
             .create();
-        let client = Client::new_from_user_id(&alice).await.unwrap();
+        let client = Client::builder().user_id(&alice).build().await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2781,7 +2681,7 @@ pub(crate) mod test {
     async fn discovery_broken_server() {
         let server_url = mockito::server_url();
         let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::parse("@alice:".to_string() + domain).unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
         let _m = mock("GET", "/.well-known/matrix/client")
             .with_status(200)
@@ -2791,7 +2691,7 @@ pub(crate) mod test {
             .create();
 
         assert!(
-            Client::new_from_user_id(&alice).await.is_err(),
+            Client::builder().user_id(&alice).build().await.is_err(),
             "Creating a client from a user ID should fail when the \
                 .well-known server returns no version information."
         );
@@ -2800,8 +2700,7 @@ pub(crate) mod test {
     #[async_test]
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let client = Client::new(homeserver.clone()).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m_types = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2832,10 +2731,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_with_discovery() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new().await.unwrap().use_discovery_response();
-
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2852,10 +2748,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_no_discovery() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new().await.unwrap().use_discovery_response();
-
-        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2867,7 +2760,7 @@ pub(crate) mod test {
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
 
-        assert_eq!(client.homeserver().await, homeserver);
+        assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
     }
 
     #[cfg(feature = "sso_login")]
@@ -2879,10 +2772,10 @@ pub(crate) mod test {
             .create();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
         let idp = crate::client::get_login_types::v3::IdentityProvider::new(
-            "some-id".to_string(),
-            "idp-name".to_string(),
+            "some-id".to_owned(),
+            "idp-name".to_owned(),
         );
         client
             .login_with_sso(
@@ -2914,9 +2807,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_with_sso_token() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2960,10 +2851,9 @@ pub(crate) mod test {
 
     #[async_test]
     async fn test_join_leave_room() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .create();
@@ -2982,13 +2872,8 @@ pub(crate) mod test {
         let room = client.get_joined_room(room_id);
         assert!(room.is_some());
 
-        // test store reloads with correct room state from the sled store
-        let path = tempfile::tempdir().unwrap();
-        let config = ClientConfig::with_named_store(path.into_path().to_str().unwrap(), None)
-            .await
-            .unwrap()
-            .request_config(RequestConfig::new().disable_retry());
-        let joined_client = Client::new_with_config(homeserver, config).await.unwrap();
+        // test store reloads with correct room state from the state store
+        let joined_client = no_retry_test_client().await;
         joined_client.restore_login(session).await.unwrap();
 
         // joined room reloaded from state store
@@ -2996,7 +2881,7 @@ pub(crate) mod test {
         let room = joined_client.get_joined_room(room_id);
         assert!(room.is_some());
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
             .create();
@@ -3014,7 +2899,7 @@ pub(crate) mod test {
     async fn account_data() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -3048,9 +2933,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_error() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
@@ -3066,7 +2949,7 @@ pub(crate) mod test {
                 } else {
                     panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
                 }
-                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(message, "Invalid password".to_owned());
                 assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
             } else {
                 panic!("found the wrong `Error` type {:?}, expected `Error::RumaResponse", err);
@@ -3078,10 +2961,9 @@ pub(crate) mod test {
 
     #[async_test]
     async fn register_error() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_owned()))
             .with_status(403)
             .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
             .create();
@@ -3104,7 +2986,7 @@ pub(crate) mod test {
                 } else {
                     panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
                 }
-                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(message, "Invalid password".to_owned());
                 assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
             } else {
                 panic!("found the wrong `Error` type {:#?}, expected `UiaaResponse`", err);
@@ -3118,7 +3000,7 @@ pub(crate) mod test {
     async fn join_room_by_id() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join".to_owned()))
             .with_status(200)
             .with_body(test_json::ROOM_ID.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -3138,7 +3020,7 @@ pub(crate) mod test {
     async fn join_room_by_id_or_alias() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/join/".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/join/".to_owned()))
             .with_status(200)
             .with_body(test_json::ROOM_ID.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -3162,13 +3044,13 @@ pub(crate) mod test {
     async fn invite_user_by_id() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_owned()))
             .with_status(200)
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3188,14 +3070,14 @@ pub(crate) mod test {
     async fn invite_user_by_3pid() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_owned()))
             .with_status(200)
             // empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3222,10 +3104,9 @@ pub(crate) mod test {
 
     #[async_test]
     async fn room_search_all() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
             .with_status(200)
             .with_body(test_json::PUBLIC_ROOMS.to_string())
             .create();
@@ -3239,7 +3120,7 @@ pub(crate) mod test {
     async fn room_search_filtered() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
             .with_status(200)
             .with_body(test_json::PUBLIC_ROOMS.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -3258,14 +3139,14 @@ pub(crate) mod test {
     async fn leave_room() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/leave".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/leave".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3284,14 +3165,14 @@ pub(crate) mod test {
     async fn ban_user() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/ban".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/ban".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3311,14 +3192,14 @@ pub(crate) mod test {
     async fn kick_user() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/kick".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/kick".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3338,14 +3219,14 @@ pub(crate) mod test {
     async fn forget_room() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/forget".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/forget".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::LEAVE_SYNC.to_string())
@@ -3364,14 +3245,14 @@ pub(crate) mod test {
     async fn read_receipt() {
         let client = logged_in_client().await;
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/receipt".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/receipt".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3392,14 +3273,14 @@ pub(crate) mod test {
         let client = logged_in_client().await;
 
         let _m =
-            mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/read_markers".to_string()))
+            mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/read_markers".to_owned()))
                 .with_status(200)
                 // this is an empty JSON object
                 .with_body(test_json::LOGOUT.to_string())
                 .match_header("authorization", "Bearer 1234")
                 .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3419,14 +3300,14 @@ pub(crate) mod test {
     async fn typing_notice() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/typing".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/typing".to_owned()))
             .with_status(200)
             // this is an empty JSON object
             .with_body(test_json::LOGOUT.to_string())
             .match_header("authorization", "Bearer 1234")
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3447,13 +3328,13 @@ pub(crate) mod test {
 
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state/.*".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state/.*".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3479,13 +3360,13 @@ pub(crate) mod test {
     async fn room_message_send() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3508,7 +3389,7 @@ pub(crate) mod test {
     async fn room_attachment_send() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3519,7 +3400,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3530,7 +3411,7 @@ pub(crate) mod test {
             )
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3556,7 +3437,7 @@ pub(crate) mod test {
     async fn room_attachment_send_info() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3569,7 +3450,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3580,7 +3461,7 @@ pub(crate) mod test {
             )
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3612,7 +3493,7 @@ pub(crate) mod test {
     async fn room_attachment_send_wrong_info() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3625,7 +3506,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3636,7 +3517,7 @@ pub(crate) mod test {
             )
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3667,7 +3548,7 @@ pub(crate) mod test {
     async fn room_attachment_send_info_thumbnail() {
         let client = logged_in_client().await;
 
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()))
+        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .match_body(Matcher::PartialJson(json!({
@@ -3687,7 +3568,7 @@ pub(crate) mod test {
             .with_body(test_json::EVENT_ID.to_string())
             .create();
 
-        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()))
+        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
             .with_status(200)
             .match_header("content-type", "image/jpeg")
             .with_body(
@@ -3699,7 +3580,7 @@ pub(crate) mod test {
             .expect(2)
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3743,13 +3624,13 @@ pub(crate) mod test {
         let client = logged_in_client().await;
 
         let _m =
-            mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?".to_string()))
+            mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?".to_owned()))
                 .with_status(200)
                 .match_header("authorization", "Bearer 1234")
                 .with_body(test_json::EVENT_ID.to_string())
                 .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3774,13 +3655,13 @@ pub(crate) mod test {
     async fn user_presence() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
             .create();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::MEMBERS.to_string())
@@ -3801,7 +3682,7 @@ pub(crate) mod test {
     async fn calculate_room_names_from_summary() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::DEFAULT_SYNC_SUMMARY.to_string())
@@ -3818,7 +3699,7 @@ pub(crate) mod test {
     async fn invited_rooms() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::INVITE_SYNC.to_string())
@@ -3837,7 +3718,7 @@ pub(crate) mod test {
     async fn left_rooms() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::LEAVE_SYNC.to_string())
@@ -3856,7 +3737,7 @@ pub(crate) mod test {
     async fn sync() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -3875,7 +3756,7 @@ pub(crate) mod test {
     async fn room_names() {
         let client = logged_in_client().await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
@@ -3889,9 +3770,9 @@ pub(crate) mod test {
         assert_eq!(client.rooms().len(), 1);
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!("tutorial".to_string(), room.display_name().await.unwrap());
+        assert_eq!("tutorial".to_owned(), room.display_name().await.unwrap());
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::INVITE_SYNC.to_string())
@@ -3903,13 +3784,12 @@ pub(crate) mod test {
         assert_eq!(client.rooms().len(), 1);
         let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
 
-        assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());
+        assert_eq!("My Room Name".to_owned(), invited_room.display_name().await.unwrap());
     }
 
     #[async_test]
     async fn delete_devices() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("POST", "/_matrix/client/r0/delete_devices")
             .with_status(401)
@@ -3964,10 +3844,13 @@ pub(crate) mod test {
 
     #[async_test]
     async fn retry_limit_http_requests() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
-        assert!(config.request_config.retry_limit.unwrap() == 3);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = test_client_builder()
+            .request_config(RequestConfig::new().retry_limit(3))
+            .build()
+            .await
+            .unwrap();
+
+        assert!(client.inner.http_client.request_config.retry_limit.unwrap() == 3);
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
@@ -3980,13 +3863,15 @@ pub(crate) mod test {
 
     #[async_test]
     async fn retry_timeout_http_requests() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         // Keep this timeout small so that the test doesn't take long
         let retry_timeout = Duration::from_secs(5);
-        let config = ClientConfig::default()
-            .request_config(RequestConfig::new().retry_timeout(retry_timeout));
-        assert!(config.request_config.retry_timeout.unwrap() == retry_timeout);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = test_client_builder()
+            .request_config(RequestConfig::new().retry_timeout(retry_timeout))
+            .build()
+            .await
+            .unwrap();
+
+        assert!(client.inner.http_client.request_config.retry_timeout.unwrap() == retry_timeout);
 
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
@@ -4000,8 +3885,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn short_retry_initial_http_requests() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = test_client_builder().build().await.unwrap();
 
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
@@ -4037,7 +3921,7 @@ pub(crate) mod test {
 
         let m = mock(
             "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_string()),
+            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_owned()),
         )
         .with_status(200)
         .with_body("Some very interesting text.")
@@ -4067,7 +3951,7 @@ pub(crate) mod test {
 
         let m = mock(
             "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_string()),
+            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_owned()),
         )
         .with_status(200)
         .with_body("binaryjpegdata")
@@ -4079,7 +3963,7 @@ pub(crate) mod test {
 
         let m = mock(
             "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_string()),
+            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_owned()),
         )
         .with_status(200)
         .with_body("smallerbinaryjpegdata")
@@ -4113,7 +3997,6 @@ pub(crate) mod test {
 
     #[async_test]
     async fn test_state_event_getting() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         let session = Session {
@@ -4177,13 +4060,16 @@ pub(crate) mod test {
             }
         });
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(sync.to_string())
             .create();
 
-        let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
-        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
+        let client = test_client_builder()
+            .request_config(RequestConfig::new().retry_limit(3))
+            .build()
+            .await
+            .unwrap();
         client.restore_login(session.clone()).await.unwrap();
 
         let room = client.get_joined_room(room_id);
@@ -4193,14 +4079,14 @@ pub(crate) mod test {
 
         let room = client.get_joined_room(room_id).unwrap();
 
-        let state_events = room.get_state_events(EventType::RoomEncryption).await.unwrap();
+        let state_events = room.get_state_events(StateEventType::RoomEncryption).await.unwrap();
         assert_eq!(state_events.len(), 1);
 
         let state_events = room.get_state_events("m.custom.note".into()).await.unwrap();
         assert_eq!(state_events.len(), 2);
 
         let encryption_event = room
-            .get_state_event(EventType::RoomEncryption, "")
+            .get_state_event(StateEventType::RoomEncryption, "")
             .await
             .unwrap()
             .unwrap()
@@ -4220,7 +4106,7 @@ pub(crate) mod test {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -4237,7 +4123,7 @@ pub(crate) mod test {
         let sync_2 = mock(
             "GET",
             Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_string(),
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_owned(),
             ),
         )
         .with_status(200)
@@ -4248,7 +4134,7 @@ pub(crate) mod test {
         let sync_3 = mock(
             "GET",
             Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_string(),
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
             ),
         )
         .with_status(200)
@@ -4260,7 +4146,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -4272,7 +4158,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -4280,7 +4166,7 @@ pub(crate) mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_string()));
+        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_owned()));
         let sync_settings = SyncSettings::new()
             .timeout(Duration::from_millis(3000))
             .token("s526_47314_0_7_1_1_1_11444_1");
@@ -4344,7 +4230,7 @@ pub(crate) mod test {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
             .with_body(test_json::MORE_SYNC.to_string())
             .match_header("authorization", "Bearer 1234")
@@ -4359,7 +4245,7 @@ pub(crate) mod test {
         let sync_2 = mock(
             "GET",
             Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_string(),
+                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
             ),
         )
         .with_status(200)
@@ -4371,7 +4257,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -4383,7 +4269,7 @@ pub(crate) mod test {
             "GET",
             Matcher::Regex(
                 r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                    .to_string(),
+                    .to_owned(),
             ),
         )
         .with_status(200)
@@ -4391,7 +4277,7 @@ pub(crate) mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_2".to_string()));
+        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_2".to_owned()));
         let sync_settings = SyncSettings::new()
             .timeout(Duration::from_millis(3000))
             .token("s526_47314_0_7_1_1_1_11444_2");

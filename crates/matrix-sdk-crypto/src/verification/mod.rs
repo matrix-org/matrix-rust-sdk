@@ -332,7 +332,7 @@ impl Cancelled {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationCancel(
                 ToDeviceKeyVerificationCancelEventContent::new(
                     s.clone(),
-                    self.reason.to_string(),
+                    self.reason.to_owned(),
                     self.cancel_code.clone(),
                 ),
             )
@@ -342,7 +342,7 @@ impl Cancelled {
                 r.clone(),
                 AnyMessageEventContent::KeyVerificationCancel(
                     KeyVerificationCancelEventContent::new(
-                        self.reason.to_string(),
+                        self.reason.to_owned(),
                         self.cancel_code.clone(),
                         Relation::new(e.clone()),
                     ),

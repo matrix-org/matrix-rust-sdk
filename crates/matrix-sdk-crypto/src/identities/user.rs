@@ -1071,7 +1071,7 @@ pub(crate) mod test {
         let (_, device) = device(&response);
 
         let account = ReadOnlyAccount::new(device.user_id(), device.device_id());
-        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let id = Arc::new(Mutex::new(identity.clone()));
 

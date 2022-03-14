@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryFrom, fmt::Debug, sync::Arc};
+use std::{convert::TryFrom, fmt::Debug, sync::Arc, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
@@ -25,11 +25,9 @@ use ruma::api::{
 use tracing::trace;
 use url::Url;
 
-use crate::{
-    config::{ClientConfig, RequestConfig},
-    error::HttpError,
-    Session,
-};
+use crate::{config::RequestConfig, error::HttpError, Session};
+
+pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -115,101 +113,73 @@ impl HttpClient {
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
         config: Option<RequestConfig>,
+        server_versions: Arc<[MatrixVersion]>,
     ) -> Result<http::Response<Bytes>, HttpError> {
         let config = match config {
             Some(config) => config,
             None => self.request_config,
         };
 
+        let auth_scheme = Request::METADATA.authentication;
+        if !matches!(auth_scheme, AuthScheme::AccessToken | AuthScheme::None) {
+            return Err(HttpError::NotClientRequest);
+        }
+
+        let access_token;
+
         let request = if !self.request_config.assert_identity {
-            self.try_into_http_request(request, session, config).await?
-        } else {
-            self.try_into_http_request_with_identity_assertion(request, session, config).await?
-        };
-
-        self.inner.send_request(request, config).await
-    }
-
-    async fn try_into_http_request<Request: OutgoingRequest>(
-        &self,
-        request: Request,
-        session: Arc<RwLock<Option<Session>>>,
-        config: RequestConfig,
-    ) -> Result<http::Request<Bytes>, HttpError> {
-        let read_guard;
-        let access_token = if config.force_auth {
-            read_guard = session.read().await;
-            if let Some(session) = read_guard.as_ref() {
-                SendAccessToken::Always(session.access_token.as_str())
-            } else {
+            let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
+                // Small optimization: Don't take the session lock if we know the auth token
+                // isn't going to be used anyways.
                 SendAccessToken::None
-            }
-        } else {
-            match Request::METADATA.authentication {
-                AuthScheme::AccessToken => {
-                    read_guard = session.read().await;
-
-                    if let Some(session) = read_guard.as_ref() {
-                        SendAccessToken::IfRequired(session.access_token.as_str())
-                    } else {
-                        return Err(HttpError::AuthenticationRequired);
+            } else {
+                match session.read().await.as_ref() {
+                    Some(session) => {
+                        access_token = session.access_token.clone();
+                        if config.force_auth {
+                            SendAccessToken::Always(&access_token)
+                        } else {
+                            SendAccessToken::IfRequired(&access_token)
+                        }
                     }
+                    None => SendAccessToken::None,
                 }
-                AuthScheme::None => SendAccessToken::None,
-                _ => return Err(HttpError::NotClientRequest),
-            }
-        };
+            };
 
-        let http_request = request
-            .try_into_http_request::<BytesMut>(
+            request.try_into_http_request::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
-                access_token,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
+                send_access_token,
+                &server_versions,
             )?
-            .map(|body| body.freeze());
-
-        Ok(http_request)
-    }
-
-    async fn try_into_http_request_with_identity_assertion<Request: OutgoingRequest>(
-        &self,
-        request: Request,
-        session: Arc<RwLock<Option<Session>>>,
-        _: RequestConfig,
-    ) -> Result<http::Request<Bytes>, HttpError> {
-        let read_guard = session.read().await;
-        let access_token = if let Some(session) = read_guard.as_ref() {
-            SendAccessToken::Always(session.access_token.as_str())
         } else {
-            return Err(HttpError::AuthenticationRequired);
-        };
+            let (send_access_token, user_id) = {
+                let session = session.read().await;
+                let session = session.as_ref().ok_or(HttpError::UserIdRequired)?;
 
-        let user_id = if let Some(session) = read_guard.as_ref() {
-            session.user_id.clone()
-        } else {
-            return Err(HttpError::UserIdRequired);
-        };
+                access_token = session.access_token.clone();
+                (SendAccessToken::Always(&access_token), session.user_id.clone())
+            };
 
-        let http_request = request
-            .try_into_http_request_with_user_id::<BytesMut>(
+            request.try_into_http_request_with_user_id::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
-                access_token,
+                send_access_token,
                 &user_id,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
+                &server_versions,
             )?
-            .map(|body| body.freeze());
+        };
 
-        Ok(http_request)
+        let request = request.map(|body| body.freeze());
+        self.inner.send_request(request, config).await
     }
 
     pub async fn upload(
         &self,
         request: create_content::v3::Request<'_>,
         config: Option<RequestConfig>,
+        server_versions: Arc<[MatrixVersion]>,
     ) -> Result<create_content::v3::Response, HttpError> {
-        let response = self.send_request(request, self.session.clone(), config).await?;
+        let response =
+            self.send_request(request, self.session.clone(), config, server_versions).await?;
         Ok(create_content::v3::Response::try_from_http_response(response)?)
     }
 
@@ -217,12 +187,14 @@ impl HttpClient {
         &self,
         request: Request,
         config: Option<RequestConfig>,
+        server_versions: Arc<[MatrixVersion]>,
     ) -> Result<Request::IncomingResponse, HttpError>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let response = self.send_request(request, self.session.clone(), config).await?;
+        let response =
+            self.send_request(request, self.session.clone(), config, server_versions).await?;
 
         trace!("Got response: {:?}", response);
 
@@ -232,33 +204,58 @@ impl HttpClient {
     }
 }
 
-/// Build a client with the specified configuration.
-pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpError> {
-    let http_client = reqwest::Client::builder();
-
+#[derive(Debug)]
+pub(crate) struct HttpSettings {
     #[cfg(not(target_arch = "wasm32"))]
-    let http_client = {
-        let http_client = if config.disable_ssl_verification {
-            http_client.danger_accept_invalid_certs(true)
-        } else {
-            http_client
+    pub(crate) disable_ssl_verification: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) proxy: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) user_agent: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) timeout: Duration,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for HttpSettings {
+    fn default() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            disable_ssl_verification: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            proxy: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            user_agent: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            timeout: DEFAULT_REQUEST_TIMEOUT,
+        }
+    }
+}
+
+impl HttpSettings {
+    /// Build a client with the specified configuration.
+    pub(crate) fn make_client(&self) -> Result<Client, HttpError> {
+        #[allow(unused_mut)]
+        let mut http_client = reqwest::Client::builder();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.disable_ssl_verification {
+                http_client = http_client.danger_accept_invalid_certs(true)
+            }
+
+            if let Some(p) = &self.proxy {
+                http_client = http_client.proxy(reqwest::Proxy::all(p.as_str())?);
+            }
+
+            let user_agent =
+                self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
+
+            http_client = http_client.user_agent(user_agent).timeout(self.timeout);
         };
 
-        let http_client = match &config.proxy {
-            Some(p) => http_client.proxy(p.clone()),
-            None => http_client,
-        };
-
-        let user_agent = config.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
-
-        http_client.user_agent(user_agent).timeout(config.request_config.timeout)
-    };
-
-    #[cfg(target_arch = "wasm32")]
-    #[allow(unused)]
-    let _ = config;
-
-    Ok(http_client.build()?)
+        Ok(http_client.build()?)
+    }
 }
 
 async fn response_to_http_response(

@@ -470,7 +470,7 @@ impl QrVerification {
 
         let inner: QrVerificationData = SelfVerificationNoMasterKey::new(
             flow_id.as_str().to_owned(),
-            store.account.identity_keys().ed25519().to_string(),
+            store.account.identity_keys().ed25519().to_owned(),
             own_master_key,
             secret,
         )

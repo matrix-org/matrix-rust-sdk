@@ -47,7 +47,7 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
     UInt, UserId,
 };
-use serde_json::{value::to_raw_value, Value};
+use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "backups_v1")]
@@ -220,7 +220,7 @@ impl OlmMachine {
     /// the encryption keys.
     ///
     /// [`Cryptostore`]: trait.CryptoStore.html
-    pub async fn new_with_store(
+    pub async fn with_store(
         user_id: Box<UserId>,
         device_id: Box<DeviceId>,
         store: Box<dyn CryptoStore>,
@@ -246,7 +246,7 @@ impl OlmMachine {
                 let master_key = i
                     .master_public_key()
                     .await
-                    .and_then(|m| m.get_first_key().map(|m| m.to_string()));
+                    .and_then(|m| m.get_first_key().map(|m| m.to_owned()));
                 debug!(
                     master_key =? master_key,
                     "Restored the cross signing identity"
@@ -272,7 +272,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     #[cfg(feature = "sled_cryptostore")]
-    pub async fn new_with_default_store(
+    pub async fn with_default_store(
         user_id: &UserId,
         device_id: &DeviceId,
         path: impl AsRef<Path>,
@@ -280,7 +280,7 @@ impl OlmMachine {
     ) -> StoreResult<Self> {
         let store = SledStore::open_with_passphrase(path, passphrase)?;
 
-        OlmMachine::new_with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
+        OlmMachine::with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
     }
 
     /// The unique user id that owns this `OlmMachine` instance.
@@ -376,7 +376,7 @@ impl OlmMachine {
             }
             IncomingResponse::KeysBackup(_) => {
                 #[cfg(feature = "backups_v1")]
-                self.backup_machine.mark_request_as_sent(*request_id).await?;
+                self.backup_machine.mark_request_as_sent(request_id).await?;
             }
         };
 
@@ -528,12 +528,12 @@ impl OlmMachine {
     async fn keys_for_upload(&self) -> Option<upload_keys::v3::Request> {
         let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
 
-        let device_keys = device_keys
-            .map(|d| Raw::from_json(to_raw_value(&d).expect("Coulnd't serialize device keys")));
+        let device_keys =
+            device_keys.map(|d| Raw::new(&d).expect("Coulnd't serialize device keys"));
 
-        Some(
-            assign!(upload_keys::v3::Request::new(), { device_keys, one_time_keys, fallback_keys: BTreeMap::new(), }),
-        )
+        Some(assign!(upload_keys::v3::Request::new(), {
+            device_keys, one_time_keys, fallback_keys: BTreeMap::new(),
+        }))
     }
 
     /// Decrypt a to-device event.
@@ -2036,7 +2036,7 @@ pub(crate) mod test {
 
         let tmpdir = tempdir().unwrap();
 
-        let machine = OlmMachine::new_with_default_store(
+        let machine = OlmMachine::with_default_store(
             user_id(),
             alice_device_id(),
             tmpdir.as_ref(),
@@ -2053,7 +2053,7 @@ pub(crate) mod test {
 
         drop(machine);
 
-        let machine = OlmMachine::new_with_default_store(
+        let machine = OlmMachine::with_default_store(
             &user_id,
             alice_device_id(),
             tmpdir.as_ref(),

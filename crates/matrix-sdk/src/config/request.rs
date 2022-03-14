@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 
 /// Configuration for requests the `Client` makes.
 ///
@@ -119,19 +119,6 @@ impl RequestConfig {
     #[must_use]
     pub fn force_auth(mut self) -> Self {
         self.force_auth = true;
-        self
-    }
-
-    /// All outgoing http requests will have a GET query key-value appended with
-    /// `user_id` being the key and the `user_id` from the `Session` being
-    /// the value. Will error if there's no `Session`. This is called
-    /// [identity assertion] in the Matrix Application Service Spec
-    ///
-    /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
-    #[cfg(feature = "appservice")]
-    #[must_use]
-    pub fn assert_identity(mut self) -> Self {
-        self.assert_identity = true;
         self
     }
 }

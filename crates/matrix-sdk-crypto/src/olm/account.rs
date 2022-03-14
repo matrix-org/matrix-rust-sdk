@@ -46,11 +46,7 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{
-    json,
-    value::{to_raw_value, RawValue as RawJsonValue},
-    Value,
-};
+use serde_json::{json, value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 
@@ -700,6 +696,7 @@ impl ReadOnlyAccount {
         self.inner.lock().await.sign(string)
     }
 
+    /// Check that the given json value is signed by this account.
     #[cfg(feature = "backups_v1")]
     pub fn is_signed(&self, json: &mut Value) -> Result<(), SignatureError> {
         let signing_key = self.identity_keys.ed25519();
@@ -811,7 +808,7 @@ impl ReadOnlyAccount {
     pub async fn bootstrap_cross_signing(
         &self,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
-        PrivateCrossSigningIdentity::new_with_account(self).await
+        PrivateCrossSigningIdentity::with_account(self).await
     }
 
     /// Sign the given CrossSigning Key in place
@@ -905,10 +902,8 @@ impl ReadOnlyAccount {
                     DeviceKeyAlgorithm::SignedCurve25519,
                     key_id.as_str().into(),
                 ),
-                Raw::from_json(
-                    to_raw_value(&OneTimeKey::SignedKey(signed_key))
-                        .expect("Couldn't serialize a new signed key"),
-                ),
+                Raw::new(&OneTimeKey::SignedKey(signed_key))
+                    .expect("Couldn't serialize a new signed key"),
             );
         }
 

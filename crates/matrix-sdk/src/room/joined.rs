@@ -546,7 +546,7 @@ impl Joined {
                 room_id = self.room_id().as_str(),
                 "Sending plaintext event to room because we don't have encryption support.",
             );
-            serde_json::value::to_raw_value(&content)?
+            Raw::new(&content)?.cast()
         };
 
         #[cfg(feature = "encryption")]
@@ -567,8 +567,8 @@ impl Joined {
 
             let encrypted_content =
                 olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
-            let raw_content = serde_json::value::to_raw_value(&encrypted_content)
-                .expect("Failed to serialize encrypted event");
+            let raw_content =
+                Raw::new(&encrypted_content).expect("Failed to serialize encrypted event").cast();
 
             (raw_content, "m.room.encrypted")
         } else {
@@ -577,14 +577,14 @@ impl Joined {
                 "Sending plaintext event because the room is NOT encrypted.",
             );
 
-            (serde_json::value::to_raw_value(&content)?, event_type)
+            (Raw::new(&content)?.cast(), event_type)
         };
 
         let request = send_message_event::v3::Request::new_raw(
             self.inner.room_id(),
             &txn_id,
             event_type,
-            Raw::from_json(content),
+            content,
         );
 
         let response = self.client.send(request, None).await?;
@@ -854,7 +854,7 @@ impl Joined {
         event_type: &str,
         state_key: &str,
     ) -> Result<send_state_event::v3::Response> {
-        let content = Raw::from_json(serde_json::value::to_raw_value(&content)?);
+        let content = Raw::new(&content)?.cast();
         let request = send_state_event::v3::Request::new_raw(
             self.inner.room_id(),
             event_type,

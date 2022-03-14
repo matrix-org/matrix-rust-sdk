@@ -14,7 +14,7 @@ async fn bootstrap(client: Client, user_id: Box<UserId>, password: String) {
 
     io::stdin().read_line(&mut input).expect("error: unable to read user input");
 
-    if let Err(e) = client.bootstrap_cross_signing(None).await {
+    if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
         use matrix_sdk::ruma::{api::client::uiaa, assign};
 
         if let Some(response) = e.uiaa_response() {
@@ -27,6 +27,7 @@ async fn bootstrap(client: Client, user_id: Box<UserId>, password: String) {
             ));
 
             client
+                .encryption()
                 .bootstrap_cross_signing(Some(auth_data))
                 .await
                 .expect("Couldn't bootstrap cross signing")
@@ -56,15 +57,10 @@ async fn login(
             let asked = asked_ref;
             let client = &client_ref;
             let user_id = &user_id;
-            let password = &password;
 
             // Wait for sync to be done then ask the user to bootstrap.
             if !asked.load(Ordering::SeqCst) {
-                tokio::spawn(bootstrap(
-                    (*client).clone(),
-                    (*user_id).clone(),
-                    password.to_string(),
-                ));
+                tokio::spawn(bootstrap((*client).clone(), (*user_id).clone(), password.to_owned()));
             }
 
             asked.store(true, Ordering::SeqCst);

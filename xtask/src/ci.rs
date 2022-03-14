@@ -29,6 +29,15 @@ enum CiCommand {
         #[clap(subcommand)]
         cmd: Option<FeatureSet>,
     },
+    /// Run tests for the appservice crate
+    TestAppservice,
+    /// Run checks for the wasm target
+    Wasm {
+        #[clap(subcommand)]
+        cmd: Option<WasmFeatureSet>,
+    },
+    /// Run tests for the different crypto crate features
+    TestCrypto,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -44,6 +53,17 @@ enum FeatureSet {
     SsoLogin,
 }
 
+#[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(clippy::enum_variant_names)]
+enum WasmFeatureSet {
+    MatrixQrcode,
+    MatrixSdkNoDefault,
+    MatrixSdkBase,
+    MatrixSdkCommon,
+    MatrixSdkCrypto,
+    MatrixSdkIndexeddbStores,
+}
+
 impl CiArgs {
     pub fn run(self) -> Result<()> {
         let _p = pushd(&workspace_root()?)?;
@@ -56,6 +76,9 @@ impl CiArgs {
                 CiCommand::Docs => check_docs(),
                 CiCommand::Test => run_tests(),
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
+                CiCommand::TestAppservice => run_appservice_tests(),
+                CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
+                CiCommand::TestCrypto => run_crypto_tests(),
             },
             None => {
                 check_style()?;
@@ -64,6 +87,9 @@ impl CiArgs {
                 check_docs()?;
                 run_tests()?;
                 run_feature_tests(None)?;
+                run_appservice_tests()?;
+                run_wasm_checks(None)?;
+                run_crypto_tests()?;
 
                 Ok(())
             }
@@ -86,9 +112,15 @@ fn check_typos() -> Result<()> {
 fn check_clippy() -> Result<()> {
     cmd!("rustup run nightly cargo clippy --all-targets -- -D warnings").run()?;
     cmd!(
-        "rustup run nightly cargo clippy --all-targets
+        "rustup run nightly cargo clippy --workspace --all-targets
+            --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features --features native-tls,warp
             -- -D warnings"
+    )
+    .run()?;
+    cmd!(
+        "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
+            --no-default-features -- -D warnings"
     )
     .run()?;
     Ok(())
@@ -120,8 +152,62 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     ]);
 
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo test --manifest-path crates/matrix-sdk/Cargo.toml")
+        cmd!("rustup run stable cargo test -p matrix-sdk").args(arg_set.split_whitespace()).run()
+    };
+
+    match cmd {
+        Some(cmd) => {
+            run(args[&cmd])?;
+        }
+        None => {
+            for &arg_set in args.values() {
+                run(arg_set)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_crypto_tests() -> Result<()> {
+    cmd!(
+        "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
+    )
+    .run()?;
+    cmd!("rustup run stable cargo test -p matrix-sdk-crypto --features=backups_v1").run()?;
+
+    Ok(())
+}
+
+fn run_appservice_tests() -> Result<()> {
+    cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
+    cmd!("rustup run stable cargo test -p matrix-sdk-appservice").run()?;
+
+    Ok(())
+}
+
+fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    let args = BTreeMap::from([
+        (WasmFeatureSet::MatrixQrcode, "-p matrix-qrcode"),
+        (
+            WasmFeatureSet::MatrixSdkNoDefault,
+            "-p matrix-sdk \
+             --no-default-features \
+             --features qrcode,encryption,indexeddb_state_store,indexeddb_cryptostore,rustls-tls",
+        ),
+        (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
+        (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
+        (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
+        (
+            WasmFeatureSet::MatrixSdkIndexeddbStores,
+            "-p matrix-sdk --no-default-features --features indexeddb_state_store,indexeddb_cryptostore,encryption,rustls-tls",
+        ),
+    ]);
+
+    let run = |arg_set: &str| {
+        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(arg_set.split_whitespace())
+            .args(["--", "-D", "warnings"])
             .run()
     };
 

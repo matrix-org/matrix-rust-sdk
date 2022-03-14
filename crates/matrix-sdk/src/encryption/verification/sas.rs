@@ -54,6 +54,7 @@ impl SasVerification {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas = client
+    ///     .encryption()
     ///     .get_verification(&user_id, flow_id)
     ///     .await
     ///     .and_then(|v| v.sas());
@@ -89,7 +90,8 @@ impl SasVerification {
         Ok(())
     }
 
-    /// Cancel the interactive verification flow because the short auth strings didn't match on both sides.
+    /// Cancel the interactive verification flow because the short auth strings
+    /// didn't match on both sides.
     pub async fn mismatch(&self) -> Result<()> {
         if let Some(request) = self.inner.cancel_with_code(CancelCode::MismatchedSas) {
             self.client.send_verification_request(request).await?;
@@ -127,6 +129,7 @@ impl SasVerification {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas_verification = client
+    ///     .encryption()
     ///     .get_verification(&user_id, flow_id)
     ///     .await
     ///     .and_then(|v| v.sas());

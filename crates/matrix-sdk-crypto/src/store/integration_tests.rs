@@ -544,8 +544,8 @@ macro_rules! cryptostore_integration_tests {
                 let info: SecretInfo = RequestedKeyInfo::new(
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     room_id!("!test:localhost").to_owned(),
-                    "test_sender_key".to_string(),
-                    "test_session_id".to_string(),
+                    "test_sender_key".to_owned(),
+                    "test_session_id".to_owned(),
                 )
                 .into();
 
