@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
-use ruma::{api::client::discover::discover_homeserver, UserId};
+use ruma::{api::client::discover::discover_homeserver, ServerName, UserId};
 use thiserror::Error;
 use url::Url;
 
@@ -85,11 +85,23 @@ impl ClientBuilder {
 
     /// Set the user ID to discover the homeserver from.
     ///
+    /// `builder.user_id(id)` is a shortcut for
+    /// `builder.server_name(id.server_name())`.
+    ///
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
     /// set last will be used.
-    pub fn user_id(mut self, user_id: &UserId) -> Self {
-        self.homeserver_cfg = Some(HomeserverConfig::UserId(user_id.to_owned()));
+    pub fn user_id(self, user_id: &UserId) -> Self {
+        self.server_name(user_id.server_name())
+    }
+
+    /// Set the server name to discover the homeserver from.
+    ///
+    /// This method is mutually exclusive with
+    /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
+    /// set last will be used.
+    pub fn server_name(mut self, server_name: &ServerName) -> Self {
+        self.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name.to_owned()));
         self
     }
 
@@ -286,8 +298,8 @@ impl ClientBuilder {
 
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
-            HomeserverConfig::UserId(user_id) => {
-                let homeserver = homeserver_from_user_id(&user_id)?;
+            HomeserverConfig::ServerName(server_name) => {
+                let homeserver = homeserver_from_name(&server_name)?;
                 let http_client = mk_http_client(Arc::new(RwLock::new(homeserver)));
                 let well_known =
                     http_client.send(discover_homeserver::Request::new(), None).await?;
@@ -326,21 +338,22 @@ impl ClientBuilder {
     }
 }
 
-fn homeserver_from_user_id(user_id: &UserId) -> Result<Url, url::ParseError> {
-    let homeserver = format!("https://{}", user_id.server_name());
-    #[allow(unused_mut)]
-    let mut result = Url::parse(homeserver.as_str())?;
+fn homeserver_from_name(server_name: &ServerName) -> Result<Url, url::ParseError> {
+    #[cfg(not(test))]
+    let homeserver = format!("https://{}", server_name);
+
     // Mockito only knows how to test http endpoints:
     // https://github.com/lipanski/mockito/issues/127
     #[cfg(test)]
-    let _ = result.set_scheme("http");
-    Ok(result)
+    let homeserver = format!("http://{}", server_name);
+
+    Url::parse(&homeserver)
 }
 
 #[derive(Debug)]
 enum HomeserverConfig {
     Url(String),
-    UserId(Box<UserId>),
+    ServerName(Box<ServerName>),
 }
 
 #[derive(Debug)]
