@@ -354,8 +354,6 @@ impl SlidingSyncView {
     }
     
     fn prefetch_stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<syncv3_events::Response>> + 'a> {
-        
-
         // FIXME: these will come from the filter later
         let batch_size = self.batch_size.clone();
         let sort = Some(vec!["by_recency".to_string(), "by_name".to_string()]);
@@ -374,15 +372,6 @@ impl SlidingSyncView {
             inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
         }
 
-        let state = self.state.clone();
-        let pos = self.pos.clone();
-        let rooms_count = self.rooms_count.clone();
-        let rooms_list = self.rooms_list.clone();
-        let rooms = self.rooms.clone();
-
-        let mut start = 0u32;
-        let mut end = batch_size;
-
         // FIXME: make this optional
 
         let state = self.state.clone();
@@ -395,14 +384,20 @@ impl SlidingSyncView {
         let mut end = batch_size;
 
         Ok(async_stream::try_stream! {
-            // {
-            //     let mut state = state.lock_mut(); 
-            //     if *state.deref() != SlidingSyncState::Cold {
-            //         anyhow::Error::msg("You can only create the stream once per view.").downcast()?;
-            //     }
-            //     *state = SlidingSyncState::Preload;
-            // }
+            {
+                let mut state = state.lock_mut(); 
+                if *state.deref() != SlidingSyncState::Cold {
+                    return // we only do this on a fresh state
+                }
+                *state = SlidingSyncState::Preload;
+            }
             loop {
+                if let Some(count) = self.rooms_count.get_cloned() {
+                    if count >= start.into() {
+                        // we are done pre-fetching
+                        break
+                    }
+                }
                 let pos = self.pos.get_cloned();
                 let mut req = assign!(syncv3_events::Request::new(), {
                     pos: pos.as_deref(),
@@ -475,12 +470,13 @@ impl SlidingSyncView {
     }
 
 
-    /// Create the inne stream for the view
+    /// Create the inner stream for the view
     pub fn stream<'a>(&'a self) -> anyhow::Result<(Cancel, impl Stream<Item = anyhow::Result<SlidingSyncState>> + 'a)> {
         let prefetch_stream = self.prefetch_stream()?;
         let live_stream = self.live_stream()?;
         let cancel = Cancel::new(false);
         let ret_cancel = cancel.clone();
+        let state = self.state.clone();
 
         let final_stream = async_stream::try_stream! {
             pin_mut!(prefetch_stream);
@@ -490,8 +486,19 @@ impl SlidingSyncView {
                     return
                 }
                 self.handle_response(resp)?;
+                state.set_if(SlidingSyncState::CatchingUp, |state, _| *state == SlidingSyncState::Preload);
                 yield self.state.read_only().get_cloned();
+            }
+            {
+                let mut updated = false;
+                state.set_if(SlidingSyncState::Live, |v, _| {
+                    updated = *v == SlidingSyncState::Preload;
+                    updated
+                });
 
+                if updated {
+                    yield SlidingSyncState::Live;
+                }
             }
 
             pin_mut!(live_stream);
