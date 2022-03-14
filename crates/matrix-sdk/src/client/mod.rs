@@ -328,7 +328,7 @@ impl SlidingSyncView {
         self.pos.replace(Some(resp.pos));
 
         let rooms_count: u64 = resp.counts[0].try_into().context("conversion always works")?;
-        let mut missing = self.rooms_list.lock_ref().len() as u64 - rooms_count;
+        let mut missing = rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u64).unwrap_or_default();
         if  missing > 0  {
             let mut list = self.rooms_list.lock_mut();
             list.reserve_exact(missing as usize);
