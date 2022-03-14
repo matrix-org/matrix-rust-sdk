@@ -727,7 +727,7 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
     type Error = String;
 
     fn try_from(request: ToDeviceRequest) -> Result<Self, Self::Error> {
-        use ruma::events::EventType;
+        use ruma::events::ToDeviceEventType;
         use serde_json::Value;
 
         let json: Value = serde_json::from_str(
@@ -742,30 +742,40 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
         .map_err(|e| e.to_string())?;
 
         let content = match request.event_type {
-            EventType::KeyVerificationStart => AnyToDeviceEventContent::KeyVerificationStart(
+            ToDeviceEventType::KeyVerificationStart => {
+                AnyToDeviceEventContent::KeyVerificationStart(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationKey => AnyToDeviceEventContent::KeyVerificationKey(
                 serde_json::from_value(json).map_err(|e| e.to_string())?,
             ),
-            EventType::KeyVerificationKey => AnyToDeviceEventContent::KeyVerificationKey(
+            ToDeviceEventType::KeyVerificationAccept => {
+                AnyToDeviceEventContent::KeyVerificationAccept(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationMac => AnyToDeviceEventContent::KeyVerificationMac(
                 serde_json::from_value(json).map_err(|e| e.to_string())?,
             ),
-            EventType::KeyVerificationAccept => AnyToDeviceEventContent::KeyVerificationAccept(
+            ToDeviceEventType::KeyVerificationCancel => {
+                AnyToDeviceEventContent::KeyVerificationCancel(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationReady => {
+                AnyToDeviceEventContent::KeyVerificationReady(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationDone => AnyToDeviceEventContent::KeyVerificationDone(
                 serde_json::from_value(json).map_err(|e| e.to_string())?,
             ),
-            EventType::KeyVerificationMac => AnyToDeviceEventContent::KeyVerificationMac(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationCancel => AnyToDeviceEventContent::KeyVerificationCancel(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationReady => AnyToDeviceEventContent::KeyVerificationReady(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationDone => AnyToDeviceEventContent::KeyVerificationDone(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationRequest => AnyToDeviceEventContent::KeyVerificationRequest(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
+            ToDeviceEventType::KeyVerificationRequest => {
+                AnyToDeviceEventContent::KeyVerificationRequest(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
             e => return Err(format!("Unsupported event type {}", e)),
         };
 

@@ -17,25 +17,17 @@ use std::{
     io::{Cursor, Read},
 };
 
-use aes::cipher::generic_array::GenericArray;
-use aes_gcm::{
-    aead::{Aead, NewAead},
-    Aes256Gcm,
-};
 use bs58;
 use olm_rs::{
     errors::OlmPkDecryptionError,
     pk::{OlmPkDecryption, PkMessage},
 };
 use rand::{thread_rng, Error as RandomError, Fill};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use super::MegolmV1BackupKey;
-use crate::utilities::{decode_url_safe, encode, encode_url_safe};
-
-const NONCE_SIZE: usize = 12;
+use crate::{store::RecoveryKey, utilities::encode};
 
 /// Error type for the decoding of a RecoveryKey.
 #[derive(Debug, Error)]
@@ -64,45 +56,10 @@ pub enum DecodeError {
 pub enum UnpicklingError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-    #[error("Couldn't decrypt the pickle: {0}")]
-    Decryption(String),
+    // #[error("Couldn't decrypt the pickle: {0}")]
+    // Decryption(String),
     #[error(transparent)]
     Decode(#[from] DecodeError),
-}
-
-/// The private part of a backup key.
-#[derive(Zeroize)]
-pub struct RecoveryKey {
-    inner: [u8; RecoveryKey::KEY_SIZE],
-}
-
-impl Drop for RecoveryKey {
-    fn drop(&mut self) {
-        self.inner.zeroize()
-    }
-}
-
-impl std::fmt::Debug for RecoveryKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RecoveryKey").finish()
-    }
-}
-
-/// The pickled version of a recovery key.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PickledRecoveryKey(String);
-
-impl AsRef<str> for PickledRecoveryKey {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct InnerPickle {
-    version: u8,
-    nonce: String,
-    ciphertext: String,
 }
 
 impl TryFrom<String> for RecoveryKey {
@@ -132,7 +89,6 @@ impl std::fmt::Display for RecoveryKey {
 }
 
 impl RecoveryKey {
-    const KEY_SIZE: usize = 32;
     const PREFIX: [u8; 2] = [0x8b, 0x01];
     const PREFIX_PARITY: u8 = Self::PREFIX[0] ^ Self::PREFIX[1];
     const DISPLAY_CHUNK_SIZE: usize = 4;
@@ -233,57 +189,6 @@ impl RecoveryKey {
         let pk = self.get_pk_decrytpion();
         let public_key = MegolmV1BackupKey::new(pk.public_key(), None);
         public_key
-    }
-
-    /// Export this [`RecoveryKey`] as an encrypted pickle that can be safely
-    /// stored.
-    pub fn pickle(&self, pickle_key: &[u8]) -> PickledRecoveryKey {
-        let key = GenericArray::from_slice(pickle_key);
-        let cipher = Aes256Gcm::new(key);
-
-        let mut nonce = vec![0u8; NONCE_SIZE];
-        let mut rng = thread_rng();
-
-        nonce.try_fill(&mut rng).expect("Can't generate random nocne to pickle the recovery key");
-        let nonce = GenericArray::from_slice(nonce.as_slice());
-
-        let ciphertext =
-            cipher.encrypt(nonce, self.inner.as_ref()).expect("Can't encrypt recovery key");
-
-        let ciphertext = encode_url_safe(ciphertext);
-
-        let pickle =
-            InnerPickle { version: 1, nonce: encode_url_safe(nonce.as_slice()), ciphertext };
-
-        PickledRecoveryKey(serde_json::to_string(&pickle).expect("Can't encode pickled signing"))
-    }
-
-    /// Try to import a `RecoveryKey` from a previously exported pickle.
-    pub fn from_pickle(
-        pickle: PickledRecoveryKey,
-        pickle_key: &[u8],
-    ) -> Result<Self, UnpicklingError> {
-        let pickled: InnerPickle = serde_json::from_str(pickle.as_ref())?;
-
-        let key = GenericArray::from_slice(pickle_key);
-        let cipher = Aes256Gcm::new(key);
-
-        let nonce = decode_url_safe(pickled.nonce).map_err(DecodeError::from)?;
-        let nonce = GenericArray::from_slice(&nonce);
-        let ciphertext = &decode_url_safe(pickled.ciphertext).map_err(DecodeError::from)?;
-
-        let decrypted = cipher
-            .decrypt(nonce, ciphertext.as_slice())
-            .map_err(|e| UnpicklingError::Decryption(e.to_string()))?;
-
-        if decrypted.len() != Self::KEY_SIZE {
-            Err(DecodeError::Length(decrypted.len(), Self::KEY_SIZE).into())
-        } else {
-            let mut key = [0u8; Self::KEY_SIZE];
-            key.copy_from_slice(&decrypted);
-
-            Ok(Self { inner: key })
-        }
     }
 
     /// Try to decrypt the given ciphertext using this `RecoveryKey`.

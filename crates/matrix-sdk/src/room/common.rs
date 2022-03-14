@@ -18,7 +18,7 @@ use ruma::{
     events::{
         room::history_visibility::HistoryVisibility,
         tag::{TagInfo, TagName},
-        AnyStateEvent, AnySyncStateEvent, EventType,
+        AnyStateEvent, AnySyncStateEvent, StateEventType,
     },
     serde::Raw,
     uint, EventId, RoomId, UInt, UserId,
@@ -640,7 +640,7 @@ impl Common {
     /// Get all state events of a given type in this room.
     pub async fn get_state_events(
         &self,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
     }
@@ -648,7 +648,7 @@ impl Common {
     /// Get a specific state event in this room.
     pub async fn get_state_event(
         &self,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.client
@@ -667,7 +667,7 @@ impl Common {
         let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
 
         for user_id in user_ids {
-            let devices = self.client.get_user_devices(&user_id).await?;
+            let devices = self.client.encryption().get_user_devices(&user_id).await?;
             let any_unverified = devices.devices().any(|d| !d.verified());
 
             if any_unverified {

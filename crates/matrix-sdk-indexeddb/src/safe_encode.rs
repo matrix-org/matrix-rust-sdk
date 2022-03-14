@@ -1,7 +1,7 @@
 #![allow(dead_code)]
+use matrix_sdk_base::ruma::events::StateEventType;
 use matrix_sdk_common::ruma::{
-    events::EventType, receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId,
-    UserId,
+    receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
@@ -135,7 +135,7 @@ impl SafeEncode for TransactionId {
     }
 }
 
-impl SafeEncode for EventType {
+impl SafeEncode for StateEventType {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }

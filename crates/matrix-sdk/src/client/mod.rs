@@ -44,7 +44,7 @@ use ruma::{
             capabilities::{get_capabilities, Capabilities},
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discover::{discover_homeserver, get_supported_versions},
+            discover::get_supported_versions,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -65,14 +65,20 @@ use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
+#[cfg(feature = "encryption")]
+use crate::encryption::Encryption;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
-    config::{ClientConfig, RequestConfig},
+    config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
-    http_client::{client_with_config, HttpClient},
+    http_client::HttpClient,
     room, Account, Error, Result,
 };
+
+mod builder;
+
+pub use self::builder::{ClientBuildError, ClientBuilder};
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
@@ -141,7 +147,7 @@ pub(crate) struct ClientInner {
     appservice_mode: bool,
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
-    use_discovery_response: bool,
+    respect_login_well_known: bool,
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -163,130 +169,17 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    pub async fn new(homeserver_url: Url) -> Result<Self> {
-        let config = ClientConfig::new().await?;
-        Client::new_with_config(homeserver_url, config).await
+    pub async fn new(homeserver_url: Url) -> Result<Self, HttpError> {
+        Self::builder()
+            .homeserver_url(homeserver_url)
+            .build()
+            .await
+            .map_err(ClientBuildError::assert_valid_builder_args)
     }
 
-    /// Create a new [`Client`] for the given homeserver and use the given
-    /// configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `homeserver_url` - The homeserver that the client should connect to.
-    ///
-    /// * `config` - Configuration for the client.
-    pub async fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
-        let homeserver = Arc::new(RwLock::new(homeserver_url));
-
-        let client = if let Some(client) = config.client {
-            client
-        } else {
-            Arc::new(client_with_config(&config)?)
-        };
-
-        let base_client = BaseClient::new_with_config(config.base_config).await?;
-        let session = base_client.session().clone();
-
-        let http_client =
-            HttpClient::new(client, homeserver.clone(), session, config.request_config);
-
-        let server_versions = match config.server_versions {
-            Some(vs) => vs,
-            None => http_client
-                .send(
-                    get_supported_versions::Request::new(),
-                    None,
-                    vec![MatrixVersion::V1_0].into(),
-                )
-                .await?
-                .known_versions()
-                .collect(),
-        };
-
-        let inner = Arc::new(ClientInner {
-            homeserver,
-            http_client,
-            base_client,
-            server_versions,
-            #[cfg(feature = "encryption")]
-            group_session_locks: Default::default(),
-            #[cfg(feature = "encryption")]
-            key_claim_lock: Default::default(),
-            members_request_locks: Default::default(),
-            typing_notice_times: Default::default(),
-            event_handlers: Default::default(),
-            event_handler_data: Default::default(),
-            notification_handlers: Default::default(),
-            appservice_mode: config.appservice_mode,
-            use_discovery_response: config.use_discovery_response,
-            sync_beat: event_listener::Event::new(),
-        });
-
-        Ok(Self { inner })
-    }
-
-    /// Create a new [`Client`] using homeserver auto discovery.
-    ///
-    /// This method will create a [`Client`] object that will attempt to
-    /// discover and configure the homeserver for the given user. Follows the
-    /// homeserver discovery directions described in the [spec].
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The id of the user whose homeserver the client should
-    ///   connect to.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// use matrix_sdk::{Client, ruma::UserId};
-    ///
-    /// // First let's try to construct an user id, presumably from user input.
-    /// let alice = UserId::parse("@alice:example.org")?;
-    ///
-    /// // Now let's try to discover the homeserver and create a client object.
-    /// let client = Client::new_from_user_id(&alice).await?;
-    ///
-    /// // Finally let's try to login.
-    /// client.login(alice, "password", None, None).await?;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
-    /// ```
-    ///
-    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
-    pub async fn new_from_user_id(user_id: &UserId) -> Result<Self> {
-        let config = ClientConfig::new().await?;
-        Client::new_from_user_id_with_config(user_id, config).await
-    }
-
-    /// Create a new [`Client`] using homeserver auto discovery.
-    ///
-    /// This method will create a [`Client`] object that will attempt to
-    /// discover and configure the homeserver for the given user. Follows the
-    /// homeserver discovery directions described in the [spec].
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The id of the user whose homeserver the client should
-    ///   connect to.
-    ///
-    /// * `config` - Configuration for the client.
-    ///
-    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
-    pub async fn new_from_user_id_with_config(
-        user_id: &UserId,
-        config: ClientConfig,
-    ) -> Result<Self> {
-        let homeserver = Client::homeserver_from_user_id(user_id)?;
-        let client = Client::new_with_config(homeserver, config).await?;
-
-        let well_known = client.discover_homeserver().await?;
-        let well_known = Url::parse(well_known.homeserver.base_url.as_ref())?;
-        client.set_homeserver(well_known).await;
-        client.get_supported_versions().await?;
-        Ok(client)
+    /// Create a new [`ClientBuilder`].
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 
     pub(crate) fn base_client(&self) -> &BaseClient {
@@ -305,22 +198,6 @@ impl Client {
         response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
     ) -> Result<(), matrix_sdk_base::Error> {
         self.base_client().mark_request_as_sent(request_id, response).await
-    }
-
-    fn homeserver_from_user_id(user_id: &UserId) -> Result<Url> {
-        let homeserver = format!("https://{}", user_id.server_name());
-        #[allow(unused_mut)]
-        let mut result = Url::parse(homeserver.as_str())?;
-        // Mockito only knows how to test http endpoints:
-        // https://github.com/lipanski/mockito/issues/127
-        #[cfg(test)]
-        let _ = result.set_scheme("http");
-        Ok(result)
-    }
-
-    async fn discover_homeserver(&self) -> HttpResult<discover_homeserver::Response> {
-        self.send(discover_homeserver::Request::new(), Some(RequestConfig::new().disable_retry()))
-            .await
     }
 
     /// Change the homeserver URL used by this client.
@@ -445,6 +322,12 @@ impl Client {
         Account::new(self.clone())
     }
 
+    /// Get the encryption manager of the client.
+    #[cfg(feature = "encryption")]
+    pub fn encryption(&self) -> Encryption {
+        Encryption::new(self.clone())
+    }
+
     /// Register a handler for a specific event type.
     ///
     /// The handler is a function or closure with one or more arguments. The
@@ -488,7 +371,12 @@ impl Client {
     /// use serde::{Deserialize, Serialize};
     ///
     /// # block_on(async {
-    /// # let client = Client::new(homeserver).await.unwrap();
+    /// # let client = matrix_sdk::Client::builder()
+    /// #     .homeserver_url(homeserver)
+    /// #     .check_supported_versions(false)
+    /// #     .build()
+    /// #     .await
+    /// #     .unwrap();
     /// client
     ///     .register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
@@ -602,7 +490,12 @@ impl Client {
     /// # fn obtain_gui_handle() -> SomeType { SomeType }
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
     /// # block_on(async {
-    /// # let client = matrix_sdk::Client::new(homeserver).await.unwrap();
+    /// # let client = matrix_sdk::Client::builder()
+    /// #     .homeserver_url(homeserver)
+    /// #     .check_supported_versions(false)
+    /// #     .build()
+    /// #     .await
+    /// #     .unwrap();
     ///
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
@@ -1149,7 +1042,7 @@ impl Client {
     ///
     /// * `response` - A successful login response.
     async fn receive_login_response(&self, response: &login::v3::Response) -> Result<()> {
-        if self.inner.use_discovery_response {
+        if self.inner.respect_login_well_known {
             if let Some(well_known) = &response.well_known {
                 if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
                     self.set_homeserver(homeserver).await;
@@ -2344,6 +2237,7 @@ impl Client {
         })
     }
 }
+
 // mockito (the http mocking library) is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod test {
@@ -2382,21 +2276,35 @@ pub(crate) mod test {
                 message::{ImageMessageEventContent, RoomMessageEventContent},
                 ImageInfo,
             },
-            AnySyncStateEvent, EventType,
+            AnySyncStateEvent, StateEventType,
         },
         mxc_uri, room_id, thirdparty, uint, user_id, TransactionId, UserId,
     };
     use serde_json::json;
+    use url::Url;
 
-    use super::{Client, Session, Url};
+    use super::{Client, ClientBuilder, Session};
     use crate::{
         attachment::{
             AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
             Thumbnail,
         },
-        config::{ClientConfig, RequestConfig, SyncSettings},
+        config::{RequestConfig, SyncSettings},
         HttpError, RoomMember,
     };
+
+    fn test_client_builder() -> ClientBuilder {
+        let homeserver = Url::parse(&mockito::server_url()).unwrap();
+        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
+    }
+
+    async fn no_retry_test_client() -> Client {
+        test_client_builder()
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .unwrap()
+    }
 
     pub(crate) async fn logged_in_client() -> Client {
         let session = Session {
@@ -2404,13 +2312,7 @@ pub(crate) mod test {
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         };
-        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new()
-            .await
-            .unwrap()
-            .request_config(RequestConfig::new().disable_retry())
-            .server_versions([MatrixVersion::V1_0]);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
         client.restore_login(session).await.unwrap();
 
         client
@@ -2418,12 +2320,8 @@ pub(crate) mod test {
 
     #[async_test]
     async fn set_homeserver() {
+        let client = no_retry_test_client().await;
         let homeserver = Url::from_str("http://example.com/").unwrap();
-
-        let client = Client::new(homeserver).await.unwrap();
-
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
         client.set_homeserver(homeserver.clone()).await;
 
         assert_eq!(client.homeserver().await, homeserver);
@@ -2446,7 +2344,7 @@ pub(crate) mod test {
             .with_status(200)
             .with_body(test_json::VERSIONS.to_string())
             .create();
-        let client = Client::new_from_user_id(&alice).await.unwrap();
+        let client = Client::builder().user_id(&alice).build().await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2465,7 +2363,7 @@ pub(crate) mod test {
             .create();
 
         assert!(
-            Client::new_from_user_id(&alice).await.is_err(),
+            Client::builder().user_id(&alice).build().await.is_err(),
             "Creating a client from a user ID should fail when the \
                 .well-known server returns no version information."
         );
@@ -2474,9 +2372,7 @@ pub(crate) mod test {
     #[async_test]
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let config = ClientConfig::new().await.unwrap().server_versions([MatrixVersion::V1_0]);
-        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m_types = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2507,14 +2403,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_with_discovery() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new()
-            .await
-            .unwrap()
-            .use_discovery_response()
-            .server_versions([MatrixVersion::V1_0]);
-
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2531,14 +2420,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_no_discovery() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new()
-            .await
-            .unwrap()
-            .use_discovery_response()
-            .server_versions([MatrixVersion::V1_0]);
-
-        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2550,7 +2432,7 @@ pub(crate) mod test {
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
 
-        assert_eq!(client.homeserver().await, homeserver);
+        assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
     }
 
     #[cfg(feature = "sso_login")]
@@ -2562,8 +2444,7 @@ pub(crate) mod test {
             .create();
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::new().await.unwrap().server_versions([MatrixVersion::V1_0]);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
         let idp = crate::client::get_login_types::v3::IdentityProvider::new(
             "some-id".to_owned(),
             "idp-name".to_owned(),
@@ -2598,10 +2479,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_with_sso_token() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let config = ClientConfig::new().await.unwrap().server_versions([MatrixVersion::V1_0]);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("GET", "/_matrix/client/r0/login")
             .with_status(200)
@@ -2645,7 +2523,6 @@ pub(crate) mod test {
 
     #[async_test]
     async fn test_join_leave_room() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
@@ -2667,13 +2544,8 @@ pub(crate) mod test {
         let room = client.get_joined_room(room_id);
         assert!(room.is_some());
 
-        // test store reloads with correct room state from the sled store
-        let path = tempfile::tempdir().unwrap();
-        let config = ClientConfig::with_named_store(path.into_path().to_str().unwrap(), None)
-            .await
-            .unwrap()
-            .request_config(RequestConfig::new().disable_retry());
-        let joined_client = Client::new_with_config(homeserver, config).await.unwrap();
+        // test store reloads with correct room state from the state store
+        let joined_client = no_retry_test_client().await;
         joined_client.restore_login(session).await.unwrap();
 
         // joined room reloaded from state store
@@ -2733,9 +2605,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn login_error() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
@@ -2763,8 +2633,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn register_error() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_owned()))
             .with_status(403)
@@ -2907,8 +2776,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn room_search_all() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
             .with_status(200)
@@ -3593,8 +3461,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn delete_devices() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = no_retry_test_client().await;
 
         let _m = mock("POST", "/_matrix/client/r0/delete_devices")
             .with_status(401)
@@ -3649,10 +3516,13 @@ pub(crate) mod test {
 
     #[async_test]
     async fn retry_limit_http_requests() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
-        assert!(config.request_config.retry_limit.unwrap() == 3);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = test_client_builder()
+            .request_config(RequestConfig::new().retry_limit(3))
+            .build()
+            .await
+            .unwrap();
+
+        assert!(client.inner.http_client.request_config.retry_limit.unwrap() == 3);
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
@@ -3665,13 +3535,15 @@ pub(crate) mod test {
 
     #[async_test]
     async fn retry_timeout_http_requests() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         // Keep this timeout small so that the test doesn't take long
         let retry_timeout = Duration::from_secs(5);
-        let config = ClientConfig::default()
-            .request_config(RequestConfig::new().retry_timeout(retry_timeout));
-        assert!(config.request_config.retry_timeout.unwrap() == retry_timeout);
-        let client = Client::new_with_config(homeserver, config).await.unwrap();
+        let client = test_client_builder()
+            .request_config(RequestConfig::new().retry_timeout(retry_timeout))
+            .build()
+            .await
+            .unwrap();
+
+        assert!(client.inner.http_client.request_config.retry_timeout.unwrap() == retry_timeout);
 
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
@@ -3685,8 +3557,7 @@ pub(crate) mod test {
 
     #[async_test]
     async fn short_retry_initial_http_requests() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).await.unwrap();
+        let client = test_client_builder().build().await.unwrap();
 
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
@@ -3798,7 +3669,6 @@ pub(crate) mod test {
 
     #[async_test]
     async fn test_state_event_getting() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         let session = Session {
@@ -3867,8 +3737,11 @@ pub(crate) mod test {
             .with_body(sync.to_string())
             .create();
 
-        let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
-        let client = Client::new_with_config(homeserver.clone(), config).await.unwrap();
+        let client = test_client_builder()
+            .request_config(RequestConfig::new().retry_limit(3))
+            .build()
+            .await
+            .unwrap();
         client.restore_login(session.clone()).await.unwrap();
 
         let room = client.get_joined_room(room_id);
@@ -3878,14 +3751,14 @@ pub(crate) mod test {
 
         let room = client.get_joined_room(room_id).unwrap();
 
-        let state_events = room.get_state_events(EventType::RoomEncryption).await.unwrap();
+        let state_events = room.get_state_events(StateEventType::RoomEncryption).await.unwrap();
         assert_eq!(state_events.len(), 1);
 
         let state_events = room.get_state_events("m.custom.note".into()).await.unwrap();
         assert_eq!(state_events.len(), 2);
 
         let encryption_event = room
-            .get_state_event(EventType::RoomEncryption, "")
+            .get_state_event(StateEventType::RoomEncryption, "")
             .await
             .unwrap()
             .unwrap()

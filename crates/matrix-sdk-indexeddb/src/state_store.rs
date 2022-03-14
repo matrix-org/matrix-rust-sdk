@@ -34,7 +34,8 @@ use matrix_sdk_common::{
             receipt::Receipt,
             room::member::{MembershipState, RoomMemberEventContent},
             AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent,
-            AnySyncRoomEvent, AnySyncStateEvent, EventType,
+            AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+            RoomAccountDataEventType, StateEventType,
         },
         receipt::ReceiptType,
         serde::Raw,
@@ -711,7 +712,7 @@ impl IndexeddbStore {
     pub async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.inner
@@ -726,7 +727,7 @@ impl IndexeddbStore {
     pub async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         let range = (room_id, &event_type).encode_to_range().map_err(StoreError::Codec)?;
         Ok(self
@@ -860,7 +861,7 @@ impl IndexeddbStore {
 
     pub async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::ACCOUNT_DATA, IdbTransactionMode::Readonly)?
@@ -874,7 +875,7 @@ impl IndexeddbStore {
     pub async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_ACCOUNT_DATA, IdbTransactionMode::Readonly)?
@@ -1122,7 +1123,7 @@ impl StateStore for IndexeddbStore {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> StoreResult<Option<Raw<AnySyncStateEvent>>> {
         self.get_state_event(room_id, event_type, state_key).await.map_err(|e| e.into())
@@ -1131,7 +1132,7 @@ impl StateStore for IndexeddbStore {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> StoreResult<Vec<Raw<AnySyncStateEvent>>> {
         self.get_state_events(room_id, event_type).await.map_err(|e| e.into())
     }
@@ -1182,7 +1183,7 @@ impl StateStore for IndexeddbStore {
 
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> StoreResult<Option<Raw<AnyGlobalAccountDataEvent>>> {
         self.get_account_data_event(event_type).await.map_err(|e| e.into())
     }
@@ -1190,7 +1191,7 @@ impl StateStore for IndexeddbStore {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> StoreResult<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await.map_err(|e| e.into())
     }

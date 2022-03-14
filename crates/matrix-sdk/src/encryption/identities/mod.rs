@@ -43,7 +43,7 @@
 //! # let homeserver = Url::parse("http://example.com").unwrap();
 //! # block_on(async {
 //! # let client = Client::new(homeserver).await.unwrap();
-//! let device = client.get_device(alice, device_id!("DEVICEID")).await?;
+//! let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
 //!
 //! if let Some(device) = device {
 //!     // Let's request the device to be verified.
@@ -69,7 +69,7 @@
 //! # let homeserver = Url::parse("http://example.com").unwrap();
 //! # block_on(async {
 //! # let client = Client::new(homeserver).await.unwrap();
-//! let user = client.get_user_identity(alice).await?;
+//! let user = client.encryption().get_user_identity(alice).await?;
 //!
 //! if let Some(user) = user {
 //!     // Let's request the user to be verified.

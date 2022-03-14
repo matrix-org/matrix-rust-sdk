@@ -4,12 +4,13 @@ use std::{
 };
 
 use matrix_sdk::{
-    config::{ClientConfig, RequestConfig},
+    config::RequestConfig,
     ruma::{api::appservice::Registration, events::room::member::SyncRoomMemberEvent},
+    Client,
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
-use ruma::room_id;
+use ruma::{api::MatrixVersion, room_id};
 use serde_json::json;
 use warp::{Filter, Reply};
 
@@ -32,11 +33,17 @@ async fn appservice(registration: Option<Registration>) -> Result<AppService> {
     let homeserver_url = mockito::server_url();
     let server_name = "localhost";
 
-    let client_config =
-        ClientConfig::default().request_config(RequestConfig::default().disable_retry());
+    let client_builder = Client::builder()
+        .request_config(RequestConfig::default().disable_retry())
+        .server_versions([MatrixVersion::V1_0]);
 
-    AppService::new_with_config(homeserver_url.as_ref(), server_name, registration, client_config)
-        .await
+    AppService::with_client_builder(
+        homeserver_url.as_ref(),
+        server_name,
+        registration,
+        client_builder,
+    )
+    .await
 }
 
 #[async_test]

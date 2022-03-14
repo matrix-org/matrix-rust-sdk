@@ -48,7 +48,7 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType},
+    events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, GlobalAccountDataEventType},
     serde::Raw,
     DeviceId, TransactionId, UserId,
 };
@@ -65,395 +65,6 @@ use crate::{
 };
 
 impl Client {
-    /// Get the public ed25519 key of our own device. This is usually what is
-    /// called the fingerprint of the device.
-    #[cfg(feature = "encryption")]
-    pub async fn ed25519_key(&self) -> Option<String> {
-        self.olm_machine().await.map(|o| o.identity_keys().ed25519().to_owned())
-    }
-
-    /// Get the status of the private cross signing keys.
-    ///
-    /// This can be used to check which private cross signing keys we have
-    /// stored locally.
-    #[cfg(feature = "encryption")]
-    pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
-        if let Some(machine) = self.olm_machine().await {
-            Some(machine.cross_signing_status().await)
-        } else {
-            None
-        }
-    }
-
-    /// Get all the tracked users we know about
-    ///
-    /// Tracked users are users for which we keep the device list of E2EE
-    /// capable devices up to date.
-    #[cfg(feature = "encryption")]
-    pub async fn tracked_users(&self) -> HashSet<Box<UserId>> {
-        self.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
-    }
-
-    /// Get a verification object with the given flow id.
-    #[cfg(feature = "encryption")]
-    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
-        let olm = self.olm_machine().await?;
-        olm.get_verification(user_id, flow_id).map(|v| match v {
-            matrix_sdk_base::crypto::Verification::SasV1(s) => {
-                SasVerification { inner: s, client: self.clone() }.into()
-            }
-            #[cfg(feature = "qrcode")]
-            matrix_sdk_base::crypto::Verification::QrV1(qr) => {
-                verification::QrVerification { inner: qr, client: self.clone() }.into()
-            }
-        })
-    }
-
-    /// Get a `VerificationRequest` object for the given user with the given
-    /// flow id.
-    #[cfg(feature = "encryption")]
-    pub async fn get_verification_request(
-        &self,
-        user_id: &UserId,
-        flow_id: impl AsRef<str>,
-    ) -> Option<VerificationRequest> {
-        let olm = self.olm_machine().await?;
-
-        olm.get_verification_request(user_id, flow_id)
-            .map(|r| VerificationRequest { inner: r, client: self.clone() })
-    }
-
-    /// Get a specific device of a user.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that the device belongs to.
-    ///
-    /// * `device_id` - The unique id of the device.
-    ///
-    /// Returns a `Device` if one is found and the crypto store didn't throw an
-    /// error.
-    ///
-    /// This will always return None if the client hasn't been logged in.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// # let alice = user_id!("@alice:example.org");
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver).await?;
-    /// if let Some(device) = client.get_device(alice, device_id!("DEVICEID")).await? {
-    ///     println!("{:?}", device.verified());
-    ///
-    ///     if !device.verified() {
-    ///         let verification = device.request_verification().await?;
-    ///     }
-    /// }
-    /// # anyhow::Result::<()>::Ok(()) });
-    /// ```
-    #[cfg(feature = "encryption")]
-    pub async fn get_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<Device>, CryptoStoreError> {
-        let device = self.base_client().get_device(user_id, device_id).await?;
-
-        Ok(device.map(|d| Device { inner: d, client: self.clone() }))
-    }
-
-    /// Get a map holding all the devices of an user.
-    ///
-    /// This will always return an empty map if the client hasn't been logged
-    /// in.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that the devices belong to.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::user_id};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// # let alice = user_id!("@alice:example.org");
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver).await?;
-    /// let devices = client.get_user_devices(alice).await?;
-    ///
-    /// for device in devices.devices() {
-    ///     println!("{:?}", device);
-    /// }
-    /// # anyhow::Result::<()>::Ok(()) });
-    /// ```
-    #[cfg(feature = "encryption")]
-    pub async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<UserDevices, CryptoStoreError> {
-        let devices = self.base_client().get_user_devices(user_id).await?;
-
-        Ok(UserDevices { inner: devices, client: self.clone() })
-    }
-
-    /// Get a E2EE identity of an user.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that the identity belongs to.
-    ///
-    /// Returns a `UserIdentity` if one is found and the crypto store
-    /// didn't throw an error.
-    ///
-    /// This will always return None if the client hasn't been logged in.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::user_id};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// # let alice = user_id!("@alice:example.org");
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver).await?;
-    /// let user = client.get_user_identity(alice).await?;
-    ///
-    /// if let Some(user) = user {
-    ///     println!("{:?}", user.verified());
-    ///
-    ///     let verification = user.request_verification().await?;
-    /// }
-    /// # anyhow::Result::<()>::Ok(()) });
-    /// ```
-    #[cfg(feature = "encryption")]
-    pub async fn get_user_identity(
-        &self,
-        user_id: &UserId,
-    ) -> Result<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
-        use crate::encryption::identities::UserIdentity;
-
-        if let Some(olm) = self.olm_machine().await {
-            let identity = olm.get_identity(user_id).await?;
-
-            Ok(identity.map(|i| match i {
-                matrix_sdk_base::crypto::UserIdentities::Own(i) => {
-                    UserIdentity::new_own(self.clone(), i)
-                }
-                matrix_sdk_base::crypto::UserIdentities::Other(i) => {
-                    UserIdentity::new(self.clone(), i, self.get_dm_room(user_id))
-                }
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Create and upload a new cross signing identity.
-    ///
-    /// # Arguments
-    ///
-    /// * `auth_data` - This request requires user interactive auth, the first
-    /// request needs to set this to `None` and will always fail with an
-    /// `UiaaResponse`. The response will contain information for the
-    /// interactive auth and the same request needs to be made but this time
-    /// with some `auth_data` provided.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use std::{convert::TryFrom, collections::BTreeMap};
-    /// # use matrix_sdk::{
-    /// #     ruma::{api::client::uiaa, assign},
-    /// #     Client,
-    /// # };
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # use serde_json::json;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver).await?;
-    /// if let Err(e) = client.bootstrap_cross_signing(None).await {
-    ///     if let Some(response) = e.uiaa_response() {
-    ///         let auth_data = uiaa::AuthData::Password(assign!(
-    ///             uiaa::Password::new(
-    ///                 uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-    ///                 "wordpass",
-    ///             ), {
-    ///                 session: response.session.as_deref(),
-    ///             }
-    ///         ));
-    ///
-    ///         client
-    ///             .bootstrap_cross_signing(Some(auth_data))
-    ///             .await
-    ///             .expect("Couldn't bootstrap cross signing")
-    ///     } else {
-    ///         panic!("Error durign cross signing bootstrap {:#?}", e);
-    ///     }
-    /// }
-    /// # anyhow::Result::<()>::Ok(()) });
-    #[cfg(feature = "encryption")]
-    pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
-        let olm = self.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
-
-        let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
-
-        let to_raw = |k| Raw::new(&k).expect("Can't serialize newly created cross signing keys");
-
-        let request = assign!(UploadSigningKeysRequest::new(), {
-            auth: auth_data,
-            master_key: request.master_key.map(to_raw),
-            self_signing_key: request.self_signing_key.map(to_raw),
-            user_signing_key: request.user_signing_key.map(to_raw),
-        });
-
-        self.send(request, None).await?;
-        self.send(signature_request, None).await?;
-
-        Ok(())
-    }
-
-    /// Export E2EE keys that match the given predicate encrypting them with the
-    /// given passphrase.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The file path where the exported key file will be saved.
-    ///
-    /// * `passphrase` - The passphrase that will be used to encrypt the
-    ///   exported
-    /// room keys.
-    ///
-    /// * `predicate` - A closure that will be called for every known
-    /// `InboundGroupSession`, which represents a room key. If the closure
-    /// returns `true` the `InboundGroupSessoin` will be included in the export,
-    /// if the closure returns `false` it will not be included.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if it isn't run on a Tokio runtime.
-    ///
-    /// This method will panic if it can't get enough randomness from the OS to
-    /// encrypt the exported keys securely.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::{path::PathBuf, time::Duration};
-    /// # use matrix_sdk::{
-    /// #     Client, config::SyncSettings,
-    /// #     ruma::room_id,
-    /// # };
-    /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver).await?;
-    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
-    /// // Export all room keys.
-    /// client
-    ///     .export_keys(path, "secret-passphrase", |_| true)
-    ///     .await?;
-    ///
-    /// // Export only the room keys for a certain room.
-    /// let path = PathBuf::from("/home/example/e2e-room-keys.txt");
-    /// let room_id = room_id!("!test:localhost");
-    ///
-    /// client
-    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
-    ///     .await?;
-    /// # anyhow::Result::<()>::Ok(()) });
-    /// ```
-    #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
-    pub async fn export_keys(
-        &self,
-        path: PathBuf,
-        passphrase: &str,
-        predicate: impl FnMut(&matrix_sdk_base::crypto::olm::InboundGroupSession) -> bool,
-    ) -> Result<()> {
-        let olm = self.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
-
-        let keys = olm.export_keys(predicate).await?;
-        let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
-
-        let encrypt = move || -> Result<()> {
-            let export: String =
-                matrix_sdk_base::crypto::encrypt_key_export(&keys, &passphrase, 500_000)?;
-            let mut file = std::fs::File::create(path)?;
-            file.write_all(&export.into_bytes())?;
-            Ok(())
-        };
-
-        let task = tokio::task::spawn_blocking(encrypt);
-        task.await.expect("Task join error")
-    }
-
-    /// Import E2EE keys from the given file path.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The file path where the exported key file will can be found.
-    ///
-    /// * `passphrase` - The passphrase that should be used to decrypt the
-    /// exported room keys.
-    ///
-    /// Returns a tuple of numbers that represent the number of sessions that
-    /// were imported and the total number of sessions that were found in the
-    /// key export.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if it isn't run on a Tokio runtime.
-    ///
-    /// ```no_run
-    /// # use std::{path::PathBuf, time::Duration};
-    /// # use matrix_sdk::{
-    /// #     Client, config::SyncSettings,
-    /// #     ruma::room_id,
-    /// # };
-    /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// # let mut client = Client::new(homeserver).await?;
-    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
-    /// let result = client.import_keys(path, "secret-passphrase").await?;
-    ///
-    /// println!(
-    ///     "Imported {} room keys out of {}",
-    ///     result.imported_count, result.total_count
-    /// );
-    /// # anyhow::Result::<()>::Ok(()) });
-    /// ```
-    #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
-    pub async fn import_keys(
-        &self,
-        path: PathBuf,
-        passphrase: &str,
-    ) -> Result<RoomKeyImportResult, RoomKeyImportError> {
-        let olm = self.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
-        let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
-
-        let decrypt = move || {
-            let file = std::fs::File::open(path)?;
-            matrix_sdk_base::crypto::decrypt_key_export(file, &passphrase)
-        };
-
-        let task = tokio::task::spawn_blocking(decrypt);
-        let import = task.await.expect("Task join error")?;
-
-        Ok(olm.import_keys(import, false, |_, _| {}).await?)
-    }
-
     /// Tries to decrypt a `AnyRoomEvent`. Returns undecrypted room event when
     /// decryption fails.
     #[cfg(feature = "encryption")]
@@ -666,7 +277,7 @@ impl Client {
         // have with this user.
         let mut content = self
             .store()
-            .get_account_data_event(EventType::Direct)
+            .get_account_data_event(GlobalAccountDataEventType::Direct)
             .await?
             .map(|e| e.deserialize())
             .transpose()?
@@ -875,5 +486,408 @@ impl Client {
             .await;
 
         Ok(())
+    }
+}
+
+/// A high-level API to manage the client's encryption.
+///
+/// To get this, use [`Client::encryption()`].
+#[cfg(feature = "encryption")]
+#[derive(Debug, Clone)]
+pub struct Encryption {
+    /// The underlying client.
+    client: Client,
+}
+
+#[cfg(feature = "encryption")]
+impl Encryption {
+    pub(crate) fn new(client: Client) -> Self {
+        Self { client }
+    }
+
+    /// Get the public ed25519 key of our own device. This is usually what is
+    /// called the fingerprint of the device.
+    pub async fn ed25519_key(&self) -> Option<String> {
+        self.client.olm_machine().await.map(|o| o.identity_keys().ed25519().to_owned())
+    }
+
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we have
+    /// stored locally.
+    pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
+        if let Some(machine) = self.client.olm_machine().await {
+            Some(machine.cross_signing_status().await)
+        } else {
+            None
+        }
+    }
+
+    /// Get all the tracked users we know about
+    ///
+    /// Tracked users are users for which we keep the device list of E2EE
+    /// capable devices up to date.
+    pub async fn tracked_users(&self) -> HashSet<Box<UserId>> {
+        self.client.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
+    }
+
+    /// Get a verification object with the given flow id.
+    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
+        let olm = self.client.olm_machine().await?;
+        olm.get_verification(user_id, flow_id).map(|v| match v {
+            matrix_sdk_base::crypto::Verification::SasV1(s) => {
+                SasVerification { inner: s, client: self.client.clone() }.into()
+            }
+            #[cfg(feature = "qrcode")]
+            matrix_sdk_base::crypto::Verification::QrV1(qr) => {
+                verification::QrVerification { inner: qr, client: self.client.clone() }.into()
+            }
+        })
+    }
+
+    /// Get a `VerificationRequest` object for the given user with the given
+    /// flow id.
+    pub async fn get_verification_request(
+        &self,
+        user_id: &UserId,
+        flow_id: impl AsRef<str>,
+    ) -> Option<VerificationRequest> {
+        let olm = self.client.olm_machine().await?;
+
+        olm.get_verification_request(user_id, flow_id)
+            .map(|r| VerificationRequest { inner: r, client: self.client.clone() })
+    }
+
+    /// Get a specific device of a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the device belongs to.
+    ///
+    /// * `device_id` - The unique id of the device.
+    ///
+    /// Returns a `Device` if one is found and the crypto store didn't throw an
+    /// error.
+    ///
+    /// This will always return None if the client hasn't been logged in.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let alice = user_id!("@alice:example.org");
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// if let Some(device) = client
+    ///     .encryption()
+    ///     .get_device(alice, device_id!("DEVICEID"))
+    ///     .await? {
+    ///         println!("{:?}", device.verified());
+    ///
+    ///         if !device.verified() {
+    ///             let verification = device.request_verification().await?;
+    ///         }
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    pub async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<Device>, CryptoStoreError> {
+        let device = self.client.base_client().get_device(user_id, device_id).await?;
+
+        Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
+    }
+
+    /// Get a map holding all the devices of an user.
+    ///
+    /// This will always return an empty map if the client hasn't been logged
+    /// in.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the devices belong to.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, ruma::user_id};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let alice = user_id!("@alice:example.org");
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let devices = client.encryption().get_user_devices(alice).await?;
+    ///
+    /// for device in devices.devices() {
+    ///     println!("{:?}", device);
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    pub async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<UserDevices, CryptoStoreError> {
+        let devices = self.client.base_client().get_user_devices(user_id).await?;
+
+        Ok(UserDevices { inner: devices, client: self.client.clone() })
+    }
+
+    /// Get a E2EE identity of an user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to.
+    ///
+    /// Returns a `UserIdentity` if one is found and the crypto store
+    /// didn't throw an error.
+    ///
+    /// This will always return None if the client hasn't been logged in.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, ruma::user_id};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let alice = user_id!("@alice:example.org");
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let user = client.encryption().get_user_identity(alice).await?;
+    ///
+    /// if let Some(user) = user {
+    ///     println!("{:?}", user.verified());
+    ///
+    ///     let verification = user.request_verification().await?;
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    pub async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
+        use crate::encryption::identities::UserIdentity;
+
+        if let Some(olm) = self.client.olm_machine().await {
+            let identity = olm.get_identity(user_id).await?;
+
+            Ok(identity.map(|i| match i {
+                matrix_sdk_base::crypto::UserIdentities::Own(i) => {
+                    UserIdentity::new_own(self.client.clone(), i)
+                }
+                matrix_sdk_base::crypto::UserIdentities::Other(i) => {
+                    UserIdentity::new(self.client.clone(), i, self.client.get_dm_room(user_id))
+                }
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Create and upload a new cross signing identity.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_data` - This request requires user interactive auth, the first
+    /// request needs to set this to `None` and will always fail with an
+    /// `UiaaResponse`. The response will contain information for the
+    /// interactive auth and the same request needs to be made but this time
+    /// with some `auth_data` provided.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::{convert::TryFrom, collections::BTreeMap};
+    /// # use matrix_sdk::{
+    /// #     ruma::{api::client::uiaa, assign},
+    /// #     Client,
+    /// # };
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # use serde_json::json;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
+    ///     if let Some(response) = e.uiaa_response() {
+    ///         let auth_data = uiaa::AuthData::Password(assign!(
+    ///             uiaa::Password::new(
+    ///                 uiaa::UserIdentifier::UserIdOrLocalpart("example"),
+    ///                 "wordpass",
+    ///             ), {
+    ///                 session: response.session.as_deref(),
+    ///             }
+    ///         ));
+    ///
+    ///         client
+    ///             .encryption()
+    ///             .bootstrap_cross_signing(Some(auth_data))
+    ///             .await
+    ///             .expect("Couldn't bootstrap cross signing")
+    ///     } else {
+    ///         panic!("Error durign cross signing bootstrap {:#?}", e);
+    ///     }
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
+        let olm = self.client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
+
+        let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
+
+        let to_raw = |k| Raw::new(&k).expect("Can't serialize newly created cross signing keys");
+
+        let request = assign!(UploadSigningKeysRequest::new(), {
+            auth: auth_data,
+            master_key: request.master_key.map(to_raw),
+            self_signing_key: request.self_signing_key.map(to_raw),
+            user_signing_key: request.user_signing_key.map(to_raw),
+        });
+
+        self.client.send(request, None).await?;
+        self.client.send(signature_request, None).await?;
+
+        Ok(())
+    }
+
+    /// Export E2EE keys that match the given predicate encrypting them with the
+    /// given passphrase.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the exported key file will be saved.
+    ///
+    /// * `passphrase` - The passphrase that will be used to encrypt the
+    ///   exported
+    /// room keys.
+    ///
+    /// * `predicate` - A closure that will be called for every known
+    /// `InboundGroupSession`, which represents a room key. If the closure
+    /// returns `true` the `InboundGroupSessoin` will be included in the export,
+    /// if the closure returns `false` it will not be included.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if it isn't run on a Tokio runtime.
+    ///
+    /// This method will panic if it can't get enough randomness from the OS to
+    /// encrypt the exported keys securely.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, time::Duration};
+    /// # use matrix_sdk::{
+    /// #     Client, config::SyncSettings,
+    /// #     ruma::room_id,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
+    /// // Export all room keys.
+    /// client
+    ///     .encryption()
+    ///     .export_keys(path, "secret-passphrase", |_| true)
+    ///     .await?;
+    ///
+    /// // Export only the room keys for a certain room.
+    /// let path = PathBuf::from("/home/example/e2e-room-keys.txt");
+    /// let room_id = room_id!("!test:localhost");
+    ///
+    /// client
+    ///     .encryption()
+    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
+    ///     .await?;
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn export_keys(
+        &self,
+        path: PathBuf,
+        passphrase: &str,
+        predicate: impl FnMut(&matrix_sdk_base::crypto::olm::InboundGroupSession) -> bool,
+    ) -> Result<()> {
+        let olm = self.client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
+
+        let keys = olm.export_keys(predicate).await?;
+        let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
+
+        let encrypt = move || -> Result<()> {
+            let export: String =
+                matrix_sdk_base::crypto::encrypt_key_export(&keys, &passphrase, 500_000)?;
+            let mut file = std::fs::File::create(path)?;
+            file.write_all(&export.into_bytes())?;
+            Ok(())
+        };
+
+        let task = tokio::task::spawn_blocking(encrypt);
+        task.await.expect("Task join error")
+    }
+
+    /// Import E2EE keys from the given file path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the exported key file will can be found.
+    ///
+    /// * `passphrase` - The passphrase that should be used to decrypt the
+    /// exported room keys.
+    ///
+    /// Returns a tuple of numbers that represent the number of sessions that
+    /// were imported and the total number of sessions that were found in the
+    /// key export.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if it isn't run on a Tokio runtime.
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, time::Duration};
+    /// # use matrix_sdk::{
+    /// #     Client, config::SyncSettings,
+    /// #     ruma::room_id,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
+    /// let result = client.encryption().import_keys(path, "secret-passphrase").await?;
+    ///
+    /// println!(
+    ///     "Imported {} room keys out of {}",
+    ///     result.imported_count, result.total_count
+    /// );
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn import_keys(
+        &self,
+        path: PathBuf,
+        passphrase: &str,
+    ) -> Result<RoomKeyImportResult, RoomKeyImportError> {
+        let olm = self.client.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
+        let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
+
+        let decrypt = move || {
+            let file = std::fs::File::open(path)?;
+            matrix_sdk_base::crypto::decrypt_key_export(file, &passphrase)
+        };
+
+        let task = tokio::task::spawn_blocking(decrypt);
+        let import = task.await.expect("Task join error")?;
+
+        Ok(olm.import_keys(import, false, |_, _| {}).await?)
     }
 }

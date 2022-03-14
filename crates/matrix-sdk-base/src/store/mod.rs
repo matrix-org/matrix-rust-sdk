@@ -24,6 +24,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
     pin::Pin,
+    result::Result as StdResult,
     sync::Arc,
 };
 
@@ -33,6 +34,8 @@ pub mod integration_tests;
 
 use dashmap::DashMap;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
+#[cfg(feature = "encryption")]
+use matrix_sdk_crypto::store::CryptoStore;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
@@ -40,7 +43,8 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent},
         room::member::RoomMemberEventContent,
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, EventContent, EventType,
+        AnySyncStateEvent, EventContent, GlobalAccountDataEventType, RoomAccountDataEventType,
+        StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -145,11 +149,11 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>>;
 
-    /// Get a list of state events for a given room and `EventType`.
+    /// Get a list of state events for a given room and `StateEventType`.
     ///
     /// # Arguments
     ///
@@ -159,7 +163,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>>;
 
     /// Get the current profile for the given user in the given room.
@@ -226,7 +230,7 @@ pub trait StateStore: AsyncTraitDeps {
     /// * `event_type` - The event type of the account data event.
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>>;
 
     /// Get an event out of the room account data store.
@@ -241,7 +245,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>>;
 
     /// Get an event out of the user room receipt store.
@@ -603,5 +607,52 @@ impl StateChanges {
     /// `TimelineSlice`.
     pub fn add_timeline(&mut self, room_id: &RoomId, timeline: TimelineSlice) {
         self.timeline.insert(room_id.to_owned(), timeline);
+    }
+}
+
+/// Configuration for the state store and, when `encryption` is enabled, for the
+/// crypto store.
+///
+/// # Example
+///
+/// ```
+/// # use matrix_sdk_base::store::StoreConfig;
+///
+/// let store_config = StoreConfig::new();
+/// ```
+#[derive(Default)]
+pub struct StoreConfig {
+    #[cfg(feature = "encryption")]
+    pub(crate) crypto_store: Option<Box<dyn CryptoStore>>,
+    pub(crate) state_store: Option<Box<dyn StateStore>>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for StoreConfig {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        fmt.debug_struct("StoreConfig").finish()
+    }
+}
+
+impl StoreConfig {
+    /// Create a new default `StoreConfig`.
+    #[must_use]
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set a custom implementation of a `CryptoStore`.
+    ///
+    /// The crypto store must be opened before being set.
+    #[cfg(feature = "encryption")]
+    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
+        self.crypto_store = Some(store);
+        self
+    }
+
+    /// Set a custom implementation of a `StateStore`.
+    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+        self.state_store = Some(store);
+        self
     }
 }

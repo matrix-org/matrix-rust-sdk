@@ -87,7 +87,7 @@ stored, otherwise we won't be able to decrypt historical messages. The SDK
 stores all room keys locally in a encrypted manner.
 
 Besides storing them as part of the SDK store, users can export room keys
-using the [`Client::export_keys`] method.
+using the [`Encryption::export_keys`] method.
 
 # Verification
 
@@ -165,8 +165,10 @@ unverified devices, verifying devices is **not** necessary for encryption
 to work.
 
 1. Make sure the `encryption` feature is enabled.
-2. Ensure you have a persistent storage backend, either by activating the
-   `sled_state_store`-feature or providing one via [`ClientConfig.state_store`]
+2. To persist the encryption keys, you can use one of the provided backend
+constructors as described in the documentation of the [`store`] module or you
+can provide your own backend that implements [`CryptoStore`] in a
+[`StoreConfig`] or via [`ClientBuilder::crypto_store()`].
 
 ## Restoring a client
 
@@ -228,3 +230,7 @@ is **not** supported using the default store.
 [Restoring a Client]: #restoring-a-client
 [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
 [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
+[`store`]: crate::store
+[`CryptoStore`]: matrix_sdk_base::crypto::store::CryptoStore
+[`StoreConfig`]: crate::config::StoreConfig
+[`ClientBuilder::crypto_store()`]: crate::ClientBuilder::crypto_store()

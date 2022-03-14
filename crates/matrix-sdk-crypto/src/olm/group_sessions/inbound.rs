@@ -238,8 +238,6 @@ impl InboundGroupSession {
         self.backed_up.store(false, SeqCst)
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    #[allow(dead_code)]
     /// For testing, allow to manually mark this GroupSession to have been
     /// backed up
     pub fn mark_as_backed_up(&self) {
@@ -342,6 +340,8 @@ impl InboundGroupSession {
         self.inner.lock().await.decrypt(message)
     }
 
+    /// Export the inbound group session into a format that can be uploaded to
+    /// the server as a backup.
     #[cfg(feature = "backups_v1")]
     pub async fn to_backup(&self) -> BackedUpRoomKey {
         self.export().await.into()

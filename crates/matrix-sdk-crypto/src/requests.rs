@@ -30,7 +30,7 @@ use ruma::{
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
     encryption::CrossSigningKey,
-    events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, EventType},
+    events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, RoomId, TransactionId, UserId,
@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
-    pub event_type: EventType,
+    pub event_type: ToDeviceEventType,
 
     /// A request identifier unique to the access token used to send the
     /// request.
@@ -75,10 +75,10 @@ impl ToDeviceRequest {
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
     ) -> Self {
-        Self::new_with_id(recipient, recipient_device, content, TransactionId::new())
+        Self::with_id(recipient, recipient_device, content, TransactionId::new())
     }
 
-    pub(crate) fn new_for_recipients(
+    pub(crate) fn for_recipients(
         recipient: &UserId,
         recipient_devices: Vec<Box<DeviceId>>,
         content: AnyToDeviceEventContent,
@@ -102,13 +102,13 @@ impl ToDeviceRequest {
         }
     }
 
-    pub(crate) fn new_with_id(
+    pub(crate) fn with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
         txn_id: Box<TransactionId>,
     ) -> Self {
-        let event_type = EventType::from(content.event_type());
+        let event_type = ToDeviceEventType::from(content.event_type());
         let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
 
         let user_messages = iter::once((recipient_device.into(), raw_content)).collect();

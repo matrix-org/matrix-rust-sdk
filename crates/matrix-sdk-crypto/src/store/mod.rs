@@ -31,7 +31,7 @@
 //! # let device_id = device_id!("TEST").to_owned();
 //! let store = Box::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::new_with_store(user_id, device_id, store);
+//! let machine = OlmMachine::with_store(user_id, device_id, store);
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html
@@ -65,6 +65,7 @@ use ruma::{
     events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
     DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
@@ -108,10 +109,8 @@ pub struct Store {
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
-    #[cfg(feature = "backups_v1")]
     pub backup_version: Option<String>,
-    #[cfg(feature = "backups_v1")]
-    pub recovery_key: Option<crate::backups::RecoveryKey>,
+    pub recovery_key: Option<RecoveryKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -157,6 +156,103 @@ pub struct DeviceChanges {
     pub deleted: Vec<ReadOnlyDevice>,
 }
 
+/// The private part of a backup key.
+#[derive(Zeroize)]
+#[zeroize(drop)]
+pub struct RecoveryKey {
+    pub(crate) inner: [u8; RecoveryKey::KEY_SIZE],
+}
+
+/// The pickled version of a recovery key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PickledRecoveryKey(String);
+
+impl AsRef<str> for PickledRecoveryKey {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct InnerPickle {
+    version: u8,
+    nonce: String,
+    ciphertext: String,
+}
+
+impl RecoveryKey {
+    /// The number of bytes the recovery key will hold.
+    pub const KEY_SIZE: usize = 32;
+    const NONCE_SIZE: usize = 12;
+
+    /// Export this [`RecoveryKey`] as an encrypted pickle that can be safely
+    /// stored.
+    pub fn pickle(&self, pickle_key: &[u8]) -> PickledRecoveryKey {
+        use aes::cipher::generic_array::GenericArray;
+        use aes_gcm::aead::{Aead, NewAead};
+        use rand::Fill;
+
+        let key = GenericArray::from_slice(pickle_key);
+        let cipher = aes_gcm::Aes256Gcm::new(key);
+
+        let mut nonce = vec![0u8; Self::NONCE_SIZE];
+        let mut rng = rand::thread_rng();
+
+        nonce.try_fill(&mut rng).expect("Can't generate random nocne to pickle the recovery key");
+        let nonce = GenericArray::from_slice(nonce.as_slice());
+
+        let ciphertext =
+            cipher.encrypt(nonce, self.inner.as_ref()).expect("Can't encrypt recovery key");
+
+        let ciphertext = crate::utilities::encode_url_safe(ciphertext);
+
+        let pickle = InnerPickle {
+            version: 1,
+            nonce: crate::utilities::encode_url_safe(nonce.as_slice()),
+            ciphertext,
+        };
+
+        PickledRecoveryKey(serde_json::to_string(&pickle).expect("Can't encode pickled signing"))
+    }
+
+    /// Try to import a `RecoveryKey` from a previously exported pickle.
+    pub fn from_pickle(
+        pickle: PickledRecoveryKey,
+        pickle_key: &[u8],
+    ) -> Result<Self, CryptoStoreError> {
+        use aes::cipher::generic_array::GenericArray;
+        use aes_gcm::aead::{Aead, NewAead};
+
+        let pickled: InnerPickle = serde_json::from_str(pickle.as_ref())?;
+
+        let key = GenericArray::from_slice(pickle_key);
+        let cipher = aes_gcm::Aes256Gcm::new(key);
+
+        let nonce = crate::utilities::decode_url_safe(pickled.nonce).unwrap();
+        let nonce = GenericArray::from_slice(&nonce);
+        let ciphertext = &crate::utilities::decode_url_safe(pickled.ciphertext).unwrap();
+
+        let decrypted = cipher
+            .decrypt(nonce, ciphertext.as_slice())
+            .map_err(|_| CryptoStoreError::UnpicklingError)?;
+
+        if decrypted.len() != Self::KEY_SIZE {
+            Err(CryptoStoreError::UnpicklingError)
+        } else {
+            let mut key = [0u8; Self::KEY_SIZE];
+            key.copy_from_slice(&decrypted);
+
+            Ok(Self { inner: key })
+        }
+    }
+}
+
+impl Debug for RecoveryKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecoveryKey").finish()
+    }
+}
+
 impl DeviceChanges {
     /// Merge the given `DeviceChanges` into this instance of `DeviceChanges`.
     pub fn extend(&mut self, other: DeviceChanges) {
@@ -183,10 +279,8 @@ pub struct RoomKeyCounts {
 #[derive(Default, Debug)]
 pub struct BackupKeys {
     /// The recovery key, the one used to decrypt backed up room keys.
-    #[cfg(feature = "backups_v1")]
-    pub recovery_key: Option<crate::backups::RecoveryKey>,
+    pub recovery_key: Option<RecoveryKey>,
     /// The version that we are using for backups.
-    #[cfg(feature = "backups_v1")]
     pub backup_version: Option<String>,
 }
 
