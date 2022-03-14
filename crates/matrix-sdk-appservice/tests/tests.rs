@@ -10,7 +10,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
-use ruma::room_id;
+use ruma::{api::MatrixVersion, room_id};
 use serde_json::json;
 use warp::{Filter, Reply};
 
@@ -35,7 +35,7 @@ async fn appservice(registration: Option<Registration>) -> Result<AppService> {
 
     let client_builder = Client::builder()
         .request_config(RequestConfig::default().disable_retry())
-        .check_supported_versions(false);
+        .server_versions([MatrixVersion::V1_0]);
 
     AppService::with_client_builder(
         homeserver_url.as_ref(),

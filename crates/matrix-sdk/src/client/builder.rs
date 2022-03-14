@@ -1,7 +1,13 @@
 use std::sync::Arc;
 
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
-use ruma::{api::client::discover::discover_homeserver, ServerName, UserId};
+use ruma::{
+    api::{
+        client::discover::{discover_homeserver, get_supported_versions},
+        MatrixVersion,
+    },
+    ServerName, UserId,
+};
 use thiserror::Error;
 use url::Url;
 
@@ -58,7 +64,7 @@ pub struct ClientBuilder {
     request_config: RequestConfig,
     respect_login_well_known: bool,
     appservice_mode: bool,
-    check_supported_versions: bool,
+    server_versions: Option<Arc<[MatrixVersion]>>,
 }
 
 impl ClientBuilder {
@@ -70,7 +76,7 @@ impl ClientBuilder {
             request_config: Default::default(),
             respect_login_well_known: true,
             appservice_mode: false,
-            check_supported_versions: true,
+            server_versions: None,
         }
     }
 
@@ -242,13 +248,12 @@ impl ClientBuilder {
         self
     }
 
-    /// Specify whether the homeserver functionality should be checked through a
-    /// get_supported_versions request.
+    /// Specify the Matrix versions supported by the homeserver manually, rather
+    /// than `build()` doing it using a `get_supported_versions` request.
     ///
     /// This is helpful for test code that doesn't care to mock that endpoint.
-    #[doc(hidden)]
-    pub fn check_supported_versions(mut self, value: bool) -> Self {
-        self.check_supported_versions = value;
+    pub fn server_versions(mut self, value: impl IntoIterator<Item = MatrixVersion>) -> Self {
+        self.server_versions = Some(value.into_iter().collect());
         self
     }
 
@@ -267,8 +272,8 @@ impl ClientBuilder {
     ///   URL
     /// * HTTP error: If you supplied a user ID instead of a homeserver URL, a
     ///   server discovery request is made which can fail; if you didn't set
-    ///   [`check_supported_versions(false)`][Self::check_supported_versions],
-    ///   that amounts to another request that can fail
+    ///   [`server_versions(false)`][Self::server_versions], that amounts to
+    ///   another request that can fail
     pub async fn build(self) -> Result<Client, ClientBuildError> {
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
 
@@ -301,8 +306,13 @@ impl ClientBuilder {
             HomeserverConfig::ServerName(server_name) => {
                 let homeserver = homeserver_from_name(&server_name)?;
                 let http_client = mk_http_client(Arc::new(RwLock::new(homeserver)));
-                let well_known =
-                    http_client.send(discover_homeserver::Request::new(), None).await?;
+                let well_known = http_client
+                    .send(
+                        discover_homeserver::Request::new(),
+                        None,
+                        [MatrixVersion::V1_0].into_iter().collect(),
+                    )
+                    .await?;
 
                 well_known.homeserver.base_url
             }
@@ -311,10 +321,24 @@ impl ClientBuilder {
         let homeserver = Arc::new(RwLock::new(Url::parse(&homeserver)?));
         let http_client = mk_http_client(homeserver.clone());
 
+        let server_versions = match self.server_versions {
+            Some(vs) => vs,
+            None => http_client
+                .send(
+                    get_supported_versions::Request::new(),
+                    Some(RequestConfig::short_retry()),
+                    [MatrixVersion::V1_0].into_iter().collect(),
+                )
+                .await?
+                .known_versions()
+                .collect(),
+        };
+
         let inner = Arc::new(ClientInner {
             homeserver,
             http_client,
             base_client,
+            server_versions,
             #[cfg(feature = "encryption")]
             group_session_locks: Default::default(),
             #[cfg(feature = "encryption")]
@@ -328,13 +352,8 @@ impl ClientBuilder {
             respect_login_well_known: self.respect_login_well_known,
             sync_beat: event_listener::Event::new(),
         });
-        let client = Client { inner };
 
-        if self.check_supported_versions {
-            client.get_supported_versions().await?;
-        }
-
-        Ok(client)
+        Ok(Client { inner })
     }
 }
 

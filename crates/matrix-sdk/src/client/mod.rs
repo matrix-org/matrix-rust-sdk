@@ -44,7 +44,6 @@ use ruma::{
             capabilities::{get_capabilities, Capabilities},
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discover::get_supported_versions,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -124,6 +123,8 @@ pub(crate) struct ClientInner {
     http_client: HttpClient,
     /// User session data.
     base_client: BaseClient,
+    /// The Matrix versions the server supports (well-known ones only)
+    server_versions: Arc<[MatrixVersion]>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
@@ -206,29 +207,6 @@ impl Client {
     pub async fn set_homeserver(&self, homeserver_url: Url) {
         let mut homeserver = self.inner.homeserver.write().await;
         *homeserver = homeserver_url;
-    }
-
-    /// Get the versions supported by the homeserver.
-    ///
-    /// This method should be used to check that a server is a valid Matrix
-    /// homeserver.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// use matrix_sdk::{Client};
-    /// use url::Url;
-    ///
-    /// let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver).await?;
-    ///
-    /// // Check that it is a valid homeserver.
-    /// client.get_supported_versions().await?;
-    /// # Result::<_, anyhow::Error>::Ok(()) });
-    /// ```
-    pub async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
-        self.send(get_supported_versions::Request::new(), Some(RequestConfig::short_retry())).await
     }
 
     /// Get the capabilities of the homeserver.
@@ -371,7 +349,7 @@ impl Client {
     /// # block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
-    /// #     .check_supported_versions(false)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
@@ -490,7 +468,7 @@ impl Client {
     /// # block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
-    /// #     .check_supported_versions(false)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
@@ -658,15 +636,13 @@ impl Client {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    // FIXME: Use versions reported by server
-                    &[MatrixVersion::V1_0],
+                    &self.inner.server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                // FIXME: Use versions reported by server
-                &[MatrixVersion::V1_0],
+                &self.inner.server_versions,
             )
         };
 
@@ -1306,6 +1282,7 @@ impl Client {
     /// client.public_rooms(limit, since, server).await;
     /// # });
     /// ```
+    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn public_rooms(
         &self,
         limit: Option<u32>,
@@ -1449,7 +1426,11 @@ impl Client {
         });
 
         let request_config = self.inner.http_client.request_config.timeout(timeout);
-        Ok(self.inner.http_client.upload(request, Some(request_config)).await?)
+        Ok(self
+            .inner
+            .http_client
+            .upload(request, Some(request_config), self.inner.server_versions.clone())
+            .await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1501,7 +1482,7 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config).await
+        self.inner.http_client.send(request, config, self.inner.server_versions.clone()).await
     }
 
     /// Get information of all our own devices.
@@ -2261,6 +2242,7 @@ pub(crate) mod test {
                 uiaa::{self, UiaaResponse},
             },
             error::{FromHttpResponseError, ServerError},
+            MatrixVersion,
         },
         assign, device_id,
         directory::Filter,
@@ -2289,7 +2271,7 @@ pub(crate) mod test {
 
     fn test_client_builder() -> ClientBuilder {
         let homeserver = Url::parse(&mockito::server_url()).unwrap();
-        Client::builder().homeserver_url(homeserver).check_supported_versions(false)
+        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
     }
 
     async fn no_retry_test_client() -> Client {
