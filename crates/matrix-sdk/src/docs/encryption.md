@@ -87,7 +87,7 @@ stored, otherwise we won't be able to decrypt historical messages. The SDK
 stores all room keys locally in a encrypted manner.
 
 Besides storing them as part of the SDK store, users can export room keys
-using the [`Client::export_keys`] method.
+using the [`Encryption::export_keys`] method.
 
 # Verification
 
