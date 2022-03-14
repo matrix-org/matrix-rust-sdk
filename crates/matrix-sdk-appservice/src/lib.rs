@@ -90,10 +90,9 @@ pub use matrix_sdk;
 pub use matrix_sdk::ruma;
 use matrix_sdk::{
     bytes::Bytes,
-    config::ClientConfig,
     event_handler::{EventHandler, EventHandlerResult, SyncEvent},
     reqwest::Url,
-    Client, Session,
+    Client, ClientBuildError, ClientBuilder, Session,
 };
 use regex::Regex;
 use ruma::{
@@ -210,8 +209,8 @@ impl AppService {
     /// Create new AppService
     ///
     /// Also creates and caches a [`Client`] for the [`MainUser`].
-    /// The default [`ClientConfig`] is used, if you want to customize it
-    /// use [`Self::with_config()`] instead.
+    /// A default [`ClientBuilder`] is used, if you want to customize it
+    /// use [`with_client_builder()`][Self::with_client_builder] instead.
     ///
     /// # Arguments
     ///
@@ -228,19 +227,19 @@ impl AppService {
         registration: AppServiceRegistration,
     ) -> Result<Self> {
         let appservice =
-            Self::with_config(homeserver_url, server_name, registration, ClientConfig::default())
+            Self::with_client_builder(homeserver_url, server_name, registration, Client::builder())
                 .await?;
 
         Ok(appservice)
     }
 
-    /// Same as [`Self::new()`] but lets you provide a [`ClientConfig`] for the
-    /// [`Client`]
-    pub async fn with_config(
+    /// Same as [`new()`][Self::new] but lets you provide a [`ClientBuilder`]
+    /// for the [`Client`]
+    pub async fn with_client_builder(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
         server_name: impl TryInto<Box<ServerName>, Error = identifiers::Error>,
         registration: AppServiceRegistration,
-        client_config: ClientConfig,
+        builder: ClientBuilder,
     ) -> Result<Self> {
         let homeserver_url = homeserver_url.try_into()?;
         let server_name = server_name.try_into()?;
@@ -253,7 +252,7 @@ impl AppService {
             AppService { homeserver_url, server_name, registration, clients, event_handler };
 
         // we create and cache the [`MainUser`] by default
-        appservice.create_and_cache_client(&sender_localpart, client_config).await?;
+        appservice.create_and_cache_client(&sender_localpart, builder).await?;
 
         Ok(appservice)
     }
@@ -266,8 +265,9 @@ impl AppService {
     ///
     /// This method is a singleton that saves the client internally for re-use
     /// based on the `localpart`. The cached [`Client`] can be retrieved either
-    /// by calling this method again or by calling [`Self::get_cached_client()`]
-    /// which is non-async convenience wrapper.
+    /// by calling this method again or by calling
+    /// [`get_cached_client()`][Self::get_cached_client] which is non-async
+    /// convenience wrapper.
     ///
     /// Note that if you want to do actions like joining rooms with a virtual
     /// user it needs to be registered first. `Self::register_virtual_user()`
@@ -281,20 +281,20 @@ impl AppService {
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
     pub async fn virtual_user_client(&self, localpart: impl AsRef<str>) -> Result<Client> {
         let client =
-            self.virtual_user_client_with_config(localpart, ClientConfig::default()).await?;
+            self.virtual_user_client_with_client_builder(localpart, Client::builder()).await?;
 
         Ok(client)
     }
 
-    /// Same as [`Self::virtual_user_client()`] but with the ability to pass in
-    /// a [`ClientConfig`]
+    /// Same as [`virtual_user_client()`][Self::virtual_user_client] but with
+    /// the ability to pass in a [`ClientBuilder`]
     ///
     /// Since this method is a singleton follow-up calls with different
-    /// [`ClientConfig`]s will be ignored.
-    pub async fn virtual_user_client_with_config(
+    /// [`ClientBuilder`]s will be ignored.
+    pub async fn virtual_user_client_with_client_builder(
         &self,
         localpart: impl AsRef<str>,
-        config: ClientConfig,
+        builder: ClientBuilder,
     ) -> Result<Client> {
         // TODO: check if localpart is covered by namespace?
         let localpart = localpart.as_ref();
@@ -302,7 +302,7 @@ impl AppService {
         let client = if let Some(client) = self.clients.get(localpart) {
             client.clone()
         } else {
-            self.create_and_cache_client(localpart, config).await?
+            self.create_and_cache_client(localpart, builder).await?
         };
 
         Ok(client)
@@ -311,22 +311,23 @@ impl AppService {
     async fn create_and_cache_client(
         &self,
         localpart: &str,
-        config: ClientConfig,
+        mut builder: ClientBuilder,
     ) -> Result<Client> {
         let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
 
         // The `as_token` in the `Session` maps to the [`MainUser`]
         // (`sender_localpart`) by default, so we don't need to assert identity
         // in that case
-        let config = if localpart != self.registration.sender_localpart {
-            let request_config = config.get_request_config().assert_identity();
-            config.request_config(request_config)
-        } else {
-            config
-        };
+        if localpart != self.registration.sender_localpart {
+            builder = builder.assert_identity();
+        }
 
-        let client =
-            Client::with_config(self.homeserver_url.clone(), config.appservice_mode()).await?;
+        let client = builder
+            .homeserver_url(self.homeserver_url.clone())
+            .appservice_mode()
+            .build()
+            .await
+            .map_err(ClientBuildError::assert_valid_builder_args)?;
 
         let session = Session {
             access_token: self.registration.as_token.clone(),
@@ -344,8 +345,9 @@ impl AppService {
     /// Get cached [`Client`]
     ///
     /// Will return the client for the given `localpart` if previously
-    /// constructed with [`Self::virtual_user_client()`] or
-    /// [`Self::virtual_user_client_with_config()`].
+    /// constructed with [`virtual_user_client()`][Self::virtual_user_client] or
+    /// [`virtual_user_client_with_config()`][Self::
+    /// virtual_user_client_with_client_builder].
     ///
     /// If no `localpart` is given it assumes the [`MainUser`]'s `localpart`. If
     /// no client for `localpart` is found it will return an Error.

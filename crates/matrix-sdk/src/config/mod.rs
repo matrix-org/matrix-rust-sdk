@@ -12,15 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Configuration to change the behaviour of the [`Client`].
-//!
-//! [`Client`]: #crate.Client
+//! Configuration to change the behaviour of the [`Client`][crate::Client].
 
-mod client;
 mod request;
 mod sync;
 
-pub use client::ClientConfig;
 pub use matrix_sdk_base::store::StoreConfig;
 pub use request::RequestConfig;
 pub use sync::SyncSettings;
