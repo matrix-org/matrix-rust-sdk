@@ -349,7 +349,7 @@ impl Client {
     /// # block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
-    /// #     .check_supported_versions(false)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
@@ -468,7 +468,7 @@ impl Client {
     /// # block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
-    /// #     .check_supported_versions(false)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
