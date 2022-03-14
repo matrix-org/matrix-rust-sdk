@@ -182,7 +182,7 @@ impl SlidingSyncState {
 
     pub fn select_room(&mut self) {
         let next_id = if let Some(idx) = self.rooms_state.selected() {
-            if let Some(r) = self.view.rooms_list.lock_ref().get(idx) {
+            if let Some(Some(r)) = self.view.rooms_list.lock_ref().get(idx) {
                 Some(r.clone())
             } else {
                 None

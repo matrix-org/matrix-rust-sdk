@@ -27,6 +27,7 @@ use std::{
 use anymap2::any::CloneAnySendSync;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
+use futures_util::{pin_mut, stream::StreamExt};
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
@@ -68,7 +69,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
 use url::Url;
-use anyhow::bail;
+use anyhow::{Context, bail};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -160,7 +161,11 @@ impl Debug for Client {
     }
 }
 
-
+// use core::pin::Pin;
+// use futures::{
+//     stream::Stream,
+//     task::Poll
+// };
 use ruma::api::client::sync::syncv3_events;
 /// Define the state the SlidingSync View is in
 /// 
@@ -171,7 +176,7 @@ use ruma::api::client::sync::syncv3_events;
 /// 
 /// If the client has been offline for a while, though, the SlidingSync might return
 /// back to `CatchingUp` at any point.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SlidingSyncState {
     /// Hasn't started yet
     Cold,
@@ -189,15 +194,34 @@ impl Default for SlidingSyncState {
     }
 }
 
+#[allow(dead_code)]
+/// Define the mode by which the the SlidingSyncView is in fetching the data
+#[derive(Debug, PartialEq)]
+pub enum SlidingSyncMode {
+    /// SyncUp all rooms in the background
+    SyncUp,
+    /// Only sync the specific windows defined
+    Selective,
+}
+
+impl Default for SlidingSyncMode {
+    fn default() -> Self {
+        SlidingSyncMode::SyncUp
+    }
+}
+
 /// Room info as giving by the SlidingSync Feature
 pub type SlidingSyncRoom = syncv3_events::Room;
 
 
 type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
+type SyncMode = futures_signals::signal::Mutable<SlidingSyncMode>;
 type PosState = futures_signals::signal::Mutable<Option<String>>;
 type RoomsCount = futures_signals::signal::Mutable<Option<u64>>;
-type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
+type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Option<Box<RoomId>>>>;
 type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, SlidingSyncRoom>>;
+pub type Cancel = futures_signals::signal::Mutable<bool>;
+
 
 /// Holding a specific filtered view within the concept of sliding sync
 #[derive(Clone, Debug)]
@@ -206,6 +230,8 @@ pub struct SlidingSyncView {
     //filter: String,
     pos: PosState,
     homeserver: Option<Url>,
+    #[allow(dead_code)]
+    sync_mode: SyncMode,
     /// number of items to fetch per batch, ideally the length of your list + 1
     /// can only be set prior to calling `stream`, changes after have no effect
     pub batch_size: u32,
@@ -225,6 +251,7 @@ impl SlidingSyncView {
             client,
             homeserver: None,
             batch_size: 20,
+            sync_mode: SyncMode::default(),
             pos: PosState::default(),
             state: ViewState::default(),
             rooms_count: RoomsCount::default(),
@@ -233,16 +260,31 @@ impl SlidingSyncView {
         }
     }
 
+    #[allow(dead_code)]
+    /// Create a new SlidingSyncView with the given sync_mode
+    fn with_sync_mode(client: Client, sync_mode: SlidingSyncMode) -> Self {
+        Self {
+            client,
+            homeserver: None,
+            batch_size: 20,
+            sync_mode: SyncMode::new(sync_mode),
+            pos: PosState::default(),
+            state: ViewState::default(),
+            rooms_count: RoomsCount::default(),
+            rooms_list: RoomsList::default(),
+            rooms: RoomsMap::default(),
+        }
+    }
     /// Return the subset of rooms, starting at offset (default 0) returning count (or to the end) items
     pub fn get_rooms(&self, offset: Option<usize>, count: Option<usize>) -> Vec<syncv3_events::Room> {
         let start = offset.unwrap_or(0);
         let rooms = self.rooms.lock_ref();
         let listing = self.rooms_list.lock_ref();
         let count = count.unwrap_or_else(|| listing.len() - start);
-        listing.iter().skip(start).filter_map(|id| rooms.get(id)).take(count).cloned().collect()
+        listing.iter().skip(start).filter_map(|id| id.as_ref()).filter_map(|id| rooms.get(id)).take(count).cloned().collect()
     }
 
-    fn room_ops(&self, ops: Vec<Raw<syncv3_events::SyncOp>>) -> anyhow::Result<()> {
+    fn room_ops(&self, ops: &Vec<Raw<syncv3_events::SyncOp>>) -> anyhow::Result<()> {
         let mut rooms_list = self.rooms_list.lock_mut();
         let mut rooms_map = self.rooms.lock_mut();
         for raw in ops {
@@ -262,11 +304,7 @@ impl SlidingSyncView {
                     let start: u32 = op.range.0.try_into()?;
                     room_ids.into_iter().enumerate().map(|(i, r)|{
                         let idx = start as usize + i;
-                        if idx >= rooms_list.len() {
-                            rooms_list.push_cloned(r);
-                        } else {
-                            rooms_list.set_cloned(idx, r);
-                        }
+                        rooms_list.set_cloned(idx, Some(r));
                     }).count();
                 },
                 _ => {
@@ -279,21 +317,38 @@ impl SlidingSyncView {
 
     }
 
+    fn handle_response(&self, resp: syncv3_events::Response) -> anyhow::Result<()> {
+
+        self.pos.replace(Some(resp.pos));
+
+        let rooms_count: u64 = resp.counts[0].try_into().context("conversion always works")?;
+        let mut missing = self.rooms_list.lock_ref().len() as u64 - rooms_count;
+        if  missing > 0  {
+            let mut list = self.rooms_list.lock_mut();
+            list.reserve_exact(missing as usize);
+            while missing > 0 {
+                list.push_cloned(None);
+                missing -= 1;
+            }
+            self.rooms_count.replace(Some(rooms_count));
+        }
+
+        if let Some(ops) = resp.ops {
+            self.room_ops(&ops)?;
+        } 
+
+        Ok(())
+
+    }
+
     /// Allows you to set a customised target homeserver to use for this features. This is deprecated and will be removed
     /// as soon as the standard is adopted.
     pub fn set_homeserver(&mut self, url: Option<Url>) {
         self.homeserver = url;
     }
-
-    /// Create the inne stream for the view
-    pub fn stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<SlidingSyncState>> + 'a> {
-        {
-            let mut state = self.state.lock_mut(); 
-            if *state.deref() != SlidingSyncState::Cold {
-                bail!("You can only create the stream once per view.");
-            }
-            *state = SlidingSyncState::Preload;
-        }
+    
+    fn prefetch_stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<syncv3_events::Response>> + 'a> {
+        
 
         // FIXME: these will come from the filter later
         let batch_size = self.batch_size.clone();
@@ -321,7 +376,25 @@ impl SlidingSyncView {
         let mut start = 0u32;
         let mut end = batch_size;
 
+        // FIXME: make this optional
+
+        let state = self.state.clone();
+        let pos = self.pos.clone();
+        let rooms_count = self.rooms_count.clone();
+        let rooms_list = self.rooms_list.clone();
+        let rooms = self.rooms.clone();
+
+        let mut start = 0u32;
+        let mut end = batch_size;
+
         Ok(async_stream::try_stream! {
+            // {
+            //     let mut state = state.lock_mut(); 
+            //     if *state.deref() != SlidingSyncState::Cold {
+            //         anyhow::Error::msg("You can only create the stream once per view.").downcast()?;
+            //     }
+            //     *state = SlidingSyncState::Preload;
+            // }
             loop {
                 let pos = self.pos.get_cloned();
                 let mut req = assign!(syncv3_events::Request::new(), {
@@ -338,32 +411,40 @@ impl SlidingSyncView {
                 warn!("requesting: {:#?}", req);
                 let resp = inner_client.send(req, None).await?;
                 warn!("response: {:#?}", resp);
-
-                if let Some(ops) = resp.ops {
-                    self.room_ops(ops)?;
-                } 
-                self.pos.replace(Some(resp.pos));
-
-                let rooms_count: u64 = resp.counts[0].try_into().expect("conversion always works");
-                self.rooms_count.replace(Some(rooms_count));
-
-                if resp.initial == Some(true) {
-                    // switch state after initial sync only
-                    self.state.replace(SlidingSyncState::CatchingUp);
-                }
-
-                if end as u64 > rooms_count {
-                    self.state.replace(SlidingSyncState::Live);
-                    yield SlidingSyncState::Live;
-                    break
-
-                }
                 start += batch_size;
                 end += batch_size;
-
-                yield SlidingSyncState::CatchingUp;
+                yield resp
             }
+        })
+    }
 
+
+    /// Create the inne stream for the view
+    pub fn live_stream<'a>(&'a self) -> anyhow::Result<impl Stream<Item = anyhow::Result<syncv3_events::Response>> + 'a> {
+        // FIXME: these will come from the filter later
+        let batch_size = self.batch_size.clone();
+        let sort = Some(vec!["by_recency".to_string(), "by_name".to_string()]);
+        let required_state = Some(vec![
+                (EventType::RoomAvatar, "".to_string()),
+                (EventType::RoomMember, "*".to_string()),
+                (EventType::RoomEncryption, "".to_string()),
+                (EventType::RoomTombstone, "".to_string())
+            ]);
+        let timeline_limit = None;
+        let filters = None;
+
+        let mut inner_client = self.client.inner.http_client.clone();
+        if let Some(hs) = &self.homeserver {
+            inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
+        }
+
+        let state = self.state.clone();
+        let pos = self.pos.clone();
+        let rooms_count = self.rooms_count.clone();
+        let rooms_list = self.rooms_list.clone();
+        let rooms = self.rooms.clone();
+
+        Ok(async_stream::try_stream! {
             loop {
                 let pos = self.pos.get_cloned();
                 let end = self.rooms_count.get_cloned().expect("has been set above");
@@ -380,16 +461,43 @@ impl SlidingSyncView {
 
                 let resp = inner_client.send(req, None).await?;
                 warn!("response: {:#?}", resp);
-                if let Some(ops) = resp.ops {
-                    self.room_ops(ops)?;
-                } 
-                self.pos.replace(Some(resp.pos));
-                let rooms_count: u64 = resp.counts[0].try_into().expect("conversion always works");
-                self.rooms_count.replace(Some(rooms_count));
-                yield SlidingSyncState::Live;
-                
+                yield resp
             }
         })
+    }
+
+
+    /// Create the inne stream for the view
+    pub fn stream<'a>(&'a self) -> anyhow::Result<(Cancel, impl Stream<Item = anyhow::Result<SlidingSyncState>> + 'a)> {
+        let prefetch_stream = self.prefetch_stream()?;
+        let live_stream = self.live_stream()?;
+        let cancel = Cancel::new(false);
+        let ret_cancel = cancel.clone();
+
+        let final_stream = async_stream::try_stream! {
+            pin_mut!(prefetch_stream);
+            while let Some(resp) = prefetch_stream.next().await {
+                let resp = resp?;
+                if cancel.get() {
+                    return
+                }
+                self.handle_response(resp)?;
+                yield self.state.read_only().get_cloned();
+
+            }
+
+            pin_mut!(live_stream);
+            while let Some(resp) = live_stream.next().await {
+                let resp = resp?;
+                if cancel.get() {
+                    return
+                }
+                self.handle_response(resp)?;
+                yield self.state.read_only().get_cloned();
+            }
+        };
+
+        Ok((ret_cancel, final_stream))
     }
 }
 

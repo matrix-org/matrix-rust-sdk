@@ -27,7 +27,7 @@ pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: A
     warn!("Starting sliding sync now");
     let mut view = client.sliding_sync();
     view.set_homeserver(Some(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?));
-    let stream = view.stream().expect("we can build the stream");
+    let (cancel, stream) = view.stream().expect("we can build the stream");
     pin_mut!(stream);
     {
         let mut app = app.lock().await;
