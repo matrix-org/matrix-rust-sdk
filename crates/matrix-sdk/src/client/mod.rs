@@ -44,7 +44,6 @@ use ruma::{
             capabilities::{get_capabilities, Capabilities},
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discover::get_supported_versions,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -208,29 +207,6 @@ impl Client {
     pub async fn set_homeserver(&self, homeserver_url: Url) {
         let mut homeserver = self.inner.homeserver.write().await;
         *homeserver = homeserver_url;
-    }
-
-    /// Get the versions supported by the homeserver.
-    ///
-    /// This method should be used to check that a server is a valid Matrix
-    /// homeserver.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// use matrix_sdk::{Client};
-    /// use url::Url;
-    ///
-    /// let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver).await?;
-    ///
-    /// // Check that it is a valid homeserver.
-    /// client.get_supported_versions().await?;
-    /// # Result::<_, anyhow::Error>::Ok(()) });
-    /// ```
-    pub async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
-        self.send(get_supported_versions::Request::new(), Some(RequestConfig::short_retry())).await
     }
 
     /// Get the capabilities of the homeserver.
