@@ -667,7 +667,7 @@ impl Common {
         let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
 
         for user_id in user_ids {
-            let devices = self.client.get_user_devices(&user_id).await?;
+            let devices = self.client.encryption().get_user_devices(&user_id).await?;
             let any_unverified = devices.devices().any(|d| !d.verified());
 
             if any_unverified {

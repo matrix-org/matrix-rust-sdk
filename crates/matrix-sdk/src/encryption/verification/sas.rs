@@ -54,6 +54,7 @@ impl SasVerification {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas = client
+    ///     .encryption()
     ///     .get_verification(&user_id, flow_id)
     ///     .await
     ///     .and_then(|v| v.sas());
@@ -128,6 +129,7 @@ impl SasVerification {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let sas_verification = client
+    ///     .encryption()
     ///     .get_verification(&user_id, flow_id)
     ///     .await
     ///     .and_then(|v| v.sas());
