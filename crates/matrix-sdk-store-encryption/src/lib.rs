@@ -39,7 +39,7 @@ const KDF_ROUNDS: u32 = 1000;
 
 type MacKeySeed = [u8; 32];
 
-/// Error type for the `StoreKey` operations.
+/// Error type for the `StoreCipher` operations.
 #[derive(Debug, Display, thiserror::Error)]
 pub enum Error {
     /// Failed to serialize or deserialize a value {0}
@@ -60,58 +60,59 @@ pub enum Error {
 ///
 /// ```
 /// # let example = || {
-/// use matrix_sdk_store_key::StoreKey;
+/// use matrix_sdk_store_encryption::StoreCipher;
 /// use serde_json::{json, value::Value};
 ///
-/// let store_key = StoreKey::new()?;
+/// let store_cipher = StoreCipher::new()?;
 ///
-/// // Export the store key and persist it in your key/value store
-/// let export = store_key.export("secret-passphrase")?;
+/// // Export the store cipher and persist it in your key/value store
+/// let export = store_cipher.export("secret-passphrase")?;
 ///
 /// let value = json!({
 ///     "some": "data",
 /// });
 ///
-/// let encrypted = store_key.encrypt_value(&value)?;
-/// let decrypted: Value = store_key.decrypt_value(&encrypted)?;
+/// let encrypted = store_cipher.encrypt_value(&value)?;
+/// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
 ///
 /// assert_eq!(value, decrypted);
 /// # Result::<_, anyhow::Error>::Ok(()) };
 /// ```
 #[allow(missing_debug_implementations)]
-pub struct StoreKey {
+pub struct StoreCipher {
     inner: Keys,
 }
 
-impl StoreKey {
-    /// Generate a new random store key.
+impl StoreCipher {
+    /// Generate a new random store cipher.
     pub fn new() -> Result<Self, Error> {
         Ok(Self { inner: Keys::new()? })
     }
 
-    /// Encrypt the store key using the given passphrase and export it.
+    /// Encrypt the store cipher using the given passphrase and export it.
     ///
-    /// This method can be used to persist the `StoreKey` in the key/value store
-    /// in a safe manner.
+    /// This method can be used to persist the `StoreCipher` in the key/value
+    /// store in a safe manner.
     ///
-    /// The `StoreKey` can later on be restored using [`StoreKey::import`].
+    /// The `StoreCipher` can later on be restored using
+    /// [`StoreCipher::import`].
     ///
     /// # Arguments
     ///
     /// * `passphrase` - The passphrase that should be used to encrypt the
-    /// store key.
+    /// store cipher.
     ///
     /// # Examples
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_sdk_store_key::StoreKey;
+    /// use matrix_sdk_store_encryption::StoreCipher;
     /// use serde_json::json;
     ///
-    /// let store_key = StoreKey::new()?;
+    /// let store_cipher = StoreCipher::new()?;
     ///
-    /// // Export the store key and persist it in your key/value store
-    /// let export = store_key.export("secret-passphrase");
+    /// // Export the store cipher and persist it in your key/value store
+    /// let export = store_cipher.export("secret-passphrase");
     ///
     /// // Save the export in your key/value store.
     /// # Result::<_, anyhow::Error>::Ok(()) };
@@ -122,7 +123,7 @@ impl StoreKey {
         let mut salt = [0u8; KDF_SALT_SIZE];
         salt.try_fill(&mut rng)?;
 
-        let key = StoreKey::expand_key(passphrase, &salt, KDF_ROUNDS);
+        let key = StoreCipher::expand_key(passphrase, &salt, KDF_ROUNDS);
         let key = ChachaKey::from_slice(key.as_ref());
         let cipher = XChaCha20Poly1305::new(key);
 
@@ -137,42 +138,43 @@ impl StoreKey {
 
         keys.zeroize();
 
-        let store_key = EncryptedStoreKey {
+        let store_cipher = EncryptedStoreCipher {
             kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds: KDF_ROUNDS, kdf_salt: salt },
             ciphertext_info: CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext },
         };
 
-        Ok(serde_json::to_vec(&store_key).expect("Can't serialize the store key"))
+        Ok(serde_json::to_vec(&store_cipher).expect("Can't serialize the store cipher"))
     }
 
-    /// Restore a store key from an encrypted export.
+    /// Restore a store cipher from an encrypted export.
     ///
     /// # Arguments
     ///
-    /// * `passphrase` - The passphrase that was used to encrypt the store key.
+    /// * `passphrase` - The passphrase that was used to encrypt the store
+    /// cipher.
     ///
-    /// * `encrypted` - The exported and encrypted version of the store key.
+    /// * `encrypted` - The exported and encrypted version of the store cipher.
     ///
     /// # Examples
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_sdk_store_key::StoreKey;
+    /// use matrix_sdk_store_encryption::StoreCipher;
     /// use serde_json::json;
     ///
-    /// let store_key = StoreKey::new()?;
+    /// let store_cipher = StoreCipher::new()?;
     ///
-    /// // Export the store key and persist it in your key/value store
-    /// let export = store_key.export("secret-passphrase")?;
+    /// // Export the store cipher and persist it in your key/value store
+    /// let export = store_cipher.export("secret-passphrase")?;
     ///
-    /// // This is now the same as `store_key`.
-    /// let imported = StoreKey::import("secret-passphrase", &export)?;
+    /// // This is now the same as `store_cipher`.
+    /// let imported = StoreCipher::import("secret-passphrase", &export)?;
     ///
     /// // Save the export in your key/value store.
     /// # Result::<_, anyhow::Error>::Ok(()) };
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
-        let encrypted: EncryptedStoreKey = serde_json::from_slice(encrypted)?;
+        let encrypted: EncryptedStoreCipher = serde_json::from_slice(encrypted)?;
 
         let key = match encrypted.kdf_info {
             KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds, kdf_salt } => {
@@ -232,15 +234,15 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_sdk_store_key::StoreKey;
+    /// use matrix_sdk_store_encryption::StoreCipher;
     /// use serde_json::json;
     ///
-    /// let store_key = StoreKey::new()?;
+    /// let store_cipher = StoreCipher::new()?;
     ///
     /// let key = "bulbasaur";
     ///
     /// // Hash the key so people don't know which pokemon we have collected.
-    /// let hashed_key = store_key.hash_key("list-of-pokemon", key.as_ref());
+    /// let hashed_key = store_cipher.hash_key("list-of-pokemon", key.as_ref());
     ///
     /// // It's now safe to insert the key into our key/value store.
     /// # Result::<_, anyhow::Error>::Ok(()) };
@@ -253,7 +255,8 @@ impl StoreKey {
 
     /// Encrypt a value before it is inserted into the key/value store.
     ///
-    /// A value can be decrypted using the [`StoreKey::decrypt_value()`] method.
+    /// A value can be decrypted using the [`StoreCipher::decrypt_value()`]
+    /// method.
     ///
     /// # Arguments
     ///
@@ -265,17 +268,17 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_sdk_store_key::StoreKey;
+    /// use matrix_sdk_store_encryption::StoreCipher;
     /// use serde_json::{json, value::Value};
     ///
-    /// let store_key = StoreKey::new()?;
+    /// let store_cipher = StoreCipher::new()?;
     ///
     /// let value = json!({
     ///     "some": "data",
     /// });
     ///
-    /// let encrypted = store_key.encrypt_value(&value)?;
-    /// let decrypted: Value = store_key.decrypt_value(&encrypted)?;
+    /// let encrypted = store_cipher.encrypt_value(&value)?;
+    /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
@@ -295,7 +298,8 @@ impl StoreKey {
 
     /// Decrypt a value after it was fetchetd from the key/value store.
     ///
-    /// A value can be encrypted using the [`StoreKey::encrypt_value()`] method.
+    /// A value can be encrypted using the [`StoreCipher::encrypt_value()`]
+    /// method.
     ///
     /// # Arguments
     ///
@@ -307,17 +311,17 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_sdk_store_key::StoreKey;
+    /// use matrix_sdk_store_encryption::StoreCipher;
     /// use serde_json::{json, value::Value};
     ///
-    /// let store_key = StoreKey::new()?;
+    /// let store_cipher = StoreCipher::new()?;
     ///
     /// let value = json!({
     ///     "some": "data",
     /// });
     ///
-    /// let encrypted = store_key.encrypt_value(&value)?;
-    /// let decrypted: Value = store_key.decrypt_value(&encrypted)?;
+    /// let encrypted = store_cipher.encrypt_value(&value)?;
+    /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
@@ -429,27 +433,27 @@ enum KdfInfo {
 }
 
 /// Version specific info for encryption method that is used to encrypt our
-/// store key.
+/// store cipher.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 enum CipherTextInfo {
-    /// A store key encrypted using the ChaCha20Poly1305 AEAD.
+    /// A store cipher encrypted using the ChaCha20Poly1305 AEAD.
     ChaCha20Poly1305 {
         /// The nonce that was used to encrypt the ciphertext.
         nonce: [u8; XNONCE_SIZE],
-        /// The encrypted store key.
+        /// The encrypted store cipher.
         ciphertext: Vec<u8>,
     },
 }
 
-/// An encrypted version of our store key, this can be safely stored in a
+/// An encrypted version of our store cipher, this can be safely stored in a
 /// database.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct EncryptedStoreKey {
+struct EncryptedStoreCipher {
     /// Info about the key derivation method that was used to expand the
     /// passphrase into an encryption key.
     pub kdf_info: KdfInfo,
     /// The ciphertext with it's accompanying additional data that is needed to
-    /// decrypt the store key.
+    /// decrypt the store cipher.
     pub ciphertext_info: CipherTextInfo,
 }
 
@@ -457,29 +461,29 @@ struct EncryptedStoreKey {
 mod test {
     use serde_json::{json, Value};
 
-    use super::{Error, StoreKey};
+    use super::{Error, StoreCipher};
 
     #[test]
     fn generating() {
-        StoreKey::new().unwrap();
+        StoreCipher::new().unwrap();
     }
 
     #[test]
-    fn exporting_store_key() -> Result<(), Error> {
+    fn exporting_store_cipher() -> Result<(), Error> {
         let passphrase = "it's a secret to everybody";
-        let store_key = StoreKey::new()?;
+        let store_cipher = StoreCipher::new()?;
 
         let value = json!({
             "some": "data"
         });
 
-        let encrypted_value = store_key.encrypt_value(&value)?;
+        let encrypted_value = store_cipher.encrypt_value(&value)?;
 
-        let encrypted = store_key.export(passphrase)?;
-        let decrypted = StoreKey::import(passphrase, &encrypted)?;
+        let encrypted = store_cipher.export(passphrase)?;
+        let decrypted = StoreCipher::import(passphrase, &encrypted)?;
 
-        assert_eq!(store_key.inner.encryption_key, decrypted.inner.encryption_key);
-        assert_eq!(store_key.inner.mac_key_seed, decrypted.inner.mac_key_seed);
+        assert_eq!(store_cipher.inner.encryption_key, decrypted.inner.encryption_key);
+        assert_eq!(store_cipher.inner.mac_key_seed, decrypted.inner.mac_key_seed);
 
         let decrypted_value: Value = decrypted.decrypt_value(&encrypted_value)?;
 
@@ -503,10 +507,10 @@ mod test {
             },
         });
 
-        let store_key = StoreKey::new()?;
+        let store_cipher = StoreCipher::new()?;
 
-        let encrypted = store_key.encrypt_value(&event)?;
-        let decrypted: Value = store_key.decrypt_value(&encrypted)?;
+        let encrypted = store_cipher.encrypt_value(&event)?;
+        let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
 
         assert_eq!(event, decrypted);
 
@@ -515,13 +519,13 @@ mod test {
 
     #[test]
     fn encrypting_keys() -> Result<(), Error> {
-        let store_key = StoreKey::new()?;
+        let store_cipher = StoreCipher::new()?;
 
-        let first = store_key.hash_key("some_table", b"It's dangerous to go alone");
-        let second = store_key.hash_key("some_table", b"It's dangerous to go alone");
-        let third = store_key.hash_key("another_table", b"It's dangerous to go alone");
-        let fourth = store_key.hash_key("another_table", b"It's dangerous to go alone");
-        let fifth = store_key.hash_key("another_table", b"It's not dangerous to go alone");
+        let first = store_cipher.hash_key("some_table", b"It's dangerous to go alone");
+        let second = store_cipher.hash_key("some_table", b"It's dangerous to go alone");
+        let third = store_cipher.hash_key("another_table", b"It's dangerous to go alone");
+        let fourth = store_cipher.hash_key("another_table", b"It's dangerous to go alone");
+        let fifth = store_cipher.hash_key("another_table", b"It's not dangerous to go alone");
 
         assert_eq!(first, second);
         assert_ne!(first, third);

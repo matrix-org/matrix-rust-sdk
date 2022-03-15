@@ -3,30 +3,30 @@ A general purpose encryption scheme for key/value stores.
 # Usage
 
 ```rust
-use matrix_sdk_store_key::StoreKey;
+use matrix_sdk_store_encryption::StoreCipher;
 use serde_json::{json, value::Value};
 
 fn main() -> anyhow::Result<()> {
-    let store_key = StoreKey::new()?;
+    let store_cipher = StoreCipher::new()?;
 
-    // Export the store key and persist it in your key/value store
-    let export = store_key.export("secret-passphrase")?;
+    // Export the store cipher and persist it in your key/value store
+    let export = store_cipher.export("secret-passphrase")?;
 
     let value = json!({
         "some": "data",
     });
 
-    let encrypted = store_key.encrypt_value(&value)?;
-    let decrypted: Value = store_key.decrypt_value(&encrypted)?;
+    let encrypted = store_cipher.encrypt_value(&value)?;
+    let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
 
     assert_eq!(value, decrypted);
 
     let key = "bulbasaur";
 
     // Hash the key so people don't know which pokemon we have collected.
-    let hashed_key = store_key.hash_key("list-of-pokemon", key.as_ref());
-    let another_table = store_key.hash_key("my-starter", key.as_ref());
-    let same_key = store_key.hash_key("my-starter", key.as_ref());
+    let hashed_key = store_cipher.hash_key("list-of-pokemon", key.as_ref());
+    let another_table = store_cipher.hash_key("my-starter", key.as_ref());
+    let same_key = store_cipher.hash_key("my-starter", key.as_ref());
 
     assert_ne!(key.as_ref(), hashed_key);
     assert_ne!(hashed_key, another_table);
@@ -46,7 +46,7 @@ USE AT YOUR OWN RISK!
 
 # Encryption scheme
 
-A `StoreKey` consists of two randomly generated 32 byte-sized slices.
+A `StoreCipher` consists of two randomly generated 32 byte-sized slices.
 
 The first 32 bytes are used to encrypt values. XChaCha20Poly1305 with a random
 nonce is used to encrypt each value. The nonce is saved with the ciphertext.
@@ -57,19 +57,19 @@ keyed hash construction.
 
 ```text
                 ┌───────────────────────────────────────┐
-                │               StoreKey                │
+                │             StoreCipher               │
                 │   Encryption key |    Hash key seed   │
                 │      [u8; 32]    |       [u8; 32]     │
                 └───────────────────────────────────────┘
 ```
 
-The `StoreKey` has some Matrix-specific assumptions built in, which ensure that
+The `StoreCipher` has some Matrix-specific assumptions built in, which ensure that
 the limits of the cryptographic primitives are not exceeded. If this crate is
 used for non-Matrix data, users need to ensure:
 
 1. That individual values are chunked, otherwise decryption might be susceptible
    to a DOS attack.
-2. The `StoreKey` is periodically rotated/rekeyed.
+2. The `StoreCipher` is periodically rotated/rekeyed.
 
 # WASM support
 
