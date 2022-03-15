@@ -211,19 +211,22 @@ impl StoreKey {
 
     /// Hash a key before it is inserted into the key/value store.
     ///
+    /// This prevents the key names from leaking to parties which do not have
+    /// the ability to decrypt the key/value store.
+    ///
     /// # Arguments
     ///
     /// * `table_name` - The name of the key/value table this key will be
     /// inserted into. This can also contain additional unique data. It will be
-    /// used to derive a table specific cryptographic key which will be used
+    /// used to derive a table-specific cryptographic key which will be used
     /// in a keyed hash function. This ensures data independence between the
     /// different tables of the key/value store.
     ///
-    /// * `key` - The key that should be hashed before it is inserted into the
-    /// key/value store.
+    /// * `key` - The key to be hashed, prior to insertion into the key/value
+    ///   store.
     ///
-    /// **Note**: a key that is hashed by this method can't be retrieved
-    /// anymore.
+    /// **Note**: This is a one-way transformation; you cannot obtain the
+    /// original key from its hash.
     ///
     /// # Examples
     ///

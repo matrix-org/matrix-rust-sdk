@@ -38,9 +38,9 @@ fn main() -> anyhow::Result<()> {
 
 # ⚠️ Security Warning: Hazmat!
 
-This crate implements only the low-level block cipher function, and is intended
-for use for implementing higher-level constructions *only*. It is NOT
-intended for direct use in applications.
+This crate only implements the low-level block cipher function, to be used
+*only* as a building block for higher-level constructions. It is NOT intended
+for direct use in applications.
 
 USE AT YOUR OWN RISK!
 
@@ -51,9 +51,9 @@ A `StoreKey` consists of two randomly generated 32 byte-sized slices.
 The first 32 bytes are used to encrypt values. XChaCha20Poly1305 with a random
 nonce is used to encrypt each value. The nonce is saved with the ciphertext.
 
-The second 32 bytes are used as a seed to derive table specific keys that will
-be used to hash data. The data will then be hashed using the blake3 keyed hash
-using the table specific key.
+The second 32 bytes are used as a seed to derive table-specific keys, used in
+keyed hash construction to hash table data. Currently we use blake3 as the
+keyed hash construction.
 
 ```text
                 ┌───────────────────────────────────────┐
@@ -63,11 +63,11 @@ using the table specific key.
                 └───────────────────────────────────────┘
 ```
 
-The `StoreKey` has some Matrix specific assumptions built in which ensure that
+The `StoreKey` has some Matrix-specific assumptions built in, which ensure that
 the limits of the cryptographic primitives are not exceeded. If this crate is
-used for non-Matrix specific data users need to ensure:
+used for non-Matrix data, users need to ensure:
 
-1. That individual values are chunked, otherwise decryption might be succeptible
+1. That individual values are chunked, otherwise decryption might be susceptible
    to a DOS attack.
 2. The `StoreKey` is periodically rotated/rekeyed.
 
