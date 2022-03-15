@@ -1,5 +1,7 @@
 #[cfg(target_arch = "wasm32")]
-use matrix_sdk_base::store::StoreConfig;
+use matrix_sdk_base::store::{StoreConfig, StoreError};
+#[cfg(target_arch = "wasm32")]
+use thiserror::Error;
 
 mod safe_encode;
 
@@ -14,6 +16,9 @@ mod cryptostore;
 #[cfg(feature = "encryption")]
 pub use cryptostore::IndexeddbStore as CryptoStore;
 #[cfg(target_arch = "wasm32")]
+#[cfg(feature = "encryption")]
+use cryptostore::IndexeddbStoreError;
+#[cfg(target_arch = "wasm32")]
 pub use state_store::IndexeddbStore as StateStore;
 
 #[cfg(target_arch = "wasm32")]
@@ -23,7 +28,7 @@ pub use state_store::IndexeddbStore as StateStore;
 async fn open_stores_with_name(
     name: impl Into<String>,
     passphrase: Option<&str>,
-) -> Result<(Box<StateStore>, Box<CryptoStore>), anyhow::Error> {
+) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
     let name = name.into();
 
     if let Some(passphrase) = passphrase {
@@ -44,7 +49,7 @@ async fn open_stores_with_name(
 pub async fn make_store_config(
     name: impl Into<String>,
     passphrase: Option<&str>,
-) -> Result<StoreConfig, anyhow::Error> {
+) -> Result<StoreConfig, OpenStoreError> {
     let name = name.into();
 
     #[cfg(feature = "encryption")]
@@ -63,4 +68,18 @@ pub async fn make_store_config(
 
         Ok(StoreConfig::new().state_store(Box::new(state_store)))
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+/// All the errors that can occur when opening an IndexedDB store.
+#[derive(Error, Debug)]
+pub enum OpenStoreError {
+    /// An error occurred with the state store implementation.
+    #[error(transparent)]
+    State(#[from] StoreError),
+
+    /// An error occurred with the crypto store implementation.
+    #[cfg(feature = "encryption")]
+    #[error(transparent)]
+    Crypto(#[from] IndexeddbStoreError),
 }
