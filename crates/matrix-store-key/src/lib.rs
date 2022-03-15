@@ -191,6 +191,8 @@ impl StoreKey {
         };
 
         if decrypted.len() != 64 {
+            decrypted.zeroize();
+
             Err(Error::Length(64, decrypted.len()))
         } else {
             let mut encryption_key = Box::new([0u8; 32]);
@@ -276,12 +278,14 @@ impl StoreKey {
     /// # Result::<_, anyhow::Error>::Ok(()) };
     /// ```
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
-        let data = serde_json::to_vec(value)?;
+        let mut data = serde_json::to_vec(value)?;
 
         let nonce = Keys::get_nonce()?;
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
 
         let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_ref())?;
+
+        data.zeroize();
 
         Ok(serde_json::to_vec(&EncryptedValue { version: VERSION, ciphertext, nonce })?)
     }
@@ -323,9 +327,13 @@ impl StoreKey {
 
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
         let nonce = XNonce::from_slice(&value.nonce);
-        let plaintext = cipher.decrypt(nonce, value.ciphertext.as_ref())?;
+        let mut plaintext = cipher.decrypt(nonce, value.ciphertext.as_ref())?;
 
-        Ok(serde_json::from_slice(&plaintext)?)
+        let ret = serde_json::from_slice(&plaintext);
+
+        plaintext.zeroize();
+
+        Ok(ret?)
     }
 
     /// Expand the given passphrase into a KEY_SIZE long key.
