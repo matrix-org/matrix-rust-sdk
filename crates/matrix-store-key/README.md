@@ -3,7 +3,7 @@ A general purpose encryption scheme for key/value stores.
 # Usage
 
 ```rust
-use matrix_store_key::StoreKey;
+use matrix_sdk_store_key::StoreKey;
 use serde_json::{json, value::Value};
 
 fn main() -> anyhow::Result<()> {

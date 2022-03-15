@@ -60,7 +60,7 @@ pub enum Error {
 ///
 /// ```
 /// # let example = || {
-/// use matrix_store_key::StoreKey;
+/// use matrix_sdk_store_key::StoreKey;
 /// use serde_json::{json, value::Value};
 ///
 /// let store_key = StoreKey::new()?;
@@ -105,7 +105,7 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_store_key::StoreKey;
+    /// use matrix_sdk_store_key::StoreKey;
     /// use serde_json::json;
     ///
     /// let store_key = StoreKey::new()?;
@@ -157,7 +157,7 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_store_key::StoreKey;
+    /// use matrix_sdk_store_key::StoreKey;
     /// use serde_json::json;
     ///
     /// let store_key = StoreKey::new()?;
@@ -227,7 +227,7 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_store_key::StoreKey;
+    /// use matrix_sdk_store_key::StoreKey;
     /// use serde_json::json;
     ///
     /// let store_key = StoreKey::new()?;
@@ -260,7 +260,7 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_store_key::StoreKey;
+    /// use matrix_sdk_store_key::StoreKey;
     /// use serde_json::{json, value::Value};
     ///
     /// let store_key = StoreKey::new()?;
@@ -300,7 +300,7 @@ impl StoreKey {
     ///
     /// ```
     /// # let example = || {
-    /// use matrix_store_key::StoreKey;
+    /// use matrix_sdk_store_key::StoreKey;
     /// use serde_json::{json, value::Value};
     ///
     /// let store_key = StoreKey::new()?;
