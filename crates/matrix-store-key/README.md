@@ -70,3 +70,12 @@ used for non-Matrix specific data users need to ensure:
 1. That individual values are chunked, otherwise decryption might be succeptible
    to a DOS attack.
 2. The `StoreKey` is periodically rotated/rekeyed.
+
+# WASM support
+
+This crate relies on the `random` and `getrandom` crates which don't support
+WASM automatically.
+
+Either turn the `js` feature on directly on this crate or depend on `getrandom`
+with the `js` feature turned on. More info can be found in the [`getrandom`
+docs](https://docs.rs/getrandom/latest/getrandom/index.html#webassembly-support).

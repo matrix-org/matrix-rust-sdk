@@ -6,10 +6,14 @@ description = "Helpers for encrypted storage keys for the Matrix SDK"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 
+[features]
+js = ["getrandom/js"]
+
 [dependencies]
 blake3 = "1.3.1"
 chacha20poly1305 = { version = "0.9.0", features = ["std"] }
 displaydoc = "0.2"
+getrandom = { version = "0.2.5", optional = true }
 hmac = "0.12.1"
 pbkdf2 = "0.10.1"
 rand = "0.8.4"
