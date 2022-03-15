@@ -12,20 +12,36 @@ interface ClientError {
   Generic(string msg);
 };
 
-interface Message {
-    string id();
-    string message_type();
-    string content();
-    string sender();
-    u64 origin_server_ts();
+
+callback interface ClientDelegate {
+    void did_receive_sync_update();
 };
+
+interface Client {
+
+    void set_delegate(ClientDelegate? delegate);
+
+    void start_sync();
+
+    [Throws=ClientError]
+    string restore_token();
+    boolean is_guest();
+    boolean has_first_synced();
+    boolean is_syncing();
+    [Throws=ClientError]
+    string user_id();
+    [Throws=ClientError]
+    string display_name();
+    [Throws=ClientError]
+    string device_id();
+    [Throws=ClientError]
+    sequence<u8> avatar();
+    sequence<Room> conversations();
+};
+
 
 callback interface RoomDelegate {
     void did_receive_message(Message message);
-};
-
-interface BackwardsStream {
-    sequence<Message> paginate_backwards(u64 count);
 };
 
 interface Room {
@@ -59,28 +75,16 @@ interface Room {
     void stop_live_event_listener();
 };
 
-callback interface ClientDelegate {
-    void did_receive_sync_update();
+
+interface BackwardsStream {
+    sequence<Message> paginate_backwards(u64 count);
 };
 
-interface Client {
 
-    void set_delegate(ClientDelegate? delegate);
-
-    void start_sync();
-
-    [Throws=ClientError]
-    string restore_token();
-    boolean is_guest();
-    boolean has_first_synced();
-    boolean is_syncing();
-    [Throws=ClientError]
-    string user_id();
-    [Throws=ClientError]
-    string display_name();
-    [Throws=ClientError]
-    string device_id();
-    [Throws=ClientError]
-    sequence<u8> avatar();
-    sequence<Room> conversations();
+interface Message {
+    string id();
+    string message_type();
+    string content();
+    string sender();
+    u64 origin_server_ts();
 };
