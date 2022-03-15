@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use matrix_sdk_base::store::StoreConfig;
+use matrix_sdk_base::store::{StoreConfig, StoreError};
+#[cfg(feature = "encryption")]
+use matrix_sdk_crypto::store::CryptoStoreError;
+use sled::Error as SledError;
+use thiserror::Error;
 
 #[cfg(feature = "encryption")]
 mod cryptostore;
@@ -16,14 +20,14 @@ pub use state_store::SledStore as StateStore;
 fn open_stores_with_path(
     path: impl AsRef<Path>,
     passphrase: Option<&str>,
-) -> Result<(Box<StateStore>, Box<CryptoStore>), anyhow::Error> {
+) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
     if let Some(passphrase) = passphrase {
         let state_store = StateStore::open_with_passphrase(path, passphrase)?;
-        let crypto_store = state_store.get_crypto_store(Some(passphrase))?;
+        let crypto_store = state_store.open_crypto_store(Some(passphrase))?;
         Ok((Box::new(state_store), Box::new(crypto_store)))
     } else {
         let state_store = StateStore::open_with_path(path)?;
-        let crypto_store = state_store.get_crypto_store(None)?;
+        let crypto_store = state_store.open_crypto_store(None)?;
         Ok((Box::new(state_store), Box::new(crypto_store)))
     }
 }
@@ -34,7 +38,7 @@ fn open_stores_with_path(
 pub fn make_store_config(
     path: impl AsRef<Path>,
     passphrase: Option<&str>,
-) -> Result<StoreConfig, anyhow::Error> {
+) -> Result<StoreConfig, OpenStoreError> {
     #[cfg(feature = "encryption")]
     {
         let (state_store, crypto_store) = open_stores_with_path(path, passphrase)?;
@@ -51,4 +55,21 @@ pub fn make_store_config(
 
         Ok(StoreConfig::new().state_store(Box::new(state_store)))
     }
+}
+
+/// All the errors that can occur when opening a sled store.
+#[derive(Error, Debug)]
+pub enum OpenStoreError {
+    /// An error occurred with the state store implementation.
+    #[error(transparent)]
+    State(#[from] StoreError),
+
+    /// An error occurred with the crypto store implementation.
+    #[cfg(feature = "encryption")]
+    #[error(transparent)]
+    Crypto(#[from] CryptoStoreError),
+
+    /// An error occurred with sled.
+    #[error(transparent)]
+    Sled(#[from] SledError),
 }
