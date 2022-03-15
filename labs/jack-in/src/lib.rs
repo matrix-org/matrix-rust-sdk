@@ -20,22 +20,30 @@ pub mod app;
 pub mod inputs;
 pub mod io;
 
+use futures_signals::signal::SignalExt;
+
 use matrix_sdk::{Client, SlidingSyncState};
 
 pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
 
     warn!("Starting sliding sync now");
     let mut builder = client.sliding_sync();
-    let view = builder.homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?).build()?;
-    let (cancel, stream) = view.stream().expect("we can build the stream");
+    let syncer = builder
+        .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
+        .add_fullsync_view()
+        .build()?;
+    let (cancel, stream) = syncer.stream().expect("we can build the stream");
+    let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
+    let state = view.state.clone();
     pin_mut!(stream);
     {
         let mut app = app.lock().await;
         app.state_mut().start_sliding(view.clone());
     }
     let first_poll = stream.next().await;
-    if  !matches!(first_poll, Some(Ok(SlidingSyncState::CatchingUp))) {
-        warn!("Sliding Query failed: {:#?}", first_poll);
+    let view_state = state.read_only().get_cloned();
+    if  view_state != SlidingSyncState::CatchingUp {
+        warn!("Sliding Query failed: {:#?}", view_state);
         return Ok(())
     }
 
@@ -48,16 +56,21 @@ pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: A
 
     loop {
         match stream.next().await {
-            Some(Ok(SlidingSyncState::Live)) => {
+            Some(Ok(())) => {
                 // we are switching into live updates mode next. ignoring
-                warn!("Reached live sync");
-                break
+
+                if state.read_only().get_cloned() == SlidingSyncState::Live {
+                    warn!("Reached live sync");
+                    break
+                }
             }
             Some(Err(e)) => {
                 warn!("Error: {:}", e);
                 break
             }
-            Some(_) => { }
+            Some(_) => { 
+                warn!("Reached some other state");
+            }
             None => {
                 warn!("Never reached live state");
                 break;
