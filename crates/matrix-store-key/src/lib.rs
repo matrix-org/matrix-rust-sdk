@@ -348,6 +348,8 @@ impl StoreKey {
     }
 }
 
+#[derive(Zeroize)]
+#[zeroize(drop)]
 struct MacKey(Box<[u8; 32]>);
 
 impl MacKey {
