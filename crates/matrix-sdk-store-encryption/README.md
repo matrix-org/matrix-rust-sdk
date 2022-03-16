@@ -46,14 +46,16 @@ USE AT YOUR OWN RISK!
 
 # Encryption scheme
 
-A `StoreCipher` consists of two randomly generated 32 byte-sized slices.
+The central component of the encryption scheme is the `StoreCipher` type, used
+for both obfuscating keys and encrypting values of the key/value store.
+A `StoreCipher` object consists of two randomly-generated 32 byte secrets.
 
-The first 32 bytes are used to encrypt values. XChaCha20Poly1305 with a random
+The first secret is used to encrypt values. XChaCha20Poly1305 with a random
 nonce is used to encrypt each value. The nonce is saved with the ciphertext.
 
-The second 32 bytes are used as a seed to derive table-specific keys, used in
-keyed hash construction to hash table data. Currently we use blake3 as the
-keyed hash construction.
+The second secret is used as a seed to derive table-specific keys, used to key
+a keyed hash construction, which is in turn used to hash table data. Currently
+we use blake3 as the keyed hash construction.
 
 ```text
                 ┌───────────────────────────────────────┐
