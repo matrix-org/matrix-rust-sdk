@@ -18,11 +18,12 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     io::Read,
+    ops::Deref,
     pin::Pin,
     sync::{Arc, RwLock as StdRwLock},
-    ops::Deref,
 };
 
+use anyhow::{bail, Context};
 use anymap2::any::CloneAnySendSync;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
@@ -58,16 +59,15 @@ use ruma::{
         error::FromHttpResponseError,
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
-    events::EventType,
-    serde::Raw,
     assign,
+    events::EventType,
     presence::PresenceState,
+    serde::Raw,
     DeviceId, MxcUri, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
 use url::Url;
-use anyhow::{Context, bail};
 
 #[cfg(feature = "encryption")]
 use crate::encryption::Encryption;
@@ -127,7 +127,7 @@ pub(crate) struct ClientInner {
     /// The underlying HTTP client.
     pub(crate) http_client: HttpClient,
     /// User session data.
-    pub(crate)  base_client: BaseClient,
+    pub(crate) base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
     pub(crate) server_versions: Arc<[MatrixVersion]>,
     /// Locks making sure we only have one group session sharing request in
@@ -166,7 +166,6 @@ impl Debug for Client {
         write!(fmt, "Client")
     }
 }
-
 
 impl Client {
     /// Create a new [`Client`] that will use the given homeserver.
@@ -2250,7 +2249,6 @@ pub(crate) mod test {
             error::{FromHttpResponseError, ServerError},
             MatrixVersion,
         },
-        serde::Raw,
         assign, device_id,
         directory::Filter,
         event_id,
@@ -2261,7 +2259,9 @@ pub(crate) mod test {
             },
             AnySyncStateEvent, StateEventType,
         },
-        mxc_uri, room_id, thirdparty, uint, user_id, TransactionId, UserId,
+        mxc_uri, room_id,
+        serde::Raw,
+        thirdparty, uint, user_id, TransactionId, UserId,
     };
     use serde_json::json;
     use url::Url;
