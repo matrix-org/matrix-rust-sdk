@@ -653,10 +653,11 @@ impl Common {
     /// ```no_run
     /// # async {
     /// # let room: matrix_sdk::room::Common = todo!();
-    /// use matrix_sdk::ruma::events::room::member::SyncRoomMemberEvent;
+    /// use matrix_sdk::ruma::{events::room::member::SyncRoomMemberEvent, serde::Raw};
     ///
     /// let room_members: Vec<Raw<SyncRoomMemberEvent>> = room.get_state_events_static().await?;
-    /// # }
+    /// # anyhow::Ok(())
+    /// # };
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
@@ -690,8 +691,10 @@ impl Common {
     ///
     /// let power_levels: SyncRoomPowerLevelsEvent = room
     ///     .get_state_event_static("").await?
+    ///     .expect("every room has a power_levels event")
     ///     .deserialize()?;
-    /// # }
+    /// # anyhow::Ok(())
+    /// # };
     /// ```
     pub async fn get_state_event_static<C>(
         &self,
