@@ -373,7 +373,7 @@ struct EncryptedValue {
 #[zeroize(drop)]
 struct Keys {
     encryption_key: Box<[u8; 32]>,
-    mac_key_seed: Box<[u8; 32]>,
+    mac_key_seed: Box<MacKeySeed>,
 }
 
 impl Keys {
