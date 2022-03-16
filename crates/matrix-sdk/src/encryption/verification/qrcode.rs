@@ -43,6 +43,11 @@ impl QrVerification {
         self.inner.is_done()
     }
 
+    /// Whether the QrCode was scanned by the other device.
+    pub fn is_scanned(&self) -> bool {
+        self.inner.has_been_scanned()
+    }
+
     /// Did we initiate the verification flow.
     pub fn we_started(&self) -> bool {
         self.inner.we_started()
