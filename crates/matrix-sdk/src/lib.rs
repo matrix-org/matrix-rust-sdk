@@ -52,12 +52,14 @@ pub mod room;
 mod room_member;
 pub mod store;
 mod sync;
+mod sliding_sync;
 
 #[cfg(feature = "encryption")]
 pub mod encryption;
 
 pub use account::Account;
-pub use client::{Client, ClientBuildError, ClientBuilder, SlidingSyncView, SlidingSyncState, SlidingSyncRoom, LoopCtrl};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl};
+pub use sliding_sync::{SlidingSyncView, SlidingSyncState, SlidingSyncRoom};
 #[cfg(feature = "image_proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};
