@@ -115,16 +115,34 @@ pub struct SlidingSync {
     #[builder(private, default)]
     pub views: ViewsList,
 }
+
 impl SlidingSyncBuilder {
+
+    /// Convenience function to add a full-sync view to the builder
     pub fn add_fullsync_view(&mut self) -> &mut Self {
         let mut new = self;
         let mut views = new.views.clone().unwrap_or_default();
         views.lock_mut().push_cloned(
-            SlidingSyncViewBuilder::default()
-                .sync_mode(SyncMode::new(SlidingSyncMode::FullSync))
+            SlidingSyncViewBuilder::default_with_fullsync()
                 .build()
                 .expect("Building default full sync view doesn't fail"),
         );
+        new.views = Some(views);
+        new
+    }
+
+    /// Reset the views to None
+    pub fn no_views(&mut self) -> &mut Self {
+        let mut new = self;
+        new.views = None;
+        new
+    }
+
+    /// Add the given view to the list of views
+    pub fn add_view(&mut self, v: SlidingSyncView) -> &mut Self {
+        let mut new = self;
+        let mut views = new.views.clone().unwrap_or_default();
+        views.lock_mut().push_cloned(v);
         new.views = Some(views);
         new
     }
@@ -193,6 +211,7 @@ impl SlidingSync {
         let ret_cancel = cancel.clone();
         let pos = self.pos.clone();
 
+        // FIXME: hack for while the sliding sync server is on a proxy
         let mut inner_client = self.client.inner.http_client.clone();
         let server_versions = self.client.inner.server_versions.clone();
         if let Some(hs) = &self.homeserver {
@@ -281,6 +300,14 @@ pub struct SlidingSyncView {
 }
 
 impl SlidingSyncViewBuilder {
+
+    /// Create a Builder set up for full sync
+    pub fn default_with_fullsync() -> Self {
+        Self::default()
+            .sync_mode(SyncMode::new(SlidingSyncMode::FullSync))
+            .to_owned()
+    }
+
     // defaults
     fn default_sort(&self) -> Vec<String> {
         vec!["by_recency".to_string(), "by_name".to_string()]
