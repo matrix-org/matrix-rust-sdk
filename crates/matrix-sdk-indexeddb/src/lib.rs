@@ -70,8 +70,8 @@ pub async fn make_store_config(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 /// All the errors that can occur when opening an IndexedDB store.
+#[cfg(target_arch = "wasm32")]
 #[derive(Error, Debug)]
 pub enum OpenStoreError {
     /// An error occurred with the state store implementation.
