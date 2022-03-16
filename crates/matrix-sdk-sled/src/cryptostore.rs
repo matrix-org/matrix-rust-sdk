@@ -49,6 +49,8 @@ use sled::{
 };
 use tracing::debug;
 
+use super::OpenStoreError;
+
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
@@ -213,7 +215,7 @@ impl SledStore {
     pub fn open_with_passphrase(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, OpenStoreError> {
         let path = path.as_ref().join("matrix-sdk-crypto");
         let db = Config::new()
             .temporary(false)
@@ -226,7 +228,7 @@ impl SledStore {
 
     /// Create a sled based cryptostore using the given sled database.
     /// The given passphrase will be used to encrypt private data.
-    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self, anyhow::Error> {
+    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self, OpenStoreError> {
         SledStore::open_helper(db, None, passphrase)
     }
 
@@ -383,7 +385,7 @@ impl SledStore {
         db: Db,
         path: Option<PathBuf>,
         passphrase: Option<&str>,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, OpenStoreError> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 

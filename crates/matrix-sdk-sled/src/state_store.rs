@@ -60,6 +60,8 @@ use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
 #[cfg(feature = "encryption")]
+use super::OpenStoreError;
+#[cfg(feature = "encryption")]
 pub use crate::CryptoStore;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -384,7 +386,10 @@ impl SledStore {
     /// Open a `CryptoStore` that uses the same database as this store.
     ///
     /// The given passphrase will be used to encrypt private data.
-    pub fn get_crypto_store(&self, passphrase: Option<&str>) -> Result<CryptoStore, anyhow::Error> {
+    pub fn open_crypto_store(
+        &self,
+        passphrase: Option<&str>,
+    ) -> Result<CryptoStore, OpenStoreError> {
         CryptoStore::open_with_database(self.inner.clone(), passphrase)
     }
 
