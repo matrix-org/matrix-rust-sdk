@@ -281,6 +281,12 @@ pub struct SlidingSyncView {
     #[builder(default = "20")]
     batch_size: u32,
 
+    #[builder(default)]
+    filters: Option<Raw<syncv3_events::SyncRequestListFilters>>,
+
+    #[builder(setter(name = "timeline_limit_raw"), default)]
+    timeline_limit: Option<UInt>,
+
     // ----- Public state
     /// The state this view is in
     #[builder(default)]
@@ -329,6 +335,21 @@ impl SlidingSyncViewBuilder {
             Some(RangeState::new(range.into_iter().map(|(a, b)| (a.into(), b.into())).collect()));
         new
     }
+
+    /// Set the limit of regular events to fetch for the timeline.
+    pub fn timeline_limit<U: Into<UInt>>(&mut self, timeline_limit: U) -> &mut Self {
+        let mut new = self;
+        new.timeline_limit = Some(Some(timeline_limit.into()));
+        new
+    }
+
+    /// Reset the limit of regular events to fetch for the timeline. It is left to the server to decide
+    /// how many to send back
+    pub fn no_timeline_limit(&mut self) -> &mut Self {
+        let mut new = self;
+        new.timeline_limit = None;
+        new
+    }
 }
 
 enum InnerSlidingSyncViewRequestGenerator {
@@ -371,8 +392,8 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     ) -> Raw<syncv3_events::SyncRequestList> {
         let sort = Some(self.view.sort.clone());
         let required_state = Some(self.view.required_state.clone());
-        let timeline_limit = None;
-        let filters = None;
+        let timeline_limit = self.view.timeline_limit.clone().map(|v| v.try_into().expect("u32 always fits into UInt"));
+        let filters = self.view.filters.clone();
 
         Raw::new(&assign!(syncv3_events::SyncRequestList::default(), {
             ranges,
