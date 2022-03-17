@@ -104,6 +104,13 @@ pub type Cancel = futures_signals::signal::Mutable<bool>;
 
 use derive_builder::Builder;
 
+#[derive(Debug, Clone)]
+pub struct UpdateSummary {
+    /// The views (according to their name), which have seen an update
+    pub views: Option<Vec<String>>,
+    pub rooms: Option<BTreeMap<Box<RoomId>, sliding_sync_events::Room>>,
+}
+
 #[derive(Clone, Debug, Builder)]
 pub struct SlidingSync {
     #[builder(setter(strip_option))]
@@ -208,8 +215,9 @@ impl SlidingSync {
         &self,
         resp: sliding_sync_events::Response,
         views: &[SlidingSyncView],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<UpdateSummary> {
         self.pos.replace(Some(resp.pos));
+        let mut updated_views = Vec::new();
 
         if let Some(ops) = resp.ops {
             let mut mapped_ops = Vec::new();
@@ -229,15 +237,22 @@ impl SlidingSync {
             {
                 let count: u32 = resp.counts[idx].try_into().context("conversion always works")?;
                 views[idx].handle_response(count, ops)?;
+                updated_views.push(views[idx].name.clone());
             }
         }
-        Ok(())
+
+        let views = if updated_views.is_empty() { None } else { Some(updated_views) };
+
+        Ok( UpdateSummary {
+            views,
+            rooms: resp.room_subscriptions
+        })
     }
 
     /// Create the inner stream for the view
     pub fn stream<'a>(
         &'a self,
-    ) -> anyhow::Result<(Cancel, impl Stream<Item = anyhow::Result<()>> + 'a)> {
+    ) -> anyhow::Result<(Cancel, impl Stream<Item = anyhow::Result<UpdateSummary>> + 'a)> {
         let views = self.views.lock_ref().to_vec();
         let cancel = Cancel::new(false);
         let ret_cancel = cancel.clone();
@@ -307,8 +322,8 @@ impl SlidingSync {
                     return
                 }
 
-                self.handle_response(resp, &remaining_views)?;
-                yield
+                let updates = self.handle_response(resp, &remaining_views)?;
+                yield updates;
             }
         };
 
@@ -339,6 +354,11 @@ pub struct SlidingSyncView {
     timeline_limit: Option<UInt>,
 
     // ----- Public state
+
+    /// Name of this view to easily recognise them
+    #[builder(setter(into))]
+    pub name: String,
+
     /// The state this view is in
     #[builder(default)]
     pub state: ViewState,
@@ -361,6 +381,7 @@ impl SlidingSyncViewBuilder {
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
         Self::default()
+            .name("FullSync")
             .sync_mode(SyncMode::new(SlidingSyncMode::FullSync))
             .to_owned()
     }
@@ -500,6 +521,7 @@ impl SlidingSyncView {
     /// Return a builder with the same settings as before
     pub fn new_builder(&self) -> SlidingSyncViewBuilder {
         SlidingSyncViewBuilder::default()
+            .name(&self.name)
             .sync_mode(self.sync_mode.clone())
             .sort(self.sort.clone())
             .required_state(self.required_state.clone())

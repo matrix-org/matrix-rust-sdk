@@ -56,7 +56,7 @@ pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: A
 
     loop {
         match stream.next().await {
-            Some(Ok(())) => {
+            Some(Ok(_)) => {
                 // we are switching into live updates mode next. ignoring
 
                 if state.read_only().get_cloned() == SlidingSyncState::Live {
