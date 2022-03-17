@@ -66,10 +66,10 @@ interface Room {
     [Throws=ClientError]
     string display_name();
     
-    [Throws=ClientError]
-    sequence<u8> avatar();
-
     string? avatar_url();
+
+    [Throws=ClientError]
+    string? member_avatar_url(string user_id);
 
     boolean is_direct();
 

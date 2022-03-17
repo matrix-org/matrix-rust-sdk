@@ -4,8 +4,8 @@ use super::RUNTIME;
 
 use anyhow::Result;
 use futures::{pin_mut, StreamExt};
-use matrix_sdk::media::MediaFormat;
 use matrix_sdk::room::Room as MatrixRoom;
+use matrix_sdk::ruma::UserId;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -49,13 +49,19 @@ impl Room {
         self.room.topic()
     }
 
-    pub fn avatar(&self) -> Result<Vec<u8>> {
-        let r = self.room.clone();
-        RUNTIME.block_on(async move { Ok(r.avatar(MediaFormat::File).await?.expect("No avatar")) })
-    }
-
     pub fn avatar_url(&self) -> Option<String> {
         self.room.avatar_url().map(|m| m.to_string())
+    }
+
+    pub fn member_avatar_url(&self, user_id: String) -> Result<Option<String>> {
+        let room = self.room.clone();
+        let user_id = user_id.clone();
+        RUNTIME.block_on(async move {
+            let user_id = <&UserId>::try_from(&*user_id).expect("Invalid user id.");
+            let member = room.get_member(user_id).await?.expect("No user found");
+            let avatar_url_string = member.avatar_url().map(|m| m.to_string());
+            return Ok(avatar_url_string)
+        })
     }
 
     pub fn is_direct(&self) -> bool {
