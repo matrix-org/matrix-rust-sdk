@@ -38,7 +38,7 @@ use matrix_sdk_common::locks::RwLock;
 //     stream::Stream,
 //     task::Poll
 // };
-use ruma::api::client::sync::syncv3_events;
+use ruma::api::client::sync::sliding_sync_events;
 use ruma::{assign, events::EventType, serde::Raw, RoomId, UInt};
 use tracing::{error, info, instrument, warn};
 use url::Url;
@@ -88,7 +88,7 @@ impl Default for SlidingSyncMode {
 }
 
 /// Room info as giving by the SlidingSync Feature
-pub type SlidingSyncRoom = syncv3_events::Room;
+pub type SlidingSyncRoom = sliding_sync_events::Room;
 
 type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
 type SyncMode = futures_signals::signal::Mutable<SlidingSyncMode>;
@@ -174,7 +174,7 @@ impl SlidingSync {
 
     fn handle_response(
         &self,
-        resp: syncv3_events::Response,
+        resp: sliding_sync_events::Response,
         views: &[SlidingSyncView],
     ) -> anyhow::Result<()> {
         self.pos.replace(Some(resp.pos));
@@ -243,7 +243,7 @@ impl SlidingSync {
                     return
                 }
                 let pos = self.pos.get_cloned();
-                let mut req = assign!(syncv3_events::Request::new(), {
+                let mut req = assign!(sliding_sync_events::Request::new(), {
                     pos: pos.as_deref(),
                 });
                 req.body.lists = requests;
@@ -282,7 +282,7 @@ pub struct SlidingSyncView {
     batch_size: u32,
 
     #[builder(default)]
-    filters: Option<Raw<syncv3_events::SyncRequestListFilters>>,
+    filters: Option<Raw<sliding_sync_events::SyncRequestListFilters>>,
 
     #[builder(setter(name = "timeline_limit_raw"), default)]
     timeline_limit: Option<UInt>,
@@ -380,7 +380,7 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
         &self,
         start: u32,
         batch_size: u32,
-    ) -> (u32, Raw<syncv3_events::SyncRequestList>) {
+    ) -> (u32, Raw<sliding_sync_events::SyncRequestList>) {
         let end = start + batch_size;
         let ranges = vec![(start.into(), end.into())];
         (end, self.make_request_for_ranges(ranges))
@@ -389,13 +389,13 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     fn make_request_for_ranges(
         &self,
         ranges: Vec<(UInt, UInt)>,
-    ) -> Raw<syncv3_events::SyncRequestList> {
+    ) -> Raw<sliding_sync_events::SyncRequestList> {
         let sort = Some(self.view.sort.clone());
         let required_state = Some(self.view.required_state.clone());
         let timeline_limit = self.view.timeline_limit.clone().map(|v| v.try_into().expect("u32 always fits into UInt"));
         let filters = self.view.filters.clone();
 
-        Raw::new(&assign!(syncv3_events::SyncRequestList::default(), {
+        Raw::new(&assign!(sliding_sync_events::SyncRequestList::default(), {
             ranges,
             required_state,
             sort,
@@ -406,14 +406,14 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     }
 
     // generate the next live request
-    fn live_request(&self) -> Raw<syncv3_events::SyncRequestList> {
+    fn live_request(&self) -> Raw<sliding_sync_events::SyncRequestList> {
         let ranges = self.view.ranges.read_only().get_cloned();
         self.make_request_for_ranges(ranges)
     }
 }
 
 impl<'a> core::iter::Iterator for SlidingSyncViewRequestGenerator<'a> {
-    type Item = Raw<syncv3_events::SyncRequestList>;
+    type Item = Raw<sliding_sync_events::SyncRequestList>;
     fn next(&mut self) -> Option<Self::Item> {
         if let InnerSlidingSyncViewRequestGenerator::FullSync(cur_pos, _) = self.inner {
             if let Some(count) = self.view.rooms_count.get_cloned() {
@@ -480,7 +480,7 @@ impl SlidingSyncView {
         &self,
         offset: Option<usize>,
         count: Option<usize>,
-    ) -> Vec<syncv3_events::Room> {
+    ) -> Vec<sliding_sync_events::Room> {
         let start = offset.unwrap_or(0);
         let rooms = self.rooms.lock_ref();
         let listing = self.rooms_list.lock_ref();
@@ -495,7 +495,7 @@ impl SlidingSyncView {
             .collect()
     }
 
-    fn room_ops(&self, ops: &Vec<syncv3_events::SyncOp>) -> anyhow::Result<()> {
+    fn room_ops(&self, ops: &Vec<sliding_sync_events::SyncOp>) -> anyhow::Result<()> {
         let mut rooms_list = self.rooms_list.lock_mut();
         let mut rooms_map = self.rooms.lock_mut();
         for op in ops {
@@ -510,7 +510,7 @@ impl SlidingSyncView {
             }
 
             match op.op {
-                syncv3_events::SlidingOp::Sync => {
+                sliding_sync_events::SlidingOp::Sync => {
                     let start: u32 = op.range.0.try_into()?;
                     room_ids
                         .into_iter()
@@ -531,7 +531,7 @@ impl SlidingSyncView {
     fn handle_response(
         &self,
         rooms_count: u32,
-        ops: &Vec<syncv3_events::SyncOp>,
+        ops: &Vec<sliding_sync_events::SyncOp>,
     ) -> anyhow::Result<()> {
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
