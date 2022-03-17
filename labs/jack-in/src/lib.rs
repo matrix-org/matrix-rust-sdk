@@ -12,7 +12,7 @@ use io::IoEvent;
 use tui::backend::CrosstermBackend;
 use tui::Terminal;
 
-use log::warn;
+use log::{warn, error};
 
 use crate::app::ui;
 
@@ -22,7 +22,7 @@ pub mod io;
 
 use futures_signals::signal::SignalExt;
 
-use matrix_sdk::{Client, SlidingSyncState};
+use matrix_sdk::{Client, SlidingSyncState, ruma::RoomId};
 
 pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
 
@@ -68,9 +68,6 @@ pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: A
                 warn!("Error: {:}", e);
                 break
             }
-            Some(_) => { 
-                warn!("Reached some other state");
-            }
             None => {
                 warn!("Never reached live state");
                 break;
@@ -82,6 +79,42 @@ pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: A
         let mut app = app.lock().await;
         let mut sliding = app.state_mut().get_sliding_mut().expect("we started this before!");
         sliding.set_full_sync_now();
+    }
+
+    let mut err_counter = 0;
+    let mut prev_selected_room : Option<Box<RoomId>> = None;
+
+    while let Some(update) = stream.next().await {
+        {
+            let app = app.lock().await;
+            let sliding = app.state().get_sliding().expect("exists");
+            if let Some(room_id) = &sliding.selected_room {
+                if let Some(prev) = &prev_selected_room {
+                    if prev != room_id {
+                        syncer.unsubscribe(prev.clone());
+                        syncer.subscribe(room_id.clone(), None);
+                        prev_selected_room = Some(room_id.clone());
+                    }
+                } else {
+                    syncer.subscribe(room_id.clone(), None);
+                    prev_selected_room = Some(room_id.clone());
+                }
+            }
+        }
+        match update {
+            Ok(u) => {
+                warn!("Live update: {:?}", u);
+                err_counter = 0;
+            }
+            Err(e) => {
+                warn!("Live update error: {:?}", e);
+                err_counter += 1;
+                if err_counter > 3 {
+                    error!("Received 3 errors in a row. stopping.");
+                    break
+                }
+            }
+        }
     }
     Ok(())
 }

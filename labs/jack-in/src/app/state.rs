@@ -2,7 +2,13 @@ use std::time::{Instant, Duration};
 use matrix_sdk::{Client, SlidingSyncView, SlidingSyncRoom};
 use tui::widgets::TableState;
 use std::collections::btree_map::BTreeMap;
-use futures_signals::signal::Mutable;
+use std::sync::Arc;
+use matrix_sdk_common::ruma::events::AnyRoomEvent;
+use futures_signals::{
+    signal::Mutable,
+    signal_vec::MutableVec,
+};
+
 use log::warn;
 
 #[derive(Clone)]
@@ -53,13 +59,14 @@ pub struct SlidingSyncState {
     started: Instant,
     view: SlidingSyncView,
     current_room_summary: Mutable<Option<CurrentRoomSummary>>,
+    pub current_room_timeline: Arc<MutableVec<AnyRoomEvent>>,
     /// the current list selector for the room
     pub rooms_state: TableState,
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
     total_rooms_count: Option<u32>,
-    selected_room: Option<Box<matrix_sdk::ruma::RoomId>>
+    pub selected_room: Option<Box<matrix_sdk::ruma::RoomId>>
 }
 
 impl SlidingSyncState {
@@ -68,6 +75,7 @@ impl SlidingSyncState {
             started: Instant::now(),
             view,
             current_room_summary: Mutable::new(None),
+            current_room_timeline: Default::default(),
             rooms_state: TableState::default(),
             first_render: None,
             full_sync: None,
@@ -137,9 +145,19 @@ impl SlidingSyncState {
             let mut state_events_counts: Vec<(String, usize)> = state_events.iter().map(|(k, l)| (k.clone(), l.len())).collect();
             state_events_counts.sort_by_key(|(_, count)| *count);
 
+            let mut timeline: Vec<AnyRoomEvent> = room_data
+                .timeline
+                .iter()
+                .filter_map(|d| d.deserialize().ok())
+                .map(|e| e.into_full_event(room_id.clone()))
+                .collect();
+            timeline.reverse();
+
             self.current_room_summary.set(Some(CurrentRoomSummary {
                 name, state_events_counts
             }));
+            self.current_room_timeline.lock_mut().replace_cloned(timeline);
+            // TODO: subscribe to rooms
         }
         return self.current_room_summary.get_cloned()
     }

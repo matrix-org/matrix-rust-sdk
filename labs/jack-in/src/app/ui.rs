@@ -210,6 +210,18 @@ fn draw_details<'a>(state: Option<&SlidingSyncState>) -> Table<'a> {
         )
     }
 
+    if let Some(s) = state{
+        details.push(
+            Row::new(vec![Cell::from("-- Timeline (latest 10)")])
+        );
+
+        for e in s.current_room_timeline.lock_ref().iter().take(10) {
+            details.push(
+                Row::new(vec![Cell::from(e.sender().as_str().to_owned()), Cell::from(format!("{:?}", e))])
+            )
+        }
+    }
+
     Table::new(details)
     .style(Style::default().fg(Color::LightCyan))
     .widths(&[Constraint::Min(30), Constraint::Min(6), Constraint::Min(30)])
