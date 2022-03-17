@@ -14,6 +14,7 @@ default-target = "wasm32-unknown-unknown"
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
+matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }
 thiserror = "1.0.25"
 anyhow = "1"
 
