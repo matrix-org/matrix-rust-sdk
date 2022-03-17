@@ -142,7 +142,7 @@ matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
 mockito = "0.30.0"
 serde_json = "1.0.64"
 tempfile = "3.2.0"
-tracing-subscriber = "0.3.7"
+tracing-subscriber = { version = "0.3.7", features = ["env-filter"] }
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.tokio]
