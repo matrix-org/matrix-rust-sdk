@@ -1177,15 +1177,10 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let mut filter = FilterDefinition::default();
-    /// let mut room_filter = RoomFilter::default();
-    /// let mut event_filter = RoomEventFilter::default();
     ///
     /// // Let's enable member lazy loading.
-    /// event_filter.lazy_load_options = LazyLoadOptions::Enabled {
-    ///     include_redundant_members: false,
-    /// };
-    /// room_filter.state = event_filter;
-    /// filter.room = room_filter;
+    /// filter.room.state.lazy_load_options =
+    ///     LazyLoadOptions::Enabled { include_redundant_members: false };
     ///
     /// let filter_id = client
     ///     .get_or_upload_filter("sync", filter)
