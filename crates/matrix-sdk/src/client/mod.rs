@@ -697,7 +697,7 @@ impl Client {
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(user, password))]
+    #[instrument(skip(self, user, password))]
     pub async fn login(
         &self,
         user: impl AsRef<str>,
@@ -985,7 +985,7 @@ impl Client {
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(token))]
+    #[instrument(skip(self, token))]
     #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn login_with_token(
         &self,
@@ -1128,7 +1128,7 @@ impl Client {
     /// client.register(request).await;
     /// # })
     /// ```
-    #[instrument(skip(registration))]
+    #[instrument(skip_all)]
     pub async fn register(
         &self,
         registration: impl Into<register::v3::Request<'_>>,
@@ -1177,15 +1177,10 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let mut filter = FilterDefinition::default();
-    /// let mut room_filter = RoomFilter::default();
-    /// let mut event_filter = RoomEventFilter::default();
     ///
     /// // Let's enable member lazy loading.
-    /// event_filter.lazy_load_options = LazyLoadOptions::Enabled {
-    ///     include_redundant_members: false,
-    /// };
-    /// room_filter.state = event_filter;
-    /// filter.room = room_filter;
+    /// filter.room.state.lazy_load_options =
+    ///     LazyLoadOptions::Enabled { include_redundant_members: false };
     ///
     /// let filter_id = client
     ///     .get_or_upload_filter("sync", filter)
@@ -1666,7 +1661,7 @@ impl Client {
     /// [`get_or_upload_filter()`]: #method.get_or_upload_filter
     /// [long polling]: #long-polling
     /// [filtered]: #filtering-events
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn sync_once(
         &self,
         sync_settings: crate::config::SyncSettings<'_>,
@@ -1680,7 +1675,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error =? e, "Error while sending outgoing E2EE requests");
-        };
+        }
 
         let request = assign!(sync_events::v3::Request::new(), {
             filter: sync_settings.filter.as_ref(),
@@ -1701,7 +1696,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error =? e, "Error while sending outgoing E2EE requests");
-        };
+        }
 
         self.inner.sync_beat.notify(usize::MAX);
 
@@ -1815,7 +1810,7 @@ impl Client {
     ///     .await;
     /// })
     /// ```
-    #[instrument(skip(callback))]
+    #[instrument(skip(self, callback))]
     pub async fn sync_with_callback<C>(
         &self,
         mut sync_settings: crate::config::SyncSettings<'_>,
@@ -1885,7 +1880,7 @@ impl Client {
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn sync_stream<'a>(
         &'a self,
         mut sync_settings: crate::config::SyncSettings<'a>,
