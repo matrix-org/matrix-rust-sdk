@@ -29,12 +29,7 @@ pub struct SyncSettings<'a> {
 
 impl<'a> Default for SyncSettings<'a> {
     fn default() -> Self {
-        Self {
-            filter: Default::default(),
-            timeout: Some(DEFAULT_SYNC_TIMEOUT),
-            token: Default::default(),
-            full_state: Default::default(),
-        }
+        Self { filter: None, timeout: Some(DEFAULT_SYNC_TIMEOUT), token: None, full_state: false }
     }
 }
 
