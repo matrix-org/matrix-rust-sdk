@@ -97,6 +97,8 @@ type RangeState = futures_signals::signal::Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = futures_signals::signal::Mutable<Option<u32>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Option<Box<RoomId>>>>;
 type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, SlidingSyncRoom>>;
+type RoomsSubscriptions = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, sliding_sync_events::RoomSubscription>>;
+type RoomUnsubscribe = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
 type ViewsList = Arc<futures_signals::signal_vec::MutableVec<SlidingSyncView>>;
 pub type Cancel = futures_signals::signal::Mutable<bool>;
 
@@ -114,6 +116,13 @@ pub struct SlidingSync {
     pos: PosState,
     #[builder(private, default)]
     pub views: ViewsList,
+
+    #[builder(private, default)]
+    subscriptions: RoomsSubscriptions,
+
+    #[builder(private, default)]
+    unsubscribe: RoomUnsubscribe,
+
 }
 
 impl SlidingSyncBuilder {
@@ -164,12 +173,35 @@ impl SlidingSync {
                     })
                     .collect(),
             )))
+            .subscriptions(Arc::new(futures_signals::signal_map::MutableBTreeMap::with_values(
+                self.subscriptions
+                    .lock_ref()
+                    .to_owned()
+            )))
             .to_owned();
 
         if let Some(ref h) = self.homeserver {
             builder.homeserver(h.clone());
         }
         builder
+    }
+
+    /// Subscribe to a given room.
+    /// 
+    /// Note: this does not cancel any pending request, so make sure to only poll the stream after you've
+    /// altered this. If you do that during, it might take one round trip to take effect.
+    pub fn subscribe(&self, room_id: Box<RoomId>, settings: Option<sliding_sync_events::RoomSubscription>) {
+        self.subscriptions.lock_mut().insert_cloned(room_id, settings.unwrap_or_default());
+    }
+
+    /// Unsubscribe from a given room.
+    /// 
+    /// Note: this does not cancel any pending request, so make sure to only poll the stream after you've
+    /// altered this. If you do that during, it might take one round trip to take effect.
+    pub fn unsubscribe(&self, room_id: Box<RoomId>) {
+        if let Some(prev) = self.subscriptions.lock_mut().remove(&room_id) {
+            self.unsubscribe.lock_mut().push_cloned(room_id);
+        }
     }
 
     fn handle_response(
@@ -247,6 +279,25 @@ impl SlidingSync {
                     pos: pos.as_deref(),
                 });
                 req.body.lists = requests;
+                req.body.room_subscriptions = {
+                    let subs = self.subscriptions.lock_ref().clone();
+                    if subs.is_empty() {
+                        None
+                    } else {
+                        Some(subs)
+                    }
+                };
+                req.body.unsubscribe_rooms = {
+                    let unsubs = self.unsubscribe.lock_ref().to_vec();
+                    if unsubs.is_empty() {
+                        None
+                    } else {
+                        // ToDo: we are clearing the list here pre-maturely
+                        // what if the following request fails?
+                        self.unsubscribe.lock_mut().clear();
+                        Some(unsubs)
+                    }
+                };
                 if cancel.get() {
                     return
                 }
