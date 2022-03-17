@@ -338,7 +338,7 @@ impl Client {
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
     #[cfg(feature = "encryption")]
-    #[instrument(skip(self))]
+    #[instrument(skip(self, request))]
     pub(crate) async fn keys_upload(
         &self,
         request_id: &TransactionId,
