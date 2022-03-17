@@ -1,8 +1,10 @@
 namespace sdk {
     [Throws=ClientError]
     Client login_new_client(string base_path, string username, string password);
+    
     [Throws=ClientError]
     Client guest_client(string base_path, string homeserver);
+    
     [Throws=ClientError]
     Client login_with_token(string base_path, string restore_token);
 };
@@ -25,23 +27,34 @@ interface Client {
 
     [Throws=ClientError]
     string restore_token();
+
     boolean is_guest();
+
     boolean has_first_synced();
+
     boolean is_syncing();
+
     [Throws=ClientError]
     string user_id();
+
     [Throws=ClientError]
     string display_name();
+
     [Throws=ClientError]
     string device_id();
+
     [Throws=ClientError]
     sequence<u8> avatar();
+
     sequence<Room> conversations();
+
+    [Throws=ClientError]
+    sequence<u8> load_image(string url);
 };
 
 
 callback interface RoomDelegate {
-    void did_receive_message(Message message);
+    void did_receive_message(AnyMessage message);
 };
 
 interface Room {
@@ -77,14 +90,28 @@ interface Room {
 
 
 interface BackwardsStream {
-    sequence<Message> paginate_backwards(u64 count);
+    sequence<AnyMessage> paginate_backwards(u64 count);
 };
 
 
-interface Message {
+interface AnyMessage {
+    TextMessage? text();
+    ImageMessage? image();
+};
+
+
+interface BaseMessage {
     string id();
-    string message_type();
     string content();
     string sender();
     u64 origin_server_ts();
+};
+
+interface TextMessage {
+    BaseMessage base_message();
+};
+
+interface ImageMessage {
+    BaseMessage base_message();
+    string? url();
 };

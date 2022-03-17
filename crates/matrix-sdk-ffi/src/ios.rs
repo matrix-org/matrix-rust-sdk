@@ -1,30 +1,21 @@
-pub mod client;
-pub mod room;
-pub mod messages;
 pub mod backward_stream;
+pub mod client;
+pub mod messages;
+pub mod room;
 
-use std::{fs, path};
 use anyhow::Result;
 use sanitize_filename_reader_friendly::sanitize;
+use std::{fs, path};
 
-use matrix_sdk::{
-    Client as MatrixClient,
-    config::ClientConfig,
-    Session,
-};
-pub use matrix_sdk::ruma::{
-        api::client::r0::{
-            account::register,
-        },
-        UserId,
-    };
+use client::Client;
+use derive_builder::Builder;
 use lazy_static::lazy_static;
+pub use matrix_sdk::ruma::{api::client::r0::account::register, UserId};
+use matrix_sdk::{config::ClientConfig, Client as MatrixClient, Session};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::runtime;
 use url::Url;
-use derive_builder::Builder;
-use std::sync::Arc;
-use serde::{Serialize, Deserialize};
-use client::Client;
 
 lazy_static! {
     pub static ref RUNTIME: runtime::Runtime =
@@ -63,8 +54,11 @@ pub fn login_with_token(base_path: String, restore_token: String) -> Result<Arc<
     })
 }
 
-
-pub fn login_new_client(base_path: String, username: String, password: String) -> Result<Arc<Client>> {
+pub fn login_new_client(
+    base_path: String,
+    username: String,
+    password: String,
+) -> Result<Arc<Client>> {
     let config = new_client_config(base_path, username.clone())?;
     let user = Box::<UserId>::try_from(username)?;
     // First we need to log in.
@@ -77,14 +71,11 @@ pub fn login_new_client(base_path: String, username: String, password: String) -
 }
 
 fn new_client_config(base_path: String, home: String) -> Result<ClientConfig> {
-    let data_path = path::PathBuf::from(base_path)
-        .join(sanitize(&home));
+    let data_path = path::PathBuf::from(base_path).join(sanitize(&home));
 
     fs::create_dir_all(&data_path)?;
 
-    let config = ClientConfig::new()
-        .user_agent("rust-sdk-ios")?
-        .store_path(&data_path);
+    let config = ClientConfig::new().user_agent("rust-sdk-ios")?.store_path(&data_path);
     return Ok(config);
 }
 
@@ -109,11 +100,8 @@ struct RestoreToken {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
-
     #[error("client error: {msg}")]
-    Generic {
-        msg: String,
-    }
+    Generic { msg: String },
 }
 
 impl From<anyhow::Error> for ClientError {

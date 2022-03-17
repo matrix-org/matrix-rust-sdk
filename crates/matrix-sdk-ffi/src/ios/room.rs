@@ -1,25 +1,22 @@
-use super::messages::{Message, sync_event_to_message};
 use super::backward_stream::BackwardsStream;
+use super::messages::{sync_event_to_message, AnyMessage};
 use super::RUNTIME;
 
-use anyhow::{Result};
-use parking_lot::RwLock;
-use std::sync::Arc;
+use anyhow::Result;
 use futures::{pin_mut, StreamExt};
 use matrix_sdk::media::MediaFormat;
-use matrix_sdk::{
-    room::Room as MatrixRoom,
-};
-
+use matrix_sdk::room::Room as MatrixRoom;
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 pub trait RoomDelegate: Sync + Send {
-    fn did_receive_message(&self, messages: Arc<Message>);
+    fn did_receive_message(&self, messages: Arc<AnyMessage>);
 }
 
 pub struct Room {
     room: MatrixRoom,
     delegate: Arc<RwLock<Option<Box<dyn RoomDelegate>>>>,
-    is_listening_to_live_events: Arc<RwLock<bool>>
+    is_listening_to_live_events: Arc<RwLock<bool>>,
 }
 
 impl Room {
@@ -27,7 +24,7 @@ impl Room {
         Room {
             room,
             delegate: Arc::new(RwLock::new(None)),
-            is_listening_to_live_events: Arc::new(RwLock::new(false))
+            is_listening_to_live_events: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -45,9 +42,7 @@ impl Room {
 
     pub fn display_name(&self) -> Result<String> {
         let r = self.room.clone();
-        RUNTIME.block_on(async move {
-            Ok(r.display_name().await?)
-        })
+        RUNTIME.block_on(async move { Ok(r.display_name().await?) })
     }
 
     pub fn topic(&self) -> Option<String> {
@@ -56,9 +51,7 @@ impl Room {
 
     pub fn avatar(&self) -> Result<Vec<u8>> {
         let r = self.room.clone();
-        RUNTIME.block_on(async move {
-            Ok(r.avatar(MediaFormat::File).await?.expect("No avatar"))
-        })
+        RUNTIME.block_on(async move { Ok(r.avatar(MediaFormat::File).await?.expect("No avatar")) })
     }
 
     pub fn avatar_url(&self) -> Option<String> {
@@ -83,7 +76,7 @@ impl Room {
 
     pub fn start_live_event_listener(&self) -> Option<Arc<BackwardsStream>> {
         if *self.is_listening_to_live_events.read() == true {
-            return None
+            return None;
         }
 
         *self.is_listening_to_live_events.write() = true;
@@ -98,10 +91,10 @@ impl Room {
 
         RUNTIME.spawn(async move {
             pin_mut!(forward_stream);
-            
+
             while let Some(sync_event) = forward_stream.next().await {
                 if *is_listening_to_live_events.read() == false {
-                    return
+                    return;
                 }
 
                 if let Some(delegate) = &*delegate.read() {
@@ -116,7 +109,7 @@ impl Room {
 
     pub fn stop_live_event_listener(&self) {
         *self.is_listening_to_live_events.write() = false;
-    }   
+    }
 }
 
 impl std::ops::Deref for Room {

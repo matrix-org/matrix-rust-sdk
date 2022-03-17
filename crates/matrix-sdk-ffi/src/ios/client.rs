@@ -1,17 +1,22 @@
 use std::sync::Arc;
 
-use anyhow::{Result};
+use anyhow::Result;
 
 use matrix_sdk::{
-    Client as MatrixClient,
-    ruma::api::client::r0::{filter::{FilterDefinition, RoomEventFilter, LazyLoadOptions, RoomFilter}, 
-    sync::sync_events::Filter}, 
-    config::SyncSettings, 
-    LoopCtrl, 
-    media::{MediaRequest, MediaType, MediaFormat}};
+    config::SyncSettings,
+    media::{MediaFormat, MediaRequest, MediaType},
+    ruma::{
+        api::client::r0::{
+            filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+            sync::sync_events::Filter,
+        },
+        MxcUri,
+    },
+    Client as MatrixClient, LoopCtrl,
+};
 use parking_lot::RwLock;
 
-use super::{ClientState, RUNTIME, RestoreToken, room::Room};
+use super::{room::Room, ClientState, RestoreToken, RUNTIME};
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -32,12 +37,11 @@ pub struct Client {
 }
 
 impl Client {
-
     pub fn new(client: MatrixClient, state: ClientState) -> Self {
         Client {
             client,
             state: Arc::new(RwLock::new(state)),
-            delegate: Arc::new(RwLock::new(None))
+            delegate: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -50,42 +54,38 @@ impl Client {
         let state = self.state.clone();
         let delegate = self.delegate.clone();
         RUNTIME.spawn(async move {
-
             let mut filter = FilterDefinition::default();
             let mut room_filter = RoomFilter::default();
             let mut event_filter = RoomEventFilter::default();
 
-            event_filter.lazy_load_options = LazyLoadOptions::Enabled {
-                include_redundant_members: false,
-            };
+            event_filter.lazy_load_options =
+                LazyLoadOptions::Enabled { include_redundant_members: false };
             room_filter.state = event_filter;
             filter.room = room_filter;
 
-            let filter_id = client
-                .get_or_upload_filter("sync", filter)
-                .await
-                .unwrap();
+            let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
 
-            let sync_settings = SyncSettings::new()
-                .filter(Filter::FilterId(&filter_id));
+            let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
 
-            client.sync_with_callback(sync_settings, |_| async {
-                if !state.read().has_first_synced {
-                    state.write().has_first_synced = true
-                }
+            client
+                .sync_with_callback(sync_settings, |_| async {
+                    if !state.read().has_first_synced {
+                        state.write().has_first_synced = true
+                    }
 
-                if state.read().should_stop_syncing {
-                    state.write().is_syncing = false;
-                    return LoopCtrl::Break
-                } else if !state.read().is_syncing {
-                    state.write().is_syncing = true;
-                }
+                    if state.read().should_stop_syncing {
+                        state.write().is_syncing = false;
+                        return LoopCtrl::Break;
+                    } else if !state.read().is_syncing {
+                        state.write().is_syncing = true;
+                    }
 
-                if let Some(ref delegate) = *delegate.read() {
-                    delegate.did_receive_sync_update()
-                }
-                LoopCtrl::Continue
-            }).await;
+                    if let Some(ref delegate) = *delegate.read() {
+                        delegate.did_receive_sync_update()
+                    }
+                    LoopCtrl::Continue
+                })
+                .await;
         });
     }
 
@@ -110,12 +110,14 @@ impl Client {
             let session = self.client.session().await.expect("Missing session");
             let homeurl = self.client.homeserver().await.into();
             Ok(serde_json::to_string(&RestoreToken {
-                session, homeurl, is_guest: self.state.read().is_guest,
+                session,
+                homeurl,
+                is_guest: self.state.read().is_guest,
             })?)
         })
     }
 
-    pub  fn conversations(&self) -> Vec<Arc<Room>> {
+    pub fn conversations(&self) -> Vec<Arc<Room>> {
         self.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
 
@@ -147,10 +149,24 @@ impl Client {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let uri = l.account().get_avatar_url().await?.expect("No avatar Url given");
-            Ok(l.get_media_content(&MediaRequest{
-                media_type: MediaType::Uri(uri),
-                format: MediaFormat::File
-            }, true).await?)
+            Ok(l.get_media_content(
+                &MediaRequest { media_type: MediaType::Uri(uri), format: MediaFormat::File },
+                true,
+            )
+            .await?)
+        })
+    }
+
+    pub fn load_image(&self, url: String) -> Result<Vec<u8>> {
+        let l = self.client.clone();
+        let uri = Box::<MxcUri>::from(url);
+
+        RUNTIME.block_on(async move {
+            Ok(l.get_media_content(
+                &MediaRequest { media_type: MediaType::Uri(uri), format: MediaFormat::File },
+                true,
+            )
+            .await?)
         })
     }
 }
