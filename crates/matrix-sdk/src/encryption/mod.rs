@@ -95,7 +95,7 @@ impl Client {
     ///
     /// Panics if no key query needs to be done.
     #[cfg(feature = "encryption")]
-    #[instrument]
+    #[instrument(skip(self))]
     pub(crate) async fn keys_query(
         &self,
         request_id: &TransactionId,
@@ -313,7 +313,7 @@ impl Client {
     ///
     /// * `users` - The list of user/device pairs that we should claim keys for.
     #[cfg(feature = "encryption")]
-    #[instrument(skip(users))]
+    #[instrument(skip_all)]
     pub(crate) async fn claim_one_time_keys(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -338,7 +338,7 @@ impl Client {
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
     #[cfg(feature = "encryption")]
-    #[instrument]
+    #[instrument(skip(self))]
     pub(crate) async fn keys_upload(
         &self,
         request_id: &TransactionId,
