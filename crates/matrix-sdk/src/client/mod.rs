@@ -1680,7 +1680,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error =? e, "Error while sending outgoing E2EE requests");
-        };
+        }
 
         let request = assign!(sync_events::v3::Request::new(), {
             filter: sync_settings.filter.as_ref(),
@@ -1701,7 +1701,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error =? e, "Error while sending outgoing E2EE requests");
-        };
+        }
 
         self.inner.sync_beat.notify(usize::MAX);
 
