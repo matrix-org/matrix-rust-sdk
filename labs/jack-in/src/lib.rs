@@ -85,12 +85,16 @@ pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: A
     let mut prev_selected_room : Option<Box<RoomId>> = None;
 
     while let Some(update) = stream.next().await {
+        warn!("live next");
         {
-            let app = app.lock().await;
-            let sliding = app.state().get_sliding().expect("exists");
-            if let Some(room_id) = &sliding.selected_room {
+            let selected_room  = {
+                let app = app.lock().await;
+                let sliding = app.state().get_sliding().expect("exists");
+                sliding.selected_room.clone()
+            };
+            if let Some(room_id) = selected_room {
                 if let Some(prev) = &prev_selected_room {
-                    if prev != room_id {
+                    if prev != &room_id {
                         syncer.unsubscribe(prev.clone());
                         syncer.subscribe(room_id.clone(), None);
                         prev_selected_room = Some(room_id.clone());
@@ -101,6 +105,7 @@ pub async fn run_sliding_sync(client: Client, sliding_sync_proxy: String, app: A
                 }
             }
         }
+        warn!("after next");
         match update {
             Ok(u) => {
                 warn!("Live update: {:?}", u);
