@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     convert::TryInto,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -25,9 +25,8 @@ use matrix_sdk_common::{
     async_trait,
     locks::Mutex,
     ruma::{
-        encryption::DeviceKeys,
         events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-        DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+        DeviceId, RoomId, TransactionId, UserId,
     },
 };
 use matrix_sdk_crypto::{
@@ -39,7 +38,7 @@ use matrix_sdk_crypto::{
         caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
         RoomKeyCounts,
     },
-    GossipRequest, LocalTrust, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use serde::{Deserialize, Serialize};
@@ -52,7 +51,7 @@ use tracing::debug;
 
 use super::OpenStoreError;
 
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 4;
 
 // Table names that are used to derive a separate key for each tree. This ensure
 // that user ids encoded for different trees won't end up as the same byte
@@ -480,96 +479,18 @@ impl SledStore {
                 let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
                 u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
             })
-            .unwrap_or_default();
+            .unwrap_or(DATABASE_VERSION);
 
         if version != DATABASE_VERSION {
             debug!(version, new_version = DATABASE_VERSION, "Upgrading the Sled crypto store");
         }
 
-        if version == 0 {
-            // We changed the schema but migrating this isn't important since we
-            // rotate the group sessions relatively often anyways so we just
-            // clear the tree.
-            self.outbound_group_sessions
-                .clear()
-                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-        }
-
-        if version <= 1 {
-            #[derive(Serialize, Deserialize)]
-            pub struct OldReadOnlyDevice {
-                user_id: Box<UserId>,
-                device_id: Box<DeviceId>,
-                algorithms: Vec<EventEncryptionAlgorithm>,
-                keys: BTreeMap<Box<DeviceKeyId>, String>,
-                signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
-                display_name: Option<String>,
-                deleted: bool,
-                trust_state: LocalTrust,
-            }
-
-            #[allow(clippy::from_over_into)]
-            impl Into<ReadOnlyDevice> for OldReadOnlyDevice {
-                fn into(self) -> ReadOnlyDevice {
-                    let mut device_keys = DeviceKeys::new(
-                        self.user_id,
-                        self.device_id,
-                        self.algorithms,
-                        self.keys,
-                        self.signatures,
-                    );
-                    device_keys.unsigned.device_display_name = self.display_name;
-
-                    ReadOnlyDevice::new(device_keys, self.trust_state)
-                }
-            }
-
-            let devices: Vec<ReadOnlyDevice> = self
-                .devices
-                .iter()
-                .map(|d| {
-                    serde_json::from_slice(&d.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
-                        .map_err(CryptoStoreError::Serialization)
-                })
-                .map(|d| {
-                    let d: OldReadOnlyDevice = d?;
-                    Ok(d.into())
-                })
-                .collect::<Result<Vec<ReadOnlyDevice>, CryptoStoreError>>()?;
-
-            self.devices
-                .transaction(move |tree| {
-                    for device in &devices {
-                        let key = device.encode();
-                        let device = serde_json::to_vec(device)
-                            .map_err(ConflictableTransactionError::Abort)?;
-                        tree.insert(key, device)?;
-                    }
-
-                    Ok(())
-                })
-                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-        }
-
-        if version <= 2 {
-            // We're treating our own device now differently, we're checking if
-            // the keys match to what we have locally, remove the unchecked
-            // device and mark our own user as dirty.
-            if let Some(pickle) = self
-                .account
-                .get("account".encode())
-                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
-            {
-                let pickle = serde_json::from_slice(&pickle)?;
-                let account = ReadOnlyAccount::from_pickle(pickle)?;
-
-                self.devices
-                    .remove((account.user_id().as_str(), account.device_id.as_str()).encode())
-                    .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-                self.tracked_users
-                    .insert(account.user_id().as_str(), &[true as u8])
-                    .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-            }
+        if version <= 3 {
+            return Err(anyhow!(
+                "Unsupported database version, the database \
+                 format changed in a backwards incompatible way"
+            )
+            .into());
         }
 
         self.inner
