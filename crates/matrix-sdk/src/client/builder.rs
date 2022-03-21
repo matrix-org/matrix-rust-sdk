@@ -312,7 +312,11 @@ impl ClientBuilder {
                         None,
                         [MatrixVersion::V1_0].into_iter().collect(),
                     )
-                    .await?;
+                    .await
+                    .map_err(|e| match e {
+                        HttpError::ClientApi(_) => ClientBuildError::AutoDiscovery,
+                        err => ClientBuildError::Http(err),
+                    })?;
 
                 well_known.homeserver.base_url
             }
@@ -409,6 +413,10 @@ pub enum ClientBuildError {
     /// No homeserver or user ID was configured
     #[error("no homeserver or user ID was configured")]
     MissingHomeserver,
+
+    /// Error looking up the .well-known endpoint on auto-discovery
+    #[error("Error looking up the .well-known endpoint on auto-discovery")]
+    AutoDiscovery,
 
     /// An error encountered when trying to parse the homeserver url.
     #[error(transparent)]
