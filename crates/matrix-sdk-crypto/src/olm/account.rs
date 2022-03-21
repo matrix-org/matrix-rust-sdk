@@ -288,17 +288,17 @@ impl Account {
 
         let mut decrypted: Option<(Session, String)> = None;
 
+        // Try to decrypt the message using each Session we share with the
+        // given curve25519 sender key.
         for session in &mut *sessions.lock().await {
-            let ret = session.decrypt(message).await;
-
-            match ret {
-                Ok(p) => {
-                    decrypted = Some((session.clone(), p));
-                    break;
-                }
-                Err(_) => {
-                    continue;
-                }
+            if let Ok(p) = session.decrypt(message).await {
+                decrypted = Some((session.clone(), p));
+                break;
+            } else {
+                // An error here is completely normal, after all we don't know
+                // which session was used to encrypt a message. We will log a
+                // warning if no session was able to decrypt the message.
+                continue;
             }
         }
 
