@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryFrom, fmt::Debug, sync::Arc, time::Duration};
+use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
@@ -108,6 +108,10 @@ impl HttpClient {
         HttpClient { inner, homeserver, session, request_config }
     }
 
+    #[tracing::instrument(
+        skip(self, request, session),
+        fields(request_type = type_name::<Request>())
+    )]
     async fn send_request<Request: OutgoingRequest>(
         &self,
         request: Request,
