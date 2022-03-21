@@ -16,6 +16,7 @@ macro_rules! cryptostore_integration_tests {
             use $crate::{
                 SecretInfo,
                 testing::{get_device, get_other_identity, get_own_identity},
+                ReadOnlyDevice,
                 olm::{
                     InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
                     ReadOnlyAccount, Session,
@@ -337,10 +338,25 @@ macro_rules! cryptostore_integration_tests {
             async fn device_saving() {
                 let dir = "device_saving".to_owned();
                 let (_account, store) = get_loaded_store(dir.clone()).await;
-                let device = get_device();
+
+                let alice_device_1 = ReadOnlyDevice::from_account(
+                    &ReadOnlyAccount::new(
+                        "@alice:localhost".try_into().unwrap(),
+                        "FIRSTDEVICE".into()
+                )).await;
+
+                let alice_device_2 = ReadOnlyDevice::from_account(
+                    &ReadOnlyAccount::new(
+                        "@alice:localhost".try_into().unwrap(),
+                        "SECONDDEVICE".into()
+                )).await;
 
                 let changes = Changes {
-                    devices: DeviceChanges { changed: vec![device.clone()], ..Default::default() },
+                    devices: DeviceChanges {
+                        new: vec![
+                            alice_device_1.clone(),
+                            alice_device_2.clone()
+                        ], ..Default::default() },
                     ..Default::default()
                 };
 
@@ -352,20 +368,21 @@ macro_rules! cryptostore_integration_tests {
 
                 store.load_account().await.unwrap();
 
-                let loaded_device =
-                    store.get_device(device.user_id(), device.device_id()).await.unwrap().unwrap();
+                let loaded_device = store.get_device(
+                    alice_device_1.user_id(),
+                    alice_device_1.device_id()
+                ).await.unwrap().unwrap();
 
-                assert_eq!(device, loaded_device);
+                assert_eq!(alice_device_1, loaded_device);
 
                 for algorithm in loaded_device.algorithms() {
-                    assert!(device.algorithms().contains(algorithm));
+                    assert!(alice_device_1.algorithms().contains(algorithm));
                 }
-                assert_eq!(device.algorithms().len(), loaded_device.algorithms().len());
-                assert_eq!(device.keys(), loaded_device.keys());
+                assert_eq!(alice_device_1.algorithms().len(), loaded_device.algorithms().len());
+                assert_eq!(alice_device_1.keys(), loaded_device.keys());
 
-                let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
-                assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
-                assert_eq!(user_devices.values().next().unwrap(), &device);
+                let user_devices = store.get_user_devices(alice_device_1.user_id()).await.unwrap();
+                assert_eq!(user_devices.len(), 2);
             }
 
             #[async_test]
