@@ -57,7 +57,7 @@ pub struct CurrentRoomSummary {
 #[derive(Clone)]
 pub struct SlidingSyncState {
     started: Instant,
-    view: Option<SlidingSyncView>,
+    view: SlidingSyncView,
     current_room_summary: Mutable<Option<CurrentRoomSummary>>,
     pub current_room_timeline: Arc<MutableVec<AnyRoomEvent>>,
     /// the current list selector for the room
@@ -69,11 +69,22 @@ pub struct SlidingSyncState {
     pub selected_room: Option<Box<matrix_sdk::ruma::RoomId>>
 }
 
+impl std::cmp::PartialEq for SlidingSyncState {
+    fn eq(&self, other: &SlidingSyncState) -> bool {
+        false
+    }
+
+    fn ne(&self, other: &SlidingSyncState) -> bool { 
+        false
+    }
+}
+
+
 impl SlidingSyncState {
-    pub fn new() -> Self {
+    pub fn new(view: SlidingSyncView) -> Self {
         Self {
             started: Instant::now(),
-            view: None,
+            view,
             current_room_summary: Mutable::new(None),
             current_room_timeline: Default::default(),
             rooms_state: TableState::default(),
@@ -83,11 +94,6 @@ impl SlidingSyncState {
             current_rooms_count: None,
             total_rooms_count: None,
         }
-    }
-
-    pub fn start(&mut self, view: SlidingSyncView) {
-        self.view = Some(view);
-        self.started =  Instant::now();
     }
 
     pub fn started(&self) -> &Instant {
@@ -103,11 +109,11 @@ impl SlidingSyncState {
     }
 
     pub fn loaded_rooms_count(&self) -> usize {
-        self.view.as_ref().map(|v| v.rooms.lock_ref().len()).unwrap_or_default()
+        self.view.rooms.lock_ref().len()
     }
 
     pub fn total_rooms_count(&self) -> Option<u32> {
-        self.view.as_ref().and_then(|v| v.rooms_count.get())
+        self.view.rooms_count.get()
     }
     pub fn selected_room(&self) -> Option<Box<matrix_sdk::ruma::RoomId>> {
         self.selected_room.clone()
@@ -117,7 +123,7 @@ impl SlidingSyncState {
         self.first_render = Some(self.started.elapsed())
     }
 
-    pub fn view(&self) -> &Option<SlidingSyncView> {
+    pub fn view(&self) -> &SlidingSyncView {
         &self.view
     }
 
@@ -131,7 +137,7 @@ impl SlidingSyncState {
             };
 
             let room_data = {
-                let l = self.view().as_ref().expect("we have a selected room, we have a view").rooms.lock_ref();
+                let l = self.view().rooms.lock_ref();
                 if let Some(room) = l.get(room_id) {
                     room.clone()
                 } else {
@@ -205,7 +211,7 @@ impl SlidingSyncState {
 
     pub fn select_room(&mut self) {
         let next_id = if let Some(idx) = self.rooms_state.selected() {
-            if let Some(Some(r)) = self.view.as_ref().expect("room exists").rooms_list.lock_ref().get(idx) {
+            if let Some(Some(r)) = self.view.rooms_list.lock_ref().get(idx) {
                 Some(r.clone())
             } else {
                 None

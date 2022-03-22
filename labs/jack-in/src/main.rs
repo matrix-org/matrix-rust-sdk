@@ -30,7 +30,7 @@ use tuirealm::application::PollStrategy;
 
 use tuirealm::{AttrValue, Attribute, Update};
 
-use eyre::Result;
+use eyre::{eyre, Result};
 use log::LevelFilter;
 use matrix_sdk::{Client, Session};
 use matrix_sdk_common::ruma::{ UserId, DeviceId };
@@ -40,11 +40,13 @@ mod app;
 mod client;
 mod components;
 use app::model::Model;
+use tokio::sync::mpsc;
 
 // Let's define the messages handled by our app. NOTE: it must derive `PartialEq`
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum Msg {
     AppClose,
+    SyncUpdate(client::state::SlidingSyncState),
     Clock,
     DigitCounterChanged(isize),
     DigitCounterBlur,
@@ -60,6 +62,7 @@ pub enum Id {
     LetterCounter,
     Label,
     Logger,
+    Status,
 }
 
 
@@ -104,29 +107,38 @@ async fn main() -> Result<()> {
     };
     client.restore_login(session).await?;
 
-    // Setup model
-    let mut model = Model::default();
-
-    let ssync_model = model.sliding_sync.clone();
+    let (tx, mut rx) = mpsc::channel(100);
 
     tokio::spawn(async move {
-        if let Err(e) = client::run_client(client, opt.sliding_sync_proxy.clone(), ssync_model).await {
+        if let Err(e) = client::run_client(client, opt.sliding_sync_proxy.clone(), tx).await {
             warn!("Running the client failed: {:#?}", e);
         }
     });
+    
+    let model = Model::new(rx.recv().await.ok_or_else(|| eyre!("failure getting the sliding sync state"))?);
 
-    run_ui(model);
+    run_ui(model, rx).await;
 
     Ok(())
 }
 
-fn run_ui(mut model: Model) {
+async fn run_ui(mut model: Model, mut rx:  mpsc::Receiver<client::state::SlidingSyncState>) {
     // Enter alternate screen
     let _ = model.terminal.enter_alternate_screen();
     let _ = model.terminal.enable_raw_mode();
     // Main loop
     // NOTE: loop until quit; quit is set in update if AppClose is received from counter
     while !model.quit {
+        let mut new_view = None;
+
+        while let Ok(view) = rx.try_recv() {
+            // let's get through all of them before.
+            new_view = Some(view);
+        }
+
+        if let Some(view) = new_view {
+            model.update(Some(Msg::SyncUpdate(view)));
+        }
         // Tick
         match model.app.tick(PollStrategy::Once) {
             Err(err) => {

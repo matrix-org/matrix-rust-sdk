@@ -25,7 +25,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::components::{Clock, DigitCounter, Label, Logger, LetterCounter};
+use super::components::{Clock, DigitCounter, Label, Logger, StatusBar, LetterCounter};
 use super::{Id, Msg};
 
 use std::time::{Duration, SystemTime};
@@ -51,19 +51,19 @@ pub struct Model {
     /// Used to draw to terminal
     pub terminal: TerminalBridge,
     /// State for SlidingSync.
-    pub sliding_sync: Arc<RwLock<SlidingSyncState>>,
+    pub sliding_sync: SlidingSyncState,
     /// show the logger console
     pub show_logger: bool,
 }
 
-impl Default for Model {
-    fn default() -> Self {
+impl Model {
+    pub fn new(sliding_sync: SlidingSyncState) -> Self {
         Self {
-            app: Self::init_app(),
+            app: Self::init_app(sliding_sync.clone()),
             quit: false,
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
-            sliding_sync: Arc::new(RwLock::new(SlidingSyncState::new())),
+            sliding_sync,
             show_logger: true,
         }
     }
@@ -78,7 +78,7 @@ impl Model {
                 let mut areas = vec![
                     Constraint::Length(3), // Clock
                     Constraint::Length(3), // Letter Counter
-                    Constraint::Length(3), // Digit Counter
+                    Constraint::Length(3), // Status Footer
                     Constraint::Length(1), // Label
                 ];
                 if self.show_logger {
@@ -93,7 +93,7 @@ impl Model {
                     .split(f.size());
                 self.app.view(&Id::Clock, f, chunks[0]);
                 self.app.view(&Id::LetterCounter, f, chunks[1]);
-                self.app.view(&Id::DigitCounter, f, chunks[2]);
+                self.app.view(&Id::Status, f, chunks[2]);
                 self.app.view(&Id::Label, f, chunks[3]);
                 if self.show_logger {
                     self.app.view(&Id::Logger, f, chunks[4]);
@@ -102,7 +102,18 @@ impl Model {
             .is_ok());
     }
 
-    fn init_app() -> Application<Id, Msg, NoUserEvent> {
+    fn mount_sliding_sync_components(&mut self) {
+
+        assert!(self.app
+            .remount(
+                Id::Status,
+                Box::new(StatusBar::new(self.sliding_sync.clone())),
+                Vec::default()
+            )
+            .is_ok());
+    }
+
+    fn init_app(sliding_sync: SlidingSyncState) -> Application<Id, Msg, NoUserEvent> {
         // Setup application
         // NOTE: NoUserEvent is a shorthand to tell tui-realm we're not going to use any custom user event
         // NOTE: the event listener is configured to use the default crossterm input listener and to raise a Tick event each second
@@ -158,14 +169,23 @@ impl Model {
                 Vec::default()
             )
             .is_ok());
-        /// moint logger
+        /// mount logger
         assert!(app
-            .mount(
+            .remount(
                 Id::Logger,
                 Box::new(Logger::default()),
                 Vec::default()
             )
             .is_ok());
+        
+        assert!(app
+            .mount(
+                Id::Status,
+                Box::new(StatusBar::new(sliding_sync)),
+                Vec::default()
+            )
+            .is_ok());
+        //app.mount_sliding_sync_components();
         // Active letter counter
         assert!(app.active(&Id::LetterCounter).is_ok());
         app
@@ -186,6 +206,11 @@ impl Update<Msg> for Model {
                     None
                 }
                 Msg::Clock => None,
+                Msg::SyncUpdate(s) => {
+                    self.sliding_sync = s;
+                    self.mount_sliding_sync_components();
+                    None
+                }
                 Msg::DigitCounterBlur => {
                     // Give focus to letter counter
                     assert!(self.app.active(&Id::LetterCounter).is_ok());

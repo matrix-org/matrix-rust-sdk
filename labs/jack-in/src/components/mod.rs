@@ -36,12 +36,14 @@ mod clock;
 mod counter;
 mod logger;
 mod label;
+mod statusbar;
 
 // -- export
 pub use clock::Clock;
 pub use counter::{DigitCounter, LetterCounter};
 pub use label::Label;
 pub use logger::Logger;
+pub use statusbar::StatusBar;
 
 /// ### get_block
 ///
