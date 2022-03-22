@@ -597,6 +597,14 @@ pub enum CryptoStoreError {
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]
     Serialization(#[from] SerdeError),
+
+    /// The database format has changed in a backwards incompatible way.
+    #[error(
+        "The database format changed in an incompatible way, current \
+        version: {0}, latest version: {1}"
+    )]
+    UnsupportedDatabaseVersion(usize, usize),
+
     /// A problem with the underlying database backend
     #[error(transparent)]
     Backend(#[from] anyhow::Error),
