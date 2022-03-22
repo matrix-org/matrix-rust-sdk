@@ -29,14 +29,14 @@ use ruma::{
         upload_keys,
         upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     },
-    encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
+    encryption::{CrossSigningKey, DeviceKeys},
     events::{
         room::encrypted::{
             EncryptedEventScheme, OlmV1Curve25519AesSha2Content, ToDeviceRoomEncryptedEvent,
         },
         AnyToDeviceEvent, OlmV1Keys,
     },
-    serde::{Base64, CanonicalJsonValue, Raw},
+    serde::{CanonicalJsonValue, Raw},
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,7 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 use vodozemac::{
     olm::{Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage},
-    Curve25519PublicKey, KeyId, PickleError,
+    Curve25519PublicKey, KeyId, PickleError, Ed25519Signature,
 };
 
 use super::{
@@ -57,6 +57,7 @@ use crate::{
     identities::{MasterPubkey, ReadOnlyDevice},
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
+    types::one_time_keys::{OneTimeKey, SignedKey},
     utilities::encode,
     CryptoStoreError, OlmError, SignatureError,
 };
@@ -625,7 +626,7 @@ impl ReadOnlyAccount {
     /// Returns None if no keys need to be uploaded.
     pub async fn keys_for_upload(
         &self,
-    ) -> Option<(Option<DeviceKeys>, BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>)> {
+    ) -> Option<(Option<DeviceKeys>, BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>)> {
         if !self.should_upload_keys().await {
             return None;
         }
@@ -645,7 +646,7 @@ impl ReadOnlyAccount {
     /// Sign the given string using the accounts signing key.
     ///
     /// Returns the signature as a base64 encoded string.
-    pub async fn sign(&self, string: &str) -> String {
+    pub async fn sign(&self, string: &str) -> Ed25519Signature {
         self.inner.lock().await.sign(string)
     }
 
@@ -742,7 +743,7 @@ impl ReadOnlyAccount {
             .or_insert_with(BTreeMap::new)
             .insert(
                 DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                self.sign_json(json_device_keys).await,
+                self.sign_json(json_device_keys).await.to_base64(),
             );
 
         device_keys
@@ -768,7 +769,7 @@ impl ReadOnlyAccount {
             .or_insert_with(BTreeMap::new)
             .insert(
                 DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()).to_string(),
-                signature,
+                signature.to_base64(),
             );
 
         Ok(())
@@ -803,7 +804,7 @@ impl ReadOnlyAccount {
     /// # Panic
     ///
     /// Panics if the json value can't be serialized.
-    pub async fn sign_json(&self, mut json: Value) -> String {
+    pub async fn sign_json(&self, mut json: Value) -> Ed25519Signature {
         let object = json.as_object_mut().expect("Canonical json value isn't an object");
         object.remove("unsigned");
         object.remove("signatures");
@@ -815,12 +816,14 @@ impl ReadOnlyAccount {
     }
 
     /// Generate a Map of One-Time-Keys for each DeviceKeyId
-    pub async fn signed_one_time_keys_helper(&self) -> BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>> {
+    pub async fn signed_one_time_keys_helper(
+        &self,
+    ) -> BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>> {
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
         for (key_id, key) in one_time_keys.into_iter() {
-            let mut signed_key = SignedKey::new(Base64::new(key.to_vec()), BTreeMap::new());
+            let mut signed_key = SignedKey::new(key);
 
             let key_json =
                 serde_json::to_value(&signed_key).expect("Can't serialize a new signed key");
@@ -830,15 +833,14 @@ impl ReadOnlyAccount {
                 self.sign_json(key_json).await,
             )]);
 
-            signed_key.signatures.insert(self.user_id().to_owned(), signature);
+            signed_key.signatures().insert(self.user_id().to_owned(), signature);
 
             one_time_key_map.insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::SignedCurve25519,
                     &Box::<DeviceId>::from(key_id.to_base64()),
                 ),
-                Raw::new(&OneTimeKey::SignedKey(signed_key))
-                    .expect("Couldn't serialize a new signed key"),
+                signed_key.into_raw(),
             );
         }
 
@@ -850,7 +852,7 @@ impl ReadOnlyAccount {
     /// If no one-time keys need to be uploaded returns an empty error.
     pub async fn signed_one_time_keys(
         &self,
-    ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>, ()> {
+    ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>, ()> {
         let _ = self.generate_one_time_keys().await?;
 
         Ok(self.signed_one_time_keys_helper().await)
@@ -904,7 +906,7 @@ impl ReadOnlyAccount {
     pub async fn create_outbound_session(
         &self,
         device: ReadOnlyDevice,
-        key_map: &BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>,
+        key_map: &BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {
             SessionCreationError::OneTimeKeyMissing(
@@ -913,7 +915,7 @@ impl ReadOnlyAccount {
             )
         })?;
 
-        let one_time_key: SignedKey = match one_time_key.deserialize() {
+        let one_time_key: SignedKey = match one_time_key.deserialize_as() {
             Ok(OneTimeKey::SignedKey(k)) => k,
             Ok(OneTimeKey::Key(_)) => {
                 return Err(SessionCreationError::OneTimeKeyNotSigned(
@@ -946,8 +948,8 @@ impl ReadOnlyAccount {
         })?;
 
         let identity_key = Curve25519PublicKey::from_base64(identity_key)?;
-        let is_fallback = one_time_key.fallback;
-        let one_time_key = Curve25519PublicKey::from_slice(one_time_key.key.as_bytes())?;
+        let is_fallback = one_time_key.fallback();
+        let one_time_key = one_time_key.key();
 
         Ok(self.create_outbound_session_helper(identity_key, one_time_key, is_fallback).await)
     }

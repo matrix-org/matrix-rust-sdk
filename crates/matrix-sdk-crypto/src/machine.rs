@@ -1468,7 +1468,10 @@ impl OlmMachine {
         let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
         let signature = self.account.sign(message).await;
 
-        signatures.entry(self.user_id().to_owned()).or_default().insert(device_key_id, signature);
+        signatures
+            .entry(self.user_id().to_owned())
+            .or_default()
+            .insert(device_key_id, signature.to_base64());
     }
 
     async fn sign_master(
