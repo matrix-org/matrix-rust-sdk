@@ -1,22 +1,21 @@
 [package]
 name = "jack-in"
 description = "an experimental sliding sync/syncv3 terminal client to jack into the matrix"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tui = "0.17"
-crossterm = "0.22"
+tuirealm = "1.5"
 matrix-sdk = { path = "../../crates/matrix-sdk" }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 structopt = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 futures = { version = "0.3.1" }
 tracing-subscriber = { version = "0.3" }
 futures-signals = "0.3.24"
 eyre = "0.6"
 
-log = "0.4" 
 tui-logger = "0.7.1"
+log = "0.4" 

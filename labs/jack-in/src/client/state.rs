@@ -1,6 +1,6 @@
 use std::time::{Instant, Duration};
 use matrix_sdk::{Client, SlidingSyncView, SlidingSyncRoom};
-use tui::widgets::TableState;
+use tuirealm::tui::widgets::TableState;
 use std::collections::btree_map::BTreeMap;
 use std::sync::Arc;
 use matrix_sdk_common::ruma::events::AnyRoomEvent;
@@ -57,7 +57,7 @@ pub struct CurrentRoomSummary {
 #[derive(Clone)]
 pub struct SlidingSyncState {
     started: Instant,
-    view: SlidingSyncView,
+    view: Option<SlidingSyncView>,
     current_room_summary: Mutable<Option<CurrentRoomSummary>>,
     pub current_room_timeline: Arc<MutableVec<AnyRoomEvent>>,
     /// the current list selector for the room
@@ -70,10 +70,10 @@ pub struct SlidingSyncState {
 }
 
 impl SlidingSyncState {
-    pub fn new(view: SlidingSyncView) -> Self {
+    pub fn new() -> Self {
         Self {
             started: Instant::now(),
-            view,
+            view: None,
             current_room_summary: Mutable::new(None),
             current_room_timeline: Default::default(),
             rooms_state: TableState::default(),
@@ -83,6 +83,11 @@ impl SlidingSyncState {
             current_rooms_count: None,
             total_rooms_count: None,
         }
+    }
+
+    pub fn start(&mut self, view: SlidingSyncView) {
+        self.view = Some(view);
+        self.started =  Instant::now();
     }
 
     pub fn started(&self) -> &Instant {
@@ -98,11 +103,11 @@ impl SlidingSyncState {
     }
 
     pub fn loaded_rooms_count(&self) -> usize {
-        self.view.rooms.lock_ref().len()
+        self.view.as_ref().map(|v| v.rooms.lock_ref().len()).unwrap_or_default()
     }
 
     pub fn total_rooms_count(&self) -> Option<u32> {
-        self.view.rooms_count.get()
+        self.view.as_ref().and_then(|v| v.rooms_count.get())
     }
     pub fn selected_room(&self) -> Option<Box<matrix_sdk::ruma::RoomId>> {
         self.selected_room.clone()
@@ -112,7 +117,7 @@ impl SlidingSyncState {
         self.first_render = Some(self.started.elapsed())
     }
 
-    pub fn view(&self) -> &SlidingSyncView {
+    pub fn view(&self) -> &Option<SlidingSyncView> {
         &self.view
     }
 
@@ -126,7 +131,7 @@ impl SlidingSyncState {
             };
 
             let room_data = {
-                let l = self.view().rooms.lock_ref();
+                let l = self.view().as_ref().expect("we have a selected room, we have a view").rooms.lock_ref();
                 if let Some(room) = l.get(room_id) {
                     room.clone()
                 } else {
@@ -200,7 +205,7 @@ impl SlidingSyncState {
 
     pub fn select_room(&mut self) {
         let next_id = if let Some(idx) = self.rooms_state.selected() {
-            if let Some(Some(r)) = self.view.rooms_list.lock_ref().get(idx) {
+            if let Some(Some(r)) = self.view.as_ref().expect("room exists").rooms_list.lock_ref().get(idx) {
                 Some(r.clone())
             } else {
                 None
@@ -214,109 +219,110 @@ impl SlidingSyncState {
         self.current_room_summary.set(None);
     }
 }
-#[derive(Clone)]
-pub enum AppState {
-    Init,
-    Initialized {
-        title: Option<String>,
-        v2: Option<Syncv2State>,
-        sliding: Option<SlidingSyncState>,
-        show_logs: bool
-    },
-}
 
-impl AppState {
-    pub fn initialized() -> Self {
-        Self::Initialized {
-            title: None,
-            v2: None,
-            sliding: None,
-            show_logs: false
-        }
-    }
+// #[derive(Clone)]
+// pub enum AppState {
+//     Init,
+//     Initialized {
+//         title: Option<String>,
+//         v2: Option<Syncv2State>,
+//         sliding: Option<SlidingSyncState>,
+//         show_logs: bool
+//     },
+// }
 
-    pub fn get_v2(&self) -> Option<&Syncv2State> {
-        if let Self::Initialized { ref v2, .. } = self {
-            v2.as_ref()
-        } else {
-            None
-        }
-    }
+// impl AppState {
+//     pub fn initialized() -> Self {
+//         Self::Initialized {
+//             title: None,
+//             v2: None,
+//             sliding: None,
+//             show_logs: false
+//         }
+//     }
 
-    pub fn get_v2_mut<'a>(&'a mut self) -> Option<&'a mut Syncv2State> {
-        if let Self::Initialized { v2, .. } = self {
-            v2.as_mut()
-        } else {
-            None
-        }
-    }
+//     pub fn get_v2(&self) -> Option<&Syncv2State> {
+//         if let Self::Initialized { ref v2, .. } = self {
+//             v2.as_ref()
+//         } else {
+//             None
+//         }
+//     }
 
-    pub fn start_v2(&mut self) {
-        if let Self::Initialized { v2, .. } = self {
-            if let Some(pre) = v2 {
-                warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
-            }
-            *v2 = Some(Syncv2State::new());
-        }
-    }
+//     pub fn get_v2_mut<'a>(&'a mut self) -> Option<&'a mut Syncv2State> {
+//         if let Self::Initialized { v2, .. } = self {
+//             v2.as_mut()
+//         } else {
+//             None
+//         }
+//     }
 
-    pub fn get_sliding(&self) -> Option<&SlidingSyncState> {
-        if let Self::Initialized { ref sliding, .. } = self {
-            sliding.as_ref()
-        } else {
-            None
-        }
-    }
+//     pub fn start_v2(&mut self) {
+//         if let Self::Initialized { v2, .. } = self {
+//             if let Some(pre) = v2 {
+//                 warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
+//             }
+//             *v2 = Some(Syncv2State::new());
+//         }
+//     }
 
-    pub fn get_sliding_mut<'a>(&'a mut self) -> Option<&'a mut SlidingSyncState> {
-        if let Self::Initialized { sliding, .. } = self {
-            sliding.as_mut()
-        } else {
-            None
-        }
-    }
+//     pub fn get_sliding(&self) -> Option<&SlidingSyncState> {
+//         if let Self::Initialized { ref sliding, .. } = self {
+//             sliding.as_ref()
+//         } else {
+//             None
+//         }
+//     }
 
-    pub fn start_sliding(&mut self, view: SlidingSyncView) {
-        if let Self::Initialized { sliding, .. } = self {
-            if let Some(pre) = sliding {
-                warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
-            }
-            *sliding = Some(SlidingSyncState::new(view));
-        }
-    }
+//     pub fn get_sliding_mut<'a>(&'a mut self) -> Option<&'a mut SlidingSyncState> {
+//         if let Self::Initialized { sliding, .. } = self {
+//             sliding.as_mut()
+//         } else {
+//             None
+//         }
+//     }
 
-    pub fn is_initialized(&self) -> bool {
-        matches!(self, &Self::Initialized { .. })
-    }
+//     pub fn start_sliding(&mut self, view: SlidingSyncView) {
+//         if let Self::Initialized { sliding, .. } = self {
+//             if let Some(pre) = sliding {
+//                 warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
+//             }
+//             *sliding = Some(SlidingSyncState::new(view));
+//         }
+//     }
 
-    pub fn show_logs(&self) -> bool {
-        if let Self::Initialized { show_logs, .. } = self {
-            *show_logs
-        } else {
-            false
-        }
-    }
-    pub fn toggle_show_logs(&mut self) {
-        if let Self::Initialized { show_logs, .. } = self {
-            *show_logs = !*show_logs
-        }
-    }
-    pub fn set_title(&mut self, new_title: Option<String>) {
-        if let Self::Initialized { title, .. } = self {
-            *title = new_title;
-        }
-    }
-    pub fn title(&self) -> Option<String> {
-        if let Self::Initialized { title, .. } = self {
-            title.clone()
-        } else {
-            None
-        }
-    }
-}
+//     pub fn is_initialized(&self) -> bool {
+//         matches!(self, &Self::Initialized { .. })
+//     }
 
-impl Default for AppState {
-    fn default() -> Self {
-        Self::Init
-    }
-}
+//     pub fn show_logs(&self) -> bool {
+//         if let Self::Initialized { show_logs, .. } = self {
+//             *show_logs
+//         } else {
+//             false
+//         }
+//     }
+//     pub fn toggle_show_logs(&mut self) {
+//         if let Self::Initialized { show_logs, .. } = self {
+//             *show_logs = !*show_logs
+//         }
+//     }
+//     pub fn set_title(&mut self, new_title: Option<String>) {
+//         if let Self::Initialized { title, .. } = self {
+//             *title = new_title;
+//         }
+//     }
+//     pub fn title(&self) -> Option<String> {
+//         if let Self::Initialized { title, .. } = self {
+//             title.clone()
+//         } else {
+//             None
+//         }
+//     }
+// }
+
+// impl Default for AppState {
+//     fn default() -> Self {
+//         Self::Init
+//     }
+// }
