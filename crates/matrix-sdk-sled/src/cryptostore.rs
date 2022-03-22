@@ -486,11 +486,10 @@ impl SledStore {
         }
 
         if version <= 3 {
-            return Err(anyhow!(
-                "Unsupported database version, the database \
-                 format changed in a backwards incompatible way"
-            )
-            .into());
+            return Err(CryptoStoreError::UnsupportedDatabaseVersion(
+                version.into(),
+                DATABASE_VERSION.into(),
+            ));
         }
 
         self.inner
