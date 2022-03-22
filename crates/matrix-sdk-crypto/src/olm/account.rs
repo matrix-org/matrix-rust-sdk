@@ -45,7 +45,7 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 use vodozemac::{
     olm::{Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage},
-    Curve25519PublicKey, KeyId, PickleError, Ed25519Signature,
+    Curve25519PublicKey, Ed25519Signature, KeyId, PickleError,
 };
 
 use super::{
@@ -232,26 +232,6 @@ impl Account {
         }
     }
 
-    pub fn update_uploaded_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
-        if let Some(count) = key_count.get(&DeviceKeyAlgorithm::SignedCurve25519) {
-            let count: u64 = (*count).into();
-            let old_count = self.inner.uploaded_key_count();
-
-            // Some servers might always return the key counts in the sync
-            // response, we don't want to the logs with noop changes if they do
-            // so.
-            if count != old_count {
-                debug!(
-                    "Updated uploaded one-time key count {} -> {}.",
-                    self.inner.uploaded_key_count(),
-                    count
-                );
-            }
-
-            self.inner.update_uploaded_key_count(count);
-        }
-    }
-
     pub async fn receive_keys_upload_response(
         &self,
         response: &upload_keys::v3::Response,
@@ -262,7 +242,7 @@ impl Account {
         self.inner.mark_as_shared();
 
         debug!("Marking one-time keys as published");
-        self.update_uploaded_key_count(&response.one_time_key_counts);
+        self.update_key_counts(&response.one_time_key_counts, None).await;
         self.inner.mark_keys_as_published().await;
         self.store.save_account(self.inner.clone()).await?;
 
@@ -575,10 +555,46 @@ impl ReadOnlyAccount {
         self.inner.lock().await.max_number_of_one_time_keys()
     }
 
-    /// Get a tuple of device and one-time keys that need to be uploaded.
+    pub(crate) async fn update_key_counts(
+        &self,
+        one_time_key_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
+        unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
+    ) {
+        if let Some(count) = one_time_key_counts.get(&DeviceKeyAlgorithm::SignedCurve25519) {
+            let count: u64 = (*count).into();
+            let old_count = self.uploaded_key_count();
+
+            // Some servers might always return the key counts in the sync
+            // response, we don't want to the logs with noop changes if they do
+            // so.
+            if count != old_count {
+                debug!(
+                    "Updated uploaded one-time key count {} -> {}.",
+                    self.uploaded_key_count(),
+                    count
+                );
+            }
+
+            self.update_uploaded_key_count(count);
+        }
+
+        if let Some(unused) = unused_fallback_keys {
+            if !unused.contains(&DeviceKeyAlgorithm::SignedCurve25519) {
+                // Generate a new fallback key if we don't have one.
+                self.generate_fallback_key_helper().await;
+            }
+        }
+    }
+
+    /// Generate new one-time keys that need to be uploaded to the server.
     ///
-    /// Returns an empty error if no keys need to be uploaded.
-    pub async fn generate_one_time_keys(&self) -> Result<u64, ()> {
+    /// Returns None if no keys need to be uploaded, otherwise the number of
+    /// newly generated one-time keys. May return 0 if some one-time keys are
+    /// already generated but weren't uploaded.
+    ///
+    /// Generally `Some` means that keys should be uploaded, while `None` means
+    /// that keys should not be uploaded.
+    pub async fn generate_one_time_keys(&self) -> Option<u64> {
         // Only generate one-time keys if there aren't any, otherwise the caller
         // might have failed to upload them the last time this method was
         // called.
@@ -587,55 +603,54 @@ impl ReadOnlyAccount {
             let max_keys = self.max_one_time_keys().await;
 
             if count >= max_keys as u64 {
-                return Err(());
+                return None;
             }
 
             let key_count = (max_keys as u64) - count;
             let key_count: usize = key_count.try_into().unwrap_or(max_keys);
 
             self.generate_one_time_keys_helper(key_count).await;
-            Ok(key_count as u64)
+            Some(key_count as u64)
         } else {
-            Ok(0)
+            Some(0)
         }
     }
 
-    /// Should account or one-time keys be uploaded to the server.
-    pub async fn should_upload_keys(&self) -> bool {
-        if !self.shared() {
-            return true;
+    async fn generate_fallback_key_helper(&self) {
+        let mut account = self.inner.lock().await;
+
+        if account.fallback_key().is_empty() {
+            debug!(
+                "No unused fallback keys were found on the server, generating \
+                a new fallback key.",
+            );
+
+            account.generate_fallback_key();
         }
-
-        let count = self.uploaded_key_count();
-
-        // If we have a known key count, check that we have more than
-        // max_one_time_Keys(), otherwise tell the client to upload more.
-        let max_keys = self.max_one_time_keys().await as u64;
-        // If there are more keys already uploaded than max_key bail out
-        // returning false, this also avoids overflow.
-        if count > max_keys {
-            return false;
-        }
-
-        let key_count = max_keys - count;
-        key_count > 0
     }
 
-    /// Get a tuple of device and one-time keys that need to be uploaded.
+    async fn fallback_key(&self) -> HashMap<KeyId, Curve25519PublicKey> {
+        self.inner.lock().await.fallback_key()
+    }
+
+    /// Get a tuple of device, one-time, and fallback keys that need to be
+    /// uploaded.
     ///
-    /// Returns None if no keys need to be uploaded.
+    /// If no keys need to be uploaded the `DeviceKeys` will be `None` and the
+    /// one-time and fallback keys maps will be empty.
     pub async fn keys_for_upload(
         &self,
-    ) -> Option<(Option<DeviceKeys>, BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>)> {
-        if !self.should_upload_keys().await {
-            return None;
-        }
-
+    ) -> (
+        Option<DeviceKeys>,
+        BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>,
+        BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>,
+    ) {
         let device_keys = if !self.shared() { Some(self.device_keys().await) } else { None };
 
-        let one_time_keys = self.signed_one_time_keys().await.ok().unwrap_or_default();
+        let one_time_keys = self.signed_one_time_keys().await;
+        let fallback_keys = self.signed_fallback_keys().await;
 
-        Some((device_keys, one_time_keys))
+        (device_keys, one_time_keys, fallback_keys)
     }
 
     /// Mark the current set of one-time keys as being published.
@@ -815,47 +830,81 @@ impl ReadOnlyAccount {
         self.sign(&canonical_json.to_string()).await
     }
 
-    /// Generate a Map of One-Time-Keys for each DeviceKeyId
-    pub async fn signed_one_time_keys_helper(
+    /// Generate, sign and prepare one-time keys to be uploaded.
+    ///
+    /// If no one-time keys need to be uploaded returns an empty BTreeMap.
+    pub async fn signed_one_time_keys(
         &self,
     ) -> BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>> {
+        let _ = self.generate_one_time_keys().await;
+
         let one_time_keys = self.one_time_keys().await;
-        let mut one_time_key_map = BTreeMap::new();
 
-        for (key_id, key) in one_time_keys.into_iter() {
-            let mut signed_key = SignedKey::new(key);
+        if one_time_keys.is_empty() {
+            BTreeMap::new()
+        } else {
+            self.signed_keys(one_time_keys, false).await
+        }
+    }
 
-            let key_json =
-                serde_json::to_value(&signed_key).expect("Can't serialize a new signed key");
+    /// Sign and prepare fallback keys to be uploaded.
+    ///
+    /// If no fallback keys need to be uploaded returns an empty BTreeMap.
+    pub async fn signed_fallback_keys(
+        &self,
+    ) -> BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>> {
+        let fallback_key = self.fallback_key().await;
 
-            let signature = BTreeMap::from([(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-                self.sign_json(key_json).await,
-            )]);
+        if fallback_key.is_empty() {
+            BTreeMap::new()
+        } else {
+            self.signed_keys(fallback_key, true).await
+        }
+    }
 
-            signed_key.signatures().insert(self.user_id().to_owned(), signature);
+    async fn signed_keys(
+        &self,
+        keys: HashMap<KeyId, Curve25519PublicKey>,
+        fallback: bool,
+    ) -> BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>> {
+        let mut keys_map = BTreeMap::new();
 
-            one_time_key_map.insert(
+        for (key_id, key) in keys {
+            let signed_key = self.sign_key(key, fallback).await;
+
+            keys_map.insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::SignedCurve25519,
-                    &Box::<DeviceId>::from(key_id.to_base64()),
+                    key_id.to_base64().as_str().into(),
                 ),
                 signed_key.into_raw(),
             );
         }
 
-        one_time_key_map
+        keys_map
     }
 
-    /// Generate, sign and prepare one-time keys to be uploaded.
-    ///
-    /// If no one-time keys need to be uploaded returns an empty error.
-    pub async fn signed_one_time_keys(
-        &self,
-    ) -> Result<BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>, ()> {
-        let _ = self.generate_one_time_keys().await?;
+    async fn sign_key(&self, key: Curve25519PublicKey, fallback: bool) -> SignedKey {
+        let mut key = if fallback {
+            SignedKey::new_fallback(key.to_owned())
+        } else {
+            SignedKey::new(key.to_owned())
+        };
 
-        Ok(self.signed_one_time_keys_helper().await)
+        let signature =
+            self.sign_json(serde_json::to_value(&key).expect("Can't serialize a signed key")).await;
+
+        let signatures = BTreeMap::from([(
+            self.user_id().to_owned(),
+            BTreeMap::from([(
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+                signature,
+            )]),
+        )]);
+
+        *key.signatures() = signatures;
+
+        key
     }
 
     /// Create a new session with another account given a one-time key.
@@ -1059,7 +1108,7 @@ impl ReadOnlyAccount {
         use ruma::events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent};
 
         other.generate_one_time_keys_helper(1).await;
-        let one_time = other.signed_one_time_keys().await.unwrap();
+        let one_time = other.signed_one_time_keys().await;
 
         let device = ReadOnlyDevice::from_account(other).await;
 
@@ -1117,10 +1166,13 @@ impl PartialEq for ReadOnlyAccount {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeSet, ops::Deref};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        ops::Deref,
+    };
 
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, DeviceKeyId, UserId};
+    use ruma::{device_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId};
 
     use super::ReadOnlyAccount;
     use crate::error::OlmResult as Result;
@@ -1137,20 +1189,10 @@ mod test {
     async fn one_time_key_creation() -> Result<()> {
         let account = ReadOnlyAccount::new(user_id(), device_id());
 
-        let one_time_keys = account
-            .keys_for_upload()
-            .await
-            .map(|(_, k)| k)
-            .expect("Initial keys can't be generated");
-
+        let (_, one_time_keys, _) = account.keys_for_upload().await;
         assert!(!one_time_keys.is_empty());
 
-        let second_one_time_keys = account
-            .keys_for_upload()
-            .await
-            .map(|(_, k)| k)
-            .expect("Second round of one-time keys isn't generated");
-
+        let (_, second_one_time_keys, _) = account.keys_for_upload().await;
         assert!(!second_one_time_keys.is_empty());
 
         let device_key_ids: BTreeSet<&DeviceKeyId> =
@@ -1163,22 +1205,55 @@ mod test {
         account.mark_keys_as_published().await;
         account.update_uploaded_key_count(50);
 
-        let third_one_time_keys = account.keys_for_upload().await.map(|(_, k)| k).unwrap();
-
+        let (_, third_one_time_keys, _) = account.keys_for_upload().await;
         assert!(third_one_time_keys.is_empty());
 
         account.update_uploaded_key_count(0);
 
-        let fourth_one_time_keys = account
-            .keys_for_upload()
-            .await
-            .map(|(_, k)| k)
-            .expect("Fourth round of one-time keys isn't generated");
+        let (_, fourth_one_time_keys, _) = account.keys_for_upload().await;
+        assert!(!fourth_one_time_keys.is_empty());
 
         let fourth_device_key_ids: BTreeSet<&DeviceKeyId> =
             fourth_one_time_keys.keys().map(Deref::deref).collect();
 
         assert_ne!(device_key_ids, fourth_device_key_ids);
+        Ok(())
+    }
+
+    #[async_test]
+    async fn fallback_key_creation() -> Result<()> {
+        let account = ReadOnlyAccount::new(user_id(), device_id());
+
+        let (_, _, fallback_keys) = account.keys_for_upload().await;
+
+        // We don't create fallback keys since we don't know if the server
+        // supports them, we need to receive a sync response to decide if we're
+        // going to create them or not.
+        assert!(fallback_keys.is_empty());
+
+        let one_time_keys = BTreeMap::from([(DeviceKeyAlgorithm::SignedCurve25519, 50u8.into())]);
+
+        // A `None` here means that the server doesn't support fallback keys, no
+        // fallback key gets uploaded.
+        account.update_key_counts(&one_time_keys, None).await;
+        let (_, _, fallback_keys) = account.keys_for_upload().await;
+        assert!(fallback_keys.is_empty());
+
+        // The empty array means that the server supports fallback keys but
+        // there isn't a unused fallback key on the server. This time we upload
+        // a fallback key.
+        let unused_fallback_keys = &[];
+        account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref())).await;
+        let (_, _, fallback_keys) = account.keys_for_upload().await;
+        assert!(!fallback_keys.is_empty());
+        account.mark_keys_as_published().await;
+
+        // There's an unused fallback key on the server, nothing to do here.
+        let unused_fallback_keys = &[DeviceKeyAlgorithm::SignedCurve25519];
+        account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref())).await;
+        let (_, _, fallback_keys) = account.keys_for_upload().await;
+        assert!(fallback_keys.is_empty());
+
         Ok(())
     }
 }

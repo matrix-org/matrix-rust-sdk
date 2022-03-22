@@ -529,14 +529,18 @@ impl OlmMachine {
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     /// [`OlmMachine`]: struct.OlmMachine.html
     async fn keys_for_upload(&self) -> Option<upload_keys::v3::Request> {
-        let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
+        let (device_keys, one_time_keys, fallback_keys) = self.account.keys_for_upload().await;
 
-        let device_keys =
-            device_keys.map(|d| Raw::new(&d).expect("Coulnd't serialize device keys"));
+        if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
+            None
+        } else {
+            let device_keys =
+                device_keys.map(|d| Raw::new(&d).expect("Coulnd't serialize device keys"));
 
-        Some(assign!(upload_keys::v3::Request::new(), {
-            device_keys, one_time_keys, fallback_keys: BTreeMap::new(),
-        }))
+            Some(assign!(upload_keys::v3::Request::new(), {
+                device_keys, one_time_keys, fallback_keys
+            }))
+        }
     }
 
     /// Decrypt a to-device event.
@@ -833,9 +837,9 @@ impl OlmMachine {
     async fn update_key_counts(
         &self,
         one_time_key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
-        #[allow(unused_variables)] unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
+        unused_fallback_keys: Option<&[DeviceKeyAlgorithm]>,
     ) {
-        self.account.update_uploaded_key_count(one_time_key_count);
+        self.account.update_key_counts(one_time_key_count, unused_fallback_keys).await;
     }
 
     async fn handle_to_device_event(&self, event: &AnyToDeviceEvent) {
@@ -1695,48 +1699,23 @@ pub(crate) mod test {
     #[async_test]
     async fn create_olm_machine() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
-        assert!(machine.account().should_upload_keys().await);
-    }
-
-    #[async_test]
-    async fn receive_keys_upload_response() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
-        let mut response = keys_upload_response();
-
-        response.one_time_key_counts.remove(&DeviceKeyAlgorithm::SignedCurve25519).unwrap();
-
-        assert!(machine.account().should_upload_keys().await);
-        machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(machine.account().should_upload_keys().await);
-
-        response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(10));
-        machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(machine.account().should_upload_keys().await);
-
-        response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
-        machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(!machine.account().should_upload_keys().await);
-
-        response.one_time_key_counts.remove(&DeviceKeyAlgorithm::SignedCurve25519);
-        machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(!machine.account().should_upload_keys().await);
+        assert!(!machine.account().shared());
     }
 
     #[async_test]
     async fn generate_one_time_keys() {
         let machine = OlmMachine::new(user_id(), alice_device_id());
 
+        assert!(machine.account.generate_one_time_keys().await.is_some());
+
         let mut response = keys_upload_response();
 
-        assert!(machine.account().should_upload_keys().await);
-
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(machine.account().should_upload_keys().await);
-        assert!(machine.account.generate_one_time_keys().await.is_ok());
+        assert!(machine.account.generate_one_time_keys().await.is_some());
 
         response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
         machine.receive_keys_upload_response(&response).await.unwrap();
-        assert!(machine.account.generate_one_time_keys().await.is_err());
+        assert!(machine.account.generate_one_time_keys().await.is_none());
     }
 
     #[async_test]
@@ -1793,10 +1772,11 @@ pub(crate) mod test {
         let machine = OlmMachine::new(user_id(), alice_device_id());
         machine.account.inner.update_uploaded_key_count(49);
 
-        let mut one_time_keys = machine.account.signed_one_time_keys().await.unwrap();
+        let mut one_time_keys = machine.account.signed_one_time_keys().await;
         let ed25519_key = machine.account.identity_keys().ed25519;
 
-        let mut one_time_key = one_time_keys.values_mut().next().unwrap();
+        let mut one_time_key =
+            one_time_keys.values_mut().next().expect("One time keys should be generated");
 
         ed25519_key
             .verify_json(
