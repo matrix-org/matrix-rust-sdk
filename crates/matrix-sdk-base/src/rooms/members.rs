@@ -89,8 +89,7 @@ impl RoomMember {
 
     /// Get the power level of this member.
     pub fn power_level(&self) -> i64 {
-        self.power_levels
-            .as_ref()
+        (*self.power_levels)
             .as_ref()
             .map(|e| {
                 e.content
