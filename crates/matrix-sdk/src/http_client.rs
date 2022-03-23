@@ -17,10 +17,10 @@ use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duratio
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
-use reqwest::{Client, Response};
+use reqwest::Response;
 use ruma::api::{
-    client::media::create_content, error::FromHttpResponseError, AuthScheme, IncomingResponse,
-    MatrixVersion, OutgoingRequest, OutgoingRequestAppserviceExt, SendAccessToken,
+    error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
+    OutgoingRequestAppserviceExt, SendAccessToken,
 };
 use tracing::trace;
 use url::Url;
@@ -108,17 +108,17 @@ impl HttpClient {
         HttpClient { inner, homeserver, session, request_config }
     }
 
-    #[tracing::instrument(
-        skip(self, request, session),
-        fields(request_type = type_name::<Request>())
-    )]
-    async fn send_request<Request: OutgoingRequest>(
+    #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
+    pub async fn send<Request>(
         &self,
         request: Request,
-        session: Arc<RwLock<Option<Session>>>,
         config: Option<RequestConfig>,
         server_versions: Arc<[MatrixVersion]>,
-    ) -> Result<http::Response<Bytes>, HttpError> {
+    ) -> Result<Request::IncomingResponse, HttpError>
+    where
+        Request: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
+    {
         let config = match config {
             Some(config) => config,
             None => self.request_config,
@@ -137,7 +137,7 @@ impl HttpClient {
                 // isn't going to be used anyways.
                 SendAccessToken::None
             } else {
-                match session.read().await.as_ref() {
+                match self.session.read().await.as_ref() {
                     Some(session) => {
                         access_token = session.access_token.clone();
                         if config.force_auth {
@@ -157,7 +157,7 @@ impl HttpClient {
             )?
         } else {
             let (send_access_token, user_id) = {
-                let session = session.read().await;
+                let session = self.session.read().await;
                 let session = session.as_ref().ok_or(HttpError::UserIdRequired)?;
 
                 access_token = session.access_token.clone();
@@ -173,32 +173,7 @@ impl HttpClient {
         };
 
         let request = request.map(|body| body.freeze());
-        self.inner.send_request(request, config).await
-    }
-
-    pub async fn upload(
-        &self,
-        request: create_content::v3::Request<'_>,
-        config: Option<RequestConfig>,
-        server_versions: Arc<[MatrixVersion]>,
-    ) -> Result<create_content::v3::Response, HttpError> {
-        let response =
-            self.send_request(request, self.session.clone(), config, server_versions).await?;
-        Ok(create_content::v3::Response::try_from_http_response(response)?)
-    }
-
-    pub async fn send<Request>(
-        &self,
-        request: Request,
-        config: Option<RequestConfig>,
-        server_versions: Arc<[MatrixVersion]>,
-    ) -> Result<Request::IncomingResponse, HttpError>
-    where
-        Request: OutgoingRequest + Debug,
-        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
-    {
-        let response =
-            self.send_request(request, self.session.clone(), config, server_versions).await?;
+        let response = self.inner.send_request(request, config).await?;
 
         trace!("Got response: {:?}", response);
 
@@ -238,7 +213,7 @@ impl Default for HttpSettings {
 
 impl HttpSettings {
     /// Build a client with the specified configuration.
-    pub(crate) fn make_client(&self) -> Result<Client, HttpError> {
+    pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         #[allow(unused_mut)]
         let mut http_client = reqwest::Client::builder();
 
@@ -283,7 +258,7 @@ async fn response_to_http_response(
 
 #[cfg(any(target_arch = "wasm32"))]
 async fn send_request(
-    client: &Client,
+    client: &reqwest::Client,
     request: http::Request<Bytes>,
     _: RequestConfig,
 ) -> Result<http::Response<Bytes>, HttpError> {
@@ -295,7 +270,7 @@ async fn send_request(
 
 #[cfg(all(not(target_arch = "wasm32")))]
 async fn send_request(
-    client: &Client,
+    client: &reqwest::Client,
     request: http::Request<Bytes>,
     config: RequestConfig,
 ) -> Result<http::Response<Bytes>, HttpError> {
@@ -358,7 +333,7 @@ async fn send_request(
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl HttpSend for Client {
+impl HttpSend for reqwest::Client {
     async fn send_request(
         &self,
         request: http::Request<Bytes>,

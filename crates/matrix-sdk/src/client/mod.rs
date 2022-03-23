@@ -1424,7 +1424,7 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .upload(request, Some(request_config), self.inner.server_versions.clone())
+            .send(request, Some(request_config), self.inner.server_versions.clone())
             .await?)
     }
 
