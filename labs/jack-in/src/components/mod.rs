@@ -37,6 +37,7 @@ mod counter;
 mod logger;
 mod label;
 mod statusbar;
+mod rooms;
 
 // -- export
 pub use clock::Clock;
@@ -44,6 +45,7 @@ pub use counter::{DigitCounter, LetterCounter};
 pub use label::Label;
 pub use logger::Logger;
 pub use statusbar::StatusBar;
+pub use rooms::Rooms;
 
 /// ### get_block
 ///

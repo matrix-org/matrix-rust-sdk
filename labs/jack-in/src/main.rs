@@ -63,6 +63,7 @@ pub enum Id {
     Label,
     Logger,
     Status,
+    Rooms,
 }
 
 

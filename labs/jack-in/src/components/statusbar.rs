@@ -10,10 +10,6 @@ use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
 use super::super::client::state::SlidingSyncState;
 
 /// ## StatusBar
-///
-/// Simple label component; just renders a text
-/// NOTE: since I need just one label, I'm not going to use different object; I will directly implement Component for StatusBar.
-/// This is not ideal actually and in a real app you should differentiate Mock Components from Application Components.
 pub struct StatusBar {
     props: Props,
     sstate: SlidingSyncState

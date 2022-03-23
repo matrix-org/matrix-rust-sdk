@@ -25,7 +25,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::components::{Clock, DigitCounter, Label, Logger, StatusBar, LetterCounter};
+use super::components::{Clock, DigitCounter, Label, Logger, StatusBar, Rooms, LetterCounter};
 use super::{Id, Msg};
 
 use std::time::{Duration, SystemTime};
@@ -77,7 +77,7 @@ impl Model {
             .draw(|f| {
                 let mut areas = vec![
                     Constraint::Length(3), // Clock
-                    Constraint::Length(3), // Letter Counter
+                    Constraint::Min(10),     // body
                     Constraint::Length(3), // Status Footer
                     Constraint::Length(1), // Label
                 ];
@@ -91,8 +91,15 @@ impl Model {
                     .margin(1)
                     .constraints(areas)
                     .split(f.size());
+                
+                // Body
+                let body_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Length(35), Constraint::Min(23)].as_ref())
+                    .split(chunks[1]);
+
                 self.app.view(&Id::Clock, f, chunks[0]);
-                self.app.view(&Id::LetterCounter, f, chunks[1]);
+                self.app.view(&Id::Rooms, f, body_chunks[0]);
                 self.app.view(&Id::Status, f, chunks[2]);
                 self.app.view(&Id::Label, f, chunks[3]);
                 if self.show_logger {
@@ -108,6 +115,14 @@ impl Model {
             .remount(
                 Id::Status,
                 Box::new(StatusBar::new(self.sliding_sync.clone())),
+                Vec::default()
+            )
+            .is_ok());
+    
+        assert!(self.app
+            .remount(
+                Id::Rooms,
+                Box::new(Rooms::new(self.sliding_sync.clone())),
                 Vec::default()
             )
             .is_ok());
@@ -181,10 +196,18 @@ impl Model {
         assert!(app
             .mount(
                 Id::Status,
-                Box::new(StatusBar::new(sliding_sync)),
+                Box::new(StatusBar::new(sliding_sync.clone())),
                 Vec::default()
             )
-            .is_ok());
+        .is_ok());
+    
+        assert!(app
+            .mount(
+                Id::Rooms,
+                Box::new(Rooms::new(sliding_sync)),
+                Vec::default()
+            )
+        .is_ok());
         //app.mount_sliding_sync_components();
         // Active letter counter
         assert!(app.active(&Id::LetterCounter).is_ok());

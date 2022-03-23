@@ -2,34 +2,36 @@
 use super::{Msg, get_block};
 
 use tuirealm::command::{Cmd, CmdResult};
-use tuirealm::tui::{layout::Rect, widgets::Paragraph};
+use tuirealm::tui::{
+        layout::{Rect, Constraint},
+        widgets::{Table, Row, Cell},
+        style::Modifier
+};
 use tuirealm::{
     AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, Props, State,
 };
 use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
-use tui_logger::TuiLoggerWidget;
+use super::super::client::state::SlidingSyncState;
 
-/// ## Logger
-///
-/// Simple label component; just renders a text
-/// NOTE: since I need just one label, I'm not going to use different object; I will directly implement Component for Logger.
-/// This is not ideal actually and in a real app you should differentiate Mock Components from Application Components.
-pub struct Logger {
+/// ## Rooms
+pub struct Rooms {
     props: Props,
+    sstate: SlidingSyncState
 }
 
-impl Default for Logger {
-    fn default() -> Self {
+impl Rooms {
+    pub fn new(sstate: SlidingSyncState) -> Self {
         Self {
             props: Props::default(),
+            sstate,
         }
     }
 }
 
-impl MockComponent for Logger {
+impl MockComponent for Rooms {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
 
-        let title = ("Logs".to_owned(), Alignment::Center);
+        let title = ("Rooms".to_owned(), Alignment::Center);
 
         let borders = self
             .props
@@ -39,15 +41,30 @@ impl MockComponent for Logger {
             .props
             .get_or(Attribute::Focus, AttrValue::Flag(false))
             .unwrap_flag();
+
+        
+        let mut paras = vec![];
+
+        for r in self.sstate.view().get_rooms(None, None) {
+            let mut cells = vec![
+                Cell::from(r.name.unwrap_or("unknown".to_string()))
+            ];
+            if let Some(c) = r.notification_count {
+                let count: u32 = c.try_into().unwrap_or_default();
+                if count > 0 {
+                    cells.push(Cell::from(c.to_string()))
+                }
+            } 
+            paras.push(Row::new(cells));
+        }
+
         frame.render_widget(
-            TuiLoggerWidget::default()
-                .style_error(Style::default().fg(Color::Red))
-                .style_debug(Style::default().fg(Color::Green))
-                .style_warn(Style::default().fg(Color::Yellow))
-                .style_trace(Style::default().fg(Color::Gray))
-                .style_info(Style::default().fg(Color::Blue))
-                .block(get_block(borders, title, focus))
-                .style(Style::default().fg(Color::White).bg(Color::Black)),
+            Table::new(paras)
+                .style(Style::default().fg(Color::White))
+                .highlight_style(Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC))
+                .highlight_symbol(">>")
+                .widths(&[Constraint::Min(30), Constraint::Max(4)])
+                .block(get_block(borders, title, focus)),
             area
         );
     }
@@ -69,7 +86,7 @@ impl MockComponent for Logger {
     }
 }
 
-impl Component<Msg, NoUserEvent> for Logger {
+impl Component<Msg, NoUserEvent> for Rooms {
     fn on(&mut self, _: Event<NoUserEvent>) -> Option<Msg> {
         // Does nothing
         None
