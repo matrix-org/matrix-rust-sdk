@@ -25,7 +25,6 @@ use ruma::{
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     encryption::KeyUsage,
     events::secret::request::SecretName,
-    serde::Raw,
     UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -406,7 +405,7 @@ impl PrivateCrossSigningIdentity {
                 .get_first_key()
                 .ok_or(SignatureError::MissingSigningKey)?
                 .into(),
-            Raw::new(&master_key)?,
+            master_key.to_raw(),
         );
 
         let signed_keys = [(user_identity.user_id().to_owned(), user_signed_keys)].into();
@@ -624,13 +623,13 @@ impl PrivateCrossSigningIdentity {
     /// identity.
     pub(crate) async fn as_upload_request(&self) -> UploadSigningKeysRequest {
         let master_key =
-            self.master_key.lock().await.as_ref().map(|k| k.public_key.to_owned().into());
+            self.master_key.lock().await.as_ref().map(|k| k.public_key.as_ref().clone());
 
         let user_signing_key =
-            self.user_signing_key.lock().await.as_ref().map(|k| k.public_key.to_owned().into());
+            self.user_signing_key.lock().await.as_ref().map(|k| k.public_key.as_ref().clone());
 
         let self_signing_key =
-            self.self_signing_key.lock().await.as_ref().map(|k| k.public_key.to_owned().into());
+            self.self_signing_key.lock().await.as_ref().map(|k| k.public_key.as_ref().clone());
 
         UploadSigningKeysRequest { master_key, self_signing_key, user_signing_key }
     }

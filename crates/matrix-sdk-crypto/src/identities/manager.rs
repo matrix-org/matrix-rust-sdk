@@ -35,7 +35,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
-    types::device_keys::DeviceKeys,
+    types::{cross_signing_key::CrossSigningKey, device_keys::DeviceKeys},
     LocalTrust,
 };
 
@@ -331,12 +331,14 @@ impl IdentityManager {
         // TODO this is a bit chunky, refactor this into smaller methods.
 
         for (user_id, master_key) in &response.master_keys {
-            match master_key.deserialize() {
+            match master_key.deserialize_as::<CrossSigningKey>() {
                 Ok(master_key) => {
                     let master_key = MasterPubkey::from(master_key);
 
-                    let self_signing = if let Some(s) =
-                        response.self_signing_keys.get(user_id).and_then(|k| k.deserialize().ok())
+                    let self_signing = if let Some(s) = response
+                        .self_signing_keys
+                        .get(user_id)
+                        .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
                     {
                         SelfSigningPubkey::from(s)
                     } else {
@@ -354,7 +356,7 @@ impl IdentityManager {
                                 let user_signing = if let Some(s) = response
                                     .user_signing_keys
                                     .get(user_id)
-                                    .and_then(|k| k.deserialize().ok())
+                                    .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
                                 {
                                     UserSigningPubkey::from(s)
                                 } else {
@@ -378,7 +380,7 @@ impl IdentityManager {
                         if let Some(s) = response
                             .user_signing_keys
                             .get(user_id)
-                            .and_then(|k| k.deserialize().ok())
+                            .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
                         {
                             let user_signing = UserSigningPubkey::from(s);
 

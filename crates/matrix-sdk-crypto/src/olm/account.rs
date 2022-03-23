@@ -29,7 +29,6 @@ use ruma::{
         upload_keys,
         upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     },
-    encryption::CrossSigningKey,
     events::{
         room::encrypted::{
             EncryptedEventScheme, OlmV1Curve25519AesSha2Content, ToDeviceRoomEncryptedEvent,
@@ -58,6 +57,7 @@ use crate::{
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
     types::{
+        cross_signing_key::CrossSigningKey,
         device_keys::DeviceKeys,
         one_time_keys::{OneTimeKey, SignedKey},
     },
@@ -786,7 +786,7 @@ impl ReadOnlyAccount {
             .entry(self.user_id().to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()).to_string(),
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
                 signature.to_base64(),
             );
 
@@ -800,12 +800,12 @@ impl ReadOnlyAccount {
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let public_key =
             master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.into();
-        let mut cross_signing_key: CrossSigningKey = master_key.into();
+        let mut cross_signing_key: CrossSigningKey = master_key.as_ref().clone();
         cross_signing_key.signatures.clear();
         self.sign_cross_signing_key(&mut cross_signing_key).await?;
 
         let mut user_signed_keys = SignedKeys::new();
-        user_signed_keys.add_cross_signing_keys(public_key, Raw::new(&cross_signing_key)?);
+        user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
 
         let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
         Ok(SignatureUploadRequest::new(signed_keys))

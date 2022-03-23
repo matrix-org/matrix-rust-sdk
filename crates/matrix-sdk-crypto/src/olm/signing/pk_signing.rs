@@ -15,9 +15,8 @@
 use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
 
 use ruma::{
-    encryption::{CrossSigningKey, CrossSigningKeySignatures, KeyUsage},
-    serde::CanonicalJsonValue,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
+    encryption::KeyUsage, serde::CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
@@ -27,7 +26,10 @@ use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
 use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    types::device_keys::DeviceKeys,
+    types::{
+        cross_signing_key::{CrossSigningKey, CrossSigningKeySignatures},
+        device_keys::DeviceKeys,
+    },
     utilities::{encode, DecodeError},
     ReadOnlyUserIdentity,
 };
@@ -106,7 +108,7 @@ impl PickledSigning {
 impl MasterSigning {
     pub async fn pickle(&self) -> PickledMasterSigning {
         let pickle = self.inner.pickle().await;
-        let public_key = self.public_key.clone().into();
+        let public_key = self.public_key.as_ref().clone();
         PickledMasterSigning { pickle, public_key }
     }
 
@@ -144,8 +146,7 @@ impl MasterSigning {
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
                     &Box::<DeviceId>::from(self.inner.public_key.to_base64()),
-                )
-                .to_string(),
+                ),
                 signature.to_base64(),
             );
     }
@@ -154,7 +155,7 @@ impl MasterSigning {
 impl UserSigning {
     pub async fn pickle(&self) -> PickledUserSigning {
         let pickle = self.inner.pickle().await;
-        let public_key = self.public_key.clone().into();
+        let public_key = self.public_key.as_ref().clone();
         PickledUserSigning { pickle, public_key }
     }
 
@@ -174,7 +175,7 @@ impl UserSigning {
         user: &ReadOnlyUserIdentity,
     ) -> Result<CrossSigningKey, SignatureError> {
         let signatures = self.sign_user_helper(user).await?;
-        let mut master_key: CrossSigningKey = user.master_key().to_owned().into();
+        let mut master_key = user.master_key().as_ref().clone();
 
         master_key.signatures = signatures;
 
@@ -197,8 +198,7 @@ impl UserSigning {
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
                     &Box::<DeviceId>::from(self.inner.public_key.to_base64()),
-                )
-                .to_string(),
+                ),
                 signature.to_base64(),
             );
 
@@ -215,7 +215,7 @@ impl UserSigning {
 impl SelfSigning {
     pub async fn pickle(&self) -> PickledSelfSigning {
         let pickle = self.inner.pickle().await;
-        let public_key = self.public_key.clone().into();
+        let public_key = self.public_key.as_ref().clone();
         PickledSelfSigning { pickle, public_key }
     }
 
@@ -323,8 +323,7 @@ impl Signing {
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
                 &Box::<DeviceId>::from(self.public_key().to_base64()),
-            )
-            .to_string(),
+            ),
             self.inner.public_key().to_base64(),
         )]);
 

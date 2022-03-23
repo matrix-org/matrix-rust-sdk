@@ -29,13 +29,14 @@ use ruma::{
         message::send_message_event::v3::Response as RoomMessageResponse,
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
-    encryption::CrossSigningKey,
     events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::types::cross_signing_key::CrossSigningKey;
 
 /// Customized version of
 /// `ruma_client_api::to_device::send_event_to_device::v3::Request`
