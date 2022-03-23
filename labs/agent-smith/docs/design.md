@@ -170,3 +170,58 @@ would have to import those types and request them by-type explicitly.
 
 *This is a direct translation from dpy's cog concept, thrown in with bukkit's plugin concept, but
 made more rust-friendly and acquinted with concepts from actor systems.*
+
+#### Dispatch Queues
+
+For processing incoming events, there's quite a lot of room to be opinionated about in which order
+events are processed, but this can be countered by allowing library users to alter "the pipeline" by
+which their events are processed.
+
+So in principle, the sync API provides a stream of events, with which many handlers can be attached
+at the same time.
+
+However, how should these handlers be called? Should each handler be called sequentially or
+concurrent with every other one? Should the handler wait for one event to be handled by every
+handler before proceeding to the next one? Should it wait for a handler to return at all?
+
+The idea is that the library user can construct this "pipeline" they want themselves by plugging in
+queue objects, starting with the "tips" of the tree first, and moving down to the root, attaching
+the branches closer and closer to it each time.
+
+Something like this;
+
+```rs
+
+let queue1 = Queue().with(handle_thing).with(handle_other_thing);
+let queue2 = Queue().with(handle_thang);
+
+let branch_q = Queue().add(queue1).add(queue2);
+
+let queue3 = Queue().with(admin_commands);
+
+let root_queue = Queue().add(branch_q).add(queue3);
+
+client.event_queue(root_queue);
+```
+
+(The following headers will handle different "attributes" that each queue might have)
+
+##### Sequential / Concurrent
+
+A queue may have multiple handlers, and call ordering may matter.
+
+So, a queue would be able to be sequential, or be concurrent.
+
+The default behavior is to be concurrent, roughly equivalent to creating a bunch of `Future`s and
+stuffing them in a `FuturesUnordered`, and letting the underlying futures run to completion.
+
+Sequential is... well, sequential, it'll call and await the handlers each, only calling the next one
+when the last has completed.
+
+##### Synced / Desynced
+
+When events enter the queue, they can either be handled directly, or... well, queued up.
+
+So, a queue can be "synced" in this case (all handlers are handling the same event exactly), or they
+can be "desynced" (all incoming events spawn a dispatch immediately, not waiting until other earlier
+events have run until completion)
