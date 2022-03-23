@@ -17,7 +17,7 @@ use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duratio
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
-use reqwest::{Client, Response};
+use reqwest::Response;
 use ruma::api::{
     error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
     OutgoingRequestAppserviceExt, SendAccessToken,
@@ -213,7 +213,7 @@ impl Default for HttpSettings {
 
 impl HttpSettings {
     /// Build a client with the specified configuration.
-    pub(crate) fn make_client(&self) -> Result<Client, HttpError> {
+    pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         #[allow(unused_mut)]
         let mut http_client = reqwest::Client::builder();
 
@@ -258,7 +258,7 @@ async fn response_to_http_response(
 
 #[cfg(any(target_arch = "wasm32"))]
 async fn send_request(
-    client: &Client,
+    client: &reqwest::Client,
     request: http::Request<Bytes>,
     _: RequestConfig,
 ) -> Result<http::Response<Bytes>, HttpError> {
@@ -270,7 +270,7 @@ async fn send_request(
 
 #[cfg(all(not(target_arch = "wasm32")))]
 async fn send_request(
-    client: &Client,
+    client: &reqwest::Client,
     request: http::Request<Bytes>,
     config: RequestConfig,
 ) -> Result<http::Response<Bytes>, HttpError> {
@@ -333,7 +333,7 @@ async fn send_request(
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl HttpSend for Client {
+impl HttpSend for reqwest::Client {
     async fn send_request(
         &self,
         request: http::Request<Bytes>,
