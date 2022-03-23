@@ -108,17 +108,17 @@ impl HttpClient {
         HttpClient { inner, homeserver, session, request_config }
     }
 
-    #[tracing::instrument(
-        skip(self, request, session),
-        fields(request_type = type_name::<Request>())
-    )]
-    async fn send_request<Request: OutgoingRequest>(
+    #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
+    pub async fn send<Request>(
         &self,
         request: Request,
-        session: Arc<RwLock<Option<Session>>>,
         config: Option<RequestConfig>,
         server_versions: Arc<[MatrixVersion]>,
-    ) -> Result<http::Response<Bytes>, HttpError> {
+    ) -> Result<Request::IncomingResponse, HttpError>
+    where
+        Request: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
+    {
         let config = match config {
             Some(config) => config,
             None => self.request_config,
@@ -137,7 +137,7 @@ impl HttpClient {
                 // isn't going to be used anyways.
                 SendAccessToken::None
             } else {
-                match session.read().await.as_ref() {
+                match self.session.read().await.as_ref() {
                     Some(session) => {
                         access_token = session.access_token.clone();
                         if config.force_auth {
@@ -157,7 +157,7 @@ impl HttpClient {
             )?
         } else {
             let (send_access_token, user_id) = {
-                let session = session.read().await;
+                let session = self.session.read().await;
                 let session = session.as_ref().ok_or(HttpError::UserIdRequired)?;
 
                 access_token = session.access_token.clone();
@@ -173,21 +173,7 @@ impl HttpClient {
         };
 
         let request = request.map(|body| body.freeze());
-        self.inner.send_request(request, config).await
-    }
-
-    pub async fn send<Request>(
-        &self,
-        request: Request,
-        config: Option<RequestConfig>,
-        server_versions: Arc<[MatrixVersion]>,
-    ) -> Result<Request::IncomingResponse, HttpError>
-    where
-        Request: OutgoingRequest + Debug,
-        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
-    {
-        let response =
-            self.send_request(request, self.session.clone(), config, server_versions).await?;
+        let response = self.inner.send_request(request, config).await?;
 
         trace!("Got response: {:?}", response);
 
