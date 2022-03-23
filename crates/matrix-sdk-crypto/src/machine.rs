@@ -43,7 +43,6 @@ use ruma::{
         secret::request::SecretName,
         AnyRoomEvent, AnyToDeviceEvent, MessageEventContent,
     },
-    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
     UInt, UserId,
 };
@@ -534,8 +533,7 @@ impl OlmMachine {
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
         } else {
-            let device_keys =
-                device_keys.map(|d| Raw::new(&d).expect("Coulnd't serialize device keys"));
+            let device_keys = device_keys.map(|d| d.to_raw());
 
             Some(assign!(upload_keys::v3::Request::new(), {
                 device_keys, one_time_keys, fallback_keys

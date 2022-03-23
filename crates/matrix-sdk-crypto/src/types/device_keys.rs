@@ -1,0 +1,151 @@
+// Copyright 2020 Karl Linderhed.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+use std::collections::BTreeMap;
+
+use ruma::{serde::Raw, DeviceId, DeviceKeyId, EventEncryptionAlgorithm, UserId};
+use serde::{Deserialize, Serialize};
+use serde_json::{value::to_raw_value, Value};
+
+/// Identity keys for a device.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DeviceKeys {
+    /// The ID of the user the device belongs to.
+    ///
+    /// Must match the user ID used when logging in.
+    pub user_id: Box<UserId>,
+
+    /// The ID of the device these keys belong to.
+    ///
+    /// Must match the device ID used when logging in.
+    pub device_id: Box<DeviceId>,
+
+    /// The encryption algorithms supported by this device.
+    pub algorithms: Vec<EventEncryptionAlgorithm>,
+
+    /// Public identity keys.
+    pub keys: BTreeMap<Box<DeviceKeyId>, String>,
+
+    /// Signatures for the device key object.
+    pub signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+
+    /// Additional data added to the device key information by intermediate
+    /// servers, and not covered by the signatures.
+    #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
+    pub unsigned: UnsignedDeviceInfo,
+
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+
+impl DeviceKeys {
+    /// Creates a new `DeviceKeys` from the given user id, device id,
+    /// algorithms, keys and signatures.
+    pub fn new(
+        user_id: Box<UserId>,
+        device_id: Box<DeviceId>,
+        algorithms: Vec<EventEncryptionAlgorithm>,
+        keys: BTreeMap<Box<DeviceKeyId>, String>,
+        signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+    ) -> Self {
+        Self {
+            user_id,
+            device_id,
+            algorithms,
+            keys,
+            signatures,
+            unsigned: Default::default(),
+            other: BTreeMap::new(),
+        }
+    }
+
+    /// Serialize the device keys key into a Raw version.
+    pub fn to_raw<T>(&self) -> Raw<T> {
+        Raw::from_json(to_raw_value(&self).expect("Coulnd't serialize device keys"))
+    }
+}
+
+/// Additional data added to device key information by intermediate servers.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct UnsignedDeviceInfo {
+    /// The display name which the user set on the device.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_display_name: Option<String>,
+
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+
+impl UnsignedDeviceInfo {
+    /// Creates an empty `UnsignedDeviceInfo`.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Checks whether all fields are empty / `None`.
+    pub fn is_empty(&self) -> bool {
+        self.device_display_name.is_none()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use ruma::{device_id, user_id};
+    use serde_json::json;
+
+    use super::DeviceKeys;
+
+    #[test]
+    fn serialization() {
+        let json = json!({
+          "algorithms": vec![
+              "m.olm.v1.curve25519-aes-sha2",
+              "m.megolm.v1.aes-sha2"
+          ],
+          "device_id": "BNYQQWUMXO",
+          "user_id": "@example:localhost",
+          "keys": {
+              "curve25519:BNYQQWUMXO": "xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc",
+              "ed25519:BNYQQWUMXO": "2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4"
+          },
+          "signatures": {
+              "@example:localhost": {
+                  "ed25519:BNYQQWUMXO": "kTwMrbsLJJM/uFGOj/oqlCaRuw7i9p/6eGrTlXjo8UJMCFAetoyWzoMcF35vSe4S6FTx8RJmqX6rM7ep53MHDQ"
+              }
+          },
+          "unsigned": {
+              "device_display_name": "Alice's mobile phone",
+              "other_data": "other_value"
+          },
+
+          "other_data": "other_value"
+        });
+
+        let device_keys: DeviceKeys =
+            serde_json::from_value(json.clone()).expect("Can't deserialize device keys");
+
+        assert_eq!(device_keys.user_id, user_id!("@example:localhost"));
+        assert_eq!(&device_keys.device_id, device_id!("BNYQQWUMXO"));
+
+        let serialized = serde_json::to_value(device_keys).expect("Can't reserialize device keys");
+
+        assert_eq!(json, serialized);
+    }
+}

@@ -22,8 +22,7 @@ use std::{
 use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    api::client::keys::get_keys::v3::Response as KeysQueryResponse, encryption::DeviceKeys,
-    serde::Raw, DeviceId, UserId,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -36,6 +35,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
+    types::device_keys::DeviceKeys,
     LocalTrust,
 };
 
@@ -205,7 +205,7 @@ impl IdentityManager {
         own_user_id: Arc<UserId>,
         own_device_id: Arc<DeviceId>,
         user_id: Box<UserId>,
-        device_map: BTreeMap<Box<DeviceId>, Raw<DeviceKeys>>,
+        device_map: BTreeMap<Box<DeviceId>, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = (*own_device_id).to_owned();
 
@@ -214,8 +214,8 @@ impl IdentityManager {
         let current_devices: HashSet<Box<DeviceId>> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
-            .deserialize()
-        {
+            .deserialize_as::<DeviceKeys>(
+        ) {
             Ok(device_keys) => {
                 if user_id != device_keys.user_id || device_id != device_keys.device_id {
                     warn!(
@@ -285,7 +285,10 @@ impl IdentityManager {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
-        device_keys_map: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, Raw<DeviceKeys>>>,
+        device_keys_map: BTreeMap<
+            Box<UserId>,
+            BTreeMap<Box<DeviceId>, Raw<ruma::encryption::DeviceKeys>>,
+        >,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 

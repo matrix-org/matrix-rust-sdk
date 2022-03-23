@@ -24,7 +24,7 @@ use std::{
 
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
+    encryption::{CrossSigningKey, KeyUsage},
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
@@ -40,6 +40,7 @@ use crate::{
     error::SignatureError,
     olm::VerifyJson,
     store::{Changes, IdentityChanges},
+    types::device_keys::DeviceKeys,
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
@@ -950,9 +951,9 @@ pub(crate) mod testing {
     pub fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();
         let first =
-            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
+            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
         let second =
-            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
+            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
         (first, second)
     }
 

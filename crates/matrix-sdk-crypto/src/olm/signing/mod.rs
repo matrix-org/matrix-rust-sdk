@@ -23,7 +23,7 @@ use matrix_sdk_common::locks::Mutex;
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 use ruma::{
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
-    encryption::{DeviceKeys, KeyUsage},
+    encryption::KeyUsage,
     events::secret::request::SecretName,
     serde::Raw,
     UserId,
@@ -37,6 +37,7 @@ use crate::{
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     requests::UploadSigningKeysRequest,
     store::SecretImportError,
+    types::device_keys::DeviceKeys,
     OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentity,
 };
@@ -444,7 +445,7 @@ impl PrivateCrossSigningIdentity {
             .await?;
 
         let mut user_signed_keys = SignedKeys::new();
-        user_signed_keys.add_device_keys(device_keys.device_id.clone(), Raw::new(device_keys)?);
+        user_signed_keys.add_device_keys(device_keys.device_id.clone(), device_keys.to_raw());
 
         let signed_keys = [((*self.user_id).to_owned(), user_signed_keys)].into();
         Ok(SignatureUploadRequest::new(signed_keys))

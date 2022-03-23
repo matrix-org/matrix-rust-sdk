@@ -29,7 +29,7 @@ use ruma::{
         upload_keys,
         upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     },
-    encryption::{CrossSigningKey, DeviceKeys},
+    encryption::CrossSigningKey,
     events::{
         room::encrypted::{
             EncryptedEventScheme, OlmV1Curve25519AesSha2Content, ToDeviceRoomEncryptedEvent,
@@ -57,7 +57,10 @@ use crate::{
     identities::{MasterPubkey, ReadOnlyDevice},
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
-    types::one_time_keys::{OneTimeKey, SignedKey},
+    types::{
+        device_keys::DeviceKeys,
+        one_time_keys::{OneTimeKey, SignedKey},
+    },
     utilities::encode,
     CryptoStoreError, OlmError, SignatureError,
 };
