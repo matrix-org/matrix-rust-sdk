@@ -19,8 +19,8 @@ use http::Response as HttpResponse;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use reqwest::{Client, Response};
 use ruma::api::{
-    client::media::create_content, error::FromHttpResponseError, AuthScheme, IncomingResponse,
-    MatrixVersion, OutgoingRequest, OutgoingRequestAppserviceExt, SendAccessToken,
+    error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
+    OutgoingRequestAppserviceExt, SendAccessToken,
 };
 use tracing::trace;
 use url::Url;
@@ -174,17 +174,6 @@ impl HttpClient {
 
         let request = request.map(|body| body.freeze());
         self.inner.send_request(request, config).await
-    }
-
-    pub async fn upload(
-        &self,
-        request: create_content::v3::Request<'_>,
-        config: Option<RequestConfig>,
-        server_versions: Arc<[MatrixVersion]>,
-    ) -> Result<create_content::v3::Response, HttpError> {
-        let response =
-            self.send_request(request, self.session.clone(), config, server_versions).await?;
-        Ok(create_content::v3::Response::try_from_http_response(response)?)
     }
 
     pub async fn send<Request>(
