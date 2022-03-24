@@ -25,7 +25,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::{Label, Msg};
+use super::{Label, Msg, JackInEvent};
 
 use std::ops::Add;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -33,7 +33,7 @@ use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{Alignment, Color, TextModifiers};
 use tuirealm::tui::layout::Rect;
 use tuirealm::{
-    AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, State, StateValue,
+    AttrValue, Attribute, Component, Event, Frame, MockComponent, State, StateValue,
 };
 
 /// ## Clock
@@ -116,8 +116,8 @@ impl MockComponent for Clock {
     }
 }
 
-impl Component<Msg, NoUserEvent> for Clock {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
+impl Component<Msg, JackInEvent> for Clock {
+    fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
         if let Event::Tick = ev {
             self.states.tick();
             // Set text

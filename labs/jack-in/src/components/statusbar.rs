@@ -1,10 +1,10 @@
 
-use super::{Msg, get_block};
+use super::{Msg, get_block, JackInEvent};
 
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::tui::{layout::Rect, widgets::{Paragraph, Tabs}, text::{Span, Spans} };
 use tuirealm::{
-    AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, Props, State,
+    AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
 use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
 use super::super::client::state::SlidingSyncState;
@@ -21,6 +21,9 @@ impl StatusBar {
             props: Props::default(),
             sstate,
         }
+    }
+    pub fn set_sliding_sync(&mut self, sstate: SlidingSyncState) {
+        self.sstate = sstate;
     }
 }
 
@@ -91,9 +94,11 @@ impl MockComponent for StatusBar {
     }
 }
 
-impl Component<Msg, NoUserEvent> for StatusBar {
-    fn on(&mut self, _: Event<NoUserEvent>) -> Option<Msg> {
-        // Does nothing
+impl Component<Msg, JackInEvent> for StatusBar {
+    fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
+        if let Event::User(JackInEvent::SyncUpdate(s)) = ev {
+            self.set_sliding_sync(s.clone());
+        }
         None
     }
 }

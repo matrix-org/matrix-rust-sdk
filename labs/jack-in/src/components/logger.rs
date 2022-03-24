@@ -1,10 +1,10 @@
 
-use super::{Msg, get_block};
+use super::{Msg, get_block, JackInEvent};
 
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::tui::{layout::Rect, widgets::Paragraph};
 use tuirealm::{
-    AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, Props, State,
+    AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
 use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
 use tui_logger::TuiLoggerWidget;
@@ -69,8 +69,8 @@ impl MockComponent for Logger {
     }
 }
 
-impl Component<Msg, NoUserEvent> for Logger {
-    fn on(&mut self, _: Event<NoUserEvent>) -> Option<Msg> {
+impl Component<Msg, JackInEvent> for Logger {
+    fn on(&mut self, _: Event<JackInEvent>) -> Option<Msg> {
         // Does nothing
         None
     }

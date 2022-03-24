@@ -25,7 +25,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::{get_block, Msg};
+use super::{get_block, Msg, JackInEvent};
 
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::event::Key;
@@ -34,7 +34,7 @@ use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
 use tuirealm::tui::layout::Rect;
 use tuirealm::tui::widgets::{BorderType, Paragraph};
 use tuirealm::{
-    AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, Props, State,
+    AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
     StateValue,
 };
 
@@ -218,8 +218,8 @@ impl LetterCounter {
     }
 }
 
-impl Component<Msg, NoUserEvent> for LetterCounter {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
+impl Component<Msg, JackInEvent> for LetterCounter {
+    fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
         // Get command
         let cmd = match ev {
             Event::Keyboard(KeyEvent {
@@ -270,8 +270,8 @@ impl DigitCounter {
     }
 }
 
-impl Component<Msg, NoUserEvent> for DigitCounter {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
+impl Component<Msg, JackInEvent> for DigitCounter {
+    fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
         // Get command
         let cmd = match ev {
             Event::Keyboard(KeyEvent {

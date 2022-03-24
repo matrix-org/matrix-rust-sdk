@@ -25,13 +25,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::Msg;
+use super::{Msg, JackInEvent};
 
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{Alignment, Color, Style, TextModifiers};
 use tuirealm::tui::{layout::Rect, widgets::Paragraph};
 use tuirealm::{
-    AttrValue, Attribute, Component, Event, Frame, MockComponent, NoUserEvent, Props, State,
+    AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
 
 /// ## Label
@@ -140,8 +140,8 @@ impl MockComponent for Label {
     }
 }
 
-impl Component<Msg, NoUserEvent> for Label {
-    fn on(&mut self, _: Event<NoUserEvent>) -> Option<Msg> {
+impl Component<Msg, JackInEvent> for Label {
+    fn on(&mut self, _: Event<JackInEvent>) -> Option<Msg> {
         // Does nothing
         None
     }

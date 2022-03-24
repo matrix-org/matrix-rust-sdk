@@ -28,7 +28,7 @@
 
 use tuirealm::application::PollStrategy;
 
-use tuirealm::{AttrValue, Attribute, Update};
+use tuirealm::{AttrValue, Attribute, Event, Update};
 
 use eyre::{eyre, Result};
 use log::LevelFilter;
@@ -46,16 +46,19 @@ use tokio::sync::mpsc;
 #[derive(PartialEq)]
 pub enum Msg {
     AppClose,
-    SyncUpdate(client::state::SlidingSyncState),
     Clock,
-    DigitCounterChanged(isize),
-    DigitCounterBlur,
+    RoomsBlur,
     LetterCounterChanged(isize),
     LetterCounterBlur,
 }
 
+#[derive(Eq, PartialEq, PartialOrd, Clone)]
+pub enum JackInEvent {
+    SyncUpdate(client::state::SlidingSyncState),
+}
+
 // Let's define the component ids for our application
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, PartialOrd,Clone, Hash)]
 pub enum Id {
     Clock,
     DigitCounter,
@@ -83,6 +86,21 @@ struct Opt {
     /// Your access token to connect via the 
     #[structopt(short, long, env="JACKIN_TOKEN")]
     token: String,
+}
+
+
+pub(crate) struct MatrixPoller(mpsc::Receiver<client::state::SlidingSyncState>);
+
+impl tuirealm::listener::Poll<JackInEvent> for MatrixPoller {
+
+    fn poll(&mut self) -> tuirealm::listener::ListenerResult<Option<Event<JackInEvent>>> {
+        match self.0.try_recv() {
+                Ok(v) => Ok(Some(Event::User(JackInEvent::SyncUpdate(v)))),
+                Err(mpsc::error::TryRecvError::Empty) => Ok(None),
+                _ => Err(tuirealm::listener::ListenerError::ListenerDied)
+        }
+    }
+
 }
 
 #[tokio::main]
@@ -115,31 +133,24 @@ async fn main() -> Result<()> {
             warn!("Running the client failed: {:#?}", e);
         }
     });
-    
-    let model = Model::new(rx.recv().await.ok_or_else(|| eyre!("failure getting the sliding sync state"))?);
 
-    run_ui(model, rx).await;
+    let start_sync = rx.recv().await.ok_or_else(|| eyre!("failure getting the sliding sync state"))?;
+    let poller = MatrixPoller(rx);
+    let model = Model::new(start_sync, poller);
+    
+
+    run_ui(model).await;
 
     Ok(())
 }
 
-async fn run_ui(mut model: Model, mut rx:  mpsc::Receiver<client::state::SlidingSyncState>) {
+async fn run_ui(mut model: Model) {
     // Enter alternate screen
     let _ = model.terminal.enter_alternate_screen();
     let _ = model.terminal.enable_raw_mode();
     // Main loop
     // NOTE: loop until quit; quit is set in update if AppClose is received from counter
     while !model.quit {
-        let mut new_view = None;
-
-        while let Ok(view) = rx.try_recv() {
-            // let's get through all of them before.
-            new_view = Some(view);
-        }
-
-        if let Some(view) = new_view {
-            model.update(Some(Msg::SyncUpdate(view)));
-        }
         // Tick
         match model.app.tick(PollStrategy::Once) {
             Err(err) => {

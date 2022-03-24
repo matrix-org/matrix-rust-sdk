@@ -69,6 +69,20 @@ pub struct SlidingSyncState {
     pub selected_room: Option<Box<matrix_sdk::ruma::RoomId>>
 }
 
+impl std::cmp::PartialOrd for SlidingSyncState {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        None
+    }
+}
+
+impl std::cmp::Ord for SlidingSyncState {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
+}
+
+impl std::cmp::Eq for SlidingSyncState { }
+
 impl std::cmp::PartialEq for SlidingSyncState {
     fn eq(&self, other: &SlidingSyncState) -> bool {
         false

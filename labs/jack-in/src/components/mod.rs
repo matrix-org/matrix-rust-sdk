@@ -25,7 +25,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::Msg;
+use super::{Msg, JackInEvent};
 
 use tuirealm::props::{Alignment, Borders, Color, Style};
 
@@ -33,7 +33,6 @@ use tuirealm::tui::widgets::Block;
 
 // -- modules
 mod clock;
-mod counter;
 mod logger;
 mod label;
 mod statusbar;
@@ -41,7 +40,6 @@ mod rooms;
 
 // -- export
 pub use clock::Clock;
-pub use counter::{DigitCounter, LetterCounter};
 pub use label::Label;
 pub use logger::Logger;
 pub use statusbar::StatusBar;

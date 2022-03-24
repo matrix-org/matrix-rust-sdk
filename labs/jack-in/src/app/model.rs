@@ -25,15 +25,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::components::{Clock, DigitCounter, Label, Logger, StatusBar, Rooms, LetterCounter};
-use super::{Id, Msg};
+use super::components::{Clock, Label, Logger, StatusBar, Rooms};
+use super::{Id, Msg, JackInEvent, MatrixPoller};
 
 use std::time::{Duration, SystemTime};
 use tuirealm::props::{Alignment, Color, TextModifiers};
 use tuirealm::terminal::TerminalBridge;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
 use tuirealm::{
-    event::NoUserEvent, Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause,
+    Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause,
     SubEventClause, Update,
 };
 
@@ -43,27 +43,26 @@ use std::sync::Arc;
 
 pub struct Model {
     /// Application
-    pub app: Application<Id, Msg, NoUserEvent>,
+    pub app: Application<Id, Msg, JackInEvent>,
     /// Indicates that the application must quit
     pub quit: bool,
     /// Tells whether to redraw interface
     pub redraw: bool,
     /// Used to draw to terminal
     pub terminal: TerminalBridge,
-    /// State for SlidingSync.
-    pub sliding_sync: SlidingSyncState,
     /// show the logger console
     pub show_logger: bool,
 }
 
 impl Model {
-    pub fn new(sliding_sync: SlidingSyncState) -> Self {
+    pub(crate) fn new(sliding_sync: SlidingSyncState, poller: MatrixPoller) -> Self {
+        let app = Self::init_app(sliding_sync, poller);
+
         Self {
-            app: Self::init_app(sliding_sync.clone()),
+            app,
             quit: false,
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
-            sliding_sync,
             show_logger: true,
         }
     }
@@ -109,36 +108,19 @@ impl Model {
             .is_ok());
     }
 
-    fn mount_sliding_sync_components(&mut self) {
 
-        assert!(self.app
-            .remount(
-                Id::Status,
-                Box::new(StatusBar::new(self.sliding_sync.clone())),
-                Vec::default()
-            )
-            .is_ok());
-    
-        assert!(self.app
-            .remount(
-                Id::Rooms,
-                Box::new(Rooms::new(self.sliding_sync.clone())),
-                Vec::default()
-            )
-            .is_ok());
-    }
-
-    fn init_app(sliding_sync: SlidingSyncState) -> Application<Id, Msg, NoUserEvent> {
+    fn init_app(sliding_sync: SlidingSyncState, poller: MatrixPoller) -> Application<Id, Msg, JackInEvent> {
         // Setup application
-        // NOTE: NoUserEvent is a shorthand to tell tui-realm we're not going to use any custom user event
+        // NOTE: JackInEvent is a shorthand to tell tui-realm we're not going to use any custom user event
         // NOTE: the event listener is configured to use the default crossterm input listener and to raise a Tick event each second
         // which we will use to update the clock
 
-        let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
+        let mut app: Application<Id, Msg, JackInEvent> = Application::init(
             EventListenerCfg::default()
                 .default_input_listener(Duration::from_millis(20))
+                .port(Box::new(poller), Duration::from_millis(100))
                 .poll_timeout(Duration::from_millis(10))
-                .tick_interval(Duration::from_secs(1)),
+                .tick_interval(Duration::from_millis(200)),
         );
         // Mount components
         assert!(app
@@ -169,21 +151,6 @@ impl Model {
                 vec![Sub::new(SubEventClause::Tick, SubClause::Always)]
             )
             .is_ok());
-        // Mount counters
-        assert!(app
-            .mount(
-                Id::LetterCounter,
-                Box::new(LetterCounter::new(0)),
-                Vec::new()
-            )
-            .is_ok());
-        assert!(app
-            .mount(
-                Id::DigitCounter,
-                Box::new(DigitCounter::new(5)),
-                Vec::default()
-            )
-            .is_ok());
         /// mount logger
         assert!(app
             .remount(
@@ -192,25 +159,32 @@ impl Model {
                 Vec::default()
             )
             .is_ok());
-        
+
+    
         assert!(app
             .mount(
                 Id::Status,
                 Box::new(StatusBar::new(sliding_sync.clone())),
-                Vec::default()
+                vec![Sub::new(
+                    SubEventClause::Any,
+                    SubClause::Always
+                )]
             )
         .is_ok());
-    
+
         assert!(app
             .mount(
                 Id::Rooms,
                 Box::new(Rooms::new(sliding_sync)),
-                Vec::default()
+                vec![Sub::new(
+                    SubEventClause::Any,
+                    SubClause::Always
+                )]
             )
         .is_ok());
         //app.mount_sliding_sync_components();
         // Active letter counter
-        assert!(app.active(&Id::LetterCounter).is_ok());
+        assert!(app.active(&Id::Rooms).is_ok());
         app
     }
 }
@@ -229,26 +203,9 @@ impl Update<Msg> for Model {
                     None
                 }
                 Msg::Clock => None,
-                Msg::SyncUpdate(s) => {
-                    self.sliding_sync = s;
-                    self.mount_sliding_sync_components();
-                    None
-                }
-                Msg::DigitCounterBlur => {
+                Msg::RoomsBlur => {
                     // Give focus to letter counter
-                    assert!(self.app.active(&Id::LetterCounter).is_ok());
-                    None
-                }
-                Msg::DigitCounterChanged(v) => {
-                    // Update label
-                    assert!(self
-                        .app
-                        .attr(
-                            &Id::Label,
-                            Attribute::Text,
-                            AttrValue::String(format!("DigitCounter has now value: {}", v))
-                        )
-                        .is_ok());
+                    assert!(self.app.active(&Id::Rooms).is_ok());
                     None
                 }
                 Msg::LetterCounterBlur => {
