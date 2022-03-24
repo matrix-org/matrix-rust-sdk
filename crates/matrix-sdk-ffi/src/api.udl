@@ -41,12 +41,12 @@ interface Client {
     string display_name();
 
     [Throws=ClientError]
-    string device_id();
+    string avatar_url();
 
     [Throws=ClientError]
-    sequence<u8> avatar();
+    string device_id();
 
-    sequence<Room> conversations();
+    sequence<Room> rooms();
 
     [Throws=ClientError]
     sequence<u8> load_image(string url);
@@ -71,6 +71,9 @@ interface Room {
     [Throws=ClientError]
     string? member_avatar_url(string user_id);
 
+    [Throws=ClientError]
+    string? member_display_name(string user_id);
+
     boolean is_direct();
 
     boolean is_public();
@@ -78,6 +81,8 @@ interface Room {
     boolean is_space();
 
     boolean is_encrypted();
+
+    boolean is_tombstoned();
 
     string? name();
 
@@ -102,13 +107,14 @@ interface AnyMessage {
 
 interface BaseMessage {
     string id();
-    string content();
+    string body();
     string sender();
     u64 origin_server_ts();
 };
 
 interface TextMessage {
     BaseMessage base_message();
+    string? html_body();
 };
 
 interface ImageMessage {

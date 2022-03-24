@@ -117,8 +117,8 @@ impl Client {
         })
     }
 
-    pub fn conversations(&self) -> Vec<Arc<Room>> {
-        self.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+    pub fn rooms(&self) -> Vec<Arc<Room>> {
+        self.client.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
     }
 
     pub fn user_id(&self) -> Result<String> {
@@ -137,23 +137,19 @@ impl Client {
         })
     }
 
+    pub fn avatar_url(&self) -> Result<String> {
+        let l = self.client.clone();
+        RUNTIME.block_on(async move {
+            let avatar_url = l.account().get_avatar_url().await?.expect("No User ID found");
+            Ok(avatar_url.as_str().to_string())
+        })
+    }
+
     pub fn device_id(&self) -> Result<String> {
         let l = self.client.clone();
         RUNTIME.block_on(async move {
             let device_id = l.device_id().await.expect("No Device ID found");
             Ok(device_id.as_str().to_string())
-        })
-    }
-
-    pub fn avatar(&self) -> Result<Vec<u8>> {
-        let l = self.client.clone();
-        RUNTIME.block_on(async move {
-            let uri = l.account().get_avatar_url().await?.expect("No avatar Url given");
-            Ok(l.get_media_content(
-                &MediaRequest { media_type: MediaType::Uri(uri), format: MediaFormat::File },
-                true,
-            )
-            .await?)
         })
     }
 

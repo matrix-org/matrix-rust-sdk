@@ -64,6 +64,17 @@ impl Room {
         })
     }
 
+    pub fn member_display_name(&self, user_id: String) -> Result<Option<String>> {
+        let room = self.room.clone();
+        let user_id = user_id.clone();
+        RUNTIME.block_on(async move {
+            let user_id = <&UserId>::try_from(&*user_id).expect("Invalid user id.");
+            let member = room.get_member(user_id).await?.expect("No user found");
+            let avatar_url_string = member.display_name().map(|m| m.to_string());
+            return Ok(avatar_url_string)
+        })
+    }
+
     pub fn is_direct(&self) -> bool {
         self.room.is_direct()
     }
@@ -78,6 +89,10 @@ impl Room {
 
     pub fn is_space(&self) -> bool {
         self.room.is_space()
+    }
+
+    pub fn is_tombstoned(&self) -> bool {
+        self.room.is_tombstoned()
     }
 
     pub fn start_live_event_listener(&self) -> Option<Arc<BackwardsStream>> {

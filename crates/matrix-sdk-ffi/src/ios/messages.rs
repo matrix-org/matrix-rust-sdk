@@ -3,7 +3,7 @@ use std::sync::Arc;
 use matrix_sdk::{
     deserialized_responses::SyncRoomEvent,
     ruma::{
-        events::{room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent},
+        events::{room::message::{MessageType, MessageFormat}, AnySyncMessageEvent, AnySyncRoomEvent},
         MxcUri,
     },
 };
@@ -11,7 +11,7 @@ use matrix_sdk::{
 #[derive(Clone)]
 pub struct BaseMessage {
     id: String,
-    content: String,
+    body: String,
     sender: String,
     origin_server_ts: u64,
 }
@@ -21,8 +21,8 @@ impl BaseMessage {
         self.id.clone()
     }
 
-    pub fn content(&self) -> String {
-        self.content.clone()
+    pub fn body(&self) -> String {
+        self.body.clone()
     }
 
     pub fn sender(&self) -> String {
@@ -36,11 +36,16 @@ impl BaseMessage {
 
 pub struct TextMessage {
     base_message: Arc<BaseMessage>,
+    html_body: Option<String>,
 }
 
 impl TextMessage {
     pub fn base_message(&self) -> Arc<BaseMessage> {
         return self.base_message.clone();
+    }
+
+    pub fn html_body(&self) -> Option<String> {
+        self.html_body.clone()
     }
 }
 
@@ -82,7 +87,7 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
         Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => {
             let base_message = Arc::new(BaseMessage {
                 id: m.event_id.to_string(),
-                content: m.content.body().to_string(),
+                body: m.content.body().to_string(),
                 sender: m.sender.to_string(),
                 origin_server_ts: m.origin_server_ts.as_secs().into(),
             });
@@ -94,6 +99,21 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
                         image: Some(Arc::new(ImageMessage { base_message, url: content.url })),
                     };
 
+                    return Some(Arc::new(any_message));
+                }
+                MessageType::Text(content) => {
+
+                    let mut html_body: Option<String> = None;
+                    if let Some(formatted_body) = content.formatted {
+                        if formatted_body.format == MessageFormat::Html {
+                            html_body = Some(formatted_body.body);
+                        }
+                    }
+
+                    let any_message = AnyMessage {
+                        text: Some(Arc::new(TextMessage { base_message, html_body })),
+                        image: None,
+                    };
                     return Some(Arc::new(any_message));
                 }
                 // MessageType::Audio(content) => {
@@ -111,12 +131,9 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
                 // MessageType::Video(content) => {
 
                 // }
-                // MessageType::Text(content) => {
-
-                // }
                 _ => {
                     let any_message = AnyMessage {
-                        text: Some(Arc::new(TextMessage { base_message })),
+                        text: Some(Arc::new(TextMessage { base_message, html_body: None })),
                         image: None,
                     };
                     return Some(Arc::new(any_message));
