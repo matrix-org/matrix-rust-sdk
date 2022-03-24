@@ -717,6 +717,12 @@ impl BaseClient {
             let room = self.store.get_or_create_stripped_room(&room_id).await;
             let mut room_info = room.clone_info();
 
+            if let Some(r) = self.store.get_room(&room_id) {
+                let mut room_info = r.clone_info();
+                room_info.mark_as_invited();
+                changes.add_room(room_info);
+            }
+
             let (members, state_events) =
                 self.handle_invited_state(&new_info.invite_state.events, &mut room_info);
 

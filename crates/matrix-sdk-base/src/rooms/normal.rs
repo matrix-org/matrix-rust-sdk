@@ -624,6 +624,11 @@ impl RoomInfo {
         self.room_type = RoomType::Left;
     }
 
+    /// Mark this Room as invited
+    pub fn mark_as_invited(&mut self) {
+        self.room_type = RoomType::Invited;
+    }
+
     /// Mark this Room as having all the members synced
     pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
