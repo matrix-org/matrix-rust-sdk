@@ -3,28 +3,27 @@
 use std::{collections::HashMap, convert::TryFrom};
 
 use http::Response;
-use matrix_sdk_common::uuid::Uuid;
 use matrix_sdk_crypto::{
     IncomingResponse, OutgoingRequest, OutgoingVerificationRequest as SdkVerificationRequest,
     RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest as RustUploadSigningKeysRequest,
 };
 use ruma::{
-    api::client::r0::{
-        backup::add_backup_keys::Response as KeysBackupResponse,
+    api::client::{
+        backup::add_backup_keys::v3::Response as KeysBackupResponse,
         keys::{
-            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-            get_keys::Response as KeysQueryResponse,
-            upload_keys::Response as KeysUploadResponse,
-            upload_signatures::{
+            claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+            get_keys::v3::Response as KeysQueryResponse,
+            upload_keys::v3::Response as KeysUploadResponse,
+            upload_signatures::v3::{
                 Request as RustSignatureUploadRequest, Response as SignatureUploadResponse,
             },
         },
-        sync::sync_events::DeviceLists as RumaDeviceLists,
-        to_device::send_event_to_device::Response as ToDeviceResponse,
+        sync::sync_events::v3::DeviceLists as RumaDeviceLists,
+        to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
     assign,
     events::EventContent,
-    identifiers::UserId,
+    TransactionId, UserId,
 };
 use serde_json::json;
 
@@ -96,7 +95,7 @@ impl From<SdkVerificationRequest> for OutgoingVerificationRequest {
                 room_id: r.room_id.to_string(),
                 content: serde_json::to_string(&r.content)
                     .expect("Can't serialize message content"),
-                event_type: r.content.event_type().to_owned(),
+                event_type: r.content.event_type().to_string(),
             },
         }
     }
@@ -105,7 +104,7 @@ impl From<SdkVerificationRequest> for OutgoingVerificationRequest {
 impl From<ToDeviceRequest> for OutgoingVerificationRequest {
     fn from(r: ToDeviceRequest) -> Self {
         Self::ToDevice {
-            request_id: r.txn_id_string(),
+            request_id: r.txn_id.to_string(),
             event_type: r.event_type.to_string(),
             body: serde_json::to_string(&r.messages).expect("Can't serialize to-device body"),
         }
@@ -151,7 +150,7 @@ impl From<OutgoingRequest> for Request {
                     .expect("Can't serialize signature upload request"),
             },
             RoomMessage(r) => Request::from(r),
-            KeysClaim(c) => (*r.request_id(), c.clone()).into(),
+            KeysClaim(c) => (r.request_id().to_owned(), c.clone()).into(),
             KeysBackup(b) => Request::KeysBackup {
                 request_id: r.request_id().to_string(),
                 version: b.version.to_owned(),
@@ -165,15 +164,15 @@ impl From<OutgoingRequest> for Request {
 impl From<ToDeviceRequest> for Request {
     fn from(r: ToDeviceRequest) -> Self {
         Request::ToDevice {
-            request_id: r.txn_id_string(),
+            request_id: r.txn_id.to_string(),
             event_type: r.event_type.to_string(),
             body: serde_json::to_string(&r.messages).expect("Can't serialize to-device body"),
         }
     }
 }
 
-impl From<(Uuid, KeysClaimRequest)> for Request {
-    fn from(request_tuple: (Uuid, KeysClaimRequest)) -> Self {
+impl From<(Box<TransactionId>, KeysClaimRequest)> for Request {
+    fn from(request_tuple: (Box<TransactionId>, KeysClaimRequest)) -> Self {
         let (request_id, request) = request_tuple;
 
         Request::KeysClaim {
@@ -195,7 +194,7 @@ impl From<(Uuid, KeysClaimRequest)> for Request {
 impl From<&ToDeviceRequest> for Request {
     fn from(r: &ToDeviceRequest) -> Self {
         Request::ToDevice {
-            request_id: r.txn_id_string(),
+            request_id: r.txn_id.to_string(),
             event_type: r.event_type.to_string(),
             body: serde_json::to_string(&r.messages).expect("Can't serialize to-device body"),
         }
@@ -207,7 +206,7 @@ impl From<&RoomMessageRequest> for Request {
         Self::RoomMessage {
             request_id: r.txn_id.to_string(),
             room_id: r.room_id.to_string(),
-            event_type: r.content.event_type().to_owned(),
+            event_type: r.content.event_type().to_string(),
             content: serde_json::to_string(&r.content).expect("Can't serialize message content"),
         }
     }

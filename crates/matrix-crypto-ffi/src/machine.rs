@@ -5,36 +5,36 @@ use std::{
     ops::Deref,
 };
 
+use anyhow::anyhow;
 use base64::{decode_config, encode, STANDARD_NO_PAD};
 use js_int::UInt;
-use matrix_sdk_common::{deserialized_responses::AlgorithmInfo, uuid::Uuid};
+use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
-    backups::{MegolmV1BackupKey as RustBackupKey, RecoveryKey},
-    decrypt_key_export, encrypt_key_export,
-    matrix_qrcode::QrVerificationData,
-    olm::ExportedRoomKey,
+    backups::MegolmV1BackupKey as RustBackupKey, decrypt_key_export, encrypt_key_export,
+    matrix_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey,
     EncryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentities,
     Verification as RustVerification,
 };
 use ruma::{
     api::{
-        client::r0::{
-            backup::add_backup_keys::Response as KeysBackupResponse,
+        client::{
+            backup::add_backup_keys::v3::Response as KeysBackupResponse,
             keys::{
-                claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
-                upload_keys::Response as KeysUploadResponse,
-                upload_signatures::Response as SignatureUploadResponse,
+                claim_keys::v3::Response as KeysClaimResponse,
+                get_keys::v3::Response as KeysQueryResponse,
+                upload_keys::v3::Response as KeysUploadResponse,
+                upload_signatures::v3::Response as SignatureUploadResponse,
             },
-            sync::sync_events::{DeviceLists as RumaDeviceLists, ToDevice},
-            to_device::send_event_to_device::Response as ToDeviceResponse,
+            sync::sync_events::v3::{DeviceLists as RumaDeviceLists, ToDevice},
+            to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         IncomingResponse,
     },
     events::{
         key::verification::VerificationMethod, room::encrypted::RoomEncryptedEventContent,
-        AnyMessageEventContent, EventContent, SyncMessageEvent,
+        AnyMessageLikeEventContent, EventContent, SyncMessageLikeEvent,
     },
-    DeviceKeyAlgorithm, EventId, RoomId, UserId,
+    DeviceKeyAlgorithm, EventId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -82,9 +82,22 @@ impl OlmMachine {
         let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
+        let store =
+            Box::new(matrix_sdk_sled::CryptoStore::open_with_passphrase(path, None).map_err(
+                |e| match e {
+                    // This is a bit of an error in the sled store, the
+                    // CryptoStore returns an `OpenStoreError` which has a
+                    // variant for the state store. Not sure what to do about
+                    // this.
+                    matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
+                    matrix_sdk_sled::OpenStoreError::Sled(s) => {
+                        CryptoStoreError::CryptoStore(anyhow!(s).into())
+                    }
+                },
+            )?);
+
         Ok(OlmMachine {
-            inner: runtime
-                .block_on(InnerMachine::new_with_default_store(&user_id, device_id, path, None))?,
+            inner: runtime.block_on(InnerMachine::with_store(user_id, device_id, store))?,
             runtime,
         })
     }
@@ -239,7 +252,11 @@ impl OlmMachine {
 
     /// Get our own identity keys.
     pub fn identity_keys(&self) -> HashMap<String, String> {
-        self.inner.identity_keys().iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect()
+        let identity_keys = self.inner.identity_keys();
+        let curve_key = identity_keys.curve25519.to_base64();
+        let ed25519_key = identity_keys.ed25519.to_base64();
+
+        HashMap::from([("ed25519".to_owned(), ed25519_key), ("curve25519".to_owned(), curve_key)])
     }
 
     /// Get the list of outgoing requests that need to be sent to the
@@ -275,7 +292,7 @@ impl OlmMachine {
         request_type: RequestType,
         response_body: &str,
     ) -> Result<(), CryptoStoreError> {
-        let id = Uuid::parse_str(request_id).expect("Can't parse request id");
+        let id: Box<TransactionId> = request_id.into();
 
         let response = response_from_string(response_body);
 
@@ -485,7 +502,7 @@ impl OlmMachine {
         let room_id = Box::<RoomId>::try_from(room_id)?;
         let content: Box<RawValue> = serde_json::from_str(content)?;
 
-        let content = AnyMessageEventContent::from_parts(event_type, &content)?;
+        let content = AnyMessageLikeEventContent::from_parts(event_type, &content)?;
         let encrypted_content = self
             .runtime
             .block_on(self.inner.encrypt(&room_id, content))
@@ -517,7 +534,7 @@ impl OlmMachine {
             content: &'a RawValue,
         }
 
-        let event: SyncMessageEvent<RoomEncryptedEventContent> = serde_json::from_str(event)?;
+        let event: SyncMessageLikeEvent<RoomEncryptedEventContent> = serde_json::from_str(event)?;
         let room_id = Box::<RoomId>::try_from(room_id)?;
 
         let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(&event, &room_id))?;
@@ -555,7 +572,7 @@ impl OlmMachine {
         event: &str,
         room_id: &str,
     ) -> Result<KeyRequestPair, DecryptionError> {
-        let event: SyncMessageEvent<RoomEncryptedEventContent> = serde_json::from_str(event)?;
+        let event: SyncMessageLikeEvent<RoomEncryptedEventContent> = serde_json::from_str(event)?;
         let room_id = Box::<RoomId>::try_from(room_id)?;
 
         let (cancel, request) =
@@ -954,15 +971,17 @@ impl OlmMachine {
         Ok(if let Some(verification) = self.inner.get_verification(&user_id, flow_id) {
             match verification {
                 RustVerification::SasV1(v) => {
-                    let (request, signature_request) = self.runtime.block_on(v.confirm())?;
+                    let (requests, signature_request) = self.runtime.block_on(v.confirm())?;
 
-                    request.map(|r| ConfirmVerificationResult {
-                        request: r.into(),
+                    let requests = requests.into_iter().map(|r| r.into()).collect();
+
+                    Some(ConfirmVerificationResult {
+                        requests,
                         signature_request: signature_request.map(|s| s.into()),
                     })
                 }
                 RustVerification::QrV1(v) => v.confirm_scanning().map(|r| {
-                    ConfirmVerificationResult { request: r.into(), signature_request: None }
+                    ConfirmVerificationResult { requests: vec![r.into()], signature_request: None }
                 }),
             }
         } else {

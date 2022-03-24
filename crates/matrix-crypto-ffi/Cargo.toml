@@ -9,6 +9,7 @@ crate-type = ["cdylib", "lib"]
 name = "matrix_crypto"
 
 [dependencies]
+anyhow = "1.0.56"
 base64 = "0.13.0"
 hmac = "0.11.0"
 http = "0.2.4"
@@ -27,13 +28,16 @@ version = "0.2.1"
 features = ["lax_deserialize"]
 
 [dependencies.matrix-sdk-common]
-git = "https://github.com/matrix-org/matrix-rust-sdk/"
-rev = "009ead2eeaf365e1fb0f790557f20d4eaf6874ae"
+path = "../matrix-sdk-common"
 
 [dependencies.matrix-sdk-crypto]
-git = "https://github.com/matrix-org/matrix-rust-sdk/"
-rev = "009ead2eeaf365e1fb0f790557f20d4eaf6874ae"
-features = ["sled_cryptostore", "qrcode", "backups_v1"]
+path = "../matrix-sdk-crypto"
+features = ["qrcode", "backups_v1"]
+
+[dependencies.matrix-sdk-sled]
+path = "../matrix-sdk-sled"
+default_features = false
+features = ["crypto-store"]
 
 [dependencies.tokio]
 version = "1.7.1"
@@ -42,7 +46,7 @@ features = ["rt-multi-thread"]
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma"
-rev = "fdbc4d6d1dd273c8a6ac95b329943ed8c68df70d"
+rev = "deea762b8"
 features = ["client-api-c"]
 
 [build-dependencies]

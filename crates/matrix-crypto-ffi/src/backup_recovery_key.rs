@@ -2,8 +2,8 @@ use std::{collections::HashMap, iter};
 
 use hmac::Hmac;
 use matrix_sdk_crypto::{
-    backups::{OlmPkDecryptionError, RecoveryKey},
-    store::CryptoStoreError as InnerStoreError,
+    backups::OlmPkDecryptionError,
+    store::{CryptoStoreError as InnerStoreError, RecoveryKey},
 };
 use pbkdf2::pbkdf2;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};

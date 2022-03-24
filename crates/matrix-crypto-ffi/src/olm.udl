@@ -189,7 +189,7 @@ dictionary RequestVerificationResult {
 };
 
 dictionary ConfirmVerificationResult {
-    OutgoingVerificationRequest request;
+    sequence<OutgoingVerificationRequest> requests;
     SignatureUploadRequest? signature_request;
 };
 
