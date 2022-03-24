@@ -1269,4 +1269,67 @@ impl Default for BaseClient {
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use matrix_sdk_test::{async_test, EventBuilder};
+    use ruma::{room_id, user_id};
+    use serde_json::json;
+
+    use super::BaseClient;
+    use crate::{RoomType, Session};
+
+    #[async_test]
+    async fn invite_after_leaving() {
+        let user_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!test:example.org");
+
+        let client = BaseClient::new();
+        client
+            .restore_login(Session {
+                access_token: "token".to_owned(),
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
+            .await
+            .unwrap();
+
+        let mut ev_builder = EventBuilder::new();
+
+        let response = ev_builder
+            .add_custom_left_event(
+                room_id,
+                json!({
+                    "content": {
+                        "displayname": "Alice",
+                        "membership": "left",
+                    },
+                    "event_id": "$994173582443PhrSn:example.org",
+                    "origin_server_ts": 1432135524678u64,
+                    "sender": user_id,
+                    "state_key": user_id,
+                    "type": "m.room.member",
+                }),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Left);
+
+        let response = ev_builder
+            .add_custom_invited_event(
+                room_id,
+                json!({
+                    "content": {
+                        "displayname": "Alice",
+                        "membership": "invite",
+                    },
+                    "event_id": "$143273582443PhrSn:example.org",
+                    "origin_server_ts": 1432735824653u64,
+                    "sender": "@example:example.org",
+                    "state_key": user_id,
+                    "type": "m.room.member",
+                }),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Invited);
+    }
+}
