@@ -64,4 +64,4 @@ pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
-pub use sliding_sync::{SlidingSyncRoom, SlidingSyncState, SlidingSyncView};
+pub use sliding_sync::{SlidingSyncRoom, SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder};

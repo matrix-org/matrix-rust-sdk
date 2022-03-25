@@ -3,7 +3,10 @@ use matrix_sdk::{Client, SlidingSyncView, SlidingSyncRoom};
 use tuirealm::tui::widgets::TableState;
 use std::collections::btree_map::BTreeMap;
 use std::sync::Arc;
-use matrix_sdk_common::ruma::events::AnyRoomEvent;
+use matrix_sdk_common::ruma::{
+    RoomId, 
+    events::AnyRoomEvent
+};
 use futures_signals::{
     signal::Mutable,
     signal_vec::MutableVec,
@@ -58,15 +61,12 @@ pub struct CurrentRoomSummary {
 pub struct SlidingSyncState {
     started: Instant,
     view: SlidingSyncView,
-    current_room_summary: Mutable<Option<CurrentRoomSummary>>,
-    pub current_room_timeline: Arc<MutableVec<AnyRoomEvent>>,
     /// the current list selector for the room
-    pub rooms_state: TableState,
     first_render: Option<Duration>,
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
     total_rooms_count: Option<u32>,
-    pub selected_room: Option<Box<matrix_sdk::ruma::RoomId>>
+    pub selected_room: Mutable<Option<Box<matrix_sdk::ruma::RoomId>>>
 }
 
 impl std::cmp::PartialOrd for SlidingSyncState {
@@ -99,12 +99,9 @@ impl SlidingSyncState {
         Self {
             started: Instant::now(),
             view,
-            current_room_summary: Mutable::new(None),
-            current_room_timeline: Default::default(),
-            rooms_state: TableState::default(),
             first_render: None,
             full_sync: None,
-            selected_room: None,
+            selected_room: Mutable::new(None),
             current_rooms_count: None,
             total_rooms_count: None,
         }
@@ -112,6 +109,10 @@ impl SlidingSyncState {
 
     pub fn started(&self) -> &Instant {
         &self.started
+    }
+
+    pub fn select_room(&self, r: Option<Box<RoomId>>) {
+        self.selected_room.replace(r);
     }
 
     pub fn time_to_first_render(&self) -> Option<Duration> {
@@ -129,9 +130,6 @@ impl SlidingSyncState {
     pub fn total_rooms_count(&self) -> Option<u32> {
         self.view.rooms_count.get()
     }
-    pub fn selected_room(&self) -> Option<Box<matrix_sdk::ruma::RoomId>> {
-        self.selected_room.clone()
-    }
 
     pub fn set_first_render_now(&mut self) {
         self.first_render = Some(self.started.elapsed())
@@ -141,102 +139,8 @@ impl SlidingSyncState {
         &self.view
     }
 
-    pub fn current_room_summary(&self) -> Option<CurrentRoomSummary> {
-        if self.current_room_summary.lock_ref().is_none() {
-
-            let room_id = if let Some(id) = &self.selected_room {
-                id
-            } else {
-                return None;
-            };
-
-            let room_data = {
-                let l = self.view().rooms.lock_ref();
-                if let Some(room) = l.get(room_id) {
-                    room.clone()
-                } else {
-                    return None
-                }
-            };
-
-            let name = room_data.name.clone().unwrap_or_else(|| "unkown".to_owned());
-
-            let state_events = room_data.required_state.iter().filter_map(|r| r.deserialize().ok()).fold(BTreeMap::<String, Vec<_>>::new(), |mut b, r| {
-                let event_name = r.event_type().to_owned();
-                b.entry(event_name).and_modify(|l| l.push(r.clone())).or_insert_with(|| vec![r.clone()]);
-                b
-            });
-
-            let mut state_events_counts: Vec<(String, usize)> = state_events.iter().map(|(k, l)| (k.clone(), l.len())).collect();
-            state_events_counts.sort_by_key(|(_, count)| *count);
-
-            let mut timeline: Vec<AnyRoomEvent> = room_data
-                .timeline
-                .iter()
-                .filter_map(|d| d.deserialize().ok())
-                .map(|e| e.into_full_event(room_id.clone()))
-                .collect();
-            timeline.reverse();
-
-            self.current_room_summary.set(Some(CurrentRoomSummary {
-                name, state_events_counts
-            }));
-            self.current_room_timeline.lock_mut().replace_cloned(timeline);
-            // TODO: subscribe to rooms
-        }
-        return self.current_room_summary.get_cloned()
-    }
-
     pub fn set_full_sync_now(&mut self) {
         self.full_sync = Some(self.started.elapsed())
-    }
-
-    pub fn next_room(&mut self) {
-        let i = match self.rooms_state.selected() {
-            Some(i) => {
-                if i >= self.loaded_rooms_count() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.rooms_state.select(Some(i));
-    }
-
-    pub fn previous_room(&mut self) {
-        let i = match self.rooms_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.loaded_rooms_count() - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
-        };
-        self.rooms_state.select(Some(i));
-    }
-
-    pub fn unselect_room(&mut self) {
-        self.rooms_state.select(None);
-    }
-
-    pub fn select_room(&mut self) {
-        let next_id = if let Some(idx) = self.rooms_state.selected() {
-            if let Some(Some(r)) = self.view.rooms_list.lock_ref().get(idx) {
-                Some(r.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        
-
-        self.selected_room = next_id;
-        self.current_room_summary.set(None);
     }
 }
 

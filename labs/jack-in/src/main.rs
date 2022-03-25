@@ -33,7 +33,7 @@ use tuirealm::{AttrValue, Attribute, Event, Update};
 use eyre::{eyre, Result};
 use log::LevelFilter;
 use matrix_sdk::{Client, Session};
-use matrix_sdk_common::ruma::{ UserId, DeviceId };
+use matrix_sdk_common::ruma::{ RoomId, UserId, DeviceId };
 use log::warn;
 // -- internal
 mod app;
@@ -48,12 +48,13 @@ pub enum Msg {
     AppClose,
     Clock,
     RoomsBlur,
-    LetterCounterChanged(isize),
-    LetterCounterBlur,
+    DetailsBlur,
+    SelectRoom(Option<Box<RoomId>>)
 }
 
 #[derive(Eq, PartialEq, PartialOrd, Clone)]
 pub enum JackInEvent {
+    Any, // match all
     SyncUpdate(client::state::SlidingSyncState),
 }
 
@@ -67,6 +68,7 @@ pub enum Id {
     Logger,
     Status,
     Rooms,
+    Details,
 }
 
 

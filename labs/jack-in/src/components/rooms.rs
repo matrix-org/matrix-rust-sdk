@@ -12,8 +12,10 @@ use tuirealm::tui::{
 use tuirealm::{
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
+use matrix_sdk_common::ruma::{ RoomId, UserId, DeviceId };
 use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
 use super::super::client::state::SlidingSyncState;
+use log::warn;
 
 /// ## Rooms
 pub struct Rooms {
@@ -50,6 +52,11 @@ impl Rooms {
         };
         self.tablestate.select(Some(next.try_into().unwrap_or_default()));
 
+    }
+
+    pub fn borders(mut self, b: Borders) -> Self {
+        self.attr(Attribute::Borders, AttrValue::Borders(b));
+        self
     }
 }
 
@@ -114,49 +121,70 @@ impl MockComponent for Rooms {
 
 impl Component<Msg, JackInEvent> for Rooms {
     fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
-        // Get command
-        match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Down,
-                modifiers: KeyModifiers::NONE,
-            }) => {
-                self.select_dir(1);
-                None
-            },
-            Event::Keyboard(KeyEvent {
-                code: Key::Down,
-                modifiers: KeyModifiers::SHIFT,
-            }) => {
-                self.select_dir(10);
-                None
-            },
-            Event::Keyboard(KeyEvent {
-                code: Key::Up,
-                modifiers: KeyModifiers::NONE,
-            }) => {
-                self.select_dir(-1);
-                None
-            },
-            Event::Keyboard(KeyEvent {
-                code: Key::Up,
-                modifiers: KeyModifiers::SHIFT,
-            }) => {
-                self.select_dir(-10);
-                None
-            },
-            Event::Keyboard(KeyEvent {
-                code: Key::Tab,
-                modifiers: KeyModifiers::NONE,
-            }) => return Some(Msg::LetterCounterBlur), // Return focus lost
-            Event::Keyboard(KeyEvent {
-                code: Key::Esc,
-                modifiers: KeyModifiers::NONE,
-            }) => return Some(Msg::AppClose),
-            Event::User(JackInEvent::SyncUpdate(s)) => {
-                self.set_sliding_sync(s.clone());
-                None
+        let focus = self
+            .props
+            .get_or(Attribute::Focus, AttrValue::Flag(false))
+            .unwrap_flag();
+        if focus {
+            // we only care about user input if we are in focus.
+            match ev {
+                Event::Keyboard(KeyEvent {
+                    code: Key::Down,
+                    modifiers: KeyModifiers::NONE,
+                }) => {
+                    self.select_dir(1);
+                    return None
+                },
+                Event::Keyboard(KeyEvent {
+                    code: Key::Down,
+                    modifiers: KeyModifiers::SHIFT,
+                }) => {
+                    self.select_dir(10);
+                    return None
+                },
+                Event::Keyboard(KeyEvent {
+                    code: Key::Up,
+                    modifiers: KeyModifiers::NONE,
+                }) => {
+                    self.select_dir(-1);
+                    return None
+                },
+                Event::Keyboard(KeyEvent {
+                    code: Key::Up,
+                    modifiers: KeyModifiers::SHIFT,
+                }) => {
+                    self.select_dir(-10);
+                    return None
+                },
+                Event::Keyboard(KeyEvent {
+                    code: Key::Enter,
+                    modifiers: KeyModifiers::NONE,
+                }) => {
+                    if let Some(idx) = self.tablestate.selected() {
+                        if let Some(room) = self.sstate.view().get_rooms(None, None).get(idx) {
+                            warn!("selecting, {:?}", room.room_id);
+                            return Some(Msg::SelectRoom(room.room_id.clone().map(|v| RoomId::parse(v).expect("is valid"))))
+                        }
+
+                    }
+                    return None
+                }
+                Event::Keyboard(KeyEvent {
+                    code: Key::Tab,
+                    modifiers: KeyModifiers::NONE,
+                }) => return Some(Msg::RoomsBlur), // Return focus lost
+                Event::Keyboard(KeyEvent {
+                    code: Key::Esc,
+                    modifiers: KeyModifiers::NONE,
+                }) => return Some(Msg::AppClose),
+                _ => {}
             }
-            _ => None,
         }
+
+        if let Event::User(JackInEvent::SyncUpdate(s)) = ev {
+            self.set_sliding_sync(s.clone());
+        }
+        
+        None
     }
 }

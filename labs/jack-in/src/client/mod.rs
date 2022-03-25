@@ -16,7 +16,7 @@ pub mod state;
 
 use futures_signals::signal::SignalExt;
 
-use matrix_sdk::{Client, SlidingSyncState, ruma::RoomId};
+use matrix_sdk::{Client, SlidingSyncState, SlidingSyncViewBuilder, ruma::RoomId};
 
 pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Sender<state::SlidingSyncState>) -> Result<()> {
 
@@ -29,9 +29,12 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
 
     warn!("Starting sliding sync now");
     let mut builder = client.sliding_sync();
+    let full_sync_view = SlidingSyncViewBuilder::default_with_fullsync()
+        .timeline_limit(10u32)
+        .build()?;
     let syncer = builder
         .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
-        .add_fullsync_view()
+        .add_view(full_sync_view)
         .build()?;
     let (cancel, stream) = syncer.stream().expect("we can build the stream");
     let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
@@ -62,7 +65,7 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
                     warn!("Reached live sync");
                     break
                 }
-                tx.send(ssync_state.clone()).await;
+                let _ = tx.send(ssync_state.clone()).await;
             }
             Some(Err(e)) => {
                 warn!("Error: {:}", e);
@@ -86,7 +89,7 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
     while let Some(update) = stream.next().await {
         warn!("live next");
         {
-            let selected_room  = ssync_state.selected_room.clone();
+            let selected_room  = ssync_state.selected_room.lock_ref().clone();
             if let Some(room_id) = selected_room {
                 if let Some(prev) = &prev_selected_room {
                     if prev != &room_id {
@@ -103,7 +106,7 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
         warn!("after next");
         match update {
             Ok(u) => {
-                warn!("Live update: {:?}", u);
+                warn!("Live update received");
                 tx.send(ssync_state.clone()).await;
                 err_counter = 0;
             }

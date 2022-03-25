@@ -98,7 +98,11 @@ impl Component<Msg, JackInEvent> for StatusBar {
     fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
         if let Event::User(JackInEvent::SyncUpdate(s)) = ev {
             self.set_sliding_sync(s.clone());
+            None
+        } else if let Event::Tick = ev {
+            Some(Msg::Clock)
+        } else {
+            None
         }
-        None
     }
 }

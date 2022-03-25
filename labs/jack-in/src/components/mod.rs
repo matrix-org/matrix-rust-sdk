@@ -32,18 +32,18 @@ use tuirealm::props::{Alignment, Borders, Color, Style};
 use tuirealm::tui::widgets::Block;
 
 // -- modules
-mod clock;
 mod logger;
 mod label;
 mod statusbar;
+mod details;
 mod rooms;
 
 // -- export
-pub use clock::Clock;
 pub use label::Label;
 pub use logger::Logger;
 pub use statusbar::StatusBar;
 pub use rooms::Rooms;
+pub use details::Details;
 
 /// ### get_block
 ///

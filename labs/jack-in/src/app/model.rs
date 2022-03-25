@@ -25,11 +25,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-use super::components::{Clock, Label, Logger, StatusBar, Rooms};
+use super::components::{Details, Label, Logger, StatusBar, Rooms};
 use super::{Id, Msg, JackInEvent, MatrixPoller};
 
 use std::time::{Duration, SystemTime};
-use tuirealm::props::{Alignment, Color, TextModifiers};
+use tuirealm::props::{Alignment, Color, Borders, TextModifiers};
+
 use tuirealm::terminal::TerminalBridge;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
 use tuirealm::{
@@ -44,6 +45,7 @@ use std::sync::Arc;
 pub struct Model {
     /// Application
     pub app: Application<Id, Msg, JackInEvent>,
+    pub title: String,
     /// Indicates that the application must quit
     pub quit: bool,
     /// Tells whether to redraw interface
@@ -52,14 +54,17 @@ pub struct Model {
     pub terminal: TerminalBridge,
     /// show the logger console
     pub show_logger: bool,
+    sliding_sync: SlidingSyncState,
 }
 
 impl Model {
     pub(crate) fn new(sliding_sync: SlidingSyncState, poller: MatrixPoller) -> Self {
-        let app = Self::init_app(sliding_sync, poller);
+        let app = Self::init_app(sliding_sync.clone(), poller);
 
         Self {
             app,
+            title: "Loading".to_owned(),
+            sliding_sync,
             quit: false,
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
@@ -75,10 +80,9 @@ impl Model {
             .raw_mut()
             .draw(|f| {
                 let mut areas = vec![
-                    Constraint::Length(3), // Clock
+                    Constraint::Length(3), // Header
                     Constraint::Min(10),     // body
                     Constraint::Length(3), // Status Footer
-                    Constraint::Length(1), // Label
                 ];
                 if self.show_logger {
                     areas.push(
@@ -97,12 +101,12 @@ impl Model {
                     .constraints([Constraint::Length(35), Constraint::Min(23)].as_ref())
                     .split(chunks[1]);
 
-                self.app.view(&Id::Clock, f, chunks[0]);
                 self.app.view(&Id::Rooms, f, body_chunks[0]);
+                self.app.view(&Id::Details, f, body_chunks[1]);
                 self.app.view(&Id::Status, f, chunks[2]);
-                self.app.view(&Id::Label, f, chunks[3]);
+                self.app.view(&Id::Label, f, chunks[0]);
                 if self.show_logger {
-                    self.app.view(&Id::Logger, f, chunks[4]);
+                    self.app.view(&Id::Logger, f, chunks[3]);
                 }
             })
             .is_ok());
@@ -128,27 +132,13 @@ impl Model {
                 Id::Label,
                 Box::new(
                     Label::default()
-                        .text("Waiting for a Msg...")
+                        .text("Loading")
                         .alignment(Alignment::Left)
                         .background(Color::Reset)
                         .foreground(Color::LightYellow)
                         .modifiers(TextModifiers::BOLD),
                 ),
                 Vec::default(),
-            )
-            .is_ok());
-        // Mount clock, subscribe to tick
-        assert!(app
-            .mount(
-                Id::Clock,
-                Box::new(
-                    Clock::new(SystemTime::now())
-                        .alignment(Alignment::Center)
-                        .background(Color::Reset)
-                        .foreground(Color::Cyan)
-                        .modifiers(TextModifiers::BOLD)
-                ),
-                vec![Sub::new(SubEventClause::Tick, SubClause::Always)]
             )
             .is_ok());
         /// mount logger
@@ -175,14 +165,28 @@ impl Model {
         assert!(app
             .mount(
                 Id::Rooms,
-                Box::new(Rooms::new(sliding_sync)),
+                Box::new(
+                    Rooms::new(sliding_sync.clone())
+                    .borders(Borders::default().color(Color::Green))),
                 vec![Sub::new(
                     SubEventClause::Any,
                     SubClause::Always
                 )]
             )
         .is_ok());
-        //app.mount_sliding_sync_components();
+
+        assert!(app
+            .mount(
+                Id::Details,
+                Box::new(
+                    Details::new(sliding_sync)
+                    .borders(Borders::default().color(Color::Green))),
+                vec![Sub::new(
+                    SubEventClause::Any,
+                    SubClause::Always
+                )]
+            )
+        .is_ok());
         // Active letter counter
         assert!(app.active(&Id::Rooms).is_ok());
         app
@@ -205,26 +209,21 @@ impl Update<Msg> for Model {
                 Msg::Clock => None,
                 Msg::RoomsBlur => {
                     // Give focus to letter counter
+                    let _ = self.app.blur();
+                    assert!(self.app.active(&Id::Details).is_ok());
+                    None
+                }
+                Msg::DetailsBlur => {
+                    // Give focus to letter counter
+                    let _ = self.app.blur();
                     assert!(self.app.active(&Id::Rooms).is_ok());
                     None
                 }
-                Msg::LetterCounterBlur => {
-                    // Give focus to digit counter
-                    assert!(self.app.active(&Id::DigitCounter).is_ok());
+                Msg::SelectRoom(r) => {
+                    self.sliding_sync.select_room(r);
                     None
                 }
-                Msg::LetterCounterChanged(v) => {
-                    // Update label
-                    assert!(self
-                        .app
-                        .attr(
-                            &Id::Label,
-                            Attribute::Text,
-                            AttrValue::String(format!("LetterCounter has now value: {}", v))
-                        )
-                        .is_ok());
-                    None
-                }
+                _ => None
             }
         } else {
             None
