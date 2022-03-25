@@ -1164,7 +1164,7 @@ impl RequestState<Ready> {
                         warn!(
                             user_id = device.user_id().as_str(),
                             device_id = device.device_id().as_str(),
-                            content =? c,
+                            content = ?c,
                             "Can't start key verification, canceling.",
                         );
                         self.verification_cache.queue_up_content(
@@ -1186,13 +1186,13 @@ impl RequestState<Ready> {
                     trace!(
                         sender = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
-                        verification =? qr_verification,
+                        verification = ?qr_verification,
                         "Received a QR code reciprocation"
                     )
                 }
             }
             m => {
-                warn!(method =? m, "Received a key verification start event with an unsupported method")
+                warn!(method = ?m, "Received a key verification start event with an unsupported method")
             }
         }
 

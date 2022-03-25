@@ -497,7 +497,7 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(error =? e, "Failed to deserialize a global account data event");
+                    warn!(error = ?e, "Failed to deserialize a global account data event");
                     continue;
                 }
             };

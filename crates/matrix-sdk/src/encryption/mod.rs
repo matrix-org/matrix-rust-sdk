@@ -398,11 +398,11 @@ impl Client {
         let rooms = self.joined_rooms();
         let room_pairs: Vec<_> =
             rooms.iter().map(|r| (r.room_id().to_owned(), r.direct_target())).collect();
-        trace!(rooms =? room_pairs, "Finding direct room");
+        trace!(rooms = ?room_pairs, "Finding direct room");
 
         let room = rooms.into_iter().find(|r| r.direct_target().as_deref() == Some(user_id));
 
-        trace!(room =? room, "Found room");
+        trace!(room = ?room, "Found room");
         room
     }
 
@@ -471,7 +471,7 @@ impl Client {
             .for_each(|r| async move {
                 match r {
                     Ok(_) => (),
-                    Err(e) => warn!(error =? e, "Error when sending out an outgoing E2EE request"),
+                    Err(e) => warn!(error = ?e, "Error when sending out an outgoing E2EE request"),
                 }
             })
             .await;

@@ -480,7 +480,7 @@ impl Store {
                 None
             }
             name => {
-                warn!(secret =? name, "Unknown secret was requested");
+                warn!(secret = ?name, "Unknown secret was requested");
                 None
             }
         }
@@ -505,7 +505,7 @@ impl Store {
                 .await?;
 
             let status = identity.status().await;
-            info!(status =? status, "Successfully imported the private cross signing keys");
+            info!(status = ?status, "Successfully imported the private cross signing keys");
 
             let changes =
                 Changes { private_identity: Some(identity.clone()), ..Default::default() };
@@ -552,7 +552,7 @@ impl Store {
                 // user import it later.
             }
             name => {
-                warn!(secret =? name, "Tried to import an unknown secret");
+                warn!(secret = ?name, "Tried to import an unknown secret");
             }
         }
 

@@ -190,7 +190,7 @@ impl SessionManager {
                     warn!(
                         user_id = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
-                        algorithms =? device.algorithms(),
+                        algorithms = ?device.algorithms(),
                         "Device doesn't support any of our 1-to-1 E2EE \
                         algorithms, can't establish an Olm session"
                     );
@@ -254,7 +254,7 @@ impl SessionManager {
     ///
     /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
-        debug!(failures =? response.failures, "Received a /keys/claim response");
+        debug!(failures = ?response.failures, "Received a /keys/claim response");
 
         let mut changes = Changes::default();
         let mut new_sessions: BTreeMap<&UserId, BTreeSet<&DeviceId>> = BTreeMap::new();
@@ -276,7 +276,7 @@ impl SessionManager {
                         warn!(
                             user_id = user_id.as_str(),
                             device_id = device_id.as_str(),
-                            error =? e,
+                            error = ?e,
                             "Tried to create an Olm session, but we can't \
                             fetch the device from the store",
                         );
@@ -290,7 +290,7 @@ impl SessionManager {
                         warn!(
                             user_id = user_id.as_str(),
                             device_id = device_id.as_str(),
-                            error =? e,
+                            error = ?e,
                             "Error creating outbound session"
                         );
                         continue;
@@ -312,7 +312,7 @@ impl SessionManager {
         }
 
         self.store.save_changes(changes).await?;
-        info!(sessions =? new_sessions, "Established new Olm sessions");
+        info!(sessions = ?new_sessions, "Established new Olm sessions");
 
         match self.key_request_machine.collect_incoming_key_requests().await {
             Ok(sessions) => {
@@ -322,7 +322,7 @@ impl SessionManager {
             // We don't propagate the error here since the next sync will retry
             // this.
             Err(e) => {
-                warn!(error =? e, "Error while trying to collect the incoming secret requests")
+                warn!(error = ?e, "Error while trying to collect the incoming secret requests")
             }
         }
 
