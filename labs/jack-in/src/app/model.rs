@@ -122,7 +122,7 @@ impl Model {
                         .alignment(Alignment::Center)
                         .background(Color::Reset)
                         .borders(Borders::default())
-                        .foreground(Color::LightYellow),
+                        .foreground(Color::Green),
                 ),
                 Vec::default(),
             )
