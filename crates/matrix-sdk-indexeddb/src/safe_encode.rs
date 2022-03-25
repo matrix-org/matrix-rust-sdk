@@ -131,7 +131,7 @@ impl<T: SafeEncode + ?Sized> SafeEncode for Box<T> {
 
 impl SafeEncode for TransactionId {
     fn as_encoded_string(&self) -> String {
-        self.to_string()
+        self.to_string().as_encoded_string()
     }
 }
 
