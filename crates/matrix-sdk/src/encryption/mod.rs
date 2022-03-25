@@ -55,6 +55,8 @@ use ruma::{
     DeviceId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
+#[cfg(feature = "encryption")]
+use {ruma::api::client::config::set_global_account_data, ruma::events::EventContent};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -230,16 +232,17 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    async fn send_account_data(
+    async fn send_account_data<T>(
         &self,
-        content: ruma::events::AnyGlobalAccountDataEventContent,
-    ) -> Result<ruma::api::client::config::set_global_account_data::v3::Response> {
+        content: T,
+    ) -> Result<set_global_account_data::v3::Response>
+    where
+        T: EventContent<EventType = GlobalAccountDataEventType>,
+    {
         let own_user =
             self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
-        let request = ruma::api::client::config::set_global_account_data::v3::Request::new(
-            &content, &own_user,
-        )?;
+        let request = set_global_account_data::v3::Request::new(&content, &own_user)?;
 
         Ok(self.send(request, None).await?)
     }
@@ -249,10 +252,7 @@ impl Client {
         &self,
         user_id: Box<UserId>,
     ) -> Result<Option<room::Joined>> {
-        use ruma::{
-            api::client::room::create_room::v3::RoomPreset,
-            events::AnyGlobalAccountDataEventContent,
-        };
+        use ruma::{api::client::room::create_room::v3::RoomPreset, events::direct::DirectEvent};
 
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
@@ -278,15 +278,9 @@ impl Client {
             .store()
             .get_account_data_event(GlobalAccountDataEventType::Direct)
             .await?
-            .map(|e| e.deserialize())
+            .map(|e| e.deserialize_as::<DirectEvent>())
             .transpose()?
-            .and_then(|e| {
-                if let AnyGlobalAccountDataEventContent::Direct(c) = e.content() {
-                    Some(c)
-                } else {
-                    None
-                }
-            })
+            .map(|e| e.content)
             .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
 
         content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
@@ -294,7 +288,7 @@ impl Client {
         // TODO We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
-        self.send_account_data(AnyGlobalAccountDataEventContent::Direct(content)).await?;
+        self.send_account_data(content).await?;
 
         // If the room is already in our store, fetch it, otherwise wait for a
         // sync to be done which should put the room into our store.
