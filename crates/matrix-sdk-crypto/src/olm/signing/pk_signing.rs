@@ -15,8 +15,7 @@
 use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
 
 use ruma::{
-    encryption::KeyUsage, serde::CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId,
-    UserId,
+    encryption::KeyUsage, serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
@@ -142,7 +141,7 @@ impl MasterSigning {
             .insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
-                    &Box::<DeviceId>::from(self.inner.public_key.to_base64()),
+                    self.inner.public_key.to_base64().as_str().into(),
                 ),
                 signature.to_base64(),
             );
@@ -194,7 +193,7 @@ impl UserSigning {
             .insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
-                    &Box::<DeviceId>::from(self.inner.public_key.to_base64()),
+                    self.inner.public_key.to_base64().as_str().into(),
                 ),
                 signature.to_base64(),
             );
@@ -244,7 +243,7 @@ impl SelfSigning {
             .insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
-                    &Box::<DeviceId>::from(self.inner.public_key.to_base64()),
+                    self.inner.public_key.to_base64().as_str().into(),
                 ),
                 signature.to_base64(),
             );
@@ -319,7 +318,7 @@ impl Signing {
         let keys = BTreeMap::from([(
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                &Box::<DeviceId>::from(self.public_key().to_base64()),
+                self.public_key().to_base64().as_str().into(),
             ),
             self.inner.public_key().into(),
         )]);
