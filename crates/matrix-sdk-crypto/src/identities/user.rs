@@ -124,7 +124,7 @@ impl OwnUserIdentity {
         };
 
         if let Err(e) = self.verification_machine.store.save_changes(changes).await {
-            error!(error =? e, "Couldn't store our own user identity after marking it as verified");
+            error!(error = ?e, "Couldn't store our own user identity after marking it as verified");
         }
 
         self.verification_machine.store.account.sign_master_key(self.master_key.clone()).await

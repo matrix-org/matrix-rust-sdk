@@ -77,8 +77,8 @@ impl IdentityManager {
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
         debug!(
-            users =? response.device_keys.keys().collect::<BTreeSet<_>>(),
-            failures =? response.failures,
+            users = ?response.device_keys.keys().collect::<BTreeSet<_>>(),
+            failures = ?response.failures,
             "Handling a keys query response"
         );
 
@@ -143,7 +143,7 @@ impl IdentityManager {
                 warn!(
                     user_id = device.user_id().as_str(),
                     device_id = device.device_id().as_str(),
-                    error =? e,
+                    error = ?e,
                     "Failed to update device keys",
                 );
 
@@ -166,7 +166,7 @@ impl IdentityManager {
                             trace!(
                                 user_id = d.user_id().as_str(),
                                 device_id = d.device_id().as_str(),
-                                keys =? d.keys(),
+                                keys = ?d.keys(),
                                 "Adding our own device to the device store, \
                                 marking it as locally verified",
                             );
@@ -179,7 +179,7 @@ impl IdentityManager {
                         trace!(
                             user_id = d.user_id().as_str(),
                             device_id = d.device_id().as_str(),
-                            keys =? d.keys(),
+                            keys = ?d.keys(),
                             "Adding a new device to the device store",
                         );
 
@@ -190,7 +190,7 @@ impl IdentityManager {
                     warn!(
                         user_id = device_keys.user_id.as_str(),
                         device_id = device_keys.device_id.as_str(),
-                        error =? e,
+                        error = ?e,
                         "Failed to create a new device",
                     );
 
@@ -234,7 +234,7 @@ impl IdentityManager {
                 warn!(
                     user_id = user_id.as_str(),
                     device_id = device_id.as_str(),
-                    error =? e,
+                    error = ?e,
                     "Device keys failed to deserialize",
                 );
                 None
@@ -426,22 +426,22 @@ impl IdentityManager {
 
                                 if result.any_cleared() {
                                     changed_identity = Some((*private_identity).clone());
-                                    info!(cleared =? result, "Removed some or all of our private cross signing keys");
+                                    info!(cleared = ?result, "Removed some or all of our private cross signing keys");
                                 }
                             }
 
                             if new {
-                                trace!(user_id = user_id.as_str(), identity =? i, "Created new user identity");
+                                trace!(user_id = user_id.as_str(), identity = ?i, "Created new user identity");
                                 changes.new.push(i);
                             } else {
-                                trace!(user_id = user_id.as_str(), identity =? i, "Updated a user identity");
+                                trace!(user_id = user_id.as_str(), identity = ?i, "Updated a user identity");
                                 changes.changed.push(i);
                             }
                         }
                         Err(e) => {
                             warn!(
                                 user_id = user_id.as_str(),
-                                error =? e,
+                                error = ?e,
                                 "Couldn't update or create new user identity"
                             );
                             continue;
@@ -451,7 +451,7 @@ impl IdentityManager {
                 Err(e) => {
                     warn!(
                         user_id = user_id.as_str(),
-                        error =? e,
+                        error = ?e,
                         "Couldn't update or create new user identity"
                     );
                     continue;

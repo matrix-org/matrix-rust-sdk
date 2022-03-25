@@ -250,7 +250,7 @@ impl OlmMachine {
                     .await
                     .and_then(|m| m.get_first_key().map(|m| m.to_owned()));
                 debug!(
-                    master_key =? master_key,
+                    master_key = ?master_key,
                     "Restored the cross signing identity"
                 );
                 i
@@ -618,7 +618,7 @@ impl OlmMachine {
                     sender = event.sender.as_str(),
                     sender_key = sender_key,
                     room_id = event.content.room_id.as_str(),
-                    algorithm =? event.content.algorithm,
+                    algorithm = ?event.content.algorithm,
                     "Received room key with unsupported key algorithm",
                 );
                 Ok((None, None))
@@ -764,7 +764,7 @@ impl OlmMachine {
                 warn!(
                     sender = decrypted.sender.as_str(),
                     sender_key = decrypted.sender_key.as_str(),
-                    error =? e,
+                    error = ?e,
                     "Decrypted to-device event failed to be deserialized correctly"
                 );
                 return Ok((None, None));
@@ -791,7 +791,7 @@ impl OlmMachine {
                 None,
             )),
             _ => {
-                warn!(event_type =? event.event_type(), "Received an unexpected encrypted to-device event");
+                warn!(event_type = ?event.event_type(), "Received an unexpected encrypted to-device event");
                 Ok((Some(event), None))
             }
         }
@@ -904,7 +904,7 @@ impl OlmMachine {
 
         for user_id in &changed_devices.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
-                error!(error =? e, "Error marking a tracked user as changed");
+                error!(error = ?e, "Error marking a tracked user as changed");
             }
         }
 
@@ -914,7 +914,7 @@ impl OlmMachine {
                 Err(e) => {
                     // Skip invalid events.
                     warn!(
-                        error =? e,
+                        error = ?e,
                         "Received an invalid to-device event"
                     );
                     continue;
@@ -940,7 +940,7 @@ impl OlmMachine {
                                 {
                                     error!(
                                         sender = sender.as_str(),
-                                        error =? e,
+                                        error = ?e,
                                         "Couldn't mark device from to be unwedged",
                                     );
                                 }
@@ -1095,7 +1095,7 @@ impl OlmMachine {
                         room_id = room_id.as_str(),
                         session_id = session.session_id(),
                         sender_key = session.sender_key(),
-                        error =? e,
+                        error = ?e,
                         "Event was successfully decrypted but has an invalid format"
                     );
                 }
@@ -1146,7 +1146,7 @@ impl OlmMachine {
                                 room_id = room_id.as_str(),
                                 sender_key = c.sender_key.as_str(),
                                 session_id = c.session_id.as_str(),
-                                error =? e,
+                                error = ?e,
                                 "Failed to decrypt a room event"
                             );
                         }
@@ -1365,7 +1365,7 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        info!(total_count, imported_count, room_keys =? keys, "Successfully imported room keys");
+        info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
 
         Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
     }
@@ -1511,7 +1511,7 @@ impl OlmMachine {
         self.sign_account(message, &mut signatures).await;
 
         if let Err(e) = self.sign_master(message, &mut signatures).await {
-            warn!(error =? e, "Couldn't sign the message using the cross signing master key")
+            warn!(error = ?e, "Couldn't sign the message using the cross signing master key")
         }
 
         signatures

@@ -357,7 +357,7 @@ impl VerificationMachine {
                             trace!(
                                 sender = event.sender().as_str(),
                                 from_device = r.from_device().as_str(),
-                                timestamp =? timestamp,
+                                timestamp = ?timestamp,
                                 "The received verification request was too old or too far into the future",
                             );
                         }

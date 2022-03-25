@@ -189,9 +189,9 @@ impl BackupMachine {
     pub async fn enable_backup_v1(&self, key: MegolmV1BackupKey) -> Result<(), CryptoStoreError> {
         if key.backup_version().is_some() {
             *self.backup_key.write().await = Some(key.clone());
-            info!(backup_key =? key, "Activated a backup");
+            info!(backup_key = ?key, "Activated a backup");
         } else {
-            warn!(backup_key =? key, "Tried to activate a backup without having the backup key uploaded");
+            warn!(backup_key = ?key, "Tried to activate a backup without having the backup key uploaded");
         }
 
         Ok(())
@@ -277,7 +277,7 @@ impl BackupMachine {
                     session.mark_as_backed_up()
                 }
 
-                trace!(request_id =? r.request_id, keys =? r.sessions, "Marking room keys as backed up");
+                trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
 
                 let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
                 self.store.save_changes(changes).await?;
@@ -285,8 +285,8 @@ impl BackupMachine {
                 let counts = self.store.inbound_group_session_counts().await?;
 
                 trace!(
-                    room_key_counts =? counts,
-                    request_id =? r.request_id, keys =? r.sessions, "Marked room keys as backed up"
+                    room_key_counts = ?counts,
+                    request_id = ?r.request_id, keys = ?r.sessions, "Marked room keys as backed up"
                 );
 
                 *request = None;
@@ -319,8 +319,8 @@ impl BackupMachine {
 
                     info!(
                         key_count = key_count,
-                        keys =? session_record,
-                        backup_key =? backup_key,
+                        keys = ?session_record,
+                        backup_key = ?backup_key,
                         "Successfully created a room keys backup request"
                     );
 

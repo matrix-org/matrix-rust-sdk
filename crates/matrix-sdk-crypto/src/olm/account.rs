@@ -169,7 +169,7 @@ impl Account {
             ) {
                 Ok(m) => m,
                 Err(e) => {
-                    warn!(error =? e, "Encrypted to-device event isn't valid");
+                    warn!(error = ?e, "Encrypted to-device event isn't valid");
                     return Err(e.into());
                 }
             };
@@ -223,7 +223,7 @@ impl Account {
         } else {
             warn!(
                 sender = event.sender.as_str(),
-                algorithm =? event.content.scheme,
+                algorithm = ?event.content.scheme,
                 "Error, unsupported encryption algorithm"
             );
 
@@ -323,7 +323,7 @@ impl Account {
                             warn!(
                                 sender = sender.as_str(),
                                 sender_key = sender_key,
-                                error =? e,
+                                error = ?e,
                                 "Failed to create a new Olm session from a \
                                 prekey message",
                             );
@@ -379,7 +379,7 @@ impl Account {
                 warn!(
                     sender = sender.as_str(),
                     sender_key = sender_key,
-                    error =? e,
+                    error = ?e,
                     "A to-device message was successfully decrypted but \
                     parsing and checking the event fields failed"
                 );
