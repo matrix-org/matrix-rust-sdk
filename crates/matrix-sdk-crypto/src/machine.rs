@@ -249,10 +249,7 @@ impl OlmMachine {
                     .master_public_key()
                     .await
                     .and_then(|m| m.get_first_key().map(|m| m.to_owned()));
-                debug!(
-                    master_key = ?master_key,
-                    "Restored the cross signing identity"
-                );
+                debug!(?master_key, "Restored the cross signing identity");
                 i
             }
             None => {
