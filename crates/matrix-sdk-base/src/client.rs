@@ -52,9 +52,9 @@ use ruma::{
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
-        room::member::MembershipState, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        GlobalAccountDataEventType, StateEventType,
+        push_rules::PushRulesEvent, room::member::MembershipState, AnyGlobalAccountDataEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -1160,11 +1160,12 @@ impl BaseClient {
             .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
-        } else if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = self
+        } else if let Some(event) = self
             .store
             .get_account_data_event(GlobalAccountDataEventType::PushRules)
             .await?
-            .and_then(|e| e.deserialize().ok())
+            .map(|e| e.deserialize_as::<PushRulesEvent>())
+            .transpose()?
         {
             Ok(event.content.global)
         } else if let Some(session) = self.get_session().await {
