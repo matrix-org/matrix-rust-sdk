@@ -61,6 +61,7 @@ use tracing::{info, warn};
 
 #[cfg(feature = "encryption")]
 use super::OpenStoreError;
+use crate::encode_key::{encode_key_with_usize, EncodeKey, ENCODE_SEPARATOR};
 #[cfg(feature = "encryption")]
 pub use crate::CryptoStore;
 
@@ -113,115 +114,6 @@ impl Into<StoreError> for SledStoreError {
 }
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
-
-const ENCODE_SEPARATOR: u8 = 0xff;
-
-trait EncodeKey {
-    fn encode(&self) -> Vec<u8>;
-}
-
-impl<T: EncodeKey> EncodeKey for &T {
-    fn encode(&self) -> Vec<u8> {
-        T::encode(self)
-    }
-}
-
-impl<T: EncodeKey> EncodeKey for Box<T> {
-    fn encode(&self) -> Vec<u8> {
-        T::encode(self)
-    }
-}
-
-impl EncodeKey for UserId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for RoomId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for String {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for str {
-    fn encode(&self) -> Vec<u8> {
-        [self.as_bytes(), &[ENCODE_SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [self.0.as_bytes(), &[ENCODE_SEPARATOR], self.1.as_bytes(), &[ENCODE_SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&str, &str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.1.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.2.as_bytes(),
-            &[ENCODE_SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
-impl EncodeKey for (&str, &str, &str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.1.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.2.as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.3.as_bytes(),
-            &[ENCODE_SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
-impl EncodeKey for StateEventType {
-    fn encode(&self) -> Vec<u8> {
-        self.to_string().encode()
-    }
-}
-
-impl EncodeKey for GlobalAccountDataEventType {
-    fn encode(&self) -> Vec<u8> {
-        self.to_string().encode()
-    }
-}
-
-/* impl EncodeKey for RoomAccountDataEventType {
-    fn encode(&self) -> Vec<u8> {
-        self.to_string().encode()
-    }
-} */
-
-impl EncodeKey for EventId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for (&RoomId, usize) {
-    fn encode(&self) -> Vec<u8> {
-        [self.0.as_bytes(), &[ENCODE_SEPARATOR], self.1.to_be_bytes().as_ref(), &[ENCODE_SEPARATOR]]
-            .concat()
-    }
-}
 
 /// Get the value at `position` in encoded `key`.
 ///
@@ -478,7 +370,7 @@ impl SledStore {
                         let profile_changes = changes.profiles.get(room);
 
                         for event in events.values() {
-                            let key = (room.as_str(), event.state_key.as_str()).encode();
+                            let key = (room, &event.state_key).encode();
 
                             match event.content.membership {
                                 MembershipState::Join => {
@@ -516,7 +408,7 @@ impl SledStore {
                     for (room_id, ambiguity_maps) in &changes.ambiguity_maps {
                         for (display_name, map) in ambiguity_maps {
                             display_names.insert(
-                                (room_id.as_str(), display_name.as_str()).encode(),
+                                (room_id, display_name).encode(),
                                 self.serialize_event(&map)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -534,7 +426,7 @@ impl SledStore {
                     for (room, events) in &changes.room_account_data {
                         for (event_type, event) in events {
                             room_account_data.insert(
-                                (room.as_str(), event_type.to_string().as_str()).encode(),
+                                (room, event_type.to_string()).encode(),
                                 self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -545,12 +437,7 @@ impl SledStore {
                         for (event_type, events) in event_types {
                             for (state_key, event) in events {
                                 state.insert(
-                                    (
-                                        room.as_str(),
-                                        event_type.to_string().as_str(),
-                                        state_key.as_str(),
-                                    )
-                                        .encode(),
+                                    (room, event_type.to_string(), state_key).encode(),
                                     self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
@@ -585,7 +472,7 @@ impl SledStore {
                     for (room, events) in &changes.stripped_members {
                         for event in events.values() {
                             stripped_members.insert(
-                                (room.as_str(), event.state_key.as_str()).encode(),
+                                (room, event.state_key.to_string()).encode(),
                                 self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -596,12 +483,7 @@ impl SledStore {
                         for (event_type, events) in event_types {
                             for (state_key, event) in events {
                                 stripped_state.insert(
-                                    (
-                                        room.as_str(),
-                                        event_type.to_string().as_str(),
-                                        state_key.as_str(),
-                                    )
-                                        .encode(),
+                                    (room, event_type.to_string(), state_key).encode(),
                                     self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
@@ -624,8 +506,7 @@ impl SledStore {
                                 for (user_id, receipt) in receipts {
                                     // Add the receipt to the room user receipts
                                     if let Some(old) = room_user_receipts.insert(
-                                        (room.as_str(), receipt_type.as_ref(), user_id.as_str())
-                                            .encode(),
+                                        (room, receipt_type, user_id).encode(),
                                         self.serialize_event(&(event_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )? {
@@ -634,25 +515,13 @@ impl SledStore {
                                             .deserialize_event(&old)
                                             .map_err(ConflictableTransactionError::Abort)?;
                                         room_event_receipts.remove(
-                                            (
-                                                room.as_str(),
-                                                receipt_type.as_ref(),
-                                                old_event.as_str(),
-                                                user_id.as_str(),
-                                            )
-                                                .encode(),
+                                            (room, receipt_type, old_event, user_id).encode(),
                                         )?;
                                     }
 
                                     // Add the receipt to the room event receipts
                                     room_event_receipts.insert(
-                                        (
-                                            room.as_str(),
-                                            receipt_type.as_ref(),
-                                            event_id.as_str(),
-                                            user_id.as_str(),
-                                        )
-                                            .encode(),
+                                        (room, receipt_type, event_id, user_id).encode(),
                                         self.serialize_event(receipt)
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
@@ -690,7 +559,7 @@ impl SledStore {
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         let db = self.clone();
-        let key = (room_id.as_str(), event_type.to_string().as_str(), state_key).encode();
+        let key = (room_id, event_type.to_string(), state_key).encode();
         spawn_blocking(move || {
             db.room_state.get(key)?.map(|e| db.deserialize_event(&e)).transpose()
         })
@@ -703,7 +572,7 @@ impl SledStore {
         event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         let db = self.clone();
-        let key = (room_id.as_str(), event_type.to_string().as_str()).encode();
+        let key = (room_id, event_type.to_string()).encode();
         spawn_blocking(move || {
             db.room_state
                 .scan_prefix(key)
@@ -719,7 +588,7 @@ impl SledStore {
         user_id: &UserId,
     ) -> Result<Option<RoomMemberEventContent>> {
         let db = self.clone();
-        let key = (room_id.as_str(), user_id.as_str()).encode();
+        let key = (room_id, user_id).encode();
         spawn_blocking(move || db.profiles.get(key)?.map(|p| db.deserialize_event(&p)).transpose())
             .await?
     }
@@ -730,7 +599,7 @@ impl SledStore {
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
         let db = self.clone();
-        let key = (room_id.as_str(), state_key.as_str()).encode();
+        let key = (room_id, state_key).encode();
         spawn_blocking(move || db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose())
             .await?
     }
@@ -832,7 +701,7 @@ impl SledStore {
         display_name: &str,
     ) -> Result<BTreeSet<Box<UserId>>> {
         let db = self.clone();
-        let key = (room_id.as_str(), display_name).encode();
+        let key = (room_id, display_name).encode();
         spawn_blocking(move || {
             Ok(db
                 .display_names
@@ -862,7 +731,7 @@ impl SledStore {
         event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         let db = self.clone();
-        let key = (room_id.as_str(), event_type.to_string().as_str()).encode();
+        let key = (room_id, event_type.to_string()).encode();
         spawn_blocking(move || {
             db.room_account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
@@ -876,7 +745,7 @@ impl SledStore {
         user_id: &UserId,
     ) -> Result<Option<(Box<EventId>, Receipt)>> {
         let db = self.clone();
-        let key = (room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode();
+        let key = (room_id, receipt_type, user_id).encode();
         spawn_blocking(move || {
             db.room_user_receipts.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
@@ -890,7 +759,7 @@ impl SledStore {
         event_id: &EventId,
     ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
         let db = self.clone();
-        let key = (room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode();
+        let key = (room_id, receipt_type, event_id).encode();
         spawn_blocking(move || {
             db.room_event_receipts
                 .scan_prefix(key)
@@ -911,10 +780,8 @@ impl SledStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.media.insert(
-            (request.source.unique_key().as_str(), request.format.unique_key().as_str()).encode(),
-            data,
-        )?;
+        self.media
+            .insert((request.source.unique_key(), request.format.unique_key()).encode(), data)?;
 
         self.inner.flush_async().await?;
 
@@ -923,8 +790,7 @@ impl SledStore {
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let db = self.clone();
-        let key =
-            (request.source.unique_key().as_str(), request.format.unique_key().as_str()).encode();
+        let key = (request.source.unique_key(), request.format.unique_key()).encode();
 
         spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
     }
@@ -943,15 +809,13 @@ impl SledStore {
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.media.remove(
-            (request.source.unique_key().as_str(), request.format.unique_key().as_str()).encode(),
-        )?;
+        self.media.remove((request.source.unique_key(), request.format.unique_key()).encode())?;
 
         Ok(())
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let keys = self.media.scan_prefix(uri.as_str().encode()).keys();
+        let keys = self.media.scan_prefix(uri.encode()).keys();
 
         let mut batch = sled::Batch::default();
         for key in keys {
@@ -1104,7 +968,7 @@ impl SledStore {
         info!("Found previously stored timeline for {}, with end token {:?}", r_id, end_token);
 
         let stream = stream! {
-            while let Ok(Some(item)) = db.room_timeline.get(&(r_id.as_ref(), position).encode()) {
+            while let Ok(Some(item)) = db.room_timeline.get(&encode_key_with_usize(&r_id, position)) {
                 position += 1;
                 yield db.deserialize_event(&item).map_err(SledStoreError::from).map_err(|e| e.into());
             }
@@ -1184,7 +1048,7 @@ impl SledStore {
                     let mut delete_timeline = false;
                     for event in &timeline.events {
                         if let Some(event_id) = event.event_id() {
-                            let event_key = (room_id.as_ref(), event_id.as_ref()).encode();
+                            let event_key = (room_id, event_id).encode();
                             if self.room_event_id_to_position.contains_key(event_key)? {
                                 delete_timeline = true;
                                 break;
@@ -1239,7 +1103,7 @@ impl SledStore {
                         AnySyncMessageLikeEvent::RoomRedaction(redaction),
                     )) = event.event.deserialize()
                     {
-                        let redacts_key = (room_id.as_ref(), redaction.redacts.as_ref()).encode();
+                        let redacts_key = (room_id, redaction.redacts).encode();
                         if let Some(position_key) =
                             self.room_event_id_to_position.get(redacts_key)?
                         {
@@ -1264,22 +1128,22 @@ impl SledStore {
                     }
 
                     metadata.start_position -= 1;
-                    let key = (room_id.as_ref(), metadata.start_position).encode();
+                    let key = encode_key_with_usize(room_id, metadata.start_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        let event_key = (room_id.as_ref(), event_id.as_ref()).encode();
+                        let event_key = (room_id, event_id).encode();
                         event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
                     }
                 }
             } else {
                 for event in &timeline.events {
                     metadata.end_position += 1;
-                    let key = (room_id.as_ref(), metadata.end_position).encode();
+                    let key = encode_key_with_usize(room_id, metadata.end_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        let event_key = (room_id.as_ref(), event_id.as_ref()).encode();
+                        let event_key = (room_id, event_id).encode();
                         event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
                     }
                 }

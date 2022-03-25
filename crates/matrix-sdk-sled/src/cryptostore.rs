@@ -50,6 +50,7 @@ use sled::{
 use tracing::debug;
 
 use super::OpenStoreError;
+use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
 
 const DATABASE_VERSION: u8 = 4;
 
@@ -64,32 +65,25 @@ const OUTBOUND_GROUP_TABLE_NAME: &str = "crypto-store-outbound-group-sessions";
 const SECRET_REQUEST_BY_INFO_TABLE: &str = "crypto-store-secret-request-by-info";
 const TRACKED_USERS_TABLE: &str = "crypto-store-secret-tracked-users";
 
-trait EncodeKey {
-    const SEPARATOR: u8 = 0xff;
-    fn encode(&self) -> Vec<u8>;
-}
-
-impl<T: EncodeKey> EncodeKey for &T {
+impl EncodeKey for InboundGroupSession {
     fn encode(&self) -> Vec<u8> {
-        T::encode(self)
+        (self.room_id(), self.sender_key(), self.session_id()).encode()
     }
 }
 
-impl<T: EncodeKey> EncodeKey for Box<T> {
+impl EncodeKey for OutboundGroupSession {
     fn encode(&self) -> Vec<u8> {
-        T::encode(self)
+        self.room_id().encode()
     }
 }
 
-impl EncodeKey for TransactionId {
+impl EncodeKey for Session {
     fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
+        let sender_key = self.sender_key().to_base64();
+        let session_id = self.session_id();
 
-impl EncodeKey for SecretName {
-    fn encode(&self) -> Vec<u8> {
-        [self.as_ref().as_bytes(), &[Self::SEPARATOR]].concat()
+        [sender_key.as_bytes(), &[ENCODE_SEPARATOR], session_id.as_bytes(), &[ENCODE_SEPARATOR]]
+            .concat()
     }
 }
 
@@ -104,29 +98,13 @@ impl EncodeKey for SecretInfo {
 
 impl EncodeKey for RequestedKeyInfo {
     fn encode(&self) -> Vec<u8> {
-        [
-            self.room_id.as_bytes(),
-            &[Self::SEPARATOR],
-            self.sender_key.as_bytes(),
-            &[Self::SEPARATOR],
-            self.algorithm.as_ref().as_bytes(),
-            &[Self::SEPARATOR],
-            self.session_id.as_bytes(),
-            &[Self::SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
-impl EncodeKey for UserId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+        (&self.room_id, &self.sender_key, &self.algorithm, &self.session_id).encode()
     }
 }
 
 impl EncodeKey for ReadOnlyDevice {
     fn encode(&self) -> Vec<u8> {
-        (self.user_id().as_str(), self.device_id().as_str()).encode()
+        (self.user_id(), self.device_id()).encode()
     }
 }
 
@@ -135,7 +113,8 @@ impl EncodeSecureKey for (&UserId, &DeviceId) {
         let user_id = store_cipher.hash_key(table_name, self.0.as_bytes());
         let device_id = store_cipher.hash_key(table_name, self.1.as_bytes());
 
-        (user_id, device_id).encode()
+        [user_id.as_slice(), &[ENCODE_SEPARATOR], device_id.as_slice(), &[ENCODE_SEPARATOR]]
+            .concat()
     }
 }
 
@@ -152,7 +131,7 @@ impl EncodeSecureKey for SecretName {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         let name = store_cipher.hash_key(table_name, self.as_ref().as_bytes());
 
-        [name.as_slice(), &[Self::SEPARATOR]].concat()
+        [name.as_slice(), &[ENCODE_SEPARATOR]].concat()
     }
 }
 
@@ -165,13 +144,13 @@ impl EncodeSecureKey for RequestedKeyInfo {
 
         [
             room_id.as_slice(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
             sender_key.as_slice(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
             algorithm.as_slice(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
             session_id.as_slice(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
         ]
         .concat()
     }
@@ -191,20 +170,10 @@ impl EncodeSecureKey for ReadOnlyDevice {
     }
 }
 
-impl EncodeKey for Session {
-    fn encode(&self) -> Vec<u8> {
-        let sender_key = self.sender_key().to_base64();
-        let session_id = self.session_id();
-
-        [sender_key.as_bytes(), &[Self::SEPARATOR], session_id.as_bytes(), &[Self::SEPARATOR]]
-            .concat()
-    }
-}
-
 impl EncodeSecureKey for str {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         let key = store_cipher.hash_key(table_name, self.as_bytes());
-        [key.as_slice(), &[Self::SEPARATOR]].concat()
+        [key.as_slice(), &[ENCODE_SEPARATOR]].concat()
     }
 }
 
@@ -218,7 +187,7 @@ impl EncodeSecureKey for RoomId {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         let room_id = store_cipher.hash_key(table_name, self.as_bytes());
 
-        [room_id.as_slice(), &[Self::SEPARATOR]].concat()
+        [room_id.as_slice(), &[ENCODE_SEPARATOR]].concat()
     }
 }
 
@@ -237,11 +206,11 @@ impl EncodeSecureKey for (&RoomId, &str, &str) {
 
         [
             first.as_slice(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
             second.as_slice(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
             third.as_slice(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
         ]
         .concat()
     }
@@ -253,70 +222,8 @@ impl EncodeSecureKey for Session {
             store_cipher.hash_key(table_name, self.sender_key().to_base64().as_bytes());
         let session_id = store_cipher.hash_key(table_name, self.session_id().as_bytes());
 
-        [sender_key.as_slice(), &[Self::SEPARATOR], session_id.as_slice(), &[Self::SEPARATOR]]
+        [sender_key.as_slice(), &[ENCODE_SEPARATOR], session_id.as_slice(), &[ENCODE_SEPARATOR]]
             .concat()
-    }
-}
-
-impl EncodeKey for RoomId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for String {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
-    }
-}
-
-impl EncodeKey for str {
-    fn encode(&self) -> Vec<u8> {
-        [self.as_bytes(), &[Self::SEPARATOR]].concat()
-    }
-}
-
-impl<const N: usize> EncodeKey for ([u8; N], [u8; N]) {
-    fn encode(&self) -> Vec<u8> {
-        [self.0.as_slice(), &[Self::SEPARATOR], self.1.as_slice(), &[Self::SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [self.0.as_bytes(), &[Self::SEPARATOR], self.1.as_bytes(), &[Self::SEPARATOR]].concat()
-    }
-}
-
-impl EncodeKey for (&UserId, &DeviceId) {
-    fn encode(&self) -> Vec<u8> {
-        (self.0.as_str(), self.1.as_str()).encode()
-    }
-}
-
-impl EncodeKey for InboundGroupSession {
-    fn encode(&self) -> Vec<u8> {
-        (self.room_id(), self.sender_key(), self.session_id()).encode()
-    }
-}
-
-impl EncodeKey for OutboundGroupSession {
-    fn encode(&self) -> Vec<u8> {
-        self.room_id().encode()
-    }
-}
-
-impl EncodeKey for (&RoomId, &str, &str) {
-    fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[Self::SEPARATOR],
-            self.1.as_bytes(),
-            &[Self::SEPARATOR],
-            self.2.as_bytes(),
-            &[Self::SEPARATOR],
-        ]
-        .concat()
     }
 }
 
