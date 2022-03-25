@@ -21,8 +21,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 #[cfg(feature = "decode_image")]
 use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Luma};
 use qrcode::QrCode;
-use ruma_identifiers::EventId;
-use ruma_serde::Base64;
+use ruma_common::{serde::Base64, EventId};
 use vodozemac::Ed25519PublicKey;
 
 #[cfg(feature = "decode_image")]

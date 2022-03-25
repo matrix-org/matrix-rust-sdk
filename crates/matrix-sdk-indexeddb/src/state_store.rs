@@ -33,7 +33,7 @@ use matrix_sdk_common::{
             presence::PresenceEvent,
             receipt::Receipt,
             room::member::{MembershipState, RoomMemberEventContent},
-            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent,
+            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
             AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
             RoomAccountDataEventType, StateEventType,
         },
@@ -388,7 +388,7 @@ impl IndexeddbStore {
             let store = tx.object_store(KEYS::ROOM_ACCOUNT_DATA)?;
             for (room, events) in &changes.room_account_data {
                 for (event_type, event) in events {
-                    let key = (room, event_type).encode();
+                    let key = (room, event_type.to_string().as_str()).encode();
                     store.put_key_val(&key, &self.serialize_event(&event)?)?;
                 }
             }
@@ -637,9 +637,9 @@ impl IndexeddbStore {
                         });
                     for event in &timeline.events {
                         // Redact events already in store only on sync response
-                        if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
-                            redaction,
-                        ))) = event.event.deserialize()
+                        if let Ok(AnySyncRoomEvent::MessageLike(
+                            AnySyncMessageLikeEvent::RoomRedaction(redaction),
+                        )) = event.event.deserialize()
                         {
                             let redacts_key = (room_id, &redaction.redacts).encode();
                             if let Some(position_key) =
@@ -866,7 +866,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ACCOUNT_DATA)?
-            .get(&JsValue::from_str(event_type.as_str()))?
+            .get(&JsValue::from_str(&event_type.to_string()))?
             .await?
             .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
             .transpose()
@@ -880,7 +880,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
-            .get(&(room_id.as_str(), event_type.as_str()).encode())?
+            .get(&(room_id.as_str(), &event_type.to_string()).encode())?
             .await?
             .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
             .transpose()
@@ -938,7 +938,7 @@ impl IndexeddbStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        let key = (&request.media_type.unique_key(), &request.format.unique_key()).encode();
+        let key = (&request.source.unique_key(), &request.format.unique_key()).encode();
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
@@ -948,7 +948,7 @@ impl IndexeddbStore {
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let key = (&request.media_type.unique_key(), &request.format.unique_key()).encode();
+        let key = (&request.source.unique_key(), &request.format.unique_key()).encode();
         self.inner
             .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEDIA)?
@@ -992,7 +992,7 @@ impl IndexeddbStore {
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        let key = (&request.media_type.unique_key(), &request.format.unique_key()).encode();
+        let key = (&request.source.unique_key(), &request.format.unique_key()).encode();
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 

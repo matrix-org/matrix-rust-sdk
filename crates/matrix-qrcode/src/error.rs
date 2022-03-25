@@ -32,7 +32,7 @@ pub enum DecodingError {
     Mode(u8),
     /// The flow id is not a valid event ID.
     #[error(transparent)]
-    Identifier(#[from] ruma_identifiers::Error),
+    Identifier(#[from] ruma_common::IdParseError),
     #[error(transparent)]
     /// The QR code data does not contain all the necessary fields.
     Read(#[from] std::io::Error),

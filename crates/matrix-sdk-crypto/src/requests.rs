@@ -29,7 +29,9 @@ use ruma::{
         message::send_message_event::v3::Response as RoomMessageResponse,
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
-    events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, ToDeviceEventType},
+    events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent, EventContent, ToDeviceEventType,
+    },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, RoomId, TransactionId, UserId,
@@ -88,7 +90,7 @@ impl ToDeviceRequest {
         if recipient_devices.is_empty() {
             Self::new(recipient, DeviceIdOrAllDevices::AllDevices, content)
         } else {
-            let event_type = content.event_type().into();
+            let event_type = content.event_type();
             let device_messages = recipient_devices
                 .into_iter()
                 .map(|d| {
@@ -109,7 +111,7 @@ impl ToDeviceRequest {
         content: AnyToDeviceEventContent,
         txn_id: Box<TransactionId>,
     ) -> Self {
-        let event_type = ToDeviceEventType::from(content.event_type());
+        let event_type = content.event_type();
         let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
 
         let user_messages = iter::once((recipient_device.into(), raw_content)).collect();
@@ -365,7 +367,7 @@ pub struct RoomMessageRequest {
     pub txn_id: Box<TransactionId>,
 
     /// The event content to send.
-    pub content: AnyMessageEventContent,
+    pub content: AnyMessageLikeEventContent,
 }
 
 /// A request that will back up a batch of room keys to the server.

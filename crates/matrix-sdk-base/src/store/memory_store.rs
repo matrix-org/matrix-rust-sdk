@@ -28,7 +28,7 @@ use ruma::{
         receipt::Receipt,
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        AnySyncMessageLikeEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
@@ -54,18 +54,21 @@ use crate::{
 pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
-    account_data: Arc<DashMap<String, Raw<AnyGlobalAccountDataEvent>>>,
+    account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
     members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, MemberEvent>>>,
     profiles: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, RoomMemberEventContent>>>,
     display_names: Arc<DashMap<Box<RoomId>, DashMap<String, BTreeSet<Box<UserId>>>>>,
     joined_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
     invited_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
     room_info: Arc<DashMap<Box<RoomId>, RoomInfo>>,
-    room_state: Arc<DashMap<Box<RoomId>, DashMap<String, DashMap<String, Raw<AnySyncStateEvent>>>>>,
-    room_account_data: Arc<DashMap<Box<RoomId>, DashMap<String, Raw<AnyRoomAccountDataEvent>>>>,
+    room_state:
+        Arc<DashMap<Box<RoomId>, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
+    room_account_data:
+        Arc<DashMap<Box<RoomId>, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
     stripped_room_infos: Arc<DashMap<Box<RoomId>, RoomInfo>>,
-    stripped_room_state:
-        Arc<DashMap<Box<RoomId>, DashMap<String, DashMap<String, Raw<AnyStrippedStateEvent>>>>>,
+    stripped_room_state: Arc<
+        DashMap<Box<RoomId>, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
+    >,
     stripped_members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, StrippedMemberEvent>>>,
     presence: Arc<DashMap<Box<UserId>, Raw<PresenceEvent>>>,
     room_user_receipts:
@@ -194,7 +197,7 @@ impl MemoryStore {
         }
 
         for (event_type, event) in &changes.account_data {
-            self.account_data.insert(event_type.to_string(), event.clone());
+            self.account_data.insert(event_type.clone(), event.clone());
         }
 
         for (room, events) in &changes.room_account_data {
@@ -202,7 +205,7 @@ impl MemoryStore {
                 self.room_account_data
                     .entry(room.clone())
                     .or_insert_with(DashMap::new)
-                    .insert(event_type.to_string(), event.clone());
+                    .insert(event_type.clone(), event.clone());
             }
         }
 
@@ -212,7 +215,7 @@ impl MemoryStore {
                     self.room_state
                         .entry(room.clone())
                         .or_insert_with(DashMap::new)
-                        .entry(event_type.to_owned())
+                        .entry(event_type.clone())
                         .or_insert_with(DashMap::new)
                         .insert(state_key.to_owned(), event.clone());
                 }
@@ -246,7 +249,7 @@ impl MemoryStore {
                     self.stripped_room_state
                         .entry(room.clone())
                         .or_insert_with(DashMap::new)
-                        .entry(event_type.to_owned())
+                        .entry(event_type.clone())
                         .or_insert_with(DashMap::new)
                         .insert(state_key.to_owned(), event.clone());
                 }
@@ -357,9 +360,9 @@ impl MemoryStore {
                 let mut room_version = None;
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
-                    if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
-                        redaction,
-                    ))) = event.event.deserialize()
+                    if let Ok(AnySyncRoomEvent::MessageLike(
+                        AnySyncMessageLikeEvent::RoomRedaction(redaction),
+                    )) = event.event.deserialize()
                     {
                         let pos = data.event_id_to_position.get(&redaction.redacts).copied();
 
@@ -412,9 +415,10 @@ impl MemoryStore {
         event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        Ok(self.room_state.get(room_id).and_then(|e| {
-            e.get(event_type.as_ref()).and_then(|s| s.get(state_key).map(|e| e.clone()))
-        }))
+        Ok(self
+            .room_state
+            .get(room_id)
+            .and_then(|e| e.get(&event_type).and_then(|s| s.get(state_key).map(|e| e.clone()))))
     }
 
     async fn get_state_events(
@@ -426,7 +430,7 @@ impl MemoryStore {
             .room_state
             .get(room_id)
             .and_then(|e| {
-                e.get(event_type.as_ref()).map(|s| s.iter().map(|e| e.clone()).collect::<Vec<_>>())
+                e.get(&event_type).map(|s| s.iter().map(|e| e.clone()).collect::<Vec<_>>())
             })
             .unwrap_or_default())
     }
@@ -480,7 +484,7 @@ impl MemoryStore {
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        Ok(self.account_data.get(event_type.as_ref()).map(|e| e.clone()))
+        Ok(self.account_data.get(&event_type).map(|e| e.clone()))
     }
 
     async fn get_room_account_data_event(
@@ -488,10 +492,7 @@ impl MemoryStore {
         room_id: &RoomId,
         event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
-        Ok(self
-            .room_account_data
-            .get(room_id)
-            .and_then(|m| m.get(event_type.as_ref()).map(|e| e.clone())))
+        Ok(self.room_account_data.get(room_id).and_then(|m| m.get(&event_type).map(|e| e.clone())))
     }
 
     async fn get_user_room_receipt_event(

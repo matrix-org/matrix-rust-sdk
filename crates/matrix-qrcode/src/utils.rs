@@ -17,7 +17,7 @@ use std::convert::TryInto;
 #[cfg(feature = "decode_image")]
 use image::{GenericImage, GenericImageView, Luma};
 use qrcode::{bits::Bits, EcLevel, QrCode, Version};
-use ruma_serde::Base64;
+use ruma_common::serde::Base64;
 use vodozemac::Ed25519PublicKey;
 
 #[cfg(feature = "decode_image")]

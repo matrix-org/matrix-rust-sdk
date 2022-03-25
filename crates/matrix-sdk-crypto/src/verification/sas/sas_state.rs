@@ -37,7 +37,7 @@ use ruma::{
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
             ShortAuthenticationString, VerificationMethod,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
     DeviceId, EventId, RoomId, TransactionId, UserId,
@@ -848,10 +848,12 @@ impl SasState<Accepted> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
-                    Base64::new(self.our_public_key.to_vec()),
-                    Relation::new(e.clone()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationKey(
+                    KeyVerificationKeyEventContent::new(
+                        Base64::new(self.our_public_key.to_vec()),
+                        Relation::new(e.clone()),
+                    ),
+                ),
             )
                 .into(),
         }
@@ -874,10 +876,12 @@ impl SasState<KeyReceived> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationKey(KeyVerificationKeyEventContent::new(
-                    Base64::new(self.our_public_key.to_vec()),
-                    Relation::new(e.clone()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationKey(
+                    KeyVerificationKeyEventContent::new(
+                        Base64::new(self.our_public_key.to_vec()),
+                        Relation::new(e.clone()),
+                    ),
+                ),
             )
                 .into(),
         }
@@ -1177,9 +1181,9 @@ impl SasState<WaitingForDone> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
-                    Relation::new(e.clone()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationDone(
+                    KeyVerificationDoneEventContent::new(Relation::new(e.clone())),
+                ),
             )
                 .into(),
         }

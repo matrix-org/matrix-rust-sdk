@@ -4,7 +4,7 @@ use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore}
 use ruma::{
     api::{
         client::{
-            discover::{discover_homeserver, get_supported_versions},
+            discovery::{discover_homeserver, get_supported_versions},
             Error,
         },
         error::FromHttpResponseError,

@@ -45,7 +45,7 @@ use ruma::{
             },
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, DeviceKeyId, EventId, RoomId, TransactionId, UserId,
 };
@@ -256,9 +256,9 @@ impl Done {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
-                    Relation::new(e.to_owned()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationDone(
+                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                ),
             )
                 .into(),
         }
@@ -341,7 +341,7 @@ impl Cancelled {
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationCancel(
+                AnyMessageLikeEventContent::KeyVerificationCancel(
                     KeyVerificationCancelEventContent::new(
                         self.reason.to_owned(),
                         self.cancel_code.clone(),
