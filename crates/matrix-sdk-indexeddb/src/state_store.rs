@@ -635,7 +635,7 @@ impl IndexeddbStore {
                             );
                             RoomVersionId::V9
                         });
-                    for event in timeline.events.iter().rev() {
+                    for event in &timeline.events {
                         // Redact events already in store only on sync response
                         if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
                             redaction,
@@ -678,7 +678,7 @@ impl IndexeddbStore {
                         timeline_store.put_key_val_owned(key, &self.serialize_event(&event)?)?;
                     }
                 } else {
-                    for event in timeline.events.iter() {
+                    for event in &timeline.events {
                         metadata.end_position += 1;
                         let key = (room_id, &metadata.end_position).encode();
                         // Only add event with id to the position map

@@ -1227,7 +1227,7 @@ impl SledStore {
                 });
 
             if timeline.sync {
-                for event in timeline.events.iter().rev() {
+                for event in &timeline.events {
                     // Redact events already in store only on sync response
                     if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
                         redaction,
@@ -1267,7 +1267,7 @@ impl SledStore {
                     }
                 }
             } else {
-                for event in timeline.events.iter() {
+                for event in &timeline.events {
                     metadata.end_position += 1;
                     let key = (room_id.as_ref(), metadata.end_position).encode();
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);

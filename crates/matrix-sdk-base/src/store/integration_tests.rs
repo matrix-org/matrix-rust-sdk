@@ -577,7 +577,7 @@ macro_rules! statestore_integration_tests {
                     let timeline = &sync.rooms.join[room_id].timeline;
                     let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
 
-                    stored_events.append(&mut events.clone());
+                    stored_events.extend(events.iter().rev().cloned());
 
                     let timeline_slice = TimelineSlice::new(
                         events,
@@ -654,9 +654,9 @@ macro_rules! statestore_integration_tests {
                     let timeline = &sync.rooms.join[room_id].timeline;
                     let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
 
-                    let mut prev_stored_events = stored_events;
-                    stored_events = events.clone();
-                    stored_events.append(&mut prev_stored_events);
+                    let prev_stored_events = stored_events;
+                    stored_events = events.iter().rev().cloned().collect();
+                    stored_events.extend(prev_stored_events);
 
                     let timeline_slice = TimelineSlice::new(
                         events,
