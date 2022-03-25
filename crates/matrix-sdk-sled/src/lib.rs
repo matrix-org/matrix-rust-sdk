@@ -8,6 +8,7 @@ use thiserror::Error;
 
 #[cfg(feature = "encryption")]
 mod cryptostore;
+mod encode_key;
 mod state_store;
 
 #[cfg(feature = "encryption")]
