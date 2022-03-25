@@ -3947,12 +3947,12 @@ pub(crate) mod test {
         }
 
         let expected_backwards_events = vec![
-            "$152037280074GZeOm:localhost",
-            "$editevid:localhost",
-            "$151957878228ssqrJ:localhost",
-            "$15275046980maRLj:localhost",
-            "$15275047031IXQRi:localhost",
             "$098237280074GZeOm:localhost",
+            "$15275047031IXQRi:localhost",
+            "$15275046980maRLj:localhost",
+            "$151957878228ssqrJ:localhost",
+            "$editevid:localhost",
+            "$152037280074GZeOm:localhost",
             // ^^^ These come from the first sync before we asked for the timeline and thus
             //     where cached
             //

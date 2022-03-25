@@ -355,7 +355,7 @@ impl MemoryStore {
 
             if timeline.sync {
                 let mut room_version = None;
-                for event in timeline.events.iter().rev() {
+                for event in &timeline.events {
                     // Redact events already in store only on sync response
                     if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
                         redaction,
@@ -385,7 +385,7 @@ impl MemoryStore {
                     data.events.insert(start_position, event.clone());
                 }
             } else {
-                for event in timeline.events.iter() {
+                for event in &timeline.events {
                     data.end_position += 1;
                     let end_position = data.end_position;
                     // Only add event with id to the position map
