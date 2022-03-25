@@ -42,10 +42,10 @@ impl MockComponent for StatusBar {
         let tabs = {
             let mut tabs = vec![];
             if let Some(dur) = self.sstate.time_to_first_render() {
-                tabs.push(Spans::from(format!("First view: {}s", dur.as_secs())));
+                tabs.push(Spans::from(format!("First view: {}ms", dur.as_millis())));
 
                 if let Some(dur) = self.sstate.time_to_full_sync() {
-                    tabs.push(Spans::from(format!("Full sync: {}s", dur.as_secs())));
+                    tabs.push(Spans::from(format!("Full sync: {}ms", dur.as_millis())));
                     if let Some(count) = self.sstate.total_rooms_count() {
                         tabs.push(Spans::from(format!("{} rooms", count)));
                     }

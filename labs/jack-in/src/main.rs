@@ -6,30 +6,6 @@ use eyre::{eyre, Result};
 use log::{warn, LevelFilter};
 use matrix_sdk::{Client, Session};
 use matrix_sdk_common::ruma::{DeviceId, RoomId, UserId};
-/**
- * MIT License
- *
- * tui-realm - Copyright (C) 2021 Christian Visintin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to permit
- * persons to whom the Software is furnished to do so, subject to the
- * following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
- * NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
- * USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
 use tuirealm::application::PollStrategy;
 use tuirealm::{AttrValue, Attribute, Event, Update};
 // -- internal
@@ -113,11 +89,14 @@ async fn main() -> Result<()> {
     tui_logger::set_default_level(log::LevelFilter::Warn);
     tui_logger::set_level_for_target("matrix_sdk::client", log::LevelFilter::Warn);
 
+    let title = format!("{} via {}", user_id, opt.sliding_sync_proxy);
+
     let client = Client::builder().user_id(&user_id).build().await?;
     let session = Session { access_token: opt.token.clone(), user_id, device_id };
     client.restore_login(session).await?;
 
     let (tx, mut rx) = mpsc::channel(100);
+    let model_tx = tx.clone();
 
     tokio::spawn(async move {
         if let Err(e) = client::run_client(client, opt.sliding_sync_proxy.clone(), tx).await {
@@ -128,8 +107,8 @@ async fn main() -> Result<()> {
     let start_sync =
         rx.recv().await.ok_or_else(|| eyre!("failure getting the sliding sync state"))?;
     let poller = MatrixPoller(rx);
-    let model = Model::new(start_sync, poller);
-
+    let mut model = Model::new(start_sync, model_tx, poller);
+    model.set_title(title);
     run_ui(model).await;
 
     Ok(())
@@ -146,14 +125,7 @@ async fn run_ui(mut model: Model) {
         // Tick
         match model.app.tick(PollStrategy::Once) {
             Err(err) => {
-                assert!(model
-                    .app
-                    .attr(
-                        &Id::Label,
-                        Attribute::Text,
-                        AttrValue::String(format!("Application error: {}", err)),
-                    )
-                    .is_ok());
+                model.set_title(format!("Application error: {}", err));
             }
             Ok(messages) if messages.len() > 0 => {
                 // NOTE: redraw if at least one msg has been processed

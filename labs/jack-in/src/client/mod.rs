@@ -84,7 +84,6 @@ pub async fn run_client(
     let mut prev_selected_room: Option<Box<RoomId>> = None;
 
     while let Some(update) = stream.next().await {
-        warn!("live next");
         {
             let selected_room = ssync_state.selected_room.lock_ref().clone();
             if let Some(room_id) = selected_room {
@@ -100,7 +99,6 @@ pub async fn run_client(
                 }
             }
         }
-        warn!("after next");
         match update {
             Ok(u) => {
                 warn!("Live update received");

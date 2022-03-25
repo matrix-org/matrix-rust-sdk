@@ -14,6 +14,7 @@ use tuirealm::{
 };
 
 use super::{super::client::state::SlidingSyncState, get_block, JackInEvent, Msg};
+use log::warn;
 
 /// ## Details
 pub struct Details {
@@ -124,7 +125,7 @@ impl MockComponent for Details {
         }
 
         if let Some(name) = &self.name {
-            let mut details = vec![Row::new(vec![Cell::from("-- Status Events")])];
+            let mut details = vec![Row::new(vec![Cell::from("-- Status Events"), Cell::from("(count of events)")])];
 
             for (title, count) in &self.state_events_counts {
                 details.push(Row::new(vec![
@@ -133,7 +134,7 @@ impl MockComponent for Details {
                 ]))
             }
 
-            details.push(Row::new(vec![Cell::from("-- Incomming Events (latest first):")]));
+            details.push(Row::new(vec![Cell::from("-- Timeline"), Cell::from("(latest first):")]));
 
             for e in self.current_room_timeline.iter() {
                 details.push(Row::new(vec![
@@ -144,8 +145,8 @@ impl MockComponent for Details {
 
             frame.render_stateful_widget(
                 Table::new(details)
-                    .style(Style::default().fg(Color::LightCyan))
-                    .widths(&[Constraint::Min(30), Constraint::Min(6), Constraint::Min(30)])
+                    .style(Style::default().fg(Color::White))
+                    .widths(&[Constraint::Min(30), Constraint::Min(50)])
                     .highlight_style(
                         Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC),
                     )

@@ -15,38 +15,15 @@ use tuirealm::{
     Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause, Update,
 };
 
-/**
- * MIT License
- *
- * tui-realm - Copyright (C) 2021 Christian Visintin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to permit
- * persons to whom the Software is furnished to do so, subject to the
- * following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
- * NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
- * USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
 use super::components::{Details, Label, Logger, Rooms, StatusBar};
 use super::{Id, JackInEvent, MatrixPoller, Msg};
 use crate::client::state::SlidingSyncState;
+use tokio::sync::mpsc;
+use log::warn;
 
 pub struct Model {
     /// Application
     pub app: Application<Id, Msg, JackInEvent>,
-    pub title: String,
     /// Indicates that the application must quit
     pub quit: bool,
     /// Tells whether to redraw interface
@@ -56,15 +33,16 @@ pub struct Model {
     /// show the logger console
     pub show_logger: bool,
     sliding_sync: SlidingSyncState,
+    tx: mpsc::Sender<SlidingSyncState>,
 }
 
 impl Model {
-    pub(crate) fn new(sliding_sync: SlidingSyncState, poller: MatrixPoller) -> Self {
+    pub(crate) fn new(sliding_sync: SlidingSyncState, tx: mpsc::Sender<SlidingSyncState>, poller: MatrixPoller) -> Self {
         let app = Self::init_app(sliding_sync.clone(), poller);
 
         Self {
             app,
-            title: "Loading".to_owned(),
+            tx,
             sliding_sync,
             quit: false,
             redraw: true,
@@ -75,6 +53,15 @@ impl Model {
 }
 
 impl Model {
+    pub fn set_title(&mut self, title: String) {
+        assert!(self
+            .app
+            .attr(
+                &Id::Label,
+                Attribute::Text,
+                AttrValue::String(title),
+            ).is_ok());
+    }
     pub fn view(&mut self) {
         assert!(self
             .terminal
@@ -117,11 +104,6 @@ impl Model {
         sliding_sync: SlidingSyncState,
         poller: MatrixPoller,
     ) -> Application<Id, Msg, JackInEvent> {
-        // Setup application
-        // NOTE: JackInEvent is a shorthand to tell tui-realm we're not going to use any
-        // custom user event NOTE: the event listener is configured to use the
-        // default crossterm input listener and to raise a Tick event each second
-        // which we will use to update the clock
 
         let mut app: Application<Id, Msg, JackInEvent> = Application::init(
             EventListenerCfg::default()
@@ -137,10 +119,10 @@ impl Model {
                 Box::new(
                     Label::default()
                         .text("Loading")
-                        .alignment(Alignment::Left)
+                        .alignment(Alignment::Center)
                         .background(Color::Reset)
-                        .foreground(Color::LightYellow)
-                        .modifiers(TextModifiers::BOLD),
+                        .borders(Borders::default())
+                        .foreground(Color::LightYellow),
                 ),
                 Vec::default(),
             )
@@ -209,7 +191,9 @@ impl Update<Msg> for Model {
                     None
                 }
                 Msg::SelectRoom(r) => {
+                    warn!("setting room, sending msg");
                     self.sliding_sync.select_room(r);
+                    let _ = self.tx.try_send(self.sliding_sync.clone());
                     None
                 }
                 _ => None,
