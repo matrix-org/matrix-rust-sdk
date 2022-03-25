@@ -1,26 +1,25 @@
-
-use super::{Msg, get_block, JackInEvent};
-
-use tuirealm::command::{Cmd, CmdResult};
-use tuirealm::tui::{layout::Rect, widgets::{Paragraph, Tabs}, text::{Span, Spans} };
 use tuirealm::{
+    command::{Cmd, CmdResult},
+    props::{Alignment, Borders, Color, Style, TextModifiers},
+    tui::{
+        layout::Rect,
+        text::{Span, Spans},
+        widgets::{Paragraph, Tabs},
+    },
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
-use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
-use super::super::client::state::SlidingSyncState;
+
+use super::{super::client::state::SlidingSyncState, get_block, JackInEvent, Msg};
 
 /// ## StatusBar
 pub struct StatusBar {
     props: Props,
-    sstate: SlidingSyncState
+    sstate: SlidingSyncState,
 }
 
 impl StatusBar {
     pub fn new(sstate: SlidingSyncState) -> Self {
-        Self {
-            props: Props::default(),
-            sstate,
-        }
+        Self { props: Props::default(), sstate }
     }
     pub fn set_sliding_sync(&mut self, sstate: SlidingSyncState) {
         self.sstate = sstate;
@@ -29,7 +28,6 @@ impl StatusBar {
 
 impl MockComponent for StatusBar {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-
         let title = ("Status".to_owned(), Alignment::Left);
 
         let borders = self
@@ -37,16 +35,9 @@ impl MockComponent for StatusBar {
             .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
             .unwrap_borders();
 
-        let focus = self
-            .props
-            .get_or(Attribute::Focus, AttrValue::Flag(false))
-            .unwrap_flag();
+        let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
-
-        let focus = self
-            .props
-            .get_or(Attribute::Focus, AttrValue::Flag(false))
-            .unwrap_flag();
+        let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
         let tabs = {
             let mut tabs = vec![];
@@ -59,11 +50,17 @@ impl MockComponent for StatusBar {
                         tabs.push(Spans::from(format!("{} rooms", count)));
                     }
                 } else {
-                    tabs.push(Spans::from(format!("Loaded {:} rooms in {}s", self.sstate.loaded_rooms_count(), self.sstate.started().elapsed().as_secs())));
+                    tabs.push(Spans::from(format!(
+                        "Loaded {:} rooms in {}s",
+                        self.sstate.loaded_rooms_count(),
+                        self.sstate.started().elapsed().as_secs()
+                    )));
                 }
-
             } else {
-                tabs.push(Spans::from(format!("loading for {}s", self.sstate.started().elapsed().as_secs())));
+                tabs.push(Spans::from(format!(
+                    "loading for {}s",
+                    self.sstate.started().elapsed().as_secs()
+                )));
             }
             tabs
         };
@@ -73,7 +70,7 @@ impl MockComponent for StatusBar {
                 .style(Style::default().fg(Color::LightCyan))
                 .block(get_block(borders, title, focus))
                 .style(Style::default().fg(Color::White).bg(Color::Black)),
-            area
+            area,
         );
     }
 

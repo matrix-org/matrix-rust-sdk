@@ -1,21 +1,18 @@
-
-use super::{Msg, get_block, JackInEvent};
-
-use tuirealm::command::{Cmd, CmdResult};
-use tuirealm::event::Key;
-use tuirealm::event::{KeyEvent, KeyModifiers};
-use tuirealm::tui::{
-        layout::{Rect, Constraint},
-        widgets::{Table, TableState, Row, Cell},
-        style::Modifier
-};
+use log::warn;
+use matrix_sdk_common::ruma::{DeviceId, RoomId, UserId};
 use tuirealm::{
+    command::{Cmd, CmdResult},
+    event::{Key, KeyEvent, KeyModifiers},
+    props::{Alignment, Borders, Color, Style, TextModifiers},
+    tui::{
+        layout::{Constraint, Rect},
+        style::Modifier,
+        widgets::{Cell, Row, Table, TableState},
+    },
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
-use matrix_sdk_common::ruma::{ RoomId, UserId, DeviceId };
-use tuirealm::props::{Alignment, Borders, Color, Style, TextModifiers};
-use super::super::client::state::SlidingSyncState;
-use log::warn;
+
+use super::{super::client::state::SlidingSyncState, get_block, JackInEvent, Msg};
 
 /// ## Rooms
 pub struct Rooms {
@@ -26,11 +23,7 @@ pub struct Rooms {
 
 impl Rooms {
     pub fn new(sstate: SlidingSyncState) -> Self {
-        Self {
-            props: Props::default(),
-            sstate,
-            tablestate: Default::default(),
-        }
+        Self { props: Props::default(), sstate, tablestate: Default::default() }
     }
 
     pub fn set_sliding_sync(&mut self, sstate: SlidingSyncState) {
@@ -51,7 +44,6 @@ impl Rooms {
             }
         };
         self.tablestate.select(Some(next.try_into().unwrap_or_default()));
-
     }
 
     pub fn borders(mut self, b: Borders) -> Self {
@@ -62,38 +54,33 @@ impl Rooms {
 
 impl MockComponent for Rooms {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-
         let title = ("Rooms".to_owned(), Alignment::Center);
 
         let borders = self
             .props
             .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
             .unwrap_borders();
-        let focus = self
-            .props
-            .get_or(Attribute::Focus, AttrValue::Flag(false))
-            .unwrap_flag();
+        let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
-        
         let mut paras = vec![];
 
         for r in self.sstate.view().get_rooms(None, None) {
-            let mut cells = vec![
-                Cell::from(r.name.unwrap_or("unknown".to_string()))
-            ];
+            let mut cells = vec![Cell::from(r.name.unwrap_or("unknown".to_string()))];
             if let Some(c) = r.notification_count {
                 let count: u32 = c.try_into().unwrap_or_default();
                 if count > 0 {
                     cells.push(Cell::from(c.to_string()))
                 }
-            } 
+            }
             paras.push(Row::new(cells));
         }
 
         frame.render_stateful_widget(
             Table::new(paras)
                 .style(Style::default().fg(Color::White))
-                .highlight_style(Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC))
+                .highlight_style(
+                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC),
+                )
                 .highlight_symbol(">>")
                 .widths(&[Constraint::Min(30), Constraint::Max(4)])
                 .block(get_block(borders, title, focus)),
@@ -121,62 +108,43 @@ impl MockComponent for Rooms {
 
 impl Component<Msg, JackInEvent> for Rooms {
     fn on(&mut self, ev: Event<JackInEvent>) -> Option<Msg> {
-        let focus = self
-            .props
-            .get_or(Attribute::Focus, AttrValue::Flag(false))
-            .unwrap_flag();
+        let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
         if focus {
             // we only care about user input if we are in focus.
             match ev {
-                Event::Keyboard(KeyEvent {
-                    code: Key::Down,
-                    modifiers: KeyModifiers::NONE,
-                }) => {
+                Event::Keyboard(KeyEvent { code: Key::Down, modifiers: KeyModifiers::NONE }) => {
                     self.select_dir(1);
-                    return None
-                },
-                Event::Keyboard(KeyEvent {
-                    code: Key::Down,
-                    modifiers: KeyModifiers::SHIFT,
-                }) => {
+                    return None;
+                }
+                Event::Keyboard(KeyEvent { code: Key::Down, modifiers: KeyModifiers::SHIFT }) => {
                     self.select_dir(10);
-                    return None
-                },
-                Event::Keyboard(KeyEvent {
-                    code: Key::Up,
-                    modifiers: KeyModifiers::NONE,
-                }) => {
+                    return None;
+                }
+                Event::Keyboard(KeyEvent { code: Key::Up, modifiers: KeyModifiers::NONE }) => {
                     self.select_dir(-1);
-                    return None
-                },
-                Event::Keyboard(KeyEvent {
-                    code: Key::Up,
-                    modifiers: KeyModifiers::SHIFT,
-                }) => {
+                    return None;
+                }
+                Event::Keyboard(KeyEvent { code: Key::Up, modifiers: KeyModifiers::SHIFT }) => {
                     self.select_dir(-10);
-                    return None
-                },
-                Event::Keyboard(KeyEvent {
-                    code: Key::Enter,
-                    modifiers: KeyModifiers::NONE,
-                }) => {
+                    return None;
+                }
+                Event::Keyboard(KeyEvent { code: Key::Enter, modifiers: KeyModifiers::NONE }) => {
                     if let Some(idx) = self.tablestate.selected() {
                         if let Some(room) = self.sstate.view().get_rooms(None, None).get(idx) {
                             warn!("selecting, {:?}", room.room_id);
-                            return Some(Msg::SelectRoom(room.room_id.clone().map(|v| RoomId::parse(v).expect("is valid"))))
+                            return Some(Msg::SelectRoom(
+                                room.room_id.clone().map(|v| RoomId::parse(v).expect("is valid")),
+                            ));
                         }
-
                     }
-                    return None
+                    return None;
                 }
-                Event::Keyboard(KeyEvent {
-                    code: Key::Tab,
-                    modifiers: KeyModifiers::NONE,
-                }) => return Some(Msg::RoomsBlur), // Return focus lost
-                Event::Keyboard(KeyEvent {
-                    code: Key::Esc,
-                    modifiers: KeyModifiers::NONE,
-                }) => return Some(Msg::AppClose),
+                Event::Keyboard(KeyEvent { code: Key::Tab, modifiers: KeyModifiers::NONE }) => {
+                    return Some(Msg::RoomsBlur)
+                } // Return focus lost
+                Event::Keyboard(KeyEvent { code: Key::Esc, modifiers: KeyModifiers::NONE }) => {
+                    return Some(Msg::AppClose)
+                }
                 _ => {}
             }
         }
@@ -184,7 +152,7 @@ impl Component<Msg, JackInEvent> for Rooms {
         if let Event::User(JackInEvent::SyncUpdate(s)) = ev {
             self.set_sliding_sync(s.clone());
         }
-        
+
         None
     }
 }

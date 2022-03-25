@@ -1,18 +1,14 @@
-use std::time::{Instant, Duration};
-use matrix_sdk::{Client, SlidingSyncView, SlidingSyncRoom};
-use tuirealm::tui::widgets::TableState;
-use std::collections::btree_map::BTreeMap;
-use std::sync::Arc;
-use matrix_sdk_common::ruma::{
-    RoomId, 
-    events::AnyRoomEvent
-};
-use futures_signals::{
-    signal::Mutable,
-    signal_vec::MutableVec,
+use std::{
+    collections::btree_map::BTreeMap,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
+use futures_signals::{signal::Mutable, signal_vec::MutableVec};
 use log::warn;
+use matrix_sdk::{Client, SlidingSyncRoom, SlidingSyncView};
+use matrix_sdk_common::ruma::{events::AnyRoomEvent, RoomId};
+use tuirealm::tui::widgets::TableState;
 
 #[derive(Clone)]
 pub struct Syncv2State {
@@ -23,11 +19,7 @@ pub struct Syncv2State {
 
 impl Syncv2State {
     pub fn new() -> Self {
-        Self {
-            started: Instant::now(),
-            first_render: None,
-            rooms_count: None,
-        }
+        Self { started: Instant::now(), first_render: None, rooms_count: None }
     }
 
     pub fn started(&self) -> &Instant {
@@ -66,7 +58,7 @@ pub struct SlidingSyncState {
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
     total_rooms_count: Option<u32>,
-    pub selected_room: Mutable<Option<Box<matrix_sdk::ruma::RoomId>>>
+    pub selected_room: Mutable<Option<Box<matrix_sdk::ruma::RoomId>>>,
 }
 
 impl std::cmp::PartialOrd for SlidingSyncState {
@@ -81,18 +73,17 @@ impl std::cmp::Ord for SlidingSyncState {
     }
 }
 
-impl std::cmp::Eq for SlidingSyncState { }
+impl std::cmp::Eq for SlidingSyncState {}
 
 impl std::cmp::PartialEq for SlidingSyncState {
     fn eq(&self, other: &SlidingSyncState) -> bool {
         false
     }
 
-    fn ne(&self, other: &SlidingSyncState) -> bool { 
+    fn ne(&self, other: &SlidingSyncState) -> bool {
         false
     }
 }
-
 
 impl SlidingSyncState {
     pub fn new(view: SlidingSyncView) -> Self {
@@ -184,8 +175,8 @@ impl SlidingSyncState {
 //     pub fn start_v2(&mut self) {
 //         if let Self::Initialized { v2, .. } = self {
 //             if let Some(pre) = v2 {
-//                 warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
-//             }
+//                 warn!("Overwriting previous start from {:#?} taking {:#?}",
+// pre.started(), pre.time_to_first_render());             }
 //             *v2 = Some(Syncv2State::new());
 //         }
 //     }
@@ -198,8 +189,8 @@ impl SlidingSyncState {
 //         }
 //     }
 
-//     pub fn get_sliding_mut<'a>(&'a mut self) -> Option<&'a mut SlidingSyncState> {
-//         if let Self::Initialized { sliding, .. } = self {
+//     pub fn get_sliding_mut<'a>(&'a mut self) -> Option<&'a mut
+// SlidingSyncState> {         if let Self::Initialized { sliding, .. } = self {
 //             sliding.as_mut()
 //         } else {
 //             None
@@ -209,8 +200,8 @@ impl SlidingSyncState {
 //     pub fn start_sliding(&mut self, view: SlidingSyncView) {
 //         if let Self::Initialized { sliding, .. } = self {
 //             if let Some(pre) = sliding {
-//                 warn!("Overwriting previous start from {:#?} taking {:#?}", pre.started(), pre.time_to_first_render());
-//             }
+//                 warn!("Overwriting previous start from {:#?} taking {:#?}",
+// pre.started(), pre.time_to_first_render());             }
 //             *sliding = Some(SlidingSyncState::new(view));
 //         }
 //     }

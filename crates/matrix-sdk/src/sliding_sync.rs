@@ -38,8 +38,9 @@ use matrix_sdk_common::locks::RwLock;
 //     stream::Stream,
 //     task::Poll
 // };
-use ruma::api::client::sync::sliding_sync_events;
-use ruma::{assign, events::EventType, serde::Raw, RoomId, UInt};
+use ruma::{
+    api::client::sync::sliding_sync_events, assign, events::EventType, serde::Raw, RoomId, UInt,
+};
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
@@ -97,7 +98,12 @@ type RangeState = futures_signals::signal::Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = futures_signals::signal::Mutable<Option<u32>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Option<Box<RoomId>>>>;
 type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, SlidingSyncRoom>>;
-type RoomsSubscriptions = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, sliding_sync_events::RoomSubscription>>;
+type RoomsSubscriptions = Arc<
+    futures_signals::signal_map::MutableBTreeMap<
+        Box<RoomId>,
+        sliding_sync_events::RoomSubscription,
+    >,
+>;
 type RoomUnsubscribe = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
 type ViewsList = Arc<futures_signals::signal_vec::MutableVec<SlidingSyncView>>;
 pub type Cancel = futures_signals::signal::Mutable<bool>;
@@ -129,11 +135,9 @@ pub struct SlidingSync {
 
     #[builder(private, default)]
     unsubscribe: RoomUnsubscribe,
-
 }
 
 impl SlidingSyncBuilder {
-
     /// Convenience function to add a full-sync view to the builder
     pub fn add_fullsync_view(&mut self) -> &mut Self {
         let mut new = self;
@@ -181,9 +185,7 @@ impl SlidingSync {
                     .collect(),
             )))
             .subscriptions(Arc::new(futures_signals::signal_map::MutableBTreeMap::with_values(
-                self.subscriptions
-                    .lock_ref()
-                    .to_owned()
+                self.subscriptions.lock_ref().to_owned(),
             )))
             .to_owned();
 
@@ -194,17 +196,23 @@ impl SlidingSync {
     }
 
     /// Subscribe to a given room.
-    /// 
-    /// Note: this does not cancel any pending request, so make sure to only poll the stream after you've
-    /// altered this. If you do that during, it might take one round trip to take effect.
-    pub fn subscribe(&self, room_id: Box<RoomId>, settings: Option<sliding_sync_events::RoomSubscription>) {
+    ///
+    /// Note: this does not cancel any pending request, so make sure to only
+    /// poll the stream after you've altered this. If you do that during, it
+    /// might take one round trip to take effect.
+    pub fn subscribe(
+        &self,
+        room_id: Box<RoomId>,
+        settings: Option<sliding_sync_events::RoomSubscription>,
+    ) {
         self.subscriptions.lock_mut().insert_cloned(room_id, settings.unwrap_or_default());
     }
 
     /// Unsubscribe from a given room.
-    /// 
-    /// Note: this does not cancel any pending request, so make sure to only poll the stream after you've
-    /// altered this. If you do that during, it might take one round trip to take effect.
+    ///
+    /// Note: this does not cancel any pending request, so make sure to only
+    /// poll the stream after you've altered this. If you do that during, it
+    /// might take one round trip to take effect.
     pub fn unsubscribe(&self, room_id: Box<RoomId>) {
         if let Some(prev) = self.subscriptions.lock_mut().remove(&room_id) {
             self.unsubscribe.lock_mut().push_cloned(room_id);
@@ -243,10 +251,7 @@ impl SlidingSync {
 
         let views = if updated_views.is_empty() { None } else { Some(updated_views) };
 
-        Ok( UpdateSummary {
-            views,
-            rooms: resp.room_subscriptions
-        })
+        Ok(UpdateSummary { views, rooms: resp.room_subscriptions })
     }
 
     /// Create the inner stream for the view
@@ -354,7 +359,6 @@ pub struct SlidingSyncView {
     timeline_limit: Option<UInt>,
 
     // ----- Public state
-
     /// Name of this view to easily recognise them
     #[builder(setter(into))]
     pub name: String,
@@ -377,7 +381,6 @@ pub struct SlidingSyncView {
 }
 
 impl SlidingSyncViewBuilder {
-
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
         Self::default()
@@ -415,8 +418,8 @@ impl SlidingSyncViewBuilder {
         new
     }
 
-    /// Reset the limit of regular events to fetch for the timeline. It is left to the server to decide
-    /// how many to send back
+    /// Reset the limit of regular events to fetch for the timeline. It is left
+    /// to the server to decide how many to send back
     pub fn no_timeline_limit(&mut self) -> &mut Self {
         let mut new = self;
         new.timeline_limit = None;
@@ -464,7 +467,11 @@ impl<'a> SlidingSyncViewRequestGenerator<'a> {
     ) -> Raw<sliding_sync_events::SyncRequestList> {
         let sort = Some(self.view.sort.clone());
         let required_state = Some(self.view.required_state.clone());
-        let timeline_limit = self.view.timeline_limit.clone().map(|v| v.try_into().expect("u32 always fits into UInt"));
+        let timeline_limit = self
+            .view
+            .timeline_limit
+            .clone()
+            .map(|v| v.try_into().expect("u32 always fits into UInt"));
         let filters = self.view.filters.clone();
 
         Raw::new(&assign!(sliding_sync_events::SyncRequestList::default(), {

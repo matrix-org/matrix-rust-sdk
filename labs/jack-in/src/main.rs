@@ -2,39 +2,36 @@
 //!
 //! `Demo` shows how to use tui-realm in a real case
 
+use eyre::{eyre, Result};
+use log::{warn, LevelFilter};
+use matrix_sdk::{Client, Session};
+use matrix_sdk_common::ruma::{DeviceId, RoomId, UserId};
 /**
  * MIT License
  *
  * tui-realm - Copyright (C) 2021 Christian Visintin
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to permit
+ * persons to whom the Software is furnished to do so, subject to the
+ * following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included
+ * in all copies or substantial portions of the Software.
  *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+ * NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+ * USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-
 use tuirealm::application::PollStrategy;
-
 use tuirealm::{AttrValue, Attribute, Event, Update};
-
-use eyre::{eyre, Result};
-use log::LevelFilter;
-use matrix_sdk::{Client, Session};
-use matrix_sdk_common::ruma::{ RoomId, UserId, DeviceId };
-use log::warn;
 // -- internal
 mod app;
 mod client;
@@ -42,14 +39,15 @@ mod components;
 use app::model::Model;
 use tokio::sync::mpsc;
 
-// Let's define the messages handled by our app. NOTE: it must derive `PartialEq`
+// Let's define the messages handled by our app. NOTE: it must derive
+// `PartialEq`
 #[derive(PartialEq)]
 pub enum Msg {
     AppClose,
     Clock,
     RoomsBlur,
     DetailsBlur,
-    SelectRoom(Option<Box<RoomId>>)
+    SelectRoom(Option<Box<RoomId>>),
 }
 
 #[derive(Eq, PartialEq, PartialOrd, Clone)]
@@ -59,7 +57,7 @@ pub enum JackInEvent {
 }
 
 // Let's define the component ids for our application
-#[derive(Debug, Eq, PartialEq, PartialOrd,Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Clone, Hash)]
 pub enum Id {
     Clock,
     DigitCounter,
@@ -71,38 +69,34 @@ pub enum Id {
     Details,
 }
 
-
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "jack-in", about = "Your experimental sliding-sync jack into the matrix")]
 struct Opt {
     /// The address of the sliding sync server to connect (probs the proxy)
-    #[structopt(short, long, default_value="http://localhost:8008", env="JACKIN_SYNC_PROXY")]
+    #[structopt(short, long, default_value = "http://localhost:8008", env = "JACKIN_SYNC_PROXY")]
     sliding_sync_proxy: String,
 
     /// The address of the original homeserver behind the proxy
-    #[structopt(short, long, env="JACKIN_USER")]
+    #[structopt(short, long, env = "JACKIN_USER")]
     user: String,
 
-    /// Your access token to connect via the 
-    #[structopt(short, long, env="JACKIN_TOKEN")]
+    /// Your access token to connect via the
+    #[structopt(short, long, env = "JACKIN_TOKEN")]
     token: String,
 }
-
 
 pub(crate) struct MatrixPoller(mpsc::Receiver<client::state::SlidingSyncState>);
 
 impl tuirealm::listener::Poll<JackInEvent> for MatrixPoller {
-
     fn poll(&mut self) -> tuirealm::listener::ListenerResult<Option<Event<JackInEvent>>> {
         match self.0.try_recv() {
-                Ok(v) => Ok(Some(Event::User(JackInEvent::SyncUpdate(v)))),
-                Err(mpsc::error::TryRecvError::Empty) => Ok(None),
-                _ => Err(tuirealm::listener::ListenerError::ListenerDied)
+            Ok(v) => Ok(Some(Event::User(JackInEvent::SyncUpdate(v)))),
+            Err(mpsc::error::TryRecvError::Empty) => Ok(None),
+            _ => Err(tuirealm::listener::ListenerError::ListenerDied),
         }
     }
-
 }
 
 #[tokio::main]
@@ -113,19 +107,14 @@ async fn main() -> Result<()> {
     let device_id: Box<DeviceId> = "XdftAsd".into();
 
     // Configure log
-    
+
     //tracing_subscriber::fmt::init();
     tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
     tui_logger::set_default_level(log::LevelFilter::Warn);
     tui_logger::set_level_for_target("matrix_sdk::client", log::LevelFilter::Warn);
 
-
     let client = Client::builder().user_id(&user_id).build().await?;
-    let session = Session {
-        access_token: opt.token.clone(),
-        user_id,
-        device_id,
-    };
+    let session = Session { access_token: opt.token.clone(), user_id, device_id };
     client.restore_login(session).await?;
 
     let (tx, mut rx) = mpsc::channel(100);
@@ -136,10 +125,10 @@ async fn main() -> Result<()> {
         }
     });
 
-    let start_sync = rx.recv().await.ok_or_else(|| eyre!("failure getting the sliding sync state"))?;
+    let start_sync =
+        rx.recv().await.ok_or_else(|| eyre!("failure getting the sliding sync state"))?;
     let poller = MatrixPoller(rx);
     let model = Model::new(start_sync, poller);
-    
 
     run_ui(model).await;
 
@@ -151,7 +140,8 @@ async fn run_ui(mut model: Model) {
     let _ = model.terminal.enter_alternate_screen();
     let _ = model.terminal.enable_raw_mode();
     // Main loop
-    // NOTE: loop until quit; quit is set in update if AppClose is received from counter
+    // NOTE: loop until quit; quit is set in update if AppClose is received from
+    // counter
     while !model.quit {
         // Tick
         match model.app.tick(PollStrategy::Once) {

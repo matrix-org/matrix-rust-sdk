@@ -1,37 +1,34 @@
-use std::io::stdout;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{io::stdout, sync::Arc, time::Duration};
+
+use eyre::{eyre, Result, WrapErr};
+use futures::{pin_mut, StreamExt};
+use log::{error, warn};
 use tokio::sync::{mpsc, RwLock};
-
-use futures::{StreamExt, pin_mut};
-
-use eyre::{eyre, WrapErr, Result};
-use tuirealm::tui::backend::CrosstermBackend;
-use tuirealm::tui::Terminal;
-
-
-use log::{warn, error};
+use tuirealm::tui::{backend::CrosstermBackend, Terminal};
 
 pub mod state;
 
 use futures_signals::signal::SignalExt;
+use matrix_sdk::{ruma::RoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
 
-use matrix_sdk::{Client, SlidingSyncState, SlidingSyncViewBuilder, ruma::RoomId};
-
-pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Sender<state::SlidingSyncState>) -> Result<()> {
-
+pub async fn run_client(
+    client: Client,
+    sliding_sync_proxy: String,
+    tx: mpsc::Sender<state::SlidingSyncState>,
+) -> Result<()> {
     let username = match client.account().get_display_name().await? {
         Some(u) => u,
-        None => client.user_id().await.ok_or_else(||eyre!("Looks like you didn't login"))?.to_string()
+        None => {
+            client.user_id().await.ok_or_else(|| eyre!("Looks like you didn't login"))?.to_string()
+        }
     };
 
     let homeserver = client.homeserver().await;
 
     warn!("Starting sliding sync now");
     let mut builder = client.sliding_sync();
-    let full_sync_view = SlidingSyncViewBuilder::default_with_fullsync()
-        .timeline_limit(10u32)
-        .build()?;
+    let full_sync_view =
+        SlidingSyncViewBuilder::default_with_fullsync().timeline_limit(10u32).build()?;
     let syncer = builder
         .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
         .add_view(full_sync_view)
@@ -45,9 +42,9 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
     pin_mut!(stream);
     let first_poll = stream.next().await;
     let view_state = state.read_only().get_cloned();
-    if  view_state != SlidingSyncState::CatchingUp {
+    if view_state != SlidingSyncState::CatchingUp {
         warn!("Sliding Query failed: {:#?}", view_state);
-        return Ok(())
+        return Ok(());
     }
 
     {
@@ -63,13 +60,13 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
 
                 if state.read_only().get_cloned() == SlidingSyncState::Live {
                     warn!("Reached live sync");
-                    break
+                    break;
                 }
                 let _ = tx.send(ssync_state.clone()).await;
             }
             Some(Err(e)) => {
                 warn!("Error: {:}", e);
-                break
+                break;
             }
             None => {
                 warn!("Never reached live state");
@@ -84,12 +81,12 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
     }
 
     let mut err_counter = 0;
-    let mut prev_selected_room : Option<Box<RoomId>> = None;
+    let mut prev_selected_room: Option<Box<RoomId>> = None;
 
     while let Some(update) = stream.next().await {
         warn!("live next");
         {
-            let selected_room  = ssync_state.selected_room.lock_ref().clone();
+            let selected_room = ssync_state.selected_room.lock_ref().clone();
             if let Some(room_id) = selected_room {
                 if let Some(prev) = &prev_selected_room {
                     if prev != &room_id {
@@ -115,7 +112,7 @@ pub async fn run_client(client: Client, sliding_sync_proxy: String, tx: mpsc::Se
                 err_counter += 1;
                 if err_counter > 3 {
                     error!("Received 3 errors in a row. stopping.");
-                    break
+                    break;
                 }
             }
         }

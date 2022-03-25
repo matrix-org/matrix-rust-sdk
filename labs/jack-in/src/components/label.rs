@@ -2,52 +2,53 @@
 //!
 //! label component
 
+use tuirealm::{
+    command::{Cmd, CmdResult},
+    props::{Alignment, Color, Style, TextModifiers},
+    tui::{layout::Rect, widgets::Paragraph},
+    AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
+};
+
 /**
  * MIT License
  *
  * tui-realm - Copyright (C) 2021 Christian Visintin
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to permit
+ * persons to whom the Software is furnished to do so, subject to the
+ * following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included
+ * in all copies or substantial portions of the Software.
  *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+ * NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+ * USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-use super::{Msg, JackInEvent};
-
-use tuirealm::command::{Cmd, CmdResult};
-use tuirealm::props::{Alignment, Color, Style, TextModifiers};
-use tuirealm::tui::{layout::Rect, widgets::Paragraph};
-use tuirealm::{
-    AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
-};
+use super::{JackInEvent, Msg};
 
 /// ## Label
 ///
 /// Simple label component; just renders a text
-/// NOTE: since I need just one label, I'm not going to use different object; I will directly implement Component for Label.
-/// This is not ideal actually and in a real app you should differentiate Mock Components from Application Components.
+/// NOTE: since I need just one label, I'm not going to use different object; I
+/// will directly implement Component for Label. This is not ideal actually and
+/// in a real app you should differentiate Mock Components from Application
+/// Components.
 pub struct Label {
     props: Props,
 }
 
 impl Default for Label {
     fn default() -> Self {
-        Self {
-            props: Props::default(),
-        }
+        Self { props: Props::default() }
     }
 }
 
@@ -104,19 +105,11 @@ impl MockComponent for Label {
                 .unwrap_color();
             let modifiers = self
                 .props
-                .get_or(
-                    Attribute::TextProps,
-                    AttrValue::TextModifiers(TextModifiers::empty()),
-                )
+                .get_or(Attribute::TextProps, AttrValue::TextModifiers(TextModifiers::empty()))
                 .unwrap_text_modifiers();
             frame.render_widget(
                 Paragraph::new(text)
-                    .style(
-                        Style::default()
-                            .fg(foreground)
-                            .bg(background)
-                            .add_modifier(modifiers),
-                    )
+                    .style(Style::default().fg(foreground).bg(background).add_modifier(modifiers))
                     .alignment(alignment),
                 area,
             );

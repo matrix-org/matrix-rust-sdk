@@ -2,45 +2,46 @@
 //!
 //! app model
 
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+
+use tokio::sync::RwLock;
+use tuirealm::{
+    props::{Alignment, Borders, Color, TextModifiers},
+    terminal::TerminalBridge,
+    tui::layout::{Constraint, Direction, Layout},
+    Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause, Update,
+};
+
 /**
  * MIT License
  *
  * tui-realm - Copyright (C) 2021 Christian Visintin
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to permit
+ * persons to whom the Software is furnished to do so, subject to the
+ * following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included
+ * in all copies or substantial portions of the Software.
  *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+ * NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+ * USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-use super::components::{Details, Label, Logger, StatusBar, Rooms};
-use super::{Id, Msg, JackInEvent, MatrixPoller};
-
-use std::time::{Duration, SystemTime};
-use tuirealm::props::{Alignment, Color, Borders, TextModifiers};
-
-use tuirealm::terminal::TerminalBridge;
-use tuirealm::tui::layout::{Constraint, Direction, Layout};
-use tuirealm::{
-    Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause,
-    SubEventClause, Update,
-};
-
+use super::components::{Details, Label, Logger, Rooms, StatusBar};
+use super::{Id, JackInEvent, MatrixPoller, Msg};
 use crate::client::state::SlidingSyncState;
-use tokio::sync::RwLock;
-use std::sync::Arc;
 
 pub struct Model {
     /// Application
@@ -81,12 +82,12 @@ impl Model {
             .draw(|f| {
                 let mut areas = vec![
                     Constraint::Length(3), // Header
-                    Constraint::Min(10),     // body
+                    Constraint::Min(10),   // body
                     Constraint::Length(3), // Status Footer
                 ];
                 if self.show_logger {
                     areas.push(
-                        Constraint::Length(12),  // logs 
+                        Constraint::Length(12), // logs
                     );
                 }
                 let chunks = Layout::default()
@@ -94,7 +95,7 @@ impl Model {
                     .margin(1)
                     .constraints(areas)
                     .split(f.size());
-                
+
                 // Body
                 let body_chunks = Layout::default()
                     .direction(Direction::Horizontal)
@@ -112,11 +113,14 @@ impl Model {
             .is_ok());
     }
 
-
-    fn init_app(sliding_sync: SlidingSyncState, poller: MatrixPoller) -> Application<Id, Msg, JackInEvent> {
+    fn init_app(
+        sliding_sync: SlidingSyncState,
+        poller: MatrixPoller,
+    ) -> Application<Id, Msg, JackInEvent> {
         // Setup application
-        // NOTE: JackInEvent is a shorthand to tell tui-realm we're not going to use any custom user event
-        // NOTE: the event listener is configured to use the default crossterm input listener and to raise a Tick event each second
+        // NOTE: JackInEvent is a shorthand to tell tui-realm we're not going to use any
+        // custom user event NOTE: the event listener is configured to use the
+        // default crossterm input listener and to raise a Tick event each second
         // which we will use to update the clock
 
         let mut app: Application<Id, Msg, JackInEvent> = Application::init(
@@ -142,51 +146,36 @@ impl Model {
             )
             .is_ok());
         /// mount logger
-        assert!(app
-            .remount(
-                Id::Logger,
-                Box::new(Logger::default()),
-                Vec::default()
-            )
-            .is_ok());
+        assert!(app.remount(Id::Logger, Box::new(Logger::default()), Vec::default()).is_ok());
 
-    
         assert!(app
             .mount(
                 Id::Status,
                 Box::new(StatusBar::new(sliding_sync.clone())),
-                vec![Sub::new(
-                    SubEventClause::Any,
-                    SubClause::Always
-                )]
+                vec![Sub::new(SubEventClause::Any, SubClause::Always)]
             )
-        .is_ok());
+            .is_ok());
 
         assert!(app
             .mount(
                 Id::Rooms,
                 Box::new(
                     Rooms::new(sliding_sync.clone())
-                    .borders(Borders::default().color(Color::Green))),
-                vec![Sub::new(
-                    SubEventClause::Any,
-                    SubClause::Always
-                )]
+                        .borders(Borders::default().color(Color::Green))
+                ),
+                vec![Sub::new(SubEventClause::Any, SubClause::Always)]
             )
-        .is_ok());
+            .is_ok());
 
         assert!(app
             .mount(
                 Id::Details,
                 Box::new(
-                    Details::new(sliding_sync)
-                    .borders(Borders::default().color(Color::Green))),
-                vec![Sub::new(
-                    SubEventClause::Any,
-                    SubClause::Always
-                )]
+                    Details::new(sliding_sync).borders(Borders::default().color(Color::Green))
+                ),
+                vec![Sub::new(SubEventClause::Any, SubClause::Always)]
             )
-        .is_ok());
+            .is_ok());
         // Active letter counter
         assert!(app.active(&Id::Rooms).is_ok());
         app
@@ -223,7 +212,7 @@ impl Update<Msg> for Model {
                     self.sliding_sync.select_room(r);
                     None
                 }
-                _ => None
+                _ => None,
             }
         } else {
             None
