@@ -505,7 +505,7 @@ impl Store {
                 .await?;
 
             let status = identity.status().await;
-            info!(status = ?status, "Successfully imported the private cross signing keys");
+            info!(?status, "Successfully imported the private cross signing keys");
 
             let changes =
                 Changes { private_identity: Some(identity.clone()), ..Default::default() };

@@ -329,8 +329,8 @@ impl GroupSessionManager {
         let mut devices: HashMap<Box<UserId>, Vec<Device>> = HashMap::new();
 
         trace!(
-            users = ?users,
-            history_visibility = ?history_visibility,
+            ?users,
+            ?history_visibility,
             session_id = outbound.session_id(),
             room_id = outbound.room_id().as_str(),
             "Calculating group session recipients"
@@ -505,7 +505,7 @@ impl GroupSessionManager {
 
             info!(
                 index = message_index,
-                recipients = ?recipients,
+                ?recipients,
                 room_id = room_id.as_str(),
                 session_id = outbound.session_id(),
                 "Trying to encrypt a room key",

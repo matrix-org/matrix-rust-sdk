@@ -320,7 +320,7 @@ impl BackupMachine {
                     info!(
                         key_count = key_count,
                         keys = ?session_record,
-                        backup_key = ?backup_key,
+                        ?backup_key,
                         "Successfully created a room keys backup request"
                     );
 

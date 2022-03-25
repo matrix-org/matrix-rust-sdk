@@ -402,7 +402,7 @@ impl Client {
 
         let room = rooms.into_iter().find(|r| r.direct_target().as_deref() == Some(user_id));
 
-        trace!(room = ?room, "Found room");
+        trace!(?room, "Found room");
         room
     }
 
