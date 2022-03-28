@@ -28,3 +28,7 @@ ruma-identifiers = "0.22.0"
 ruma-serde = "0.6.0"
 rqrr = { version = "0.4.0", optional = true }
 thiserror = "1.0.25"
+
+[dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac"
+rev = "16fb254aa3325c61ef949314c81c35f91d0664e1"

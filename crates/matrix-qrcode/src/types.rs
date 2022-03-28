@@ -23,12 +23,13 @@ use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Luma};
 use qrcode::QrCode;
 use ruma_identifiers::EventId;
 use ruma_serde::Base64;
+use vodozemac::Ed25519PublicKey;
 
 #[cfg(feature = "decode_image")]
 use crate::utils::decode_qr;
 use crate::{
     error::{DecodingError, EncodingError},
-    utils::{base_64_encode, to_bytes, to_qr_code, HEADER, MAX_MODE, MIN_SECRET_LEN, VERSION},
+    utils::{to_bytes, to_qr_code, HEADER, MAX_MODE, MIN_SECRET_LEN, VERSION},
 };
 
 /// An enum representing the different modes a QR verification can be in.
@@ -150,8 +151,8 @@ impl QrVerificationData {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
     ///              FLOW_ID\
-    ///              AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
-    ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+    ///              kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
+    ///              \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
     ///              SHARED_SECRET";
     ///
     /// let result = QrVerificationData::from_bytes(data)?;
@@ -178,8 +179,8 @@ impl QrVerificationData {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
     ///              FLOW_ID\
-    ///              AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
-    ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+    ///              kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
+    ///              \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
     ///              SHARED_SECRET";
     ///
     /// let result = QrVerificationData::from_bytes(data)?;
@@ -208,8 +209,8 @@ impl QrVerificationData {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
     ///              FLOW_ID\
-    ///              AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
-    ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+    ///              kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
+    ///              \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
     ///              SHARED_SECRET";
     ///
     /// let result = QrVerificationData::from_bytes(data)?;
@@ -289,6 +290,9 @@ impl QrVerificationData {
             return Err(DecodingError::SharedSecret(shared_secret.len()));
         }
 
+        let first_key = Ed25519PublicKey::from_slice(&first_key)?;
+        let second_key = Ed25519PublicKey::from_slice(&second_key)?;
+
         QrVerificationData::new(mode, flow_id, first_key, second_key, shared_secret)
     }
 
@@ -306,12 +310,10 @@ impl QrVerificationData {
     fn new(
         mode: u8,
         flow_id: Vec<u8>,
-        first_key: [u8; 32],
-        second_key: [u8; 32],
+        first_key: Ed25519PublicKey,
+        second_key: Ed25519PublicKey,
         shared_secret: Vec<u8>,
     ) -> Result<Self, DecodingError> {
-        let first_key = base_64_encode(&first_key);
-        let second_key = base_64_encode(&second_key);
         let flow_id = String::from_utf8(flow_id)?;
         let shared_secret = Base64::new(shared_secret);
 
@@ -343,20 +345,20 @@ impl QrVerificationData {
     }
 
     /// Get the first key of this `QrVerificationData`.
-    pub fn first_key(&self) -> &str {
+    pub fn first_key(&self) -> Ed25519PublicKey {
         match self {
-            QrVerificationData::Verification(v) => &v.first_master_key,
-            QrVerificationData::SelfVerification(v) => &v.master_key,
-            QrVerificationData::SelfVerificationNoMasterKey(v) => &v.device_key,
+            QrVerificationData::Verification(v) => v.first_master_key,
+            QrVerificationData::SelfVerification(v) => v.master_key,
+            QrVerificationData::SelfVerificationNoMasterKey(v) => v.device_key,
         }
     }
 
     /// Get the second key of this `QrVerificationData`.
-    pub fn second_key(&self) -> &str {
+    pub fn second_key(&self) -> Ed25519PublicKey {
         match self {
-            QrVerificationData::Verification(v) => &v.second_master_key,
-            QrVerificationData::SelfVerification(v) => &v.device_key,
-            QrVerificationData::SelfVerificationNoMasterKey(v) => &v.master_key,
+            QrVerificationData::Verification(v) => v.second_master_key,
+            QrVerificationData::SelfVerification(v) => v.device_key,
+            QrVerificationData::SelfVerificationNoMasterKey(v) => v.master_key,
         }
     }
 
@@ -377,8 +379,8 @@ impl QrVerificationData {
 #[derive(Clone, Debug, PartialEq)]
 pub struct VerificationData {
     event_id: Box<EventId>,
-    first_master_key: String,
-    second_master_key: String,
+    first_master_key: Ed25519PublicKey,
+    second_master_key: Ed25519PublicKey,
     shared_secret: Base64,
 }
 
@@ -400,8 +402,8 @@ impl VerificationData {
     /// needs to be at least 8 bytes long.
     pub fn new(
         event_id: Box<EventId>,
-        first_key: String,
-        second_key: String,
+        first_key: Ed25519PublicKey,
+        second_key: Ed25519PublicKey,
         shared_secret: Base64,
     ) -> Self {
         Self { event_id, first_master_key: first_key, second_master_key: second_key, shared_secret }
@@ -420,8 +422,8 @@ impl VerificationData {
     /// let data = b"MATRIX\
     ///              \x02\x00\x00\x0f\
     ///              $test:localhost\
-    ///              AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
-    ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+    ///              kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
+    ///              \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
     ///              SHARED_SECRET";
     ///
     /// let result = QrVerificationData::from_bytes(data)?;
@@ -438,8 +440,8 @@ impl VerificationData {
         to_bytes(
             Self::QR_MODE,
             self.event_id.as_str(),
-            &self.first_master_key,
-            &self.second_master_key,
+            self.first_master_key,
+            self.second_master_key,
             &self.shared_secret,
         )
     }
@@ -455,8 +457,8 @@ impl VerificationData {
         to_qr_code(
             Self::QR_MODE,
             self.event_id.as_str(),
-            &self.first_master_key,
-            &self.second_master_key,
+            self.first_master_key,
+            self.second_master_key,
             &self.shared_secret,
         )
     }
@@ -476,8 +478,8 @@ impl From<VerificationData> for QrVerificationData {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SelfVerificationData {
     transaction_id: String,
-    master_key: String,
-    device_key: String,
+    master_key: Ed25519PublicKey,
+    device_key: Ed25519PublicKey,
     shared_secret: Base64,
 }
 
@@ -503,8 +505,8 @@ impl SelfVerificationData {
     /// needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
-        master_key: String,
-        device_key: String,
+        master_key: Ed25519PublicKey,
+        device_key: Ed25519PublicKey,
         shared_secret: Base64,
     ) -> Self {
         Self { transaction_id, master_key, device_key, shared_secret }
@@ -523,8 +525,8 @@ impl SelfVerificationData {
     /// let data = b"MATRIX\
     ///              \x02\x01\x00\x06\
     ///              FLOWID\
-    ///              AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
-    ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+    ///              kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
+    ///              \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
     ///              SHARED_SECRET";
     ///
     /// let result = QrVerificationData::from_bytes(data)?;
@@ -541,8 +543,8 @@ impl SelfVerificationData {
         to_bytes(
             Self::QR_MODE,
             &self.transaction_id,
-            &self.master_key,
-            &self.device_key,
+            self.master_key,
+            self.device_key,
             &self.shared_secret,
         )
     }
@@ -558,8 +560,8 @@ impl SelfVerificationData {
         to_qr_code(
             Self::QR_MODE,
             &self.transaction_id,
-            &self.master_key,
-            &self.device_key,
+            self.master_key,
+            self.device_key,
             &self.shared_secret,
         )
     }
@@ -579,8 +581,8 @@ impl From<SelfVerificationData> for QrVerificationData {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SelfVerificationNoMasterKey {
     transaction_id: String,
-    device_key: String,
-    master_key: String,
+    device_key: Ed25519PublicKey,
+    master_key: Ed25519PublicKey,
     shared_secret: Base64,
 }
 
@@ -606,8 +608,8 @@ impl SelfVerificationNoMasterKey {
     /// needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
-        device_key: String,
-        master_key: String,
+        device_key: Ed25519PublicKey,
+        master_key: Ed25519PublicKey,
         shared_secret: Base64,
     ) -> Self {
         Self { transaction_id, device_key, master_key, shared_secret }
@@ -626,8 +628,8 @@ impl SelfVerificationNoMasterKey {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x06\
     ///              FLOWID\
-    ///              AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
-    ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+    ///              kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
+    ///              \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
     ///              SHARED_SECRET";
     ///
     /// let result = QrVerificationData::from_bytes(data)?;
@@ -644,8 +646,8 @@ impl SelfVerificationNoMasterKey {
         to_bytes(
             Self::QR_MODE,
             &self.transaction_id,
-            &self.device_key,
-            &self.master_key,
+            self.device_key,
+            self.master_key,
             &self.shared_secret,
         )
     }
@@ -661,8 +663,8 @@ impl SelfVerificationNoMasterKey {
         to_qr_code(
             Self::QR_MODE,
             &self.transaction_id,
-            &self.device_key,
-            &self.master_key,
+            self.device_key,
+            self.master_key,
             &self.shared_secret,
         )
     }

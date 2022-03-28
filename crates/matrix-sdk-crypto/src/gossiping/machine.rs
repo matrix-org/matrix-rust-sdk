@@ -951,7 +951,7 @@ mod test {
         },
         room_id,
         to_device::DeviceIdOrAllDevices,
-        user_id, DeviceId, DeviceKeyAlgorithm, RoomId, UserId,
+        user_id, DeviceId, RoomId, UserId,
     };
 
     use super::{GossipMachine, KeyForwardDecision};
@@ -1277,7 +1277,7 @@ mod test {
             .mark_shared_with(
                 bob_device.user_id(),
                 bob_device.device_id(),
-                bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                bob_device.curve25519_key().unwrap(),
             )
             .await;
         assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
@@ -1315,7 +1315,7 @@ mod test {
             .mark_shared_with(
                 own_device.user_id(),
                 own_device.device_id(),
-                own_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                own_device.curve25519_key().unwrap(),
             )
             .await;
 
@@ -1378,7 +1378,7 @@ mod test {
             .mark_shared_with(
                 alice_device.user_id(),
                 alice_device.device_id(),
-                alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                alice_device.curve25519_key().unwrap(),
             )
             .await;
 
@@ -1582,7 +1582,7 @@ mod test {
             .mark_shared_with(
                 alice_device.user_id(),
                 alice_device.device_id(),
-                alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                alice_device.curve25519_key().unwrap(),
             )
             .await;
 

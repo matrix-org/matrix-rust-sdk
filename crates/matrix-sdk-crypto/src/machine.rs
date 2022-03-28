@@ -1031,9 +1031,7 @@ impl OlmMachine {
     ) -> StoreResult<EncryptionInfo> {
         let verification_state = if let Some(device) =
             self.get_device(sender, device_id).await?.filter(|d| {
-                d.get_key(DeviceKeyAlgorithm::Curve25519)
-                    .map(|k| k == session.sender_key())
-                    .unwrap_or(false)
+                d.curve25519_key().map(|k| k.to_base64() == session.sender_key()).unwrap_or(false)
             }) {
             if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
                 || device.verified()
@@ -1488,6 +1486,7 @@ impl OlmMachine {
             .await
             .and_then(|m| m.get_first_key().map(|k| k.to_owned()))
             .ok_or(crate::SignatureError::MissingSigningKey)?
+            .to_base64()
             .into();
 
         let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key);

@@ -36,7 +36,7 @@ use crate::{
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     requests::UploadSigningKeysRequest,
     store::SecretImportError,
-    types::device_keys::DeviceKeys,
+    types::DeviceKeys,
     OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentity,
 };
@@ -404,6 +404,7 @@ impl PrivateCrossSigningIdentity {
                 .master_key()
                 .get_first_key()
                 .ok_or(SignatureError::MissingSigningKey)?
+                .to_base64()
                 .into(),
             master_key.to_raw(),
         );

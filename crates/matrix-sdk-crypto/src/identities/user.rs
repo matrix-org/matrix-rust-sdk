@@ -40,7 +40,7 @@ use crate::{
     error::SignatureError,
     olm::VerifyJson,
     store::{Changes, IdentityChanges},
-    types::{cross_signing_key::CrossSigningKey, device_keys::DeviceKeys},
+    types::{CrossSigningKey, DeviceKeys, SigningKey},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
@@ -393,7 +393,7 @@ impl MasterPubkey {
     }
 
     /// Get the keys map of containing the master keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
         &self.0.keys
     }
 
@@ -412,16 +412,20 @@ impl MasterPubkey {
     /// # Arguments
     ///
     /// * `key_id` - The id of the key that should be fetched.
-    pub fn get_key(&self, key_id: &DeviceKeyId) -> Option<&str> {
-        self.0.keys.get(key_id).map(|k| k.as_str())
+    pub fn get_key(&self, key_id: &DeviceKeyId) -> Option<&SigningKey> {
+        self.0.keys.get(key_id)
     }
 
     /// Get the first available master key.
     ///
     /// There's usually only a single master key so this will usually fetch the
     /// only key.
-    pub fn get_first_key(&self) -> Option<&str> {
-        self.0.keys.values().map(|k| k.as_str()).next()
+    pub fn get_first_key(&self) -> Option<Ed25519PublicKey> {
+        if let Some(SigningKey::Ed25519(k)) = self.0.keys.values().next() {
+            Some(*k)
+        } else {
+            None
+        }
     }
 
     /// Check if the given cross signing sub-key is signed by the master key.
@@ -450,19 +454,22 @@ impl MasterPubkey {
             return Err(SignatureError::UserIdMismatch);
         }
 
-        let key = Ed25519PublicKey::from_base64(key)?;
-
-        key.verify_json(
-            &self.0.user_id,
-            key_id,
-            &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
-        )
+        if let SigningKey::Ed25519(key) = key {
+            key.verify_json(
+                &self.0.user_id,
+                key_id,
+                &mut to_value(subkey.cross_signing_key())
+                    .map_err(|_| SignatureError::NotAnObject)?,
+            )
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 }
 
 impl<'a> IntoIterator for &'a MasterPubkey {
-    type Item = (&'a Box<DeviceKeyId>, &'a String);
-    type IntoIter = Iter<'a, Box<DeviceKeyId>, String>;
+    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
+    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -476,7 +483,7 @@ impl UserSigningPubkey {
     }
 
     /// Get the keys map of containing the user signing keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
         &self.0.keys
     }
 
@@ -497,18 +504,21 @@ impl UserSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        let key = Ed25519PublicKey::from_base64(key)?;
-        key.verify_json(
-            &self.0.user_id,
-            key_id.as_str().try_into()?,
-            &mut to_value(&master_key.0).map_err(|_| SignatureError::NotAnObject)?,
-        )
+        if let SigningKey::Ed25519(key) = key {
+            key.verify_json(
+                &self.0.user_id,
+                key_id.as_str().try_into()?,
+                &mut to_value(&master_key.0).map_err(|_| SignatureError::NotAnObject)?,
+            )
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 }
 
 impl<'a> IntoIterator for &'a UserSigningPubkey {
-    type Item = (&'a Box<DeviceKeyId>, &'a String);
-    type IntoIter = Iter<'a, Box<DeviceKeyId>, String>;
+    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
+    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -522,7 +532,7 @@ impl SelfSigningPubkey {
     }
 
     /// Get the keys map of containing the self signing keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
         &self.0.keys
     }
 
@@ -532,8 +542,11 @@ impl SelfSigningPubkey {
 
         let mut device = to_value(device_keys)?;
 
-        let key = Ed25519PublicKey::from_base64(key)?;
-        key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, &mut device)
+        if let SigningKey::Ed25519(key) = key {
+            key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, &mut device)
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 
     /// Check if the given device is signed by this self signing key.
@@ -550,8 +563,8 @@ impl SelfSigningPubkey {
 }
 
 impl<'a> IntoIterator for &'a SelfSigningPubkey {
-    type Item = (&'a Box<DeviceKeyId>, &'a String);
-    type IntoIter = Iter<'a, Box<DeviceKeyId>, String>;
+    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
+    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -908,7 +921,7 @@ pub(crate) mod testing {
             manager::testing::{other_key_query, own_key_query},
             ReadOnlyDevice,
         },
-        types::cross_signing_key::CrossSigningKey,
+        types::CrossSigningKey,
     };
 
     /// Generate test devices from KeyQueryResponse
@@ -971,7 +984,7 @@ pub(crate) mod test {
         identities::{manager::testing::own_key_query, Device},
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
-        types::cross_signing_key::CrossSigningKey,
+        types::CrossSigningKey,
         verification::VerificationMachine,
     };
 

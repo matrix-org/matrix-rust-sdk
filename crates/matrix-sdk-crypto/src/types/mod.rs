@@ -12,6 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod cross_signing_key;
-pub mod device_keys;
-pub mod one_time_keys;
+//! Module containing customized types modeling Matrix keys.
+//!
+//! These types were mostly taken from the Ruma project. The types differ in two
+//! important ways to the Ruma types of the same name:
+//!
+//! 1. They are using vodozemac types so we directly deserialize into a
+//!    vodozemac curve25519 or ed25519 key.
+//! 2. They support lossless serialization cycles in a canonical JSON supported
+//!    way, meaning the white-space and field order won't be preserved but the
+//!    data will.
+
+mod cross_signing_key;
+mod device_keys;
+mod one_time_keys;
+
+pub use cross_signing_key::*;
+pub use device_keys::*;
+pub use one_time_keys::*;

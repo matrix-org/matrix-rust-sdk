@@ -59,12 +59,13 @@ pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
     events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
+    RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
+use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroize;
 
 use crate::{
@@ -376,11 +377,13 @@ impl Store {
         user_id: &UserId,
         curve_key: &str,
     ) -> Result<Option<Device>> {
-        self.get_user_devices(user_id).await.map(|d| {
-            d.devices().find(|d| {
-                d.get_key(DeviceKeyAlgorithm::Curve25519).map_or(false, |k| k == curve_key)
-            })
-        })
+        if let Ok(curve_key) = Curve25519PublicKey::from_base64(curve_key) {
+            self.get_user_devices(user_id)
+                .await
+                .map(|d| d.devices().find(|d| d.curve25519_key().map_or(false, |k| k == curve_key)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get all devices associated with the given `user_id`

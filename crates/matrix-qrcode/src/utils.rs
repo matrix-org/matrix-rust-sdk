@@ -14,11 +14,11 @@
 
 use std::convert::TryInto;
 
-use base64::{decode_config, encode_config, STANDARD_NO_PAD};
 #[cfg(feature = "decode_image")]
 use image::{GenericImage, GenericImageView, Luma};
 use qrcode::{bits::Bits, EcLevel, QrCode, Version};
 use ruma_serde::Base64;
+use vodozemac::Ed25519PublicKey;
 
 #[cfg(feature = "decode_image")]
 use crate::error::DecodingError;
@@ -29,26 +29,15 @@ pub(crate) const VERSION: u8 = 0x2;
 pub(crate) const MAX_MODE: u8 = 0x2;
 pub(crate) const MIN_SECRET_LEN: usize = 8;
 
-pub(crate) fn base_64_encode(data: &[u8]) -> String {
-    encode_config(data, STANDARD_NO_PAD)
-}
-
-pub(crate) fn base64_decode(data: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    decode_config(data, STANDARD_NO_PAD)
-}
-
 pub(crate) fn to_bytes(
     mode: u8,
     flow_id: &str,
-    first_key: &str,
-    second_key: &str,
+    first_key: Ed25519PublicKey,
+    second_key: Ed25519PublicKey,
     shared_secret: &Base64,
 ) -> Result<Vec<u8>, EncodingError> {
     let flow_id_len: u16 = flow_id.len().try_into()?;
     let flow_id_len = flow_id_len.to_be_bytes();
-
-    let first_key = base64_decode(first_key)?;
-    let second_key = base64_decode(second_key)?;
 
     let data = [
         HEADER,
@@ -56,8 +45,8 @@ pub(crate) fn to_bytes(
         &[mode],
         flow_id_len.as_ref(),
         flow_id.as_bytes(),
-        &first_key,
-        &second_key,
+        first_key.as_bytes(),
+        second_key.as_bytes(),
         shared_secret.as_bytes(),
     ]
     .concat();
@@ -68,8 +57,8 @@ pub(crate) fn to_bytes(
 pub(crate) fn to_qr_code(
     mode: u8,
     flow_id: &str,
-    first_key: &str,
-    second_key: &str,
+    first_key: Ed25519PublicKey,
+    second_key: Ed25519PublicKey,
     shared_secret: &Base64,
 ) -> Result<QrCode, EncodingError> {
     let data = to_bytes(mode, flow_id, first_key, second_key, shared_secret)?;

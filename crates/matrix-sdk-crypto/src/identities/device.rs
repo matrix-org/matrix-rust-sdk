@@ -36,7 +36,7 @@ use ruma::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tracing::warn;
-use vodozemac::Ed25519PublicKey;
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
@@ -44,7 +44,7 @@ use crate::{
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, Session, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
-    types::{device_keys::DeviceKeys, one_time_keys::SignedKey},
+    types::{DeviceKey, DeviceKeys, SignedKey},
     verification::VerificationMachine,
     OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
@@ -177,8 +177,8 @@ impl Device {
 
     /// Get the Olm sessions that belong to this device.
     pub(crate) async fn get_sessions(&self) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
-        if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
-            self.verification_machine.store.get_sessions(k).await
+        if let Some(k) = self.curve25519_key() {
+            self.verification_machine.store.get_sessions(&k.to_base64()).await
         } else {
             Ok(None)
         }
@@ -399,12 +399,34 @@ impl ReadOnlyDevice {
     }
 
     /// Get the key of the given key algorithm belonging to this device.
-    pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&String> {
+    pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&DeviceKey> {
         self.inner.keys.get(&DeviceKeyId::from_parts(algorithm, self.device_id()))
     }
 
+    /// Get the Curve25519 key of the given device.
+    pub fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
+        self.get_key(DeviceKeyAlgorithm::Curve25519).and_then(|k| {
+            if let DeviceKey::Curve25519(k) = k {
+                Some(*k)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get the Ed25519 key of the given device.
+    pub fn ed25519_key(&self) -> Option<Ed25519PublicKey> {
+        self.get_key(DeviceKeyAlgorithm::Ed25519).and_then(|k| {
+            if let DeviceKey::Ed25519(k) = k {
+                Some(*k)
+            } else {
+                None
+            }
+        })
+    }
+
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, DeviceKey> {
         &self.inner.keys
     }
 
@@ -490,7 +512,7 @@ impl ReadOnlyDevice {
         store: &dyn CryptoStore,
         content: AnyToDeviceEventContent,
     ) -> OlmResult<(Session, ToDeviceRoomEncryptedEventContent)> {
-        let sender_key = if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
+        let sender_key = if let Some(k) = self.curve25519_key() {
             k
         } else {
             warn!(
@@ -502,7 +524,7 @@ impl ReadOnlyDevice {
             return Err(EventError::MissingSenderKey.into());
         };
 
-        let session = if let Some(s) = store.get_sessions(sender_key).await? {
+        let session = if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
             let sessions = s.lock().await;
             sessions.get(0).cloned()
         } else {
@@ -535,10 +557,7 @@ impl ReadOnlyDevice {
     }
 
     pub(crate) fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
-        let key =
-            self.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(SignatureError::MissingSigningKey)?;
-
-        let key = Ed25519PublicKey::from_base64(key)?;
+        let key = self.ed25519_key().ok_or(SignatureError::MissingSigningKey)?;
 
         key.verify_json(
             self.user_id(),
@@ -618,7 +637,7 @@ pub(crate) mod testing {
     #![allow(dead_code)]
     use serde_json::json;
 
-    use crate::{identities::ReadOnlyDevice, types::device_keys::DeviceKeys};
+    use crate::{identities::ReadOnlyDevice, types::DeviceKeys};
 
     /// Generate default DeviceKeys for tests
     pub fn device_keys() -> DeviceKeys {
@@ -655,7 +674,8 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use ruma::{user_id, DeviceKeyAlgorithm};
+    use ruma::user_id;
+    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::testing::{device_keys, get_device};
     use crate::identities::LocalTrust;
@@ -673,12 +693,13 @@ pub(crate) mod test {
         assert_eq!(LocalTrust::Unset, device.local_trust_state());
         assert_eq!("Alice's mobile phone", device.display_name().unwrap());
         assert_eq!(
-            device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
-            "xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc"
+            device.curve25519_key().unwrap(),
+            Curve25519PublicKey::from_base64("xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc")
+                .unwrap(),
         );
         assert_eq!(
-            device.get_key(DeviceKeyAlgorithm::Ed25519).unwrap(),
-            "2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4"
+            device.ed25519_key().unwrap(),
+            Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap(),
         );
     }
 
