@@ -80,7 +80,7 @@ impl CrossSigningKey {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SigningKey {
     Ed25519(Ed25519PublicKey),
-    Other(String),
+    Unknown(String),
 }
 
 impl SigningKey {
@@ -88,7 +88,7 @@ impl SigningKey {
     pub fn to_base64(&self) -> String {
         match self {
             SigningKey::Ed25519(k) => k.to_base64(),
-            SigningKey::Other(k) => k.to_owned(),
+            SigningKey::Unknown(k) => k.to_owned(),
         }
     }
 }
@@ -122,7 +122,7 @@ impl TryFrom<CrossSigningKeyHelper> for CrossSigningKey {
                     DeviceKeyAlgorithm::Ed25519 => {
                         SigningKey::Ed25519(Ed25519PublicKey::from_base64(&v)?)
                     }
-                    _ => SigningKey::Other(v),
+                    _ => SigningKey::Unknown(v),
                 };
 
                 Ok((k, key))

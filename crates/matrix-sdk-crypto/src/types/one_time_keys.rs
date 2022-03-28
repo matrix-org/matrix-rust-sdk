@@ -162,7 +162,7 @@ pub enum OneTimeKey {
     Key(Curve25519PublicKey),
 
     /// An unknown one-time key type.
-    Other(Value),
+    Unknown(Value),
 }
 
 #[cfg(test)]
