@@ -1,4 +1,7 @@
 // TODO: target-os conditional would be good.
+
+#![allow(unused_qualifications)]
+
 mod ios;
 
 use ios::backward_stream::BackwardsStream;

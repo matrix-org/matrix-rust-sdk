@@ -15,7 +15,6 @@ use matrix_sdk::{ClientBuilder, Client as MatrixClient, Session, store::make_sto
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::runtime;
-use url::Url;
 
 lazy_static! {
     pub static ref RUNTIME: runtime::Runtime =
