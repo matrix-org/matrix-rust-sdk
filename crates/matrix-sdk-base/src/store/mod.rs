@@ -43,8 +43,7 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent},
         room::member::RoomMemberEventContent,
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, EventContent, GlobalAccountDataEventType, RoomAccountDataEventType,
-        StateEventType,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -81,7 +80,7 @@ pub enum StoreError {
     /// An error happened while deserializing a Matrix identifier, e.g. an user
     /// id.
     #[error(transparent)]
-    Identifier(#[from] ruma::identifiers::Error),
+    Identifier(#[from] ruma::IdParseError),
     /// The store is locked with a passphrase and an incorrect passphrase was
     /// given.
     #[error("The store failed to be unlocked")]
@@ -479,7 +478,7 @@ pub struct StateChanges {
     /// associated user account.
     pub session: Option<Session>,
     /// A mapping of event type string to `AnyBasicEvent`.
-    pub account_data: BTreeMap<String, Raw<AnyGlobalAccountDataEvent>>,
+    pub account_data: BTreeMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.
     pub presence: BTreeMap<Box<UserId>, Raw<PresenceEvent>>,
 
@@ -492,9 +491,11 @@ pub struct StateChanges {
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.
     #[allow(clippy::type_complexity)]
-    pub state: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
+    pub state:
+        BTreeMap<Box<RoomId>, BTreeMap<StateEventType, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
-    pub room_account_data: BTreeMap<Box<RoomId>, BTreeMap<String, Raw<AnyRoomAccountDataEvent>>>,
+    pub room_account_data:
+        BTreeMap<Box<RoomId>, BTreeMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
     /// A map of `RoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<Box<RoomId>, RoomInfo>,
     /// A map of `RoomId` to `ReceiptEventContent`.
@@ -503,8 +504,10 @@ pub struct StateChanges {
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
     #[allow(clippy::type_complexity)]
-    pub stripped_state:
-        BTreeMap<Box<RoomId>, BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>>,
+    pub stripped_state: BTreeMap<
+        Box<RoomId>,
+        BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
+    >,
     /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.
     pub stripped_members: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, StrippedMemberEvent>>,
     /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
@@ -547,7 +550,7 @@ impl StateChanges {
         event: AnyGlobalAccountDataEvent,
         raw_event: Raw<AnyGlobalAccountDataEvent>,
     ) {
-        self.account_data.insert(event.content().event_type().to_owned(), raw_event);
+        self.account_data.insert(event.event_type(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -561,7 +564,7 @@ impl StateChanges {
         self.room_account_data
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(event.content().event_type().to_owned(), raw_event);
+            .insert(event.event_type(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -586,7 +589,7 @@ impl StateChanges {
         self.state
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
-            .entry(event.content().event_type().to_owned())
+            .entry(event.event_type())
             .or_insert_with(BTreeMap::new)
             .insert(event.state_key().to_owned(), raw_event);
     }

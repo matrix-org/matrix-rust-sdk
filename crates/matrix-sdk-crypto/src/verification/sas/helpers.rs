@@ -21,7 +21,7 @@ use ruma::{
             mac::{KeyVerificationMacEventContent, ToDeviceKeyVerificationMacEventContent},
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
@@ -347,15 +347,15 @@ pub fn get_mac_content(sas: &EstablishedSas, ids: &SasIds, flow_id: &FlowId) -> 
             ToDeviceKeyVerificationMacEventContent::new(s.clone(), mac, keys),
         )
         .into(),
-        FlowId::InRoom(r, e) => (
-            r.clone(),
-            AnyMessageEventContent::KeyVerificationMac(KeyVerificationMacEventContent::new(
-                mac,
-                keys,
-                Relation::new(e.clone()),
-            )),
-        )
-            .into(),
+        FlowId::InRoom(r, e) => {
+            (
+                r.clone(),
+                AnyMessageLikeEventContent::KeyVerificationMac(
+                    KeyVerificationMacEventContent::new(mac, keys, Relation::new(e.clone())),
+                ),
+            )
+                .into()
+        }
     }
 }
 

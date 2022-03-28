@@ -34,7 +34,7 @@ use ruma::{
         error::{FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError},
     },
     events::tag::InvalidUserTagName,
-    identifiers::Error as IdentifierError,
+    IdParseError,
 };
 use serde_json::Error as JsonError;
 use thiserror::Error;
@@ -149,7 +149,7 @@ pub enum Error {
 
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
-    Identifier(#[from] IdentifierError),
+    Identifier(#[from] IdParseError),
 
     /// An error encountered when trying to parse a url.
     #[error(transparent)]
@@ -211,7 +211,7 @@ impl HttpError {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
+        if let HttpError::UiaaError(FromHttpResponseError::Server(ServerError::Known(
             UiaaError::AuthResponse(i),
         ))) = self
         {
@@ -235,9 +235,9 @@ impl Error {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
-            UiaaError::AuthResponse(i),
-        )))) = self
+        if let Error::Http(HttpError::UiaaError(FromHttpResponseError::Server(
+            ServerError::Known(UiaaError::AuthResponse(i)),
+        ))) = self
         {
             Some(i)
         } else {

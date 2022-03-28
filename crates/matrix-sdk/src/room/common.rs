@@ -16,9 +16,9 @@ use ruma::{
     },
     assign,
     events::{
-        room::history_visibility::HistoryVisibility,
+        room::{history_visibility::HistoryVisibility, MediaSource},
         tag::{TagInfo, TagName},
-        AnyStateEvent, AnySyncStateEvent, StateEventContent, StateEventType, StaticEventContent,
+        AnyStateEvent, AnySyncStateEvent, EventContent, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
     serde::Raw,
@@ -26,7 +26,7 @@ use ruma::{
 };
 
 use crate::{
-    media::{MediaFormat, MediaRequest, MediaType},
+    media::{MediaFormat, MediaRequest},
     room::RoomType,
     BaseRoom, Client, HttpError, HttpResult, Result, RoomMember,
 };
@@ -131,7 +131,7 @@ impl Common {
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { media_type: MediaType::Uri(url.clone()), format };
+            let request = MediaRequest { source: MediaSource::Plain(url.clone()), format };
             Ok(Some(self.client.get_media_content(&request, true).await?))
         } else {
             Ok(None)
@@ -661,7 +661,7 @@ impl Common {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
         Ok(self.get_state_events(C::TYPE.into()).await?.into_iter().map(Raw::cast).collect())
@@ -701,7 +701,7 @@ impl Common {
         state_key: &str,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         Ok(self.get_state_event(C::TYPE.into(), state_key).await?.map(Raw::cast))
     }

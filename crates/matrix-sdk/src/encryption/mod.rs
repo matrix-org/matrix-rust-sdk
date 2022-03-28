@@ -48,7 +48,9 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, GlobalAccountDataEventType},
+    events::{
+        AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, GlobalAccountDataEventType,
+    },
     serde::Raw,
     DeviceId, TransactionId, UserId,
 };
@@ -70,13 +72,13 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn decrypt_room_event(&self, event: Raw<AnyRoomEvent>) -> RoomEvent {
         if let Some(machine) = self.olm_machine().await {
-            if let Ok(AnyRoomEvent::Message(event)) = event.deserialize() {
-                if let AnyMessageEvent::RoomEncrypted(_) = event {
+            if let Ok(AnyRoomEvent::MessageLike(event)) = event.deserialize() {
+                if let AnyMessageLikeEvent::RoomEncrypted(_) = event {
                     let room_id = event.room_id();
-                    // Turn the AnyMessageEvent into a AnySyncMessageEvent
+                    // Turn the AnyMessageLikeEvent into a AnySyncMessageLikeEvent
                     let event = event.clone().into();
 
-                    if let AnySyncMessageEvent::RoomEncrypted(e) = event {
+                    if let AnySyncMessageLikeEvent::RoomEncrypted(e) = event {
                         if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
                             return decrypted;
                         }
@@ -120,7 +122,7 @@ impl Client {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail<'_, T>>,
     ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_file, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
             let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
 
             let response = self.upload(thumbnail.content_type, &mut reader).await?;
@@ -143,7 +145,7 @@ impl Client {
                 { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
             );
 
-            (Some(Box::new(file)), Some(Box::new(thumbnail_info)))
+            (Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info)))
         } else {
             (None, None)
         };
@@ -164,14 +166,14 @@ impl Client {
             .into()
         };
 
-        use ruma::events::room::{self, message};
+        use ruma::events::room::{self, message, MediaSource};
         Ok(match content_type.type_() {
             mime::IMAGE => {
                 let info = assign!(
                     info.map(room::ImageInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_file,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -199,7 +201,7 @@ impl Client {
                     info.map(message::VideoInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_file,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -214,7 +216,7 @@ impl Client {
                     info.map(message::FileInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_file,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -234,13 +236,10 @@ impl Client {
     ) -> Result<ruma::api::client::config::set_global_account_data::v3::Response> {
         let own_user =
             self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
-        let data = serde_json::value::to_raw_value(&content)?;
 
         let request = ruma::api::client::config::set_global_account_data::v3::Request::new(
-            &data,
-            ruma::events::EventContent::event_type(&content),
-            &own_user,
-        );
+            &content, &own_user,
+        )?;
 
         Ok(self.send(request, None).await?)
     }
@@ -376,11 +375,9 @@ impl Client {
         &self,
         request: &ToDeviceRequest,
     ) -> HttpResult<ToDeviceResponse> {
-        let request = RumaToDeviceRequest::new_raw(
-            request.event_type.as_str(),
-            &request.txn_id,
-            request.messages.clone(),
-        );
+        let event_type = request.event_type.to_string();
+        let request =
+            RumaToDeviceRequest::new_raw(&event_type, &request.txn_id, request.messages.clone());
 
         self.send(request, None).await
     }

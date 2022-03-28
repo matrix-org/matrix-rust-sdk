@@ -66,7 +66,7 @@ pub(crate) mod test {
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{Relation, Replacement, RoomMessageEventContent},
-            AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent,
+            AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
         },
         room_id, user_id, DeviceId, UserId,
     };
@@ -246,7 +246,9 @@ pub(crate) mod test {
         let event: AnySyncRoomEvent = serde_json::from_str(&event).unwrap();
 
         let event =
-            if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(event)) = event {
+            if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(event)) =
+                event
+            {
                 event
             } else {
                 panic!("Invalid event type")
@@ -254,7 +256,7 @@ pub(crate) mod test {
 
         let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
-        if let AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(e)) =
+        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(e)) =
             decrypted.deserialize().unwrap()
         {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));

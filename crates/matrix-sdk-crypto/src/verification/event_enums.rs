@@ -40,7 +40,7 @@ use ruma::{
             VerificationMethod,
         },
         room::message::{KeyVerificationRequestEventContent, MessageType},
-        AnyMessageEvent, AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
     },
     serde::{Base64, CanonicalJsonValue},
     DeviceId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
@@ -50,7 +50,7 @@ use super::FlowId;
 
 #[derive(Debug)]
 pub enum AnyEvent<'a> {
-    Room(&'a AnyMessageEvent),
+    Room(&'a AnyMessageLikeEvent),
     ToDevice(&'a AnyToDeviceEvent),
 }
 
@@ -79,37 +79,41 @@ impl AnyEvent<'_> {
     pub fn verification_content(&self) -> Option<AnyVerificationContent<'_>> {
         match self {
             AnyEvent::Room(e) => match e {
-                AnyMessageEvent::CallAnswer(_)
-                | AnyMessageEvent::CallInvite(_)
-                | AnyMessageEvent::CallHangup(_)
-                | AnyMessageEvent::CallCandidates(_)
-                | AnyMessageEvent::Reaction(_)
-                | AnyMessageEvent::RoomEncrypted(_)
-                | AnyMessageEvent::RoomMessageFeedback(_)
-                | AnyMessageEvent::RoomRedaction(_)
-                | AnyMessageEvent::Sticker(_) => None,
-                AnyMessageEvent::RoomMessage(m) => {
+                AnyMessageLikeEvent::CallAnswer(_)
+                | AnyMessageLikeEvent::CallInvite(_)
+                | AnyMessageLikeEvent::CallHangup(_)
+                | AnyMessageLikeEvent::CallCandidates(_)
+                | AnyMessageLikeEvent::Reaction(_)
+                | AnyMessageLikeEvent::RoomEncrypted(_)
+                | AnyMessageLikeEvent::RoomMessageFeedback(_)
+                | AnyMessageLikeEvent::RoomRedaction(_)
+                | AnyMessageLikeEvent::Sticker(_) => None,
+                AnyMessageLikeEvent::RoomMessage(m) => {
                     if let MessageType::VerificationRequest(v) = &m.content.msgtype {
                         Some(RequestContent::from(v).into())
                     } else {
                         None
                     }
                 }
-                AnyMessageEvent::KeyVerificationReady(e) => {
+                AnyMessageLikeEvent::KeyVerificationReady(e) => {
                     Some(ReadyContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationStart(e) => {
+                AnyMessageLikeEvent::KeyVerificationStart(e) => {
                     Some(StartContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationCancel(e) => {
+                AnyMessageLikeEvent::KeyVerificationCancel(e) => {
                     Some(CancelContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationAccept(e) => {
+                AnyMessageLikeEvent::KeyVerificationAccept(e) => {
                     Some(AcceptContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationKey(e) => Some(KeyContent::from(&e.content).into()),
-                AnyMessageEvent::KeyVerificationMac(e) => Some(MacContent::from(&e.content).into()),
-                AnyMessageEvent::KeyVerificationDone(e) => {
+                AnyMessageLikeEvent::KeyVerificationKey(e) => {
+                    Some(KeyContent::from(&e.content).into())
+                }
+                AnyMessageLikeEvent::KeyVerificationMac(e) => {
+                    Some(MacContent::from(&e.content).into())
+                }
+                AnyMessageLikeEvent::KeyVerificationDone(e) => {
                     Some(DoneContent::from(&e.content).into())
                 }
                 _ => None,
@@ -150,8 +154,8 @@ impl AnyEvent<'_> {
     }
 }
 
-impl<'a> From<&'a AnyMessageEvent> for AnyEvent<'a> {
-    fn from(e: &'a AnyMessageEvent) -> Self {
+impl<'a> From<&'a AnyMessageLikeEvent> for AnyEvent<'a> {
+    fn from(e: &'a AnyMessageLikeEvent) -> Self {
         Self::Room(e)
     }
 }
@@ -173,40 +177,40 @@ impl TryFrom<&AnyEvent<'_>> for FlowId {
     }
 }
 
-impl TryFrom<&AnyMessageEvent> for FlowId {
+impl TryFrom<&AnyMessageLikeEvent> for FlowId {
     type Error = ();
 
-    fn try_from(value: &AnyMessageEvent) -> Result<Self, Self::Error> {
+    fn try_from(value: &AnyMessageLikeEvent) -> Result<Self, Self::Error> {
         match value {
-            AnyMessageEvent::CallAnswer(_)
-            | AnyMessageEvent::CallInvite(_)
-            | AnyMessageEvent::CallHangup(_)
-            | AnyMessageEvent::CallCandidates(_)
-            | AnyMessageEvent::Reaction(_)
-            | AnyMessageEvent::RoomEncrypted(_)
-            | AnyMessageEvent::RoomMessageFeedback(_)
-            | AnyMessageEvent::RoomRedaction(_)
-            | AnyMessageEvent::Sticker(_) => Err(()),
-            AnyMessageEvent::KeyVerificationReady(e) => {
+            AnyMessageLikeEvent::CallAnswer(_)
+            | AnyMessageLikeEvent::CallInvite(_)
+            | AnyMessageLikeEvent::CallHangup(_)
+            | AnyMessageLikeEvent::CallCandidates(_)
+            | AnyMessageLikeEvent::Reaction(_)
+            | AnyMessageLikeEvent::RoomEncrypted(_)
+            | AnyMessageLikeEvent::RoomMessageFeedback(_)
+            | AnyMessageLikeEvent::RoomRedaction(_)
+            | AnyMessageLikeEvent::Sticker(_) => Err(()),
+            AnyMessageLikeEvent::KeyVerificationReady(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::RoomMessage(e) => Ok(FlowId::from((&*e.room_id, &*e.event_id))),
-            AnyMessageEvent::KeyVerificationStart(e) => {
+            AnyMessageLikeEvent::RoomMessage(e) => Ok(FlowId::from((&*e.room_id, &*e.event_id))),
+            AnyMessageLikeEvent::KeyVerificationStart(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationCancel(e) => {
+            AnyMessageLikeEvent::KeyVerificationCancel(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationAccept(e) => {
+            AnyMessageLikeEvent::KeyVerificationAccept(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationKey(e) => {
+            AnyMessageLikeEvent::KeyVerificationKey(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationMac(e) => {
+            AnyMessageLikeEvent::KeyVerificationMac(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationDone(e) => {
+            AnyMessageLikeEvent::KeyVerificationDone(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             _ => Err(()),
@@ -363,7 +367,7 @@ macro_rules! try_from_outgoing_content {
             fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
                 match value {
                     OutgoingContent::Room(_, c) => {
-                        if let AnyMessageEventContent::$enum_variant(c) = c {
+                        if let AnyMessageLikeEventContent::$enum_variant(c) = c {
                             Ok(Self::Room(c))
                         } else {
                             Err(())
@@ -396,7 +400,7 @@ impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
     fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
         match value {
             OutgoingContent::Room(_, c) => {
-                if let AnyMessageEventContent::RoomMessage(m) = c {
+                if let AnyMessageLikeEventContent::RoomMessage(m) = c {
                     if let MessageType::VerificationRequest(c) = &m.msgtype {
                         Ok(Self::Room(c))
                     } else {
@@ -675,7 +679,7 @@ impl OwnedAcceptContent {
 
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
-    Room(Box<RoomId>, AnyMessageEventContent),
+    Room(Box<RoomId>, AnyMessageLikeEventContent),
     ToDevice(AnyToDeviceEventContent),
 }
 
@@ -683,7 +687,7 @@ impl From<OwnedStartContent> for OutgoingContent {
     fn from(content: OwnedStartContent) -> Self {
         match content {
             OwnedStartContent::Room(r, c) => {
-                (r, AnyMessageEventContent::KeyVerificationStart(c)).into()
+                (r, AnyMessageLikeEventContent::KeyVerificationStart(c)).into()
             }
             OwnedStartContent::ToDevice(c) => {
                 AnyToDeviceEventContent::KeyVerificationStart(c).into()
@@ -698,8 +702,8 @@ impl From<AnyToDeviceEventContent> for OutgoingContent {
     }
 }
 
-impl From<(Box<RoomId>, AnyMessageEventContent)> for OutgoingContent {
-    fn from(content: (Box<RoomId>, AnyMessageEventContent)) -> Self {
+impl From<(Box<RoomId>, AnyMessageLikeEventContent)> for OutgoingContent {
+    fn from(content: (Box<RoomId>, AnyMessageLikeEventContent)) -> Self {
         OutgoingContent::Room(content.0, content.1)
     }
 }

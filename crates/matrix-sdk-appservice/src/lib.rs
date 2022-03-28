@@ -103,7 +103,7 @@ use ruma::{
         },
         client::account::register,
     },
-    assign, identifiers, DeviceId, ServerName, UserId,
+    assign, DeviceId, IdParseError, ServerName, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::info;
@@ -223,7 +223,7 @@ impl AppService {
     /// [AppService Registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     pub async fn new(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
-        server_name: impl TryInto<Box<ServerName>, Error = identifiers::Error>,
+        server_name: impl TryInto<Box<ServerName>, Error = IdParseError>,
         registration: AppServiceRegistration,
     ) -> Result<Self> {
         let appservice =
@@ -237,7 +237,7 @@ impl AppService {
     /// for the [`Client`]
     pub async fn with_client_builder(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
-        server_name: impl TryInto<Box<ServerName>, Error = identifiers::Error>,
+        server_name: impl TryInto<Box<ServerName>, Error = IdParseError>,
         registration: AppServiceRegistration,
         builder: ClientBuilder,
     ) -> Result<Self> {

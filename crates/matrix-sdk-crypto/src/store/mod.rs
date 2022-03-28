@@ -58,8 +58,7 @@ use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, IdParseError, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
@@ -595,7 +594,7 @@ pub enum CryptoStoreError {
 
     /// A Matrix identifier failed to be validated.
     #[error(transparent)]
-    IdentifierValidation(#[from] IdentifierValidationError),
+    IdentifierValidation(#[from] IdParseError),
 
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]

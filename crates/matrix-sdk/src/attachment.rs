@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::Read;
 #[cfg(feature = "image_proc")]
 use std::io::{BufRead, Cursor, Seek};
+use std::{io::Read, time::Duration};
 
 #[cfg(feature = "image_proc")]
 use image::GenericImageView;
@@ -46,8 +46,8 @@ pub struct BaseImageInfo {
 /// Base metadata about a video.
 #[derive(Debug, Clone)]
 pub struct BaseVideoInfo {
-    /// The duration of the video in milliseconds.
-    pub duration: Option<UInt>,
+    /// The duration of the video.
+    pub duration: Option<Duration>,
     /// The height of the video in pixels.
     pub height: Option<UInt>,
     /// The width of the video in pixels.
@@ -61,8 +61,8 @@ pub struct BaseVideoInfo {
 /// Base metadata about an audio clip.
 #[derive(Debug, Clone)]
 pub struct BaseAudioInfo {
-    /// The duration of the audio clip in milliseconds.
-    pub duration: Option<UInt>,
+    /// The duration of the audio clip.
+    pub duration: Option<Duration>,
     /// The file size of the audio clip in bytes.
     pub size: Option<UInt>,
 }

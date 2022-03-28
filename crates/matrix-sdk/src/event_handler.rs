@@ -390,35 +390,37 @@ mod static_events {
     use ruma::events::{
         self,
         presence::{PresenceEvent, PresenceEventContent},
-        StaticEventContent,
+        EphemeralRoomEventType, EventContent, GlobalAccountDataEventType, MessageLikeEventType,
+        RedactedEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
+        ToDeviceEventType,
     };
 
     use super::{EventKind, SyncEvent};
 
     impl<C> SyncEvent for events::GlobalAccountDataEvent<C>
     where
-        C: StaticEventContent + events::GlobalAccountDataEventContent,
+        C: StaticEventContent + EventContent<EventType = GlobalAccountDataEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::GlobalAccountData, C::TYPE);
     }
 
     impl<C> SyncEvent for events::RoomAccountDataEvent<C>
     where
-        C: StaticEventContent + events::RoomAccountDataEventContent,
+        C: StaticEventContent + EventContent<EventType = RoomAccountDataEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::RoomAccountData, C::TYPE);
     }
 
     impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
     where
-        C: StaticEventContent + events::EphemeralRoomEventContent,
+        C: StaticEventContent + EventContent<EventType = EphemeralRoomEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::EphemeralRoomData, C::TYPE);
     }
 
-    impl<C> SyncEvent for events::SyncMessageEvent<C>
+    impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
     where
-        C: StaticEventContent + events::MessageEventContent,
+        C: StaticEventContent + EventContent<EventType = MessageLikeEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::Message { redacted: false }, C::TYPE);
     }
@@ -432,28 +434,28 @@ mod static_events {
 
     impl<C> SyncEvent for events::SyncStateEvent<C>
     where
-        C: StaticEventContent + events::StateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::State { redacted: false }, C::TYPE);
     }
 
     impl<C> SyncEvent for events::StrippedStateEvent<C>
     where
-        C: StaticEventContent + events::StateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::StrippedState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::InitialStateEvent<C>
     where
-        C: StaticEventContent + events::StateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::InitialState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::ToDeviceEvent<C>
     where
-        C: StaticEventContent + events::ToDeviceEventContent,
+        C: StaticEventContent + EventContent<EventType = ToDeviceEventType>,
     {
         const ID: (EventKind, &'static str) = (EventKind::ToDevice, C::TYPE);
     }
@@ -462,9 +464,11 @@ mod static_events {
         const ID: (EventKind, &'static str) = (EventKind::Presence, PresenceEventContent::TYPE);
     }
 
-    impl<C> SyncEvent for events::RedactedSyncMessageEvent<C>
+    impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
     where
-        C: StaticEventContent + events::RedactedMessageEventContent,
+        C: StaticEventContent
+            + EventContent<EventType = MessageLikeEventType>
+            + RedactedEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::Message { redacted: true }, C::TYPE);
     }
@@ -478,7 +482,7 @@ mod static_events {
 
     impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
     where
-        C: StaticEventContent + events::RedactedStateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType> + RedactedEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::State { redacted: true }, C::TYPE);
     }

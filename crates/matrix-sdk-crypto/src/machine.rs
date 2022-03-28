@@ -41,7 +41,7 @@ use ruma::{
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyRoomEvent, AnyToDeviceEvent, MessageEventContent,
+        AnyRoomEvent, AnyToDeviceEvent, EventContent, MessageLikeEventType,
     },
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
     UInt, UserId,
@@ -682,12 +682,12 @@ impl OlmMachine {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl MessageEventContent,
+        content: impl EventContent<EventType = MessageLikeEventType>,
     ) -> MegolmResult<RoomEncryptedEventContent> {
-        let event_type = content.event_type();
+        let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
 
-        self.group_session_manager.encrypt(room_id, content, event_type).await
+        self.group_session_manager.encrypt(room_id, content, &event_type).await
     }
 
     /// Encrypt a json [`Value`] content for the given room.
@@ -774,7 +774,7 @@ impl OlmMachine {
         trace!(
             sender = decrypted.sender.as_str(),
             sender_key = decrypted.sender_key.as_str(),
-            event_type = event.event_type(),
+            event_type = %event.event_type(),
             "Received a decrypted to-device event"
         );
 
@@ -923,7 +923,7 @@ impl OlmMachine {
 
             trace!(
                 sender = event.sender().as_str(),
-                event_type = event.event_type(),
+                event_type = %event.event_type(),
                 "Received a to-device event"
             );
 
@@ -1085,7 +1085,7 @@ impl OlmMachine {
                         "Successfully decrypted a room event"
                     );
 
-                    if let AnyRoomEvent::Message(e) = e {
+                    if let AnyRoomEvent::MessageLike(e) = e {
                         self.verification_machine.receive_any_event(&e).await?;
                     }
                 }
@@ -1558,8 +1558,9 @@ pub(crate) mod test {
                 encrypted::ToDeviceRoomEncryptedEventContent,
                 message::{MessageType, RoomMessageEventContent},
             },
-            AnyMessageEvent, AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent,
-            AnyToDeviceEventContent, MessageEvent, SyncMessageEvent, ToDeviceEvent, Unsigned,
+            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
+            AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned, SyncMessageLikeEvent,
+            ToDeviceEvent,
         },
         room_id,
         serde::Raw,
@@ -1975,22 +1976,22 @@ pub(crate) mod test {
         let content = RoomMessageEventContent::text_plain(plaintext);
 
         let encrypted_content = alice
-            .encrypt(room_id, AnyMessageEventContent::RoomMessage(content.clone()))
+            .encrypt(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
             .await
             .unwrap();
 
-        let event = SyncMessageEvent {
+        let event = SyncMessageLikeEvent {
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             origin_server_ts: milli_seconds_since_unix_epoch(),
             sender: alice.user_id().to_owned(),
             content: encrypted_content,
-            unsigned: Unsigned::default(),
+            unsigned: MessageLikeUnsigned::default(),
         };
 
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
-        if let AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(MessageEvent {
+        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(MessageLikeEvent {
             sender,
             content,
             ..

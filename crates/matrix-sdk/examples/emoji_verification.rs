@@ -13,7 +13,7 @@ use matrix_sdk::{
     encryption::verification::{SasVerification, Verification},
     ruma::{
         events::{
-            room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
+            room::message::MessageType, AnySyncMessageLikeEvent, AnySyncRoomEvent, AnyToDeviceEvent,
         },
         UserId,
     },
@@ -133,9 +133,9 @@ async fn login(
                     for event in
                         room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
                     {
-                        if let AnySyncRoomEvent::Message(event) = event {
+                        if let AnySyncRoomEvent::MessageLike(event) = event {
                             match event {
-                                AnySyncMessageEvent::RoomMessage(m) => {
+                                AnySyncMessageLikeEvent::RoomMessage(m) => {
                                     if let MessageType::VerificationRequest(_) = &m.content.msgtype
                                     {
                                         let request = client
@@ -150,7 +150,7 @@ async fn login(
                                             .expect("Can't accept verification request");
                                     }
                                 }
-                                AnySyncMessageEvent::KeyVerificationKey(e) => {
+                                AnySyncMessageLikeEvent::KeyVerificationKey(e) => {
                                     if let Some(Verification::SasV1(sas)) = client
                                         .encryption()
                                         .get_verification(
@@ -162,7 +162,7 @@ async fn login(
                                         tokio::spawn(wait_for_confirmation((*client).clone(), sas));
                                     }
                                 }
-                                AnySyncMessageEvent::KeyVerificationMac(e) => {
+                                AnySyncMessageLikeEvent::KeyVerificationMac(e) => {
                                     if let Some(Verification::SasV1(sas)) = client
                                         .encryption()
                                         .get_verification(

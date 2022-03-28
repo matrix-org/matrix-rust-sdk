@@ -30,7 +30,7 @@ use ruma::{
             Relation, VerificationMethod,
         },
         room::message::KeyVerificationRequestEventContent,
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
     DeviceId, RoomId, TransactionId, UserId,
@@ -912,7 +912,7 @@ impl RequestState<Requested> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationReady(
+                AnyMessageLikeEventContent::KeyVerificationReady(
                     KeyVerificationReadyEventContent::new(
                         state.store.account.device_id().to_owned(),
                         methods,
