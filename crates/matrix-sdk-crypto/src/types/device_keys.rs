@@ -121,7 +121,7 @@ pub enum DeviceKey {
     /// The ed25519 device key.
     Ed25519(Ed25519PublicKey),
     /// An unknown device key.
-    Other(String),
+    Unknown(String),
 }
 
 impl DeviceKey {
@@ -130,7 +130,7 @@ impl DeviceKey {
         match self {
             DeviceKey::Curve25519(k) => k.to_base64(),
             DeviceKey::Ed25519(k) => k.to_base64(),
-            DeviceKey::Other(k) => k.to_owned(),
+            DeviceKey::Unknown(k) => k.to_owned(),
         }
     }
 }
@@ -175,7 +175,7 @@ impl TryFrom<DeviceKeyHelper> for DeviceKeys {
                     DeviceKeyAlgorithm::Curve25519 => {
                         DeviceKey::Curve25519(Curve25519PublicKey::from_base64(&v)?)
                     }
-                    _ => DeviceKey::Other(v),
+                    _ => DeviceKey::Unknown(v),
                 };
 
                 Ok((k, key))
