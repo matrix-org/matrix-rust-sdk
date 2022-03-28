@@ -48,7 +48,7 @@ zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 anyhow = "1"
 
 # feature = testing only
-http = { version = "0.2.4", optional = true}
+http = { version = "0.2.4", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac"
