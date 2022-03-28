@@ -229,7 +229,7 @@ pub fn receive_mac_event(
 
         if let Some(key) = ids.other_device.keys().get(&key_id) {
             let calculated_mac = Base64::parse(
-                sas.calculate_mac_invalid_base64(key, &format!("{}{}", info, key_id)),
+                sas.calculate_mac_invalid_base64(&key.to_base64(), &format!("{}{}", info, key_id)),
             )
             .expect("Can't base64-decode SAS MAC");
 
@@ -243,9 +243,10 @@ pub fn receive_mac_event(
             if let Some(key) = identity.master_key().get_key(&key_id) {
                 // TODO we should check that the master key signs the device,
                 // this way we know the master key also trusts the device
-                let calculated_mac = Base64::parse(
-                    sas.calculate_mac_invalid_base64(key, &format!("{}{}", info, key_id)),
-                )
+                let calculated_mac = Base64::parse(sas.calculate_mac_invalid_base64(
+                    &key.to_base64(),
+                    &format!("{}{}", info, key_id),
+                ))
                 .expect("Can't base64-decode SAS MAC");
 
                 if *key_mac == calculated_mac {
@@ -318,11 +319,12 @@ pub fn get_mac_content(sas: &EstablishedSas, ids: &SasIds, flow_id: &FlowId) -> 
     if let Some(own_identity) = &ids.own_identity {
         if own_identity.is_verified() {
             if let Some(key) = own_identity.master_key().get_first_key() {
-                let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, &key);
+                let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, key.to_base64());
 
-                let calculated_mac = Base64::parse(
-                    sas.calculate_mac_invalid_base64(key, &format!("{}{}", info, &key_id)),
-                )
+                let calculated_mac = Base64::parse(sas.calculate_mac_invalid_base64(
+                    &key.to_base64(),
+                    &format!("{}{}", info, &key_id),
+                ))
                 .expect("Can't base64-decode SAS Master key MAC");
 
                 mac.insert(key_id, calculated_mac);

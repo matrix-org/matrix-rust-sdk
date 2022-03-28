@@ -42,6 +42,9 @@ pub enum DecodingError {
     /// The QR code data uses an invalid or unsupported version.
     #[error("the QR code contains an invalid or unsupported version: {0}")]
     Version(u8),
+    /// The QR code data doesn't contain valid ed25519 keys.
+    #[error("the QR code contains invalid ed25519 keys: {0}")]
+    Keys(#[from] vodozemac::KeyError),
 }
 
 /// Error type describing errors that happen while QR data is being encoded.
@@ -51,9 +54,6 @@ pub enum EncodingError {
     /// doesn't fit into a QR code.
     #[error(transparent)]
     Qr(#[from] qrcode::types::QrError),
-    /// Error decoding the identity keys as base64.
-    #[error(transparent)]
-    Base64(#[from] base64::DecodeError),
     /// Error encoding the given flow id, the flow id is too large.
     #[error("The verification flow id length can't be converted into a u16: {0}")]
     FlowId(#[from] std::num::TryFromIntError),

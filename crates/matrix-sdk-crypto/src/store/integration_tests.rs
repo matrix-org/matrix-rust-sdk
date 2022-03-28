@@ -130,7 +130,7 @@ macro_rules! cryptostore_integration_tests {
                 store.save_changes(changes).await.unwrap();
 
                 let sessions =
-                    store.get_sessions(&session.sender_key).await.expect("Can't load sessions").unwrap();
+                    store.get_sessions(&session.sender_key.to_base64()).await.expect("Can't load sessions").unwrap();
                 let loaded_session = sessions.lock().await.get(0).cloned().unwrap();
 
                 assert_eq!(&session, &loaded_session);
@@ -141,7 +141,7 @@ macro_rules! cryptostore_integration_tests {
                 let store_name = "add_and_save_session".to_owned();
                 let store = get_store(store_name.clone(), None).await;
                 let (account, session) = get_account_and_session().await;
-                let sender_key = session.sender_key.to_owned();
+                let sender_key = session.sender_key.to_base64();
                 let session_id = session.session_id().to_owned();
 
                 store.save_account(account.clone()).await.expect("Can't save account");

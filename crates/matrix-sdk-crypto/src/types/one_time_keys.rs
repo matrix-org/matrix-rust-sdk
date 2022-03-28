@@ -18,16 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-//! Module containing customized types modeling Matrix one-time keys.
-//!
-//! These types were mostly taken from the Ruma project. The types differ in two
-//! important ways to the Ruma types of the same name:
-//!
-//! 1. They are using vodozemac types so we directly deserialize into a
-//!    vodozemac curve25519 key.
-//! 2. They support lossless serialization cycles in a canonical JSON supported
-//!    way, meaning the white-space and field order won't be preserved.
-
 use std::collections::BTreeMap;
 
 use ruma::{serde::Raw, DeviceKeyId, UserId};

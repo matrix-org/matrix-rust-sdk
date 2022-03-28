@@ -193,7 +193,7 @@ impl EncodeSecureKey for ReadOnlyDevice {
 
 impl EncodeKey for Session {
     fn encode(&self) -> Vec<u8> {
-        let sender_key = self.sender_key();
+        let sender_key = self.sender_key().to_base64();
         let session_id = self.session_id();
 
         [sender_key.as_bytes(), &[Self::SEPARATOR], session_id.as_bytes(), &[Self::SEPARATOR]]
@@ -249,7 +249,8 @@ impl EncodeSecureKey for (&RoomId, &str, &str) {
 
 impl EncodeSecureKey for Session {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let sender_key = store_cipher.hash_key(table_name, self.sender_key().as_bytes());
+        let sender_key =
+            store_cipher.hash_key(table_name, self.sender_key().to_base64().as_bytes());
         let session_id = store_cipher.hash_key(table_name, self.session_id().as_bytes());
 
         [sender_key.as_slice(), &[Self::SEPARATOR], session_id.as_slice(), &[Self::SEPARATOR]]

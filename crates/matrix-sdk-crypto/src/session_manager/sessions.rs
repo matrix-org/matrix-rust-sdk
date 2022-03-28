@@ -194,8 +194,8 @@ impl SessionManager {
                         "Device doesn't support any of our 1-to-1 E2EE \
                         algorithms, can't establish an Olm session"
                     );
-                } else if let Some(sender_key) = device.get_key(DeviceKeyAlgorithm::Curve25519) {
-                    let sessions = self.store.get_sessions(sender_key).await?;
+                } else if let Some(sender_key) = device.curve25519_key() {
+                    let sessions = self.store.get_sessions(&sender_key.to_base64()).await?;
 
                     let is_missing = if let Some(sessions) = sessions {
                         sessions.lock().await.is_empty()
@@ -452,7 +452,7 @@ mod test {
 
         assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
-        manager.mark_device_as_wedged(bob_device.user_id(), curve_key).await.unwrap();
+        manager.mark_device_as_wedged(bob_device.user_id(), &curve_key.to_base64()).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
 

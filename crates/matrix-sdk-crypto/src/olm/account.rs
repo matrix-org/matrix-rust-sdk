@@ -39,7 +39,7 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, value::RawValue as RawJsonValue, Value};
+use serde_json::{value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 use vodozemac::{
@@ -56,11 +56,7 @@ use crate::{
     identities::{MasterPubkey, ReadOnlyDevice},
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
-    types::{
-        cross_signing_key::CrossSigningKey,
-        device_keys::DeviceKeys,
-        one_time_keys::{OneTimeKey, SignedKey},
-    },
+    types::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     utilities::encode,
     CryptoStoreError, OlmError, SignatureError,
 };
@@ -724,11 +720,11 @@ impl ReadOnlyAccount {
         let keys = BTreeMap::from([
             (
                 DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
-                identity_keys.curve25519.to_base64(),
+                identity_keys.curve25519.into(),
             ),
             (
                 DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                identity_keys.ed25519.to_base64(),
+                identity_keys.ed25519.into(),
             ),
         ]);
 
@@ -748,12 +744,8 @@ impl ReadOnlyAccount {
 
         // Create a copy of the device keys containing only fields that will
         // get signed.
-        let json_device_keys = json!({
-            "user_id": device_keys.user_id,
-            "device_id": device_keys.device_id,
-            "algorithms": device_keys.algorithms,
-            "keys": device_keys.keys,
-        });
+        let json_device_keys =
+            serde_json::to_value(&device_keys).expect("Can't serialize device keys");
 
         device_keys
             .signatures
@@ -799,7 +791,8 @@ impl ReadOnlyAccount {
         master_key: MasterPubkey,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let public_key =
-            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.into();
+            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_base64().into();
+
         let mut cross_signing_key: CrossSigningKey = master_key.as_ref().clone();
         cross_signing_key.signatures.clear();
         self.sign_cross_signing_key(&mut cross_signing_key).await?;
@@ -937,7 +930,7 @@ impl ReadOnlyAccount {
             our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
-            sender_key: identity_key.to_base64().into(),
+            sender_key: identity_key,
             created_using_fallback_key: fallback_used,
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
@@ -992,14 +985,13 @@ impl ReadOnlyAccount {
             )
         })?;
 
-        let identity_key = device.get_key(DeviceKeyAlgorithm::Curve25519).ok_or_else(|| {
+        let identity_key = device.curve25519_key().ok_or_else(|| {
             SessionCreationError::DeviceMissingCurveKey(
                 device.user_id().to_owned(),
                 device.device_id().into(),
             )
         })?;
 
-        let identity_key = Curve25519PublicKey::from_base64(identity_key)?;
         let is_fallback = one_time_key.fallback();
         let one_time_key = one_time_key.key();
 
@@ -1034,7 +1026,7 @@ impl ReadOnlyAccount {
             our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(result.session)),
             session_id: session_id.into(),
-            sender_key: their_identity_key.to_base64().into(),
+            sender_key: their_identity_key,
             created_using_fallback_key: false,
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
@@ -1144,16 +1136,7 @@ impl ReadOnlyAccount {
 
         let our_device = ReadOnlyDevice::from_account(self).await;
         let other_session = other
-            .create_inbound_session(
-                our_device
-                    .keys()
-                    .get(&DeviceKeyId::from_parts(
-                        DeviceKeyAlgorithm::Curve25519,
-                        our_device.device_id(),
-                    ))
-                    .unwrap(),
-                &prekey,
-            )
+            .create_inbound_session(&our_device.curve25519_key().unwrap().to_base64(), &prekey)
             .await
             .unwrap();
 

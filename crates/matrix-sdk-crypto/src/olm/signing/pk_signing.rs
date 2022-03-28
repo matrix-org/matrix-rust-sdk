@@ -26,10 +26,7 @@ use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
 use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    types::{
-        cross_signing_key::{CrossSigningKey, CrossSigningKeySignatures},
-        device_keys::DeviceKeys,
-    },
+    types::{CrossSigningKey, CrossSigningKeySignatures, DeviceKeys},
     utilities::{encode, DecodeError},
     ReadOnlyUserIdentity,
 };
@@ -324,7 +321,7 @@ impl Signing {
                 DeviceKeyAlgorithm::Ed25519,
                 &Box::<DeviceId>::from(self.public_key().to_base64()),
             ),
-            self.inner.public_key().to_base64(),
+            self.inner.public_key().into(),
         )]);
 
         CrossSigningKey::new(user_id, vec![usage], keys, BTreeMap::new())

@@ -20,12 +20,16 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{serde::Raw, DeviceId, DeviceKeyId, EventEncryptionAlgorithm, UserId};
+use ruma::{
+    serde::Raw, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 /// Identity keys for a device.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(try_from = "DeviceKeyHelper", into = "DeviceKeyHelper")]
 pub struct DeviceKeys {
     /// The ID of the user the device belongs to.
     ///
@@ -41,7 +45,7 @@ pub struct DeviceKeys {
     pub algorithms: Vec<EventEncryptionAlgorithm>,
 
     /// Public identity keys.
-    pub keys: BTreeMap<Box<DeviceKeyId>, String>,
+    pub keys: BTreeMap<Box<DeviceKeyId>, DeviceKey>,
 
     /// Signatures for the device key object.
     pub signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
@@ -62,7 +66,7 @@ impl DeviceKeys {
         user_id: Box<UserId>,
         device_id: Box<DeviceId>,
         algorithms: Vec<EventEncryptionAlgorithm>,
-        keys: BTreeMap<Box<DeviceKeyId>, String>,
+        keys: BTreeMap<Box<DeviceKeyId>, DeviceKey>,
         signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
     ) -> Self {
         Self {
@@ -102,6 +106,108 @@ impl UnsignedDeviceInfo {
     /// Checks whether all fields are empty / `None`.
     pub fn is_empty(&self) -> bool {
         self.device_display_name.is_none()
+    }
+}
+
+/// An enum over the different key types a device can have.
+///
+/// Currently devices have a curve25519 and ed25519 keypair. The keys transport
+/// format is a base64 encoded string, any unknown key type will be left as such
+/// a string.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DeviceKey {
+    /// The curve25519 device key.
+    Curve25519(Curve25519PublicKey),
+    /// The ed25519 device key.
+    Ed25519(Ed25519PublicKey),
+    /// An unknown device key.
+    Other(String),
+}
+
+impl DeviceKey {
+    /// Convert the `DeviceKey` into a base64 encoded string.
+    pub fn to_base64(&self) -> String {
+        match self {
+            DeviceKey::Curve25519(k) => k.to_base64(),
+            DeviceKey::Ed25519(k) => k.to_base64(),
+            DeviceKey::Other(k) => k.to_owned(),
+        }
+    }
+}
+
+impl From<Curve25519PublicKey> for DeviceKey {
+    fn from(val: Curve25519PublicKey) -> Self {
+        DeviceKey::Curve25519(val)
+    }
+}
+
+impl From<Ed25519PublicKey> for DeviceKey {
+    fn from(val: Ed25519PublicKey) -> Self {
+        DeviceKey::Ed25519(val)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct DeviceKeyHelper {
+    pub user_id: Box<UserId>,
+    pub device_id: Box<DeviceId>,
+    pub algorithms: Vec<EventEncryptionAlgorithm>,
+    pub keys: BTreeMap<Box<DeviceKeyId>, String>,
+    pub signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+    #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
+    pub unsigned: UnsignedDeviceInfo,
+    #[serde(flatten)]
+    other: BTreeMap<String, Value>,
+}
+
+impl TryFrom<DeviceKeyHelper> for DeviceKeys {
+    type Error = vodozemac::KeyError;
+
+    fn try_from(value: DeviceKeyHelper) -> Result<Self, Self::Error> {
+        let keys: Result<BTreeMap<Box<DeviceKeyId>, DeviceKey>, vodozemac::KeyError> = value
+            .keys
+            .into_iter()
+            .map(|(k, v)| {
+                let key = match k.algorithm() {
+                    DeviceKeyAlgorithm::Ed25519 => {
+                        DeviceKey::Ed25519(Ed25519PublicKey::from_base64(&v)?)
+                    }
+                    DeviceKeyAlgorithm::Curve25519 => {
+                        DeviceKey::Curve25519(Curve25519PublicKey::from_base64(&v)?)
+                    }
+                    _ => DeviceKey::Other(v),
+                };
+
+                Ok((k, key))
+            })
+            .collect();
+
+        Ok(Self {
+            user_id: value.user_id,
+            device_id: value.device_id,
+            algorithms: value.algorithms,
+            keys: keys?,
+            signatures: value.signatures,
+            unsigned: value.unsigned,
+            other: value.other,
+        })
+    }
+}
+
+impl From<DeviceKeys> for DeviceKeyHelper {
+    fn from(value: DeviceKeys) -> Self {
+        let keys: BTreeMap<Box<DeviceKeyId>, String> =
+            value.keys.into_iter().map(|(k, v)| (k, v.to_base64())).collect();
+
+        Self {
+            user_id: value.user_id,
+            device_id: value.device_id,
+            algorithms: value.algorithms,
+            keys,
+            signatures: value.signatures,
+            unsigned: value.unsigned,
+            other: value.other,
+        }
     }
 }
 

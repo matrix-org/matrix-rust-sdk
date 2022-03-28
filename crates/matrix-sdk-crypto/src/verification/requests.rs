@@ -20,8 +20,6 @@ use std::{
 #[cfg(feature = "qrcode")]
 use matrix_qrcode::QrVerificationData;
 use matrix_sdk_common::{instant::Instant, util::milli_seconds_since_unix_epoch};
-#[cfg(feature = "qrcode")]
-use ruma::DeviceKeyAlgorithm;
 use ruma::{
     events::{
         key::verification::{
@@ -1004,9 +1002,7 @@ impl RequestState<Ready> {
                 ReadOnlyUserIdentities::Own(i) => {
                     if let Some(master_key) = i.master_key().get_first_key() {
                         if identites.can_sign_devices().await {
-                            if let Some(device_key) =
-                                identites.other_device().get_key(DeviceKeyAlgorithm::Ed25519)
-                            {
+                            if let Some(device_key) = identites.other_device().ed25519_key() {
                                 Some(QrVerification::new_self(
                                     self.flow_id.as_ref().to_owned(),
                                     master_key.to_owned(),

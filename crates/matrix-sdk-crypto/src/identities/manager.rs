@@ -35,7 +35,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
-    types::{cross_signing_key::CrossSigningKey, device_keys::DeviceKeys},
+    types::{CrossSigningKey, DeviceKeys},
     LocalTrust,
 };
 
