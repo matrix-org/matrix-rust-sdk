@@ -2,7 +2,7 @@ name: Code coverage
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,23 +16,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Load cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install stable toolchain
+    - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         profile: minimal
         override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
 
     - name: Install tarpaulin
       uses: actions-rs/cargo@v1

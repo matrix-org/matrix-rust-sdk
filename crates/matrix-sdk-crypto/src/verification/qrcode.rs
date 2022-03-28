@@ -18,8 +18,9 @@ use matrix_qrcode::{
     qrcode::QrCode, EncodingError, QrVerificationData, SelfVerificationData,
     SelfVerificationNoMasterKey, VerificationData,
 };
+use rand::{thread_rng, RngCore};
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             cancel::CancelCode,
@@ -384,7 +385,7 @@ impl QrVerification {
 
     pub(crate) fn receive_reciprocation(
         &self,
-        content: &StartContent,
+        content: &StartContent<'_>,
     ) -> Option<OutgoingVerificationRequest> {
         let mut state = self.state.lock().unwrap();
 
@@ -431,10 +432,11 @@ impl QrVerification {
     }
 
     fn generate_secret() -> Base64 {
-        let mut shared_secret = [0u8; SECRET_SIZE];
-        getrandom::getrandom(&mut shared_secret)
-            .expect("Can't generate randomness for the shared secret");
-        Base64::new(shared_secret.to_vec())
+        let mut shared_secret = vec![0u8; SECRET_SIZE];
+        let mut rng = thread_rng();
+        rng.fill_bytes(&mut shared_secret);
+
+        Base64::new(shared_secret)
     }
 
     pub(crate) fn new_self(
@@ -470,7 +472,7 @@ impl QrVerification {
 
         let inner: QrVerificationData = SelfVerificationNoMasterKey::new(
             flow_id.as_str().to_owned(),
-            store.account.identity_keys().ed25519().to_string(),
+            store.account.identity_keys().ed25519.to_base64(),
             own_master_key,
             secret,
         )
@@ -556,9 +558,9 @@ impl QrVerification {
             }
             QrVerificationData::SelfVerification(_) => {
                 check_master_key(qr_code.first_key(), &other_identity)?;
-                if qr_code.second_key() != store.account.identity_keys().ed25519() {
+                if qr_code.second_key() != store.account.identity_keys().ed25519.to_base64() {
                     return Err(ScanError::KeyMismatch {
-                        expected: store.account.identity_keys().ed25519().to_owned(),
+                        expected: store.account.identity_keys().ed25519.to_base64(),
                         found: qr_code.second_key().to_owned(),
                     });
                 }
@@ -708,7 +710,7 @@ impl QrState<Cancelled> {
 impl QrState<Created> {
     fn receive_reciprocate(
         self,
-        content: &StartContent,
+        content: &StartContent<'_>,
     ) -> Result<QrState<Scanned>, QrState<Cancelled>> {
         match content.method() {
             start::StartMethod::ReciprocateV1(m) => {
@@ -737,7 +739,7 @@ impl QrState<Done> {
 impl QrState<Confirmed> {
     fn into_done(
         self,
-        _: &DoneContent,
+        _: &DoneContent<'_>,
         verified_device: Option<&ReadOnlyDevice>,
         verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {
@@ -776,7 +778,7 @@ impl QrState<Reciprocated> {
 
     fn into_done(
         self,
-        _: &DoneContent,
+        _: &DoneContent<'_>,
         verified_device: Option<&ReadOnlyDevice>,
         verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {
@@ -832,7 +834,7 @@ mod test {
         let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
         let flow_id = FlowId::ToDevice("test_transaction".into());
 
-        let device_key = account.identity_keys().ed25519().to_owned();
+        let device_key = account.identity_keys.ed25519.to_base64();
         let master_key = private_identity.master_public_key().await.unwrap();
         let master_key = master_key.get_first_key().unwrap().to_owned();
 

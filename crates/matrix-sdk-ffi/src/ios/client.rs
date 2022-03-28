@@ -6,9 +6,9 @@ use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaType},
     ruma::{
-        api::client::r0::{
+        api::client::{
             filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-            sync::sync_events::Filter,
+            sync::sync_events::v3::Filter,
         },
         MxcUri,
     },

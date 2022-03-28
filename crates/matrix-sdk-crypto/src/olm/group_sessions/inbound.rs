@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![warn(missing_docs)]
+
 use std::{
     collections::BTreeMap,
     convert::TryFrom,
@@ -23,14 +25,6 @@ use std::{
 };
 
 use matrix_sdk_common::locks::Mutex;
-pub use olm_rs::{
-    account::IdentityKeys,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
-use olm_rs::{
-    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
-};
 use ruma::{
     events::{
         forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
@@ -45,9 +39,15 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use zeroize::Zeroizing;
+use vodozemac::{
+    megolm::{
+        DecryptedMessage, DecryptionError, ExportedSessionKey, InboundGroupSession as InnerSession,
+        InboundGroupSessionPickle, MegolmMessage, SessionCreationError,
+    },
+    PickleError,
+};
 
-use super::{BackedUpRoomKey, ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
+use super::{BackedUpRoomKey, ExportedRoomKey, SessionKey};
 use crate::error::{EventError, MegolmResult};
 
 // TODO add creation times to the inbound group sessions so we can export
@@ -60,13 +60,17 @@ use crate::error::{EventError, MegolmResult};
 /// participants. Inbound group sessions are used to decrypt the room messages.
 #[derive(Clone)]
 pub struct InboundGroupSession {
-    inner: Arc<Mutex<OlmInboundGroupSession>>,
+    inner: Arc<Mutex<InnerSession>>,
     history_visibility: Arc<Option<HistoryVisibility>>,
-    pub(crate) session_id: Arc<str>,
+    /// The SessionId associated to this GroupSession
+    pub session_id: Arc<str>,
     first_known_index: u32,
-    pub(crate) sender_key: Arc<str>,
-    pub(crate) signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
-    pub(crate) room_id: Arc<RoomId>,
+    /// The sender_key associated to this GroupSession
+    pub sender_key: Arc<str>,
+    /// Map of DeviceKeyAlgorithm to the public ed25519 key of the account
+    pub signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
+    /// The Room this GroupSession belongs to
+    pub room_id: Arc<RoomId>,
     forwarding_chains: Arc<Vec<String>>,
     imported: bool,
     backed_up: Arc<AtomicBool>,
@@ -89,14 +93,14 @@ impl InboundGroupSession {
     ///
     /// * `session_key` - The private session key that is used to decrypt
     /// messages.
-    pub(crate) fn new(
+    pub fn new(
         sender_key: &str,
         signing_key: &str,
         room_id: &RoomId,
-        session_key: GroupSessionKey,
+        session_key: SessionKey,
         history_visibility: Option<HistoryVisibility>,
-    ) -> Result<Self, OlmGroupSessionError> {
-        let session = OlmInboundGroupSession::new(&session_key.0)?;
+    ) -> Result<Self, SessionCreationError> {
+        let session = InnerSession::new(&session_key)?;
         let session_id = session.session_id();
         let first_known_index = session.first_known_index();
 
@@ -127,7 +131,7 @@ impl InboundGroupSession {
     /// [`export()`]: #method.export
     pub fn from_export(
         exported_session: impl Into<ExportedRoomKey>,
-    ) -> Result<Self, OlmGroupSessionError> {
+    ) -> Result<Self, SessionCreationError> {
         Self::try_from(exported_session.into())
     }
 
@@ -135,8 +139,8 @@ impl InboundGroupSession {
     fn from_backup(
         room_id: &RoomId,
         backup: BackedUpRoomKey,
-    ) -> Result<Self, OlmGroupSessionError> {
-        let session = OlmInboundGroupSession::new(&backup.session_key.0)?;
+    ) -> Result<Self, SessionCreationError> {
+        let session = InnerSession::import(&backup.session_key)?;
         let session_id = session.session_id();
 
         Self::from_export(ExportedRoomKey {
@@ -159,13 +163,13 @@ impl InboundGroupSession {
     ///
     /// * `content` - A forwarded room key content that contains the session key
     /// to create the `InboundGroupSession`.
-    pub(crate) fn from_forwarded_key(
+    pub fn from_forwarded_key(
         sender_key: &str,
         content: &mut ToDeviceForwardedRoomKeyEventContent,
-    ) -> Result<Self, OlmGroupSessionError> {
-        let key = Zeroizing::from(mem::take(&mut content.session_key));
+    ) -> Result<Self, SessionCreationError> {
+        let key = ExportedSessionKey(mem::take(&mut content.session_key));
 
-        let session = OlmInboundGroupSession::import(&key)?;
+        let session = InnerSession::import(&key)?;
         let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
         forwarding_chains.push(sender_key.to_owned());
@@ -194,11 +198,11 @@ impl InboundGroupSession {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the group session,
     /// either an unencrypted mode or an encrypted using passphrase.
-    pub async fn pickle(&self, pickle_mode: PicklingMode) -> PickledInboundGroupSession {
-        let pickle = self.inner.lock().await.pickle(pickle_mode);
+    pub async fn pickle(&self) -> PickledInboundGroupSession {
+        let pickle = self.inner.lock().await.pickle();
 
         PickledInboundGroupSession {
-            pickle: InboundGroupSessionPickle::from(pickle),
+            pickle,
             sender_key: self.sender_key.to_string(),
             signing_key: (*self.signing_keys).clone(),
             room_id: (*self.room_id).to_owned(),
@@ -228,13 +232,13 @@ impl InboundGroupSession {
     }
 
     /// Reset the backup state of the inbound group session.
-    pub(crate) fn reset_backup_state(&self) {
+    pub fn reset_backup_state(&self) {
         self.backed_up.store(false, SeqCst)
     }
 
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn mark_as_backed_up(&self) {
+    /// For testing, allow to manually mark this GroupSession to have been
+    /// backed up
+    pub fn mark_as_backed_up(&self) {
         self.backed_up.store(true, SeqCst)
     }
 
@@ -256,9 +260,8 @@ impl InboundGroupSession {
     pub async fn export_at_index(&self, message_index: u32) -> ExportedRoomKey {
         let message_index = std::cmp::max(self.first_known_index(), message_index);
 
-        let session_key = ExportedGroupSessionKey(
-            self.inner.lock().await.export(message_index).expect("Can't export session"),
-        );
+        let session_key =
+            self.inner.lock().await.export_at(message_index).expect("Can't export session");
 
         ExportedRoomKey {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
@@ -273,7 +276,7 @@ impl InboundGroupSession {
 
     /// Restore a Session from a previously pickled string.
     ///
-    /// Returns the restored group session or a `OlmGroupSessionError` if there
+    /// Returns the restored group session or a `UnpicklingError` if there
     /// was an error.
     ///
     /// # Arguments
@@ -282,11 +285,8 @@ impl InboundGroupSession {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    pub fn from_pickle(
-        pickle: PickledInboundGroupSession,
-        pickle_mode: PicklingMode,
-    ) -> Result<Self, OlmGroupSessionError> {
-        let session = OlmInboundGroupSession::unpickle(pickle.pickle.0, pickle_mode)?;
+    pub fn from_pickle(pickle: PickledInboundGroupSession) -> Result<Self, PickleError> {
+        let session: InnerSession = pickle.pickle.into();
         let first_known_index = session.first_known_index();
         let session_id = session.session_id();
 
@@ -321,7 +321,7 @@ impl InboundGroupSession {
 
     /// Decrypt the given ciphertext.
     ///
-    /// Returns the decrypted plaintext or an `OlmGroupSessionError` if
+    /// Returns the decrypted plaintext or an `DecryptionError` if
     /// decryption failed.
     ///
     /// # Arguments
@@ -329,13 +329,15 @@ impl InboundGroupSession {
     /// * `message` - The message that should be decrypted.
     pub(crate) async fn decrypt_helper(
         &self,
-        message: String,
-    ) -> Result<(String, u32), OlmGroupSessionError> {
+        message: &MegolmMessage,
+    ) -> Result<DecryptedMessage, DecryptionError> {
         self.inner.lock().await.decrypt(message)
     }
 
+    /// Export the inbound group session into a format that can be uploaded to
+    /// the server as a backup.
     #[cfg(feature = "backups_v1")]
-    pub(crate) async fn to_backup(&self) -> BackedUpRoomKey {
+    pub async fn to_backup(&self) -> BackedUpRoomKey {
         self.export().await.into()
     }
 
@@ -344,7 +346,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `event` - The event that should be decrypted.
-    pub(crate) async fn decrypt(
+    pub async fn decrypt(
         &self,
         event: &SyncRoomEncryptedEvent,
     ) -> MegolmResult<(Raw<AnyRoomEvent>, u32)> {
@@ -353,9 +355,11 @@ impl InboundGroupSession {
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
 
-        let (plaintext, message_index) = self.decrypt_helper(content.ciphertext.clone()).await?;
+        let message = MegolmMessage::from_base64(&content.ciphertext)?;
 
-        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
+        let decrypted = self.decrypt_helper(&message).await?;
+
+        let mut decrypted_value = serde_json::from_str::<Value>(&decrypted.plaintext)?;
         let decrypted_object = decrypted_value.as_object_mut().ok_or(EventError::NotAnObject)?;
 
         let server_ts: i64 = event.origin_server_ts.0.into();
@@ -390,7 +394,7 @@ impl InboundGroupSession {
             }
         }
 
-        Ok((serde_json::from_value::<Raw<AnyRoomEvent>>(decrypted_value)?, message_index))
+        Ok((serde_json::from_value::<Raw<AnyRoomEvent>>(decrypted_value)?, decrypted.message_index))
     }
 }
 
@@ -411,7 +415,8 @@ impl PartialEq for InboundGroupSession {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an InboundGroupSession.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledInboundGroupSession {
     /// The pickle string holding the InboundGroupSession.
     pub pickle: InboundGroupSessionPickle,
@@ -435,29 +440,11 @@ pub struct PickledInboundGroupSession {
     pub history_visibility: Option<HistoryVisibility>,
 }
 
-/// The typed representation of a base64 encoded string of the GroupSession
-/// pickle.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InboundGroupSessionPickle(String);
-
-impl From<String> for InboundGroupSessionPickle {
-    fn from(pickle_string: String) -> Self {
-        InboundGroupSessionPickle(pickle_string)
-    }
-}
-
-impl InboundGroupSessionPickle {
-    /// Get the string representation of the pickle.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 impl TryFrom<ExportedRoomKey> for InboundGroupSession {
-    type Error = OlmGroupSessionError;
+    type Error = SessionCreationError;
 
     fn try_from(key: ExportedRoomKey) -> Result<Self, Self::Error> {
-        let session = OlmInboundGroupSession::import(&key.session_key.0)?;
+        let session = InnerSession::import(&key.session_key)?;
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {

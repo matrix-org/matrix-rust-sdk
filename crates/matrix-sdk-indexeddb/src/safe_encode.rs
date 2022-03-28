@@ -1,6 +1,7 @@
-use ruma::{
-    events::EventType, receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId,
-    UserId,
+#![allow(dead_code)]
+use matrix_sdk_base::ruma::events::StateEventType;
+use matrix_sdk_common::ruma::{
+    receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
@@ -45,7 +46,7 @@ pub trait SafeEncode {
             &JsValue::from([&key, KEY_SEPARATOR].concat()),
             &JsValue::from([&key, RANGE_END].concat()),
         )
-        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_string()))
+        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_owned()))
     }
 }
 
@@ -134,7 +135,7 @@ impl SafeEncode for TransactionId {
     }
 }
 
-impl SafeEncode for EventType {
+impl SafeEncode for StateEventType {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }

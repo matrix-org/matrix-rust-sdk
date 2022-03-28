@@ -1,20 +1,47 @@
-#[allow(unused_macros)]
+//! Macro of integration tests for StateStore implementions.
 
+/// Macro building to allow your StateStore implementation to run the entire
+/// tests suite locally.
+///
+/// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
+/// providing a fresh store on the same level you invoke the macro.
+///
+/// ## Usage Example:
+/// ```no_run
+/// # use matrix_sdk_base::store::{
+/// #    StateStore,
+/// #    MemoryStore as MyStore,
+/// #    Result as StoreResult,
+/// # };
+///
+/// #[cfg(test)]
+/// mod test {
+///
+///    use super::{MyStore, StoreResult, StateStore};
+///
+///    async fn get_store() -> StoreResult<impl StateStore> {
+///        Ok(MyStore::new())
+///    }
+///
+///    statestore_integration_tests! { integration }
+/// }
+/// ```
+#[allow(unused_macros, unused_extern_crates)]
+#[macro_export]
 macro_rules! statestore_integration_tests {
     ($($name:ident)*) => {
         $(
             mod $name {
 
                 use futures_util::StreamExt;
-                use http::Response;
                 use matrix_sdk_test::{async_test, test_json};
-                use ruma::{
+                use matrix_sdk_common::ruma::{
                     api::{
-                        client::r0::{
-                        media::get_content_thumbnail::Method,
-                        message::get_message_events::Response as MessageResponse,
-                        sync::sync_events::Response as SyncResponse,
-                    },
+                        client::{
+                            media::get_content_thumbnail::v3::Method,
+                            message::get_message_events::v3::Response as MessageResponse,
+                            sync::sync_events::v3::Response as SyncResponse,
+                        },
                         IncomingResponse,
                     },
                     device_id, event_id,
@@ -24,9 +51,10 @@ macro_rules! statestore_integration_tests {
                             member::{MembershipState, RoomMemberEventContent},
                             power_levels::RoomPowerLevelsEventContent,
                         },
-                        AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent, AnyStrippedStateEvent,
-                        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-                        AnySyncStateEvent, EventType, Unsigned,
+                        AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent,
+                        AnyStrippedStateEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
+                        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
+                        StateEventType, Unsigned,
                     },
                     mxc_uri,
                     receipt::ReceiptType,
@@ -38,14 +66,15 @@ macro_rules! statestore_integration_tests {
 
                 use std::collections::{BTreeMap, BTreeSet};
 
-                use crate::{
+                use $crate::{
+                    http::Response,
                     RoomType, Session,
                     deserialized_responses::{MemberEvent, StrippedMemberEvent, RoomEvent, SyncRoomEvent, TimelineSlice},
                     media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
                     store::{
                         Store,
                         StateStore,
-                        Result,
+                        Result as StoreResult,
                         StateChanges
                     }
                 };
@@ -73,7 +102,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 /// Populate the given `StateStore`.
-                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> Result<Store> {
+                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> StoreResult<Store> {
                     let mut changes = StateChanges::default();
                     let store = Store::new(inner);
 
@@ -84,13 +113,13 @@ macro_rules! statestore_integration_tests {
                     let device_id = device_id!("device");
 
                     let session = Session {
-                        access_token: "token".to_string(),
+                        access_token: "token".to_owned(),
                         user_id: user_id.to_owned(),
                         device_id: device_id.to_owned(),
                     };
                     store.restore_session(session).await.unwrap();
 
-                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_string());
+                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned());
 
                     let presence_json: &JsonValue = &test_json::PRESENCE;
                     let presence_raw =
@@ -240,7 +269,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_populate_store() -> Result<()> {
+                async fn test_populate_store() -> StoreResult<()> {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
@@ -251,10 +280,10 @@ macro_rules! statestore_integration_tests {
                     assert!(store.get_presence_event(user_id).await?.is_some());
                     assert_eq!(store.get_room_infos().await?.len(), 1);
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
-                    assert!(store.get_account_data_event(EventType::PushRules).await?.is_some());
+                    assert!(store.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some());
 
-                    assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_some());
-                    assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await?.len(), 1);
+                    assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
+                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 1);
                     assert!(store.get_profile(room_id, user_id).await?.is_some());
                     assert!(store.get_member_event(room_id, user_id).await?.is_some());
                     assert_eq!(store.get_user_ids(room_id).await?.len(), 2);
@@ -262,7 +291,7 @@ macro_rules! statestore_integration_tests {
                     assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1);
                     assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2);
                     assert!(store
-                        .get_room_account_data_event(room_id, EventType::Tag)
+                        .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
                         .is_some());
                     assert!(store
@@ -309,7 +338,7 @@ macro_rules! statestore_integration_tests {
                     let event = raw_event.deserialize().unwrap();
 
                     assert!(store
-                        .get_state_event(room_id, EventType::RoomPowerLevels, "")
+                        .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
                         .await
                         .unwrap()
                         .is_none());
@@ -318,7 +347,7 @@ macro_rules! statestore_integration_tests {
 
                     store.save_changes(&changes).await.unwrap();
                     assert!(store
-                        .get_state_event(room_id, EventType::RoomPowerLevels, "")
+                        .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
                         .await
                         .unwrap()
                         .is_some());
@@ -458,7 +487,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_custom_storage() -> Result<()> {
+                async fn test_custom_storage() -> StoreResult<()> {
                     let key = "my_key";
                     let value = &[0, 1, 2, 3];
                     let store = get_store().await?;
@@ -473,7 +502,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_persist_invited_room() -> Result<()> {
+                async fn test_persist_invited_room() -> StoreResult<()> {
                     let stripped_room_id = stripped_room_id();
                     let inner_store = get_store().await?;
                     let store = populated_store(Box::new(inner_store)).await?;
@@ -486,7 +515,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_room_removal() -> Result<()>  {
+                async fn test_room_removal() -> StoreResult<()>  {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
@@ -499,8 +528,8 @@ macro_rules! statestore_integration_tests {
                     assert_eq!(store.get_room_infos().await?.len(), 0);
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
 
-                    assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_none());
-                    assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await?.len(), 0);
+                    assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_none());
+                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 0);
                     assert!(store.get_profile(room_id, user_id).await?.is_none());
                     assert!(store.get_member_event(room_id, user_id).await?.is_none());
                     assert_eq!(store.get_user_ids(room_id).await?.len(), 0);
@@ -508,7 +537,7 @@ macro_rules! statestore_integration_tests {
                     assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 0);
                     assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 0);
                     assert!(store
-                        .get_room_account_data_event(room_id, EventType::Tag)
+                        .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
                         .is_none());
                     assert!(store
@@ -548,7 +577,7 @@ macro_rules! statestore_integration_tests {
                     let timeline = &sync.rooms.join[room_id].timeline;
                     let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
 
-                    stored_events.append(&mut events.clone());
+                    stored_events.extend(events.iter().rev().cloned());
 
                     let timeline_slice = TimelineSlice::new(
                         events,
@@ -625,9 +654,9 @@ macro_rules! statestore_integration_tests {
                     let timeline = &sync.rooms.join[room_id].timeline;
                     let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
 
-                    let mut prev_stored_events = stored_events;
-                    stored_events = events.clone();
-                    stored_events.append(&mut prev_stored_events);
+                    let prev_stored_events = stored_events;
+                    stored_events = events.iter().rev().cloned().collect();
+                    stored_events.extend(prev_stored_events);
 
                     let timeline_slice = TimelineSlice::new(
                         events,
@@ -643,10 +672,10 @@ macro_rules! statestore_integration_tests {
                     check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
 
                     // Check if limited sync removes the stored timeline
-                    let end_token = Some("end token".to_string());
+                    let end_token = Some("end token".to_owned());
                     let timeline_slice = TimelineSlice::new(
                         Vec::new(),
-                        "start token".to_string(),
+                        "start token".to_owned(),
                         end_token.clone(),
                         true,
                         true,
@@ -668,7 +697,7 @@ macro_rules! statestore_integration_tests {
 
                     assert_eq!(end_token.as_deref(), expected_end_token);
 
-                    let timeline = timeline_iter.collect::<Vec<Result<SyncRoomEvent>>>().await;
+                    let timeline = timeline_iter.collect::<Vec<StoreResult<SyncRoomEvent>>>().await;
 
                     assert!(timeline
                             .into_iter()

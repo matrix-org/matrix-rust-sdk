@@ -28,10 +28,12 @@ use ruma::{
         receipt::Receipt,
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType, Redact,
+        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
+    signatures::{redact_in_place, CanonicalJsonObject},
     EventId, MxcUri, RoomId, RoomVersionId, UserId,
 };
 #[allow(unused_imports)]
@@ -41,8 +43,12 @@ use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
+    StoreError,
 };
 
+/// In-Memory, non-persistent implementation of the `StateStore`
+///
+/// Default if no other is configured at startup.
 #[allow(clippy::type_complexity)]
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -72,8 +78,15 @@ pub struct MemoryStore {
     room_timeline: Arc<DashMap<Box<RoomId>, TimelineData>>,
 }
 
+impl Default for MemoryStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryStore {
     #[allow(dead_code)]
+    /// Create a new empty MemoryStore
     pub fn new() -> Self {
         Self {
             sync_token: Default::default(),
@@ -100,7 +113,7 @@ impl MemoryStore {
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.filters.insert(filter_name.to_string(), filter_id.to_string());
+        self.filters.insert(filter_name.to_owned(), filter_id.to_owned());
 
         Ok(())
     }
@@ -284,10 +297,10 @@ impl MemoryStore {
                 info!("Save new timeline batch from messages response for {}", room);
             }
 
-            let data = if timeline.limited {
+            let mut delete_timeline = false;
+            if timeline.limited {
                 info!("Delete stored timeline for {} because the sync response was limited", room);
-                self.room_timeline.remove(room);
-                None
+                delete_timeline = true;
             } else if let Some(mut data) = self.room_timeline.get_mut(room) {
                 if !timeline.sync && Some(&timeline.start) != data.end.as_ref() {
                     // This should only happen when a developer adds a wrong timeline
@@ -298,7 +311,6 @@ impl MemoryStore {
                 }
 
                 // Check if the event already exists in the store
-                let mut delete_timeline = false;
                 for event in &timeline.events {
                     if let Some(event_id) = event.event_id() {
                         if data.event_id_to_position.contains_key(&event_id) {
@@ -308,84 +320,79 @@ impl MemoryStore {
                     }
                 }
 
-                if delete_timeline {
-                    info!("Delete stored timeline for {} because of duplicated events", room);
-                    self.room_timeline.remove(room);
-                    None
-                } else if timeline.sync {
-                    data.start = timeline.start.clone();
-                    Some(data)
-                } else {
-                    data.end = timeline.end.clone();
-                    Some(data)
+                if !delete_timeline {
+                    if timeline.sync {
+                        data.start = timeline.start.clone();
+                    } else {
+                        data.end = timeline.end.clone();
+                    }
                 }
-            } else {
-                None
-            };
+            }
 
-            let mut data = &mut *if let Some(data) = data {
-                data
-            } else {
-                let data = TimelineData {
+            if delete_timeline {
+                info!("Delete stored timeline for {} because of duplicated events", room);
+                self.room_timeline.remove(room);
+            }
+
+            let mut data =
+                self.room_timeline.entry(room.to_owned()).or_insert_with(|| TimelineData {
                     start: timeline.start.clone(),
                     end: timeline.end.clone(),
                     ..Default::default()
-                };
-                self.room_timeline.insert(room.to_owned(), data);
-                self.room_timeline.get_mut(room).unwrap()
-            };
+                });
 
-            // Create a copy of the events if the stream created via `room_timeline()` isn't
-            // fully consumed
-            let data_events = Arc::make_mut(&mut data.events);
+            let make_room_version = || {
+                self.room_info
+                    .get(room)
+                    .and_then(|info| {
+                        info.base_info.create.as_ref().map(|event| event.room_version.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        warn!("Unable to find the room version for {}, assume version 9", room);
+                        RoomVersionId::V9
+                    })
+            };
 
             if timeline.sync {
                 let mut room_version = None;
-                for event in timeline.events.iter().rev() {
+                for event in &timeline.events {
                     // Redact events already in store only on sync response
                     if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
                         redaction,
                     ))) = event.event.deserialize()
                     {
-                        if let Some(position) = data.event_id_to_position.get(&redaction.redacts) {
-                            if let Some(mut full_event) = data_events.get_mut(position) {
-                                let inner_event = full_event.event.deserialize()?;
-                                if room_version.is_none() {
-                                    room_version = Some(self.room_info
-                                                        .get(room)
-                                                        .and_then(|info| {
-                                                            info.base_info
-                                                                .create
-                                                                .as_ref()
-                                                                .map(|event| event.room_version.clone())
-                                                        }).unwrap_or_else(|| {
-                                                            warn!("Unable to find the room version for {}, assume version 9", room);
-                                                            RoomVersionId::V9
-                                                        }));
-                                }
+                        let pos = data.event_id_to_position.get(&redaction.redacts).copied();
 
-                                full_event.event = Raw::new(&AnySyncRoomEvent::from(
-                                    inner_event.redact(redaction, room_version.as_ref().unwrap()),
-                                ))?;
+                        if let Some(position) = pos {
+                            if let Some(mut full_event) = data.events.get_mut(&position.clone()) {
+                                let mut event_json: CanonicalJsonObject =
+                                    full_event.event.deserialize_as()?;
+                                let v = room_version.get_or_insert_with(make_room_version);
+
+                                redact_in_place(&mut event_json, v)
+                                    .map_err(StoreError::Redaction)?;
+                                full_event.event = Raw::new(&event_json)?.cast();
                             }
                         }
                     }
 
                     data.start_position -= 1;
+                    let start_position = data.start_position;
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        data.event_id_to_position.insert(event_id, data.start_position);
+                        data.event_id_to_position.insert(event_id, start_position);
                     }
-                    data_events.insert(data.start_position, event.to_owned());
+                    data.events.insert(start_position, event.clone());
                 }
             } else {
-                for event in timeline.events.iter() {
+                for event in &timeline.events {
                     data.end_position += 1;
+                    let end_position = data.end_position;
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        data.event_id_to_position.insert(event_id, data.end_position);
+                        data.event_id_to_position.insert(event_id, end_position);
                     }
-                    data_events.insert(data.end_position, event.to_owned());
+                    data.events.insert(end_position, event.clone());
                 }
             }
         }
@@ -402,7 +409,7 @@ impl MemoryStore {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         Ok(self.room_state.get(room_id).and_then(|e| {
@@ -413,7 +420,7 @@ impl MemoryStore {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         Ok(self
             .room_state
@@ -471,7 +478,7 @@ impl MemoryStore {
 
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         Ok(self.account_data.get(event_type.as_ref()).map(|e| e.clone()))
     }
@@ -479,7 +486,7 @@ impl MemoryStore {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         Ok(self
             .room_account_data
@@ -580,22 +587,22 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>> {
-        if let Some(data) = self.room_timeline.get(room_id) {
-            let events = data.events.clone();
-            let stream = stream! {
-                for item in events.values() {
-                    yield Ok(item.to_owned());
-                }
-            };
-            info!(
-                "Found previously stored timeline for {}, with end token {:?}",
-                room_id, data.end
-            );
-            Ok(Some((Box::pin(stream), data.end.to_owned())))
+        let (events, end_token) = if let Some(data) = self.room_timeline.get(room_id) {
+            (data.events.clone(), data.end.clone())
         } else {
             info!("No timeline for {} was previously stored", room_id);
-            Ok(None)
-        }
+            return Ok(None);
+        };
+
+        let stream = stream! {
+            for (_, item) in events {
+                yield Ok(item);
+            }
+        };
+
+        info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
+
+        Ok(Some((Box::pin(stream), end_token)))
     }
 }
 
@@ -625,7 +632,7 @@ impl StateStore for MemoryStore {
     async fn get_state_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.get_state_event(room_id, event_type, state_key).await
@@ -634,7 +641,7 @@ impl StateStore for MemoryStore {
     async fn get_state_events(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         self.get_state_events(room_id, event_type).await
     }
@@ -689,7 +696,7 @@ impl StateStore for MemoryStore {
 
     async fn get_account_data_event(
         &self,
-        event_type: EventType,
+        event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         self.get_account_data_event(event_type).await
     }
@@ -697,7 +704,7 @@ impl StateStore for MemoryStore {
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
-        event_type: EventType,
+        event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
     }
@@ -762,7 +769,7 @@ struct TimelineData {
     pub start_position: isize,
     pub end: Option<String>,
     pub end_position: isize,
-    pub events: Arc<BTreeMap<isize, SyncRoomEvent>>,
+    pub events: BTreeMap<isize, SyncRoomEvent>,
     pub event_id_to_position: HashMap<Box<EventId>, isize>,
 }
 

@@ -1,0 +1,55 @@
+mod ci;
+
+use ci::CiArgs;
+use clap::{Parser, Subcommand};
+use xshell::cmd;
+
+type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
+
+#[derive(Parser)]
+struct Xtask {
+    #[clap(subcommand)]
+    cmd: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run continuous integration checks
+    Ci(CiArgs),
+    /// Build the SDKs documentation
+    Doc {
+        /// Opens the docs in a browser after the operation
+        #[clap(long)]
+        open: bool,
+    },
+}
+
+fn main() -> Result<()> {
+    match Xtask::parse().cmd {
+        Command::Ci(ci) => ci.run(),
+        Command::Doc { open } => build_docs(open.then(|| "--open"), DenyWarnings::No),
+    }
+}
+
+enum DenyWarnings {
+    Yes,
+    No,
+}
+
+fn build_docs(
+    extra_args: impl IntoIterator<Item = &'static str>,
+    deny_warnings: DenyWarnings,
+) -> Result<()> {
+    let mut rustdocflags = "--enable-index-page -Zunstable-options --cfg docsrs".to_owned();
+    if let DenyWarnings::Yes = deny_warnings {
+        rustdocflags += " -Dwarnings";
+    }
+
+    // Keep in sync with .github/workflows/docs.yml
+    cmd!("rustup run nightly cargo doc --no-deps --workspace --features docsrs -Zrustdoc-map")
+        .env("RUSTDOCFLAGS", rustdocflags)
+        .args(extra_args)
+        .run()?;
+
+    Ok(())
+}

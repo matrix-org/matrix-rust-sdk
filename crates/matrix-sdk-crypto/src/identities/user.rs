@@ -23,7 +23,7 @@ use std::{
 };
 
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
@@ -33,11 +33,12 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 use tracing::error;
+use vodozemac::Ed25519PublicKey;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::SignatureError,
-    olm::Utility,
+    olm::VerifyJson,
     store::{Changes, IdentityChanges},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
@@ -481,17 +482,17 @@ impl MasterPubkey {
         // if self.0.usage.contains(&KeyUsage::Master) {
         //     return Err(SignatureError::MissingSigningKey);
         // }
-        let subkey: CrossSigningSubKeys = subkey.into();
+        let subkey: CrossSigningSubKeys<'_> = subkey.into();
 
         if self.0.user_id != subkey.user_id() {
             return Err(SignatureError::UserIdMismatch);
         }
 
-        let utility = Utility::new();
-        utility.verify_json(
+        let key = Ed25519PublicKey::from_base64(key)?;
+
+        key.verify_json(
             &self.0.user_id,
             key_id,
-            key,
             &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
         )
     }
@@ -534,11 +535,10 @@ impl UserSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        let utility = Utility::new();
-        utility.verify_json(
+        let key = Ed25519PublicKey::from_base64(key)?;
+        key.verify_json(
             &self.0.user_id,
             key_id.as_str().try_into()?,
-            key,
             &mut to_value(&*master_key.0).map_err(|_| SignatureError::NotAnObject)?,
         )
     }
@@ -570,9 +570,8 @@ impl SelfSigningPubkey {
 
         let mut device = to_value(device_keys)?;
 
-        let utility = Utility::new();
-
-        utility.verify_json(&self.0.user_id, key_id.as_str().try_into()?, key, &mut device)
+        let key = Ed25519PublicKey::from_base64(key)?;
+        key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, &mut device)
     }
 
     /// Check if the given device is signed by this self signing key.
@@ -935,26 +934,20 @@ impl ReadOnlyOwnUserIdentity {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test {
-    use std::{convert::TryFrom, sync::Arc};
+#[cfg(any(test, feature = "testing"))]
+pub(crate) mod testing {
+    //! Testing Facilities
+    #![allow(dead_code)]
+    use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
-    use matrix_sdk_common::locks::Mutex;
-    use matrix_sdk_test::async_test;
-    use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
-
-    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity};
-    use crate::{
-        identities::{
-            manager::test::{other_key_query, own_key_query},
-            Device, ReadOnlyDevice,
-        },
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::MemoryStore,
-        verification::VerificationMachine,
+    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
+    use crate::identities::{
+        manager::testing::{other_key_query, own_key_query},
+        ReadOnlyDevice,
     };
 
-    fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
+    /// Generate test devices from KeyQueryResponse
+    pub fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();
         let first =
             ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
@@ -963,7 +956,8 @@ pub(crate) mod test {
         (first, second)
     }
 
-    fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
+    /// Generate ReadOnlyOwnUserIdentity from KeyQueryResponse for testing
+    pub fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
         let user_id = user_id!("@example:localhost");
 
         let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
@@ -974,11 +968,13 @@ pub(crate) mod test {
             .unwrap()
     }
 
-    pub(crate) fn get_own_identity() -> ReadOnlyOwnUserIdentity {
+    /// Generate default own identity for tests
+    pub fn get_own_identity() -> ReadOnlyOwnUserIdentity {
         own_identity(&own_key_query())
     }
 
-    pub(crate) fn get_other_identity() -> ReadOnlyUserIdentity {
+    /// Generate default other identify for tests
+    pub fn get_other_identity() -> ReadOnlyUserIdentity {
         let user_id = user_id!("@example2:localhost");
         let response = other_key_query();
 
@@ -987,6 +983,26 @@ pub(crate) mod test {
 
         ReadOnlyUserIdentity::new(master_key.into(), self_signing.into()).unwrap()
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use std::sync::Arc;
+
+    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_test::async_test;
+    use ruma::user_id;
+
+    use super::{
+        testing::{device, get_other_identity, get_own_identity},
+        ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    };
+    use crate::{
+        identities::{manager::testing::own_key_query, Device},
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        store::MemoryStore,
+        verification::VerificationMachine,
+    };
 
     #[test]
     fn own_identity_create() {
@@ -1054,7 +1070,7 @@ pub(crate) mod test {
         let (_, device) = device(&response);
 
         let account = ReadOnlyAccount::new(device.user_id(), device.device_id());
-        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let id = Arc::new(Mutex::new(identity.clone()));
 

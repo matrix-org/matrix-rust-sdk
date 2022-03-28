@@ -251,8 +251,9 @@ impl VerificationMachine {
                 let event = ToDeviceEvent { content, sender: self.own_user_id().to_owned() };
 
                 events.push(
-                    Raw::new(&AnyToDeviceEvent::KeyVerificationCancel(event))
-                        .expect("Failed to serialize m.key_verification.cancel event"),
+                    Raw::new(&event)
+                        .expect("Failed to serialize m.key_verification.cancel event")
+                        .cast(),
                 );
             }
 

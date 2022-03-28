@@ -13,20 +13,34 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    convert::{TryFrom, TryInto},
+    collections::{HashMap, HashSet},
+    convert::TryInto,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 
+use anyhow::anyhow;
 use dashmap::DashSet;
-use matrix_sdk_common::{async_trait, locks::Mutex};
-use olm_rs::{account::IdentityKeys, PicklingMode};
-use ruma::{
-    encryption::DeviceKeys,
-    events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    DeviceId, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+use matrix_sdk_common::{
+    async_trait,
+    locks::Mutex,
+    ruma::{
+        events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
+        DeviceId, RoomId, TransactionId, UserId,
+    },
 };
+use matrix_sdk_crypto::{
+    olm::{
+        IdentityKeys, InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
+        PrivateCrossSigningIdentity, Session,
+    },
+    store::{
+        caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, Result,
+        RoomKeyCounts,
+    },
+    GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
+};
+use matrix_sdk_store_encryption::StoreCipher;
 use serde::{Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
@@ -35,21 +49,20 @@ use sled::{
 };
 use tracing::debug;
 
-use super::{
-    caches::SessionStore, BackupKeys, Changes, CryptoStore, CryptoStoreError, InboundGroupSession,
-    PickleKey, ReadOnlyAccount, Result, RoomKeyCounts, Session,
-};
-use crate::{
-    gossiping::{GossipRequest, SecretInfo},
-    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
-    LocalTrust,
-};
+use super::OpenStoreError;
 
-/// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
-/// panic once we try to pickle a Signing object.
-const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
-const DATABASE_VERSION: u8 = 3;
+const DATABASE_VERSION: u8 = 4;
+
+// Table names that are used to derive a separate key for each tree. This ensure
+// that user ids encoded for different trees won't end up as the same byte
+// sequence. This prevents corelation attacks on our tree metadata.
+const DEVICE_TABLE_NAME: &str = "crypto-store-devices";
+const IDENTITIES_TABLE_NAME: &str = "crypto-store-identities";
+const SESSIONS_TABLE_NAME: &str = "crypto-store-sessions";
+const INBOUND_GROUP_TABLE_NAME: &str = "crypto-store-inbound-group-sessions";
+const OUTBOUND_GROUP_TABLE_NAME: &str = "crypto-store-outbound-group-sessions";
+const SECRET_REQUEST_BY_INFO_TABLE: &str = "crypto-store-secret-request-by-info";
+const TRACKED_USERS_TABLE: &str = "crypto-store-secret-tracked-users";
 
 trait EncodeKey {
     const SEPARATOR: u8 = 0xff;
@@ -117,6 +130,133 @@ impl EncodeKey for ReadOnlyDevice {
     }
 }
 
+impl EncodeSecureKey for (&UserId, &DeviceId) {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let user_id = store_cipher.hash_key(table_name, self.0.as_bytes());
+        let device_id = store_cipher.hash_key(table_name, self.1.as_bytes());
+
+        (user_id, device_id).encode()
+    }
+}
+
+impl EncodeSecureKey for SecretInfo {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        match self {
+            SecretInfo::KeyRequest(k) => k.encode_secure(table_name, store_cipher),
+            SecretInfo::SecretRequest(s) => s.encode_secure(table_name, store_cipher),
+        }
+    }
+}
+
+impl EncodeSecureKey for SecretName {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let name = store_cipher.hash_key(table_name, self.as_ref().as_bytes());
+
+        [name.as_slice(), &[Self::SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for RequestedKeyInfo {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let room_id = store_cipher.hash_key(table_name, self.room_id.as_bytes());
+        let sender_key = store_cipher.hash_key(table_name, self.sender_key.as_bytes());
+        let algorithm = store_cipher.hash_key(table_name, self.algorithm.as_ref().as_bytes());
+        let session_id = store_cipher.hash_key(table_name, self.session_id.as_bytes());
+
+        [
+            room_id.as_slice(),
+            &[Self::SEPARATOR],
+            sender_key.as_slice(),
+            &[Self::SEPARATOR],
+            algorithm.as_slice(),
+            &[Self::SEPARATOR],
+            session_id.as_slice(),
+            &[Self::SEPARATOR],
+        ]
+        .concat()
+    }
+}
+
+impl EncodeSecureKey for UserId {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let user_id = store_cipher.hash_key(table_name, self.as_bytes());
+
+        [user_id.as_slice(), &[0xff]].concat()
+    }
+}
+
+impl EncodeSecureKey for ReadOnlyDevice {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        (self.user_id(), self.device_id()).encode_secure(table_name, store_cipher)
+    }
+}
+
+impl EncodeKey for Session {
+    fn encode(&self) -> Vec<u8> {
+        let sender_key = self.sender_key();
+        let session_id = self.session_id();
+
+        [sender_key.as_bytes(), &[Self::SEPARATOR], session_id.as_bytes(), &[Self::SEPARATOR]]
+            .concat()
+    }
+}
+
+impl EncodeSecureKey for str {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let key = store_cipher.hash_key(table_name, self.as_bytes());
+        [key.as_slice(), &[Self::SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for OutboundGroupSession {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        self.room_id().encode_secure(table_name, store_cipher)
+    }
+}
+
+impl EncodeSecureKey for RoomId {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let room_id = store_cipher.hash_key(table_name, self.as_bytes());
+
+        [room_id.as_slice(), &[Self::SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for InboundGroupSession {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        (self.room_id(), self.sender_key(), self.session_id())
+            .encode_secure(table_name, store_cipher)
+    }
+}
+
+impl EncodeSecureKey for (&RoomId, &str, &str) {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let first = store_cipher.hash_key(table_name, self.0.as_bytes());
+        let second = store_cipher.hash_key(table_name, self.1.as_bytes());
+        let third = store_cipher.hash_key(table_name, self.2.as_bytes());
+
+        [
+            first.as_slice(),
+            &[Self::SEPARATOR],
+            second.as_slice(),
+            &[Self::SEPARATOR],
+            third.as_slice(),
+            &[Self::SEPARATOR],
+        ]
+        .concat()
+    }
+}
+
+impl EncodeSecureKey for Session {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let sender_key = store_cipher.hash_key(table_name, self.sender_key().as_bytes());
+        let session_id = store_cipher.hash_key(table_name, self.session_id().as_bytes());
+
+        [sender_key.as_slice(), &[Self::SEPARATOR], session_id.as_slice(), &[Self::SEPARATOR]]
+            .concat()
+    }
+}
+
 impl EncodeKey for RoomId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
@@ -135,13 +275,37 @@ impl EncodeKey for str {
     }
 }
 
+impl<const N: usize> EncodeKey for ([u8; N], [u8; N]) {
+    fn encode(&self) -> Vec<u8> {
+        [self.0.as_slice(), &[Self::SEPARATOR], self.1.as_slice(), &[Self::SEPARATOR]].concat()
+    }
+}
+
 impl EncodeKey for (&str, &str) {
     fn encode(&self) -> Vec<u8> {
         [self.0.as_bytes(), &[Self::SEPARATOR], self.1.as_bytes(), &[Self::SEPARATOR]].concat()
     }
 }
 
-impl EncodeKey for (&str, &str, &str) {
+impl EncodeKey for (&UserId, &DeviceId) {
+    fn encode(&self) -> Vec<u8> {
+        (self.0.as_str(), self.1.as_str()).encode()
+    }
+}
+
+impl EncodeKey for InboundGroupSession {
+    fn encode(&self) -> Vec<u8> {
+        (self.room_id(), self.sender_key(), self.session_id()).encode()
+    }
+}
+
+impl EncodeKey for OutboundGroupSession {
+    fn encode(&self) -> Vec<u8> {
+        self.room_id().encode()
+    }
+}
+
+impl EncodeKey for (&RoomId, &str, &str) {
     fn encode(&self) -> Vec<u8> {
         [
             self.0.as_bytes(),
@@ -155,11 +319,21 @@ impl EncodeKey for (&str, &str, &str) {
     }
 }
 
+trait EncodeSecureKey {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8>;
+}
+
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
     identity_keys: Arc<IdentityKeys>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TrackedUser {
+    user_id: Box<UserId>,
+    dirty: bool,
 }
 
 /// A [sled] based cryptostore.
@@ -168,9 +342,9 @@ pub struct AccountInfo {
 #[derive(Clone)]
 pub struct SledStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
+    store_cipher: Arc<Option<StoreCipher>>,
     path: Option<PathBuf>,
     inner: Db,
-    pickle_key: Arc<PickleKey>,
 
     session_cache: SessionStore,
     tracked_users_cache: Arc<DashSet<Box<UserId>>>,
@@ -204,28 +378,26 @@ impl std::fmt::Debug for SledStore {
     }
 }
 
-impl From<TransactionError<serde_json::Error>> for CryptoStoreError {
-    fn from(e: TransactionError<serde_json::Error>) -> Self {
-        match e {
-            TransactionError::Abort(e) => CryptoStoreError::Serialization(e),
-            TransactionError::Storage(e) => CryptoStoreError::Database(e),
-        }
-    }
-}
-
 impl SledStore {
     /// Open the sled based cryptostore at the given path using the given
     /// passphrase to encrypt private data.
-    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self> {
+    pub fn open_with_passphrase(
+        path: impl AsRef<Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, OpenStoreError> {
         let path = path.as_ref().join("matrix-sdk-crypto");
-        let db = Config::new().temporary(false).path(&path).open()?;
+        let db = Config::new()
+            .temporary(false)
+            .path(&path)
+            .open()
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         SledStore::open_helper(db, Some(path), passphrase)
     }
 
     /// Create a sled based cryptostore using the given sled database.
     /// The given passphrase will be used to encrypt private data.
-    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self> {
+    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self, OpenStoreError> {
         SledStore::open_helper(db, None, passphrase)
     }
 
@@ -233,16 +405,44 @@ impl SledStore {
         self.account_info.read().unwrap().clone()
     }
 
+    fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, CryptoStoreError> {
+        if let Some(key) = &*self.store_cipher {
+            key.encrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
+        } else {
+            Ok(serde_json::to_vec(event)?)
+        }
+    }
+
+    fn deserialize_value<T: for<'b> Deserialize<'b>>(
+        &self,
+        event: &[u8],
+    ) -> Result<T, CryptoStoreError> {
+        if let Some(key) = &*self.store_cipher {
+            key.decrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
+        } else {
+            Ok(serde_json::from_slice(event)?)
+        }
+    }
+
+    fn encode_key<T: EncodeSecureKey + EncodeKey + ?Sized>(
+        &self,
+        table_name: &str,
+        key: &T,
+    ) -> Vec<u8> {
+        if let Some(store_cipher) = &*self.store_cipher {
+            key.encode_secure(table_name, store_cipher).to_vec()
+        } else {
+            key.encode()
+        }
+    }
+
     async fn reset_backup_state(&self) -> Result<()> {
         let mut pickles: Vec<(IVec, PickledInboundGroupSession)> = self
             .inbound_group_sessions
             .iter()
             .map(|p| {
-                let item = p?;
-                Ok((
-                    item.0,
-                    serde_json::from_slice(&item.1).map_err(CryptoStoreError::Serialization)?,
-                ))
+                let item = p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                Ok((item.0, self.deserialize_value(&item.1)?))
             })
             .collect::<Result<_>>()?;
 
@@ -250,21 +450,22 @@ impl SledStore {
             pickle.backed_up = false;
         }
 
-        let ret: Result<(), TransactionError<serde_json::Error>> =
+        let ret: Result<(), TransactionError<CryptoStoreError>> =
             self.inbound_group_sessions.transaction(|inbound_sessions| {
                 for (key, pickle) in &pickles {
                     inbound_sessions.insert(
                         key,
-                        serde_json::to_vec(&pickle).map_err(ConflictableTransactionError::Abort)?,
+                        self.serialize_value(pickle)
+                            .map_err(ConflictableTransactionError::Abort)?,
                     )?;
                 }
 
                 Ok(())
             });
 
-        ret?;
+        ret.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
-        self.inner.flush_async().await?;
+        self.inner.flush_async().await.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         Ok(())
     }
@@ -272,96 +473,57 @@ impl SledStore {
     fn upgrade(&self) -> Result<()> {
         let version = self
             .inner
-            .get("store_version")?
+            .get("store_version")
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
             .map(|v| {
                 let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
                 u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
             })
-            .unwrap_or_default();
+            .unwrap_or(DATABASE_VERSION);
 
         if version != DATABASE_VERSION {
             debug!(version, new_version = DATABASE_VERSION, "Upgrading the Sled crypto store");
         }
 
-        if version == 0 {
-            // We changed the schema but migrating this isn't important since we
-            // rotate the group sessions relatively often anyways so we just
-            // clear the tree.
-            self.outbound_group_sessions.clear()?;
+        if version <= 3 {
+            return Err(CryptoStoreError::UnsupportedDatabaseVersion(
+                version.into(),
+                DATABASE_VERSION.into(),
+            ));
         }
 
-        if version <= 1 {
-            #[derive(Serialize, Deserialize)]
-            pub struct OldReadOnlyDevice {
-                user_id: Box<UserId>,
-                device_id: Box<DeviceId>,
-                algorithms: Vec<EventEncryptionAlgorithm>,
-                keys: BTreeMap<Box<DeviceKeyId>, String>,
-                signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
-                display_name: Option<String>,
-                deleted: bool,
-                trust_state: LocalTrust,
-            }
-
-            #[allow(clippy::from_over_into)]
-            impl Into<ReadOnlyDevice> for OldReadOnlyDevice {
-                fn into(self) -> ReadOnlyDevice {
-                    let mut device_keys = DeviceKeys::new(
-                        self.user_id,
-                        self.device_id,
-                        self.algorithms,
-                        self.keys,
-                        self.signatures,
-                    );
-                    device_keys.unsigned.device_display_name = self.display_name;
-
-                    ReadOnlyDevice::new(device_keys, self.trust_state)
-                }
-            }
-
-            let devices: Vec<ReadOnlyDevice> = self
-                .devices
-                .iter()
-                .map(|d| serde_json::from_slice(&d?.1).map_err(CryptoStoreError::Serialization))
-                .map(|d| {
-                    let d: OldReadOnlyDevice = d?;
-                    Ok(d.into())
-                })
-                .collect::<Result<Vec<ReadOnlyDevice>, CryptoStoreError>>()?;
-
-            self.devices.transaction(move |tree| {
-                for device in &devices {
-                    let key = device.encode();
-                    let device =
-                        serde_json::to_vec(device).map_err(ConflictableTransactionError::Abort)?;
-                    tree.insert(key, device)?;
-                }
-
-                Ok(())
-            })?;
-        }
-
-        if version <= 2 {
-            // We're treating our own device now differently, we're checking if
-            // the keys match to what we have locally, remove the unchecked
-            // device and mark our own user as dirty.
-            if let Some(pickle) = self.account.get("account".encode())? {
-                let pickle = serde_json::from_slice(&pickle)?;
-                let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
-
-                self.devices
-                    .remove((account.user_id().as_str(), account.device_id.as_str()).encode())?;
-                self.tracked_users.insert(account.user_id().as_str(), &[true as u8])?;
-            }
-        }
-
-        self.inner.insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())?;
-        self.inner.flush()?;
+        self.inner
+            .insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.inner.flush().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         Ok(())
     }
 
-    fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self> {
+    fn get_or_create_store_cipher(passphrase: &str, database: &Db) -> Result<StoreCipher> {
+        let key = if let Some(key) = database
+            .get("store_cipher".encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+        {
+            StoreCipher::import(passphrase, &key).map_err(|_| CryptoStoreError::UnpicklingError)?
+        } else {
+            let key = StoreCipher::new().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            let encrypted =
+                key.export(passphrase).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            database
+                .insert("store_cipher".encode(), encrypted)
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            key
+        };
+
+        Ok(key)
+    }
+
+    fn open_helper(
+        db: Db,
+        path: Option<PathBuf>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, OpenStoreError> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 
@@ -382,18 +544,18 @@ impl SledStore {
 
         let session_cache = SessionStore::new();
 
-        let pickle_key = if let Some(passphrase) = passphrase {
-            Self::get_or_create_pickle_key(passphrase, &db)?
+        let store_cipher = if let Some(passphrase) = passphrase {
+            Some(Self::get_or_create_store_cipher(passphrase, &db)?)
         } else {
-            PickleKey::try_from(DEFAULT_PICKLE.as_bytes().to_vec())
-                .expect("Can't create default pickle key")
-        };
+            None
+        }
+        .into();
 
         let database = Self {
             account_info: RwLock::new(None).into(),
             path,
             inner: db,
-            pickle_key: pickle_key.into(),
+            store_cipher,
             account,
             private_identity,
             sessions,
@@ -416,40 +578,15 @@ impl SledStore {
         Ok(database)
     }
 
-    fn get_or_create_pickle_key(passphrase: &str, database: &Db) -> Result<PickleKey> {
-        let key = if let Some(key) =
-            database.get("pickle_key".encode())?.map(|v| serde_json::from_slice(&v))
-        {
-            PickleKey::from_encrypted(passphrase, key?)
-                .map_err(|_| CryptoStoreError::UnpicklingError)?
-        } else {
-            let key = PickleKey::new();
-            let encrypted = key.encrypt(passphrase);
-            database.insert("pickle_key".encode(), serde_json::to_vec(&encrypted)?)?;
-            key
-        };
-
-        Ok(key)
-    }
-
-    fn get_pickle_mode(&self) -> PicklingMode {
-        self.pickle_key.pickle_mode()
-    }
-
-    fn get_pickle_key(&self) -> &[u8] {
-        self.pickle_key.key()
-    }
-
     async fn load_tracked_users(&self) -> Result<()> {
         for value in &self.tracked_users {
-            let (user, dirty) = value?;
-            let user = UserId::parse(String::from_utf8_lossy(&user).to_string())?;
-            let dirty = dirty.get(0).map(|d| *d == 1).unwrap_or(true);
+            let (_, user) = value.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            let user: TrackedUser = self.deserialize_value(&user)?;
 
-            self.tracked_users_cache.insert(user.to_owned());
+            self.tracked_users_cache.insert(user.user_id.to_owned());
 
-            if dirty {
-                self.users_for_key_query_cache.insert(user);
+            if user.dirty {
+                self.users_for_key_query_cache.insert(user.user_id);
             }
         }
 
@@ -463,46 +600,35 @@ impl SledStore {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         self.outbound_group_sessions
-            .get(room_id.encode())?
-            .map(|p| serde_json::from_slice(&p).map_err(CryptoStoreError::Serialization))
+            .get(self.encode_key(OUTBOUND_GROUP_TABLE_NAME, room_id))
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|p| self.deserialize_value(&p))
             .transpose()?
             .map(|p| {
-                OutboundGroupSession::from_pickle(
+                Ok(OutboundGroupSession::from_pickle(
                     account_info.device_id,
                     account_info.identity_keys,
                     p,
-                    self.get_pickle_mode(),
-                )
-                .map_err(CryptoStoreError::OlmGroupSession)
+                )?)
             })
             .transpose()
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        let account_pickle = if let Some(a) = changes.account {
-            Some(a.pickle(self.get_pickle_mode()).await)
-        } else {
-            None
-        };
+        let account_pickle =
+            if let Some(a) = changes.account { Some(a.pickle().await) } else { None };
 
-        let private_identity_pickle = if let Some(i) = changes.private_identity {
-            Some(i.pickle(self.get_pickle_key()).await?)
-        } else {
-            None
-        };
+        let private_identity_pickle =
+            if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
 
-        #[cfg(feature = "backups_v1")]
-        let recovery_key_pickle = changes.recovery_key.map(|r| r.pickle(self.get_pickle_key()));
+        let recovery_key_pickle = changes.recovery_key;
 
         let device_changes = changes.devices;
         let mut session_changes = HashMap::new();
 
         for session in changes.sessions {
-            let sender_key = session.sender_key();
-            let session_id = session.session_id();
-
-            let pickle = session.pickle(self.get_pickle_mode()).await;
-            let key = (sender_key, session_id).encode();
+            let pickle = session.pickle().await;
+            let key = self.encode_key(SESSIONS_TABLE_NAME, &session);
 
             self.session_cache.add(session).await;
             session_changes.insert(key, pickle);
@@ -511,11 +637,8 @@ impl SledStore {
         let mut inbound_session_changes = HashMap::new();
 
         for session in changes.inbound_group_sessions {
-            let room_id = session.room_id();
-            let sender_key = session.sender_key();
-            let session_id = session.session_id();
-            let key = (room_id.as_str(), sender_key, session_id).encode();
-            let pickle = session.pickle(self.get_pickle_mode()).await;
+            let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, &session);
+            let pickle = session.pickle().await;
 
             inbound_session_changes.insert(key, pickle);
         }
@@ -523,19 +646,18 @@ impl SledStore {
         let mut outbound_session_changes = HashMap::new();
 
         for session in changes.outbound_group_sessions {
-            let room_id = session.room_id();
-            let pickle = session.pickle(self.get_pickle_mode()).await;
+            let key = self.encode_key(OUTBOUND_GROUP_TABLE_NAME, &session);
+            let pickle = session.pickle().await;
 
-            outbound_session_changes.insert(room_id.to_owned(), pickle);
+            outbound_session_changes.insert(key, pickle);
         }
 
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
         let key_requests = changes.key_requests;
-        #[cfg(feature = "backups_v1")]
         let backup_version = changes.backup_version;
 
-        let ret: Result<(), TransactionError<serde_json::Error>> = (
+        let ret: Result<(), TransactionError<CryptoStoreError>> = (
             &self.account,
             &self.private_identity,
             &self.devices,
@@ -565,49 +687,49 @@ impl SledStore {
                     if let Some(a) = &account_pickle {
                         account.insert(
                             "account".encode(),
-                            serde_json::to_vec(a).map_err(ConflictableTransactionError::Abort)?,
+                            self.serialize_value(a).map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
 
                     if let Some(i) = &private_identity_pickle {
                         private_identity.insert(
                             "identity".encode(),
-                            serde_json::to_vec(&i).map_err(ConflictableTransactionError::Abort)?,
+                            self.serialize_value(&i)
+                                .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
 
-                    #[cfg(feature = "backups_v1")]
                     if let Some(r) = &recovery_key_pickle {
                         account.insert(
                             "recovery_key_v1".encode(),
-                            serde_json::to_vec(r).map_err(ConflictableTransactionError::Abort)?,
+                            self.serialize_value(r).map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
 
-                    #[cfg(feature = "backups_v1")]
                     if let Some(b) = &backup_version {
                         account.insert(
                             "backup_version_v1".encode(),
-                            serde_json::to_vec(b).map_err(ConflictableTransactionError::Abort)?,
+                            self.serialize_value(b).map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
 
                     for device in device_changes.new.iter().chain(&device_changes.changed) {
-                        let key = device.encode();
-                        let device = serde_json::to_vec(&device)
+                        let key = self.encode_key(DEVICE_TABLE_NAME, device);
+                        let device = self
+                            .serialize_value(&device)
                             .map_err(ConflictableTransactionError::Abort)?;
                         devices.insert(key, device)?;
                     }
 
                     for device in &device_changes.deleted {
-                        let key = device.encode();
+                        let key = self.encode_key(DEVICE_TABLE_NAME, device);
                         devices.remove(key)?;
                     }
 
                     for identity in identity_changes.changed.iter().chain(&identity_changes.new) {
                         identities.insert(
-                            identity.user_id().encode(),
-                            serde_json::to_vec(&identity)
+                            self.encode_key(IDENTITIES_TABLE_NAME, identity.user_id()),
+                            self.serialize_value(&identity)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
@@ -615,7 +737,7 @@ impl SledStore {
                     for (key, session) in &session_changes {
                         sessions.insert(
                             key.as_slice(),
-                            serde_json::to_vec(&session)
+                            self.serialize_value(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
@@ -623,30 +745,33 @@ impl SledStore {
                     for (key, session) in &inbound_session_changes {
                         inbound_sessions.insert(
                             key.as_slice(),
-                            serde_json::to_vec(&session)
+                            self.serialize_value(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
 
                     for (key, session) in &outbound_session_changes {
                         outbound_sessions.insert(
-                            key.encode(),
-                            serde_json::to_vec(&session)
+                            key.as_slice(),
+                            self.serialize_value(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
 
                     for hash in &olm_hashes {
                         hashes.insert(
-                            serde_json::to_vec(&hash)
+                            serde_json::to_vec(hash)
+                                .map_err(CryptoStoreError::Serialization)
                                 .map_err(ConflictableTransactionError::Abort)?,
                             &[0],
                         )?;
                     }
 
                     for key_request in &key_requests {
-                        secret_requests_by_info
-                            .insert(key_request.info.encode(), key_request.request_id.encode())?;
+                        secret_requests_by_info.insert(
+                            self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &key_request.info),
+                            key_request.request_id.encode(),
+                        )?;
 
                         let key_request_id = key_request.request_id.encode();
 
@@ -654,14 +779,14 @@ impl SledStore {
                             unsent_secret_requests.remove(key_request_id.clone())?;
                             outgoing_secret_requests.insert(
                                 key_request_id,
-                                serde_json::to_vec(&key_request)
+                                self.serialize_value(&key_request)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         } else {
                             outgoing_secret_requests.remove(key_request_id.clone())?;
                             unsent_secret_requests.insert(
                                 key_request_id,
-                                serde_json::to_vec(&key_request)
+                                self.serialize_value(&key_request)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
@@ -671,8 +796,8 @@ impl SledStore {
                 },
             );
 
-        ret?;
-        self.inner.flush_async().await?;
+        ret.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.inner.flush().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         Ok(())
     }
@@ -680,12 +805,17 @@ impl SledStore {
     async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
         let request = self
             .outgoing_secret_requests
-            .get(id)?
-            .map(|r| serde_json::from_slice(&r))
+            .get(id)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|r| self.deserialize_value(&r))
             .transpose()?;
 
         let request = if request.is_none() {
-            self.unsent_secret_requests.get(id)?.map(|r| serde_json::from_slice(&r)).transpose()?
+            self.unsent_secret_requests
+                .get(id)
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+                .map(|r| self.deserialize_value(&r))
+                .transpose()?
         } else {
             request
         };
@@ -697,12 +827,15 @@ impl SledStore {
 #[async_trait]
 impl CryptoStore for SledStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
-        if let Some(pickle) = self.account.get("account".encode())? {
-            let pickle = serde_json::from_slice(&pickle)?;
+        if let Some(pickle) = self
+            .account
+            .get("account".encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+        {
+            let pickle = self.deserialize_value(&pickle)?;
 
             self.load_tracked_users().await?;
-
-            let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
+            let account = ReadOnlyAccount::from_pickle(pickle)?;
 
             let account_info = AccountInfo {
                 user_id: account.user_id.clone(),
@@ -733,10 +866,14 @@ impl CryptoStore for SledStore {
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        if let Some(i) = self.private_identity.get("identity".encode())? {
-            let pickle = serde_json::from_slice(&i)?;
+        if let Some(i) = self
+            .private_identity
+            .get("identity".encode())
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+        {
+            let pickle = self.deserialize_value(&i)?;
             Ok(Some(
-                PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
+                PrivateCrossSigningIdentity::from_pickle(pickle)
                     .await
                     .map_err(|_| CryptoStoreError::UnpicklingError)?,
             ))
@@ -755,17 +892,17 @@ impl CryptoStore for SledStore {
         if self.session_cache.get(sender_key).is_none() {
             let sessions: Result<Vec<Session>> = self
                 .sessions
-                .scan_prefix(sender_key.encode())
-                .map(|s| serde_json::from_slice(&s?.1).map_err(CryptoStoreError::Serialization))
+                .scan_prefix(self.encode_key(SESSIONS_TABLE_NAME, sender_key))
+                .map(|s| {
+                    self.deserialize_value(&s.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                })
                 .map(|p| {
-                    Session::from_pickle(
+                    Ok(Session::from_pickle(
                         account_info.user_id.clone(),
                         account_info.device_id.clone(),
                         account_info.identity_keys.clone(),
                         p?,
-                        self.get_pickle_mode(),
-                    )
-                    .map_err(CryptoStoreError::SessionUnpickling)
+                    ))
                 })
                 .collect();
 
@@ -781,11 +918,15 @@ impl CryptoStore for SledStore {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = (room_id.as_str(), sender_key, session_id).encode();
-        let pickle = self.inbound_group_sessions.get(&key)?.map(|p| serde_json::from_slice(&p));
+        let key = self.encode_key(INBOUND_GROUP_TABLE_NAME, &(room_id, sender_key, session_id));
+        let pickle = self
+            .inbound_group_sessions
+            .get(&key)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|p| self.deserialize_value(&p));
 
         if let Some(pickle) = pickle {
-            Ok(Some(InboundGroupSession::from_pickle(pickle?, self.get_pickle_mode())?))
+            Ok(Some(InboundGroupSession::from_pickle(pickle?)?))
         } else {
             Ok(None)
         }
@@ -795,13 +936,12 @@ impl CryptoStore for SledStore {
         let pickles: Result<Vec<PickledInboundGroupSession>> = self
             .inbound_group_sessions
             .iter()
-            .map(|p| serde_json::from_slice(&p?.1).map_err(CryptoStoreError::Serialization))
+            .map(|p| {
+                self.deserialize_value(&p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+            })
             .collect();
 
-        Ok(pickles?
-            .into_iter()
-            .filter_map(|p| InboundGroupSession::from_pickle(p, self.get_pickle_mode()).ok())
-            .collect())
+        Ok(pickles?.into_iter().filter_map(|p| InboundGroupSession::from_pickle(p).ok()).collect())
     }
 
     async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
@@ -809,8 +949,8 @@ impl CryptoStore for SledStore {
             .inbound_group_sessions
             .iter()
             .map(|p| {
-                let item = p?;
-                serde_json::from_slice(&item.1).map_err(CryptoStoreError::Serialization)
+                let item = p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                self.deserialize_value(&item.1)
             })
             .collect::<Result<_>>()?;
 
@@ -828,16 +968,13 @@ impl CryptoStore for SledStore {
             .inbound_group_sessions
             .iter()
             .map(|p| {
-                let item = p?;
-                serde_json::from_slice(&item.1).map_err(CryptoStoreError::from)
+                let item = p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                self.deserialize_value(&item.1)
             })
             .filter_map(|p: Result<PickledInboundGroupSession, CryptoStoreError>| match p {
                 Ok(p) => {
                     if !p.backed_up {
-                        Some(
-                            InboundGroupSession::from_pickle(p, self.get_pickle_mode())
-                                .map_err(CryptoStoreError::from),
-                        )
+                        Some(InboundGroupSession::from_pickle(p).map_err(CryptoStoreError::from))
                     } else {
                         None
                     }
@@ -887,7 +1024,14 @@ impl CryptoStore for SledStore {
             self.users_for_key_query_cache.remove(user);
         }
 
-        self.tracked_users.insert(user.as_str(), &[dirty as u8])?;
+        let user = TrackedUser { user_id: user.to_owned(), dirty };
+
+        self.tracked_users
+            .insert(
+                self.encode_key(TRACKED_USERS_TABLE, user.user_id.as_str()),
+                self.serialize_value(&user)?,
+            )
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         Ok(already_added)
     }
@@ -897,17 +1041,26 @@ impl CryptoStore for SledStore {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        let key = (user_id.as_str(), device_id.as_str()).encode();
-        Ok(self.devices.get(key)?.map(|d| serde_json::from_slice(&d)).transpose()?)
+        let key = self.encode_key(DEVICE_TABLE_NAME, &(user_id, device_id));
+
+        Ok(self
+            .devices
+            .get(key)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|d| self.deserialize_value(&d))
+            .transpose()?)
     }
 
     async fn get_user_devices(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+        let key = self.encode_key(DEVICE_TABLE_NAME, user_id);
         self.devices
-            .scan_prefix(user_id.encode())
-            .map(|d| serde_json::from_slice(&d?.1).map_err(CryptoStoreError::Serialization))
+            .scan_prefix(key)
+            .map(|d| {
+                self.deserialize_value(&d.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+            })
             .map(|d| {
                 let d: ReadOnlyDevice = d?;
                 Ok((d.device_id().to_owned(), d))
@@ -916,15 +1069,24 @@ impl CryptoStore for SledStore {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
+        let key = self.encode_key(IDENTITIES_TABLE_NAME, user_id);
+
         Ok(self
             .identities
-            .get(user_id.encode())?
-            .map(|i| serde_json::from_slice(&i))
+            .get(key)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map(|i| self.deserialize_value(&i))
             .transpose()?)
     }
 
-    async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
-        Ok(self.olm_hashes.contains_key(serde_json::to_vec(message_hash)?)?)
+    async fn is_message_known(
+        &self,
+        message_hash: &matrix_sdk_crypto::olm::OlmMessageHash,
+    ) -> Result<bool> {
+        Ok(self
+            .olm_hashes
+            .contains_key(serde_json::to_vec(message_hash)?)
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?)
     }
 
     async fn get_outgoing_secret_requests(
@@ -940,7 +1102,10 @@ impl CryptoStore for SledStore {
         &self,
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
-        let id = self.secret_requests_by_info.get(key_info.encode())?;
+        let id = self
+            .secret_requests_by_info
+            .get(self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, key_info))
+            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         if let Some(id) = id {
             self.get_outgoing_key_request_helper(&id).await
@@ -953,14 +1118,16 @@ impl CryptoStore for SledStore {
         let requests: Result<Vec<GossipRequest>> = self
             .unsent_secret_requests
             .iter()
-            .map(|i| serde_json::from_slice(&i?.1).map_err(CryptoStoreError::from))
+            .map(|i| {
+                self.deserialize_value(&i.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+            })
             .collect();
 
         requests
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
-        let ret: Result<(), TransactionError<serde_json::Error>> = (
+        let ret: Result<(), TransactionError<CryptoStoreError>> = (
             &self.outgoing_secret_requests,
             &self.unsent_secret_requests,
             &self.secret_requests_by_info,
@@ -969,60 +1136,55 @@ impl CryptoStore for SledStore {
                 |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
                     let sent_request: Option<GossipRequest> = outgoing_key_requests
                         .remove(request_id.encode())?
-                        .map(|r| serde_json::from_slice(&r))
+                        .map(|r| self.deserialize_value(&r))
                         .transpose()
                         .map_err(ConflictableTransactionError::Abort)?;
 
                     let unsent_request: Option<GossipRequest> = unsent_key_requests
                         .remove(request_id.encode())?
-                        .map(|r| serde_json::from_slice(&r))
+                        .map(|r| self.deserialize_value(&r))
                         .transpose()
                         .map_err(ConflictableTransactionError::Abort)?;
 
                     if let Some(request) = sent_request {
-                        key_requests_by_info.remove(request.info.encode())?;
+                        key_requests_by_info
+                            .remove(self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &request.info))?;
                     }
 
                     if let Some(request) = unsent_request {
-                        key_requests_by_info.remove(request.info.encode())?;
+                        key_requests_by_info
+                            .remove(self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, &request.info))?;
                     }
 
                     Ok(())
                 },
             );
 
-        ret?;
-        self.inner.flush_async().await?;
+        ret.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.inner.flush_async().await.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
         Ok(())
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        #[cfg(feature = "backups_v1")]
         let key = {
             let backup_version = self
                 .account
-                .get("backup_version_v1".encode())?
-                .map(|v| serde_json::from_slice(&v))
+                .get("backup_version_v1".encode())
+                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+                .map(|v| self.deserialize_value(&v))
                 .transpose()?;
 
             let recovery_key = {
                 self.account
-                    .get("recovery_key_v1".encode())?
-                    .map(|p| serde_json::from_slice(&p))
-                    .transpose()?
-                    .map(|p| {
-                        crate::backups::RecoveryKey::from_pickle(p, self.get_pickle_key())
-                            .map_err(|_| CryptoStoreError::UnpicklingError)
-                    })
+                    .get("recovery_key_v1".encode())
+                    .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+                    .map(|p| self.deserialize_value(&p))
                     .transpose()?
             };
 
             BackupKeys { backup_version, recovery_key }
         };
-
-        #[cfg(not(feature = "backups_v1"))]
-        let key = BackupKeys {};
 
         Ok(key)
     }
@@ -1031,6 +1193,7 @@ impl CryptoStore for SledStore {
 #[cfg(test)]
 mod test {
     use lazy_static::lazy_static;
+    use matrix_sdk_crypto::cryptostore_integration_tests;
     use tempfile::{tempdir, TempDir};
 
     use super::SledStore;

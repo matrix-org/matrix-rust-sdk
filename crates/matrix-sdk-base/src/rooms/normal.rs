@@ -20,7 +20,7 @@ use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::client::r0::sync::sync_events::RoomSummary as RumaSummary,
+    api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
         receipt::Receipt,
         room::{
@@ -32,7 +32,8 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
-        AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
+        AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, RoomAccountDataEventType,
+        StateEventType,
     },
     receipt::ReceiptType,
     EventId, MxcUri, RoomAliasId, RoomId, UserId,
@@ -330,10 +331,10 @@ impl Room {
 
             if let Some(name) = &inner.base_info.name {
                 let name = name.trim();
-                return Ok(name.to_string());
+                return Ok(name.to_owned());
             } else if let Some(alias) = &inner.base_info.canonical_alias {
                 let alias = alias.alias().trim();
-                return Ok(alias.to_string());
+                return Ok(alias.to_owned());
             }
             inner.summary.clone()
         };
@@ -375,11 +376,13 @@ impl Room {
         Ok(inner.base_info.calculate_room_name(joined, invited, members))
     }
 
-    pub(crate) fn clone_info(&self) -> RoomInfo {
+    /// Clone the inner RoomInfo
+    pub fn clone_info(&self) -> RoomInfo {
         (*self.inner.read().unwrap()).clone()
     }
 
-    pub(crate) fn update_summary(&self, summary: RoomInfo) {
+    /// Update the summary with given RoomInfo
+    pub fn update_summary(&self, summary: RoomInfo) {
         let mut inner = self.inner.write().unwrap();
         *inner = summary;
     }
@@ -413,7 +416,7 @@ impl Room {
 
         let power =
             self.store
-                .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
+                .get_state_event(self.room_id(), StateEventType::RoomPowerLevels, "")
                 .await?
                 .and_then(|e| e.deserialize().ok())
                 .and_then(|e| {
@@ -449,7 +452,7 @@ impl Room {
     pub async fn tags(&self) -> StoreResult<Option<Tags>> {
         if let Some(AnyRoomAccountDataEvent::Tag(event)) = self
             .store
-            .get_room_account_data_event(self.room_id(), EventType::Tag)
+            .get_room_account_data_event(self.room_id(), RoomAccountDataEventType::Tag)
             .await?
             .and_then(|r| r.deserialize().ok())
         {
@@ -497,7 +500,11 @@ impl Room {
         {
             TimelineStreamBackward::new(event_ids.clone(), end_token, Some(stored_events))
         } else {
-            TimelineStreamBackward::new(event_ids.clone(), Some(sync_token.clone().unwrap()), None)
+            TimelineStreamBackward::new(
+                event_ids.clone(),
+                Some(sync_token.clone().expect("Sync token exists")),
+                None,
+            )
         };
 
         backward_timeline_streams.push(backward_sender);
@@ -607,47 +614,64 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
-    pub(crate) fn mark_as_joined(&mut self) {
+    /// Mark this Room as joined
+    pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
 
-    pub(crate) fn mark_as_left(&mut self) {
+    /// Mark this Room as left
+    pub fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
     }
 
-    pub(crate) fn mark_members_synced(&mut self) {
+    /// Mark this Room as invited
+    pub fn mark_as_invited(&mut self) {
+        self.room_type = RoomType::Invited;
+    }
+
+    /// Mark this Room as having all the members synced
+    pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
 
-    pub(crate) fn mark_members_missing(&mut self) {
+    /// Mark this Room still missing member information
+    pub fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
 
-    pub(crate) fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
+    /// Set the `prev_batch`-token.
+    /// Returns whether the token has differed and thus has been upgraded:
+    /// `false` means no update was applied as the were the same
+    pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
-            self.last_prev_batch = prev_batch.map(|p| p.to_string());
+            self.last_prev_batch = prev_batch.map(|p| p.to_owned());
             true
         } else {
             false
         }
     }
 
-    pub(crate) fn is_encrypted(&self) -> bool {
+    /// Whether this is an encrypted Room
+    pub fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
     }
 
-    pub(crate) fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
+    /// handle the given State event.
+    ///
+    /// Returns true if the event modified the info, false otherwise.
+    pub fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
         self.base_info.handle_state_event(event)
     }
 
-    pub(crate) fn update_notification_count(
-        &mut self,
-        notification_counts: UnreadNotificationsCount,
-    ) {
+    /// Update the notifications count
+    pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
         self.notification_counts = notification_counts;
     }
 
-    pub(crate) fn update_summary(&mut self, summary: &RumaSummary) -> bool {
+    /// Update the RoomSummary
+    ///
+    /// Returns true if the Summary modified the info, false otherwise.
+    pub fn update_summary(&mut self, summary: &RumaSummary) -> bool {
         let mut changed = false;
 
         if !summary.is_empty() {

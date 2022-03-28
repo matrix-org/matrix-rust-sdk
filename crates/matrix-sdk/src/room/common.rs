@@ -7,10 +7,10 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::client::r0::{
+    api::client::{
         filter::{LazyLoadOptions, RoomEventFilter},
         membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events::{self, Direction},
+        message::get_message_events::{self, v3::Direction},
         room::get_room_event,
         tag::{create_tag, delete_tag},
     },
@@ -18,7 +18,8 @@ use ruma::{
     events::{
         room::history_visibility::HistoryVisibility,
         tag::{TagInfo, TagName},
-        AnyStateEvent, AnySyncStateEvent, EventType,
+        AnyStateEvent, AnySyncStateEvent, StateEventContent, StateEventType, StaticEventContent,
+        SyncStateEvent,
     },
     serde::Raw,
     uint, EventId, RoomId, UInt, UserId,
@@ -81,7 +82,7 @@ impl Common {
     ///
     /// Only invited and joined rooms can be left
     pub(crate) async fn leave(&self) -> Result<()> {
-        let request = leave_room::Request::new(self.inner.room_id());
+        let request = leave_room::v3::Request::new(self.inner.room_id());
         let _response = self.client.send(request, None).await?;
 
         Ok(())
@@ -91,7 +92,7 @@ impl Common {
     ///
     /// Only invited and left rooms can be joined via this method
     pub(crate) async fn join(&self) -> Result<()> {
-        let request = join_room_by_id::Request::new(self.inner.room_id());
+        let request = join_room_by_id::v3::Request::new(self.inner.room_id());
         let _response = self.client.send(request, None).await?;
 
         Ok(())
@@ -150,7 +151,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -180,14 +181,7 @@ impl Common {
 
         for event in http_response.chunk {
             #[cfg(feature = "encryption")]
-            let event = match event.deserialize() {
-                Ok(event) => self.client.decrypt_room_event(&event).await,
-                Err(_) => {
-                    // "Broken" messages (i.e., those that cannot be deserialized) are
-                    // returned unchanged so that the caller can handle them individually.
-                    RoomEvent { event, encryption_info: None }
-                }
-            };
+            let event = self.client.decrypt_room_event(event).await;
 
             #[cfg(not(feature = "encryption"))]
             let event = RoomEvent { event, encryption_info: None };
@@ -227,7 +221,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -306,7 +300,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -365,7 +359,7 @@ impl Common {
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{room::MessagesOptions, Client};
     /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::filter::RoomEventFilter,
+    /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
     /// # };
     /// # use url::Url;
@@ -441,14 +435,14 @@ impl Common {
 
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
-        let request = get_room_event::Request::new(self.room_id(), event_id);
-        let event = self.client.send(request, None).await?.event.deserialize()?;
+        let request = get_room_event::v3::Request::new(self.room_id(), event_id);
+        let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "encryption")]
-        return Ok(self.client.decrypt_room_event(&event).await);
+        return Ok(self.client.decrypt_room_event(event).await);
 
         #[cfg(not(feature = "encryption"))]
-        return Ok(RoomEvent { event: Raw::new(&event)?, encryption_info: None });
+        return Ok(RoomEvent { event, encryption_info: None });
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
@@ -467,7 +461,7 @@ impl Common {
 
             let _guard = mutex.lock().await;
 
-            let request = get_member_events::Request::new(self.inner.room_id());
+            let request = get_member_events::v3::Request::new(self.inner.room_id());
             let response = self.client.send(request, None).await?;
 
             let response =
@@ -647,15 +641,36 @@ impl Common {
     /// Get all state events of a given type in this room.
     pub async fn get_state_events(
         &self,
-        event_type: EventType,
+        event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
+    }
+
+    /// Get all state events of a given statically-known type in this room.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// use matrix_sdk::ruma::{events::room::member::SyncRoomMemberEvent, serde::Raw};
+    ///
+    /// let room_members: Vec<Raw<SyncRoomMemberEvent>> = room.get_state_events_static().await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent,
+    {
+        // FIXME: Could be more efficient, if we had streaming store accessor functions
+        Ok(self.get_state_events(C::TYPE.into()).await?.into_iter().map(Raw::cast).collect())
     }
 
     /// Get a specific state event in this room.
     pub async fn get_state_event(
         &self,
-        event_type: EventType,
+        event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.client
@@ -663,6 +678,32 @@ impl Common {
             .get_state_event(self.room_id(), event_type, state_key)
             .await
             .map_err(Into::into)
+    }
+
+    /// Get a specific state event of statically-known type in this room.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// use matrix_sdk::ruma::events::room::power_levels::SyncRoomPowerLevelsEvent;
+    ///
+    /// let power_levels: SyncRoomPowerLevelsEvent = room
+    ///     .get_state_event_static("").await?
+    ///     .expect("every room has a power_levels event")
+    ///     .deserialize()?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn get_state_event_static<C>(
+        &self,
+        state_key: &str,
+    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent,
+    {
+        Ok(self.get_state_event(C::TYPE.into(), state_key).await?.map(Raw::cast))
     }
 
     /// Check if all members of this room are verified and all their devices are
@@ -674,7 +715,7 @@ impl Common {
         let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
 
         for user_id in user_ids {
-            let devices = self.client.get_user_devices(&user_id).await?;
+            let devices = self.client.encryption().get_user_devices(&user_id).await?;
             let any_unverified = devices.devices().any(|d| !d.verified());
 
             if any_unverified {
@@ -687,7 +728,7 @@ impl Common {
 
     /// Adds a tag to the room, or updates it if it already exists.
     ///
-    /// Returns the [`create_tag::Response`] from the server.
+    /// Returns the [`create_tag::v3::Response`] from the server.
     ///
     /// # Arguments
     /// * `tag` - The tag to add or update.
@@ -719,22 +760,22 @@ impl Common {
         &self,
         tag: TagName,
         tag_info: TagInfo,
-    ) -> HttpResult<create_tag::Response> {
+    ) -> HttpResult<create_tag::v3::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
         let request =
-            create_tag::Request::new(&user_id, self.inner.room_id(), tag.as_ref(), tag_info);
+            create_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref(), tag_info);
         self.client.send(request, None).await
     }
 
     /// Removes a tag from the room.
     ///
-    /// Returns the [`delete_tag::Response`] from the server.
+    /// Returns the [`delete_tag::v3::Response`] from the server.
     ///
     /// # Arguments
     /// * `tag` - The tag to remove.
-    pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::Response> {
+    pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::v3::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
-        let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
+        let request = delete_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
         self.client.send(request, None).await
     }
 }
@@ -791,8 +832,8 @@ impl<'a> MessagesOptions<'a> {
         Self::new(from, Direction::Forward)
     }
 
-    fn into_request(self, room_id: &'a RoomId) -> get_message_events::Request {
-        assign!(get_message_events::Request::new(room_id, self.from, self.dir), {
+    fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
+        assign!(get_message_events::v3::Request::new(room_id, self.from, self.dir), {
             to: self.to,
             limit: self.limit,
             filter: self.filter,

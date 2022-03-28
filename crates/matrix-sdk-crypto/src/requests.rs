@@ -15,22 +15,22 @@
 use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
 use ruma::{
-    api::client::r0::{
-        backup::{add_backup_keys::Response as KeysBackupResponse, RoomKeyBackup},
+    api::client::{
+        backup::{add_backup_keys::v3::Response as KeysBackupResponse, RoomKeyBackup},
         keys::{
-            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-            get_keys::Response as KeysQueryResponse,
-            upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
-            upload_signatures::{
+            claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+            get_keys::v3::Response as KeysQueryResponse,
+            upload_keys::v3::{Request as KeysUploadRequest, Response as KeysUploadResponse},
+            upload_signatures::v3::{
                 Request as SignatureUploadRequest, Response as SignatureUploadResponse,
             },
-            upload_signing_keys::Response as SigningKeysUploadResponse,
+            upload_signing_keys::v3::Response as SigningKeysUploadResponse,
         },
-        message::send_message_event::Response as RoomMessageResponse,
-        to_device::send_event_to_device::Response as ToDeviceResponse,
+        message::send_message_event::v3::Response as RoomMessageResponse,
+        to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
     encryption::CrossSigningKey,
-    events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, EventType},
+    events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, RoomId, TransactionId, UserId,
@@ -38,11 +38,11 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 /// Customized version of
-/// `ruma_client_api::r0::to_device::send_event_to_device::Request`
+/// `ruma_client_api::to_device::send_event_to_device::v3::Request`
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
-    pub event_type: EventType,
+    pub event_type: ToDeviceEventType,
 
     /// A request identifier unique to the access token used to send the
     /// request.
@@ -75,10 +75,10 @@ impl ToDeviceRequest {
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
     ) -> Self {
-        Self::new_with_id(recipient, recipient_device, content, TransactionId::new())
+        Self::with_id(recipient, recipient_device, content, TransactionId::new())
     }
 
-    pub(crate) fn new_for_recipients(
+    pub(crate) fn for_recipients(
         recipient: &UserId,
         recipient_devices: Vec<Box<DeviceId>>,
         content: AnyToDeviceEventContent,
@@ -102,13 +102,13 @@ impl ToDeviceRequest {
         }
     }
 
-    pub(crate) fn new_with_id(
+    pub(crate) fn with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
         txn_id: Box<TransactionId>,
     ) -> Self {
-        let event_type = EventType::from(content.event_type());
+        let event_type = ToDeviceEventType::from(content.event_type());
         let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
 
         let user_messages = iter::once((recipient_device.into(), raw_content)).collect();
@@ -144,7 +144,7 @@ pub struct UploadSigningKeysRequest {
 }
 
 /// Customized version of
-/// `ruma_client_api::r0::keys::get_keys::Request`, without any
+/// `ruma_client_api::keys::get_keys::v3::Request`, without any
 /// references.
 #[derive(Clone, Debug)]
 pub struct KeysQueryRequest {

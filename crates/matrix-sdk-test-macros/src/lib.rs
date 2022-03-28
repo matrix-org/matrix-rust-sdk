@@ -3,7 +3,7 @@ use quote::{format_ident, quote, ToTokens};
 use syn::{self, parse_macro_input};
 
 /// Attribute to use `wasm_bindgen_test` for wasm32 targets and `tokio::test`
-/// for everything else with async-support and custom result-tyupes
+/// for everything else with async-support and custom result-types
 #[proc_macro_attribute]
 pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fun = parse_macro_input!(item as syn::ItemFn);

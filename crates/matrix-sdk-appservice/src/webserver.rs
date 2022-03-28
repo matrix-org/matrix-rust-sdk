@@ -105,7 +105,7 @@ mod filters {
 
     fn common(appservice: AppService) -> BoxedFilter<(AppService, http::Request<Bytes>)> {
         warp::any()
-            .and(filters::valid_access_token(appservice.registration().hs_token.clone()))
+            .and(valid_access_token(appservice.registration().hs_token.clone()))
             .map(move || appservice.clone())
             .and(http_request().and_then(|request| async move {
                 let request = crate::transform_request_path(request).map_err(Error::from)?;
@@ -162,14 +162,17 @@ mod filters {
 }
 
 mod handlers {
+    use percent_encoding::percent_decode_str;
+
     use super::*;
 
     pub async fn user(
         user_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
-    ) -> Result<impl warp::Reply, Rejection> {
+    ) -> Result<impl Reply, Rejection> {
         if let Some(user_exists) = appservice.event_handler.users.lock().await.as_mut() {
+            let user_id = percent_decode_str(&user_id).decode_utf8().map_err(Error::from)?;
             let request = query_user::IncomingRequest::try_from_http_request(request, &[user_id])
                 .map_err(Error::from)?;
             return if user_exists(appservice.clone(), request).await {
@@ -185,8 +188,9 @@ mod handlers {
         room_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
-    ) -> Result<impl warp::Reply, Rejection> {
+    ) -> Result<impl Reply, Rejection> {
         if let Some(room_exists) = appservice.event_handler.rooms.lock().await.as_mut() {
+            let room_id = percent_decode_str(&room_id).decode_utf8().map_err(Error::from)?;
             let request = query_room::IncomingRequest::try_from_http_request(request, &[room_id])
                 .map_err(Error::from)?;
             return if room_exists(appservice.clone(), request).await {
@@ -202,7 +206,7 @@ mod handlers {
         txn_id: String,
         appservice: AppService,
         request: http::Request<Bytes>,
-    ) -> Result<impl warp::Reply, Rejection> {
+    ) -> Result<impl Reply, Rejection> {
         let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
             ruma::api::IncomingRequest::try_from_http_request(request, &[txn_id])
                 .map_err(Error::from)?;

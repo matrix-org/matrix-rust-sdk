@@ -36,7 +36,7 @@ use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
 };
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             cancel::{
@@ -239,14 +239,15 @@ impl From<QrVerification> for Verification {
 ///
 /// We can now mark the device in our verified devices list as verified and sign
 /// the master keys in the verified devices list.
+#[cfg(feature = "qrcode")]
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
+#[cfg(feature = "qrcode")]
 impl Done {
-    #[cfg(feature = "qrcode")]
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
@@ -332,7 +333,7 @@ impl Cancelled {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationCancel(
                 ToDeviceKeyVerificationCancelEventContent::new(
                     s.clone(),
-                    self.reason.to_string(),
+                    self.reason.to_owned(),
                     self.cancel_code.clone(),
                 ),
             )
@@ -342,7 +343,7 @@ impl Cancelled {
                 r.clone(),
                 AnyMessageEventContent::KeyVerificationCancel(
                     KeyVerificationCancelEventContent::new(
-                        self.reason.to_string(),
+                        self.reason.to_owned(),
                         self.cancel_code.clone(),
                         Relation::new(e.clone()),
                     ),

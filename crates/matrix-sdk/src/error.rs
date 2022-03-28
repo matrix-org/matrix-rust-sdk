@@ -28,7 +28,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::{
-            r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
+            uiaa::{UiaaInfo, UiaaResponse as UiaaError},
             Error as RumaClientApiError,
         },
         error::{FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError},
@@ -108,6 +108,12 @@ pub enum Error {
     /// client.
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
+
+    /// Attempting to restore a session after the olm-machine has already been
+    /// set up fails
+    #[cfg(feature = "encryption")]
+    #[error("The olm machine has already been initialized")]
+    BadCryptoStoreState,
 
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]
@@ -249,6 +255,8 @@ impl From<SdkBaseError> for Error {
             SdkBaseError::IoError(e) => Self::Io(e),
             #[cfg(feature = "encryption")]
             SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
+            #[cfg(feature = "encryption")]
+            SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
             #[cfg(feature = "encryption")]
             SdkBaseError::OlmError(e) => Self::OlmError(e),
             #[cfg(feature = "encryption")]

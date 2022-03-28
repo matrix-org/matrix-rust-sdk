@@ -14,17 +14,7 @@
 // limitations under the License.
 
 #![doc = include_str!("../README.md")]
-#![deny(
-    missing_debug_implementations,
-    missing_docs,
-    dead_code,
-    missing_docs,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications
-)]
+#![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(not(any(feature = "native-tls", feature = "rustls-tls",)))]
@@ -60,13 +50,14 @@ mod http_client;
 /// High-level room API
 pub mod room;
 mod room_member;
+pub mod store;
 mod sync;
 
 #[cfg(feature = "encryption")]
 pub mod encryption;
 
 pub use account::Account;
-pub use client::{Client, LoopCtrl};
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl};
 #[cfg(feature = "image_proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};

@@ -30,7 +30,7 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    api::client::r0::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, RoomId,
+    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, RoomId,
     TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -39,13 +39,13 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     olm::{Account, InboundGroupSession},
-    store::{BackupKeys, Changes, RoomKeyCounts, Store},
+    store::{BackupKeys, Changes, RecoveryKey, RoomKeyCounts, Store},
     CryptoStoreError, KeysBackupRequest, OutgoingRequest,
 };
 
 mod keys;
 
-pub use keys::{DecodeError, MegolmV1BackupKey, PickledRecoveryKey, RecoveryKey};
+pub use keys::{DecodeError, MegolmV1BackupKey};
 pub use olm_rs::errors::OlmPkDecryptionError;
 
 /// A state machine that handles backing up room keys.
@@ -64,7 +64,7 @@ pub struct BackupMachine {
 
 #[derive(Debug, Clone)]
 struct PendingBackup {
-    request_id: &TransactionId,
+    request_id: Box<TransactionId>,
     request: KeysBackupRequest,
     sessions: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
 }
@@ -115,7 +115,7 @@ impl BackupMachine {
     /// and the given Ruma struct will lose the unspecced fields after a
     /// serialization cycle.
     ///
-    /// [`BackupAlgorithm`]: ruma::api::client::r0::backup::BackupAlgorithm
+    /// [`BackupAlgorithm`]: ruma::api::client::backup::BackupAlgorithm
     /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
     pub async fn verify_backup(
         &self,
@@ -370,10 +370,7 @@ impl BackupMachine {
                 .or_default()
                 .insert(session_id.clone());
 
-            let session = Raw::from_json(
-                serde_json::value::to_raw_value(&session)
-                    .expect("Can't serialize a backed up room key"),
-            );
+            let session = Raw::new(&session).expect("Can't serialize a backed up room key");
 
             backup
                 .entry(room_id)
@@ -391,8 +388,7 @@ mod test {
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id, DeviceId, RoomId, UserId};
 
-    use super::RecoveryKey;
-    use crate::{OlmError, OlmMachine};
+    use crate::{store::RecoveryKey, OlmError, OlmMachine};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -433,12 +429,12 @@ mod test {
         let request =
             backup_machine.backup().await?.expect("Created a backup request successfully");
         assert_eq!(
-            Some(request.request_id),
-            backup_machine.backup().await?.map(|r| r.request_id),
+            Some(&*request.request_id),
+            backup_machine.backup().await?.as_ref().map(|r| &*r.request_id),
             "Calling backup again without uploading creates the same backup request"
         );
 
-        backup_machine.mark_request_as_sent(request.request_id).await?;
+        backup_machine.mark_request_as_sent(&request.request_id).await?;
 
         let counts = backup_machine.store.inbound_group_session_counts().await?;
         assert_eq!(counts.total, 2);
@@ -474,13 +470,9 @@ mod test {
         use tempfile::tempdir;
 
         let tmpdir = tempdir().expect("Can't create a temporary dir");
-        let machine = OlmMachine::new_with_default_store(
-            alice_id(),
-            alice_device_id(),
-            tmpdir.as_ref(),
-            None,
-        )
-        .await?;
+        let machine =
+            OlmMachine::with_default_store(alice_id(), alice_device_id(), tmpdir.as_ref(), None)
+                .await?;
 
         backup_flow(machine).await
     }
@@ -491,7 +483,7 @@ mod test {
         use tempfile::tempdir;
 
         let tmpdir = tempdir().expect("Can't create a temporary dir");
-        let machine = OlmMachine::new_with_default_store(
+        let machine = OlmMachine::with_default_store(
             alice_id(),
             alice_device_id(),
             tmpdir.as_ref(),

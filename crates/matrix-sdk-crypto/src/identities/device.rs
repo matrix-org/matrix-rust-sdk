@@ -25,8 +25,8 @@ use std::{
 use atomic::Atomic;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
-    encryption::{DeviceKeys, SignedKey},
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
+    encryption::DeviceKeys,
     events::{
         forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
         key::verification::VerificationMethod, room::encrypted::ToDeviceRoomEncryptedEventContent,
@@ -37,17 +37,19 @@ use ruma::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tracing::warn;
+use vodozemac::Ed25519PublicKey;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
-    olm::{InboundGroupSession, Session, Utility},
+    olm::{InboundGroupSession, Session, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
+    types::one_time_keys::SignedKey,
     verification::VerificationMachine,
     OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use crate::{OlmMachine, ReadOnlyAccount};
 
 /// A read-only version of a `Device`.
@@ -374,8 +376,7 @@ impl ReadOnlyDevice {
     /// Create a new Device, this constructor skips signature verification of
     /// the keys, `TryFrom` should be used for completely new devices we
     /// receive.
-    #[cfg(feature = "sled_cryptostore")]
-    pub(crate) fn new(device_keys: DeviceKeys, trust_state: LocalTrust) -> Self {
+    pub fn new(device_keys: DeviceKeys, trust_state: LocalTrust) -> Self {
         Self {
             inner: device_keys.into(),
             trust_state: Arc::new(Atomic::new(trust_state)),
@@ -535,15 +536,14 @@ impl ReadOnlyDevice {
     }
 
     pub(crate) fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
-        let signing_key =
+        let key =
             self.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(SignatureError::MissingSigningKey)?;
 
-        let utility = Utility::new();
+        let key = Ed25519PublicKey::from_base64(key)?;
 
-        utility.verify_json(
+        key.verify_json(
             self.user_id(),
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            signing_key,
             json,
         )
     }
@@ -572,12 +572,20 @@ impl ReadOnlyDevice {
         self.deleted.store(true, Ordering::Relaxed);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
+    /// Generate the Device from the reference of an OlmMachine.
+    ///
+    /// TESTING FACILITY ONLY, DO NOT USE OUTSIDE OF TESTS
     pub async fn from_machine(machine: &OlmMachine) -> ReadOnlyDevice {
         ReadOnlyDevice::from_account(machine.account()).await
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
+    #[allow(dead_code)]
+    /// Generate the Device from the reference of an Account.
+    ///
+    /// TESTING FACILITY ONLY, DO NOT USE OUTSIDE OF TESTS
     pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
         ReadOnlyDevice::try_from(&device_keys).unwrap()
@@ -605,16 +613,17 @@ impl PartialEq for ReadOnlyDevice {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test {
-    use std::convert::TryFrom;
-
-    use ruma::{encryption::DeviceKeys, user_id, DeviceKeyAlgorithm};
+#[cfg(any(test, feature = "testing"))]
+pub(crate) mod testing {
+    //! Testing Facilities for Device Management
+    #![allow(dead_code)]
+    use ruma::encryption::DeviceKeys;
     use serde_json::json;
 
-    use crate::identities::{LocalTrust, ReadOnlyDevice};
+    use crate::identities::ReadOnlyDevice;
 
-    fn device_keys() -> DeviceKeys {
+    /// Generate default DeviceKeys for tests
+    pub fn device_keys() -> DeviceKeys {
         let device_keys = json!({
           "algorithms": vec![
               "m.olm.v1.curve25519-aes-sha2",
@@ -639,10 +648,19 @@ pub(crate) mod test {
         serde_json::from_value(device_keys).unwrap()
     }
 
-    pub(crate) fn get_device() -> ReadOnlyDevice {
+    /// Generate default ReadOnlyDevice for tests
+    pub fn get_device() -> ReadOnlyDevice {
         let device_keys = device_keys();
         ReadOnlyDevice::try_from(&device_keys).unwrap()
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use ruma::{user_id, DeviceKeyAlgorithm};
+
+    use super::testing::{device_keys, get_device};
+    use crate::identities::LocalTrust;
 
     #[test]
     fn create_a_device() {

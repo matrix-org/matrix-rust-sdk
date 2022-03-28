@@ -27,14 +27,14 @@ This is demonstrated in the example below.
 ```rust,no_run
 use std::convert::TryFrom;
 use matrix_sdk::{
-    Client, config::SyncSettings, Result,
+    Client, config::SyncSettings,
     ruma::{user_id, events::room::message::SyncRoomMessageEvent},
 };
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     let alice = user_id!("@alice:example.org");
-    let client = Client::new_from_user_id(alice).await?;
+    let client = Client::builder().user_id(alice).build().await?;
 
     // First we need to log in.
     client.login(alice, "password", None, None).await?;
@@ -59,18 +59,20 @@ More examples can be found in the [examples] directory.
 
 The following crate feature flags are available:
 
-| Feature            | Default | Description                                                    |
-| ------------------ | :-----: | -------------------------------------------------------------- |
-| `anyhow`           |   No    | Better logging for event handlers that return `anyhow::Result` |
-| `encryption`       |   Yes   | End-to-end encryption support                                  |
-| `eyre`             |   No    | Better logging for event handlers that return `eyre::Result`   |
-| `image_proc`       |   No    | Enables image processing to generate thumbnails                |
-| `image_rayon`      |   No    | Enables faster image processing                                |
-| `markdown`         |   No    | Support to send Markdown-formatted messages                    |
-| `qrcode`           |   Yes   | QR code verification support                                   |
-| `sled_cryptostore` |   Yes   | Persistent storage for E2EE related data                       |
-| `socks`            |   No    | Enables SOCKS support in the default HTTP client, [`reqwest`]  |
-| `sso_login`        |   No    | Enables SSO login with a local HTTP server                     |
+| Feature            | Default | Description                                                           |
+| ------------------ | :-----: | --------------------------------------------------------------------- |
+| `anyhow`           |   No    | Better logging for event handlers that return `anyhow::Result`        |
+| `encryption`       |   Yes   | End-to-end encryption support                                         |
+| `eyre`             |   No    | Better logging for event handlers that return `eyre::Result`          |
+| `image_proc`       |   No    | Enables image processing to generate thumbnails                       |
+| `image_rayon`      |   No    | Enables faster image processing                                       |
+| `markdown`         |   No    | Support to send Markdown-formatted messages                           |
+| `qrcode`           |   Yes   | QR code verification support                                          |
+| `sled_cryptostore` |   Yes   | Persistent storage for E2EE related data                              |
+| `sled_statestore`  |   No    | Persistent storage of state data with sled                            |
+| `socks`            |   No    | Enables SOCKS support in the default HTTP client, [`reqwest`]         |
+| `sso_login`        |   No    | Enables SSO login with a local HTTP server                            |
+| `indexedb_stores`  |   No    | Persistent storage of state & e2ee data with indexeddb for web/wasm32 |
 
 [`reqwest`]: https://docs.rs/reqwest/0.11.5/reqwest/index.html
 
