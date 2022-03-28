@@ -745,7 +745,7 @@ impl ReadOnlyAccount {
         // Create a copy of the device keys containing only fields that will
         // get signed.
         let json_device_keys =
-            serde_json::to_value(&device_keys).expect("Can't serialize device keys");
+            serde_json::to_value(&device_keys).expect("device key is always safe to serialize");
 
         device_keys
             .signatures
