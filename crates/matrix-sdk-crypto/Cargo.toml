@@ -52,11 +52,11 @@ http = { version = "0.2.4", optional = true}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac"
-rev = "71a811026de9076922434381fa593f4184bf5a37"
+rev = "16fb254aa3325c61ef949314c81c35f91d0664e1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac"
-rev = "71a811026de9076922434381fa593f4184bf5a37"
+rev = "16fb254aa3325c61ef949314c81c35f91d0664e1"
 features = ["js"]
 
 [dependencies.ruma]
