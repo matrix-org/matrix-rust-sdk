@@ -1017,10 +1017,10 @@ impl ReadOnlyAccount {
         &self,
         their_identity_key: &str,
         message: &PreKeyMessage,
-    ) -> Result<InboundCreationResult, ()> {
-        let their_identity_key = Curve25519PublicKey::from_base64(their_identity_key).unwrap();
+    ) -> Result<InboundCreationResult, SessionCreationError> {
+        let their_identity_key = Curve25519PublicKey::from_base64(their_identity_key)?;
         let result =
-            self.inner.lock().await.create_inbound_session(&their_identity_key, message).unwrap();
+            self.inner.lock().await.create_inbound_session(&their_identity_key, message)?;
 
         let now = Instant::now();
         let session_id = result.session.session_id();

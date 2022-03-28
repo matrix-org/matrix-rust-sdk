@@ -212,4 +212,6 @@ pub enum SessionCreationError {
     InvalidJson(#[from] serde_json::Error),
     #[error("The given curve25519 key is not a valid key")]
     InvalidCurveKey(#[from] vodozemac::KeyError),
+    #[error(transparent)]
+    InboundCreation(#[from] vodozemac::olm::SessionCreationError),
 }
