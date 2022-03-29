@@ -261,27 +261,6 @@ impl OlmMachine {
         Ok(OlmMachine::new_helper(&user_id, device_id, store, account, identity))
     }
 
-    /// Create a new machine with the default crypto store.
-    ///
-    /// The default store uses a Sled database to store the encryption keys.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that owns this machine.
-    ///
-    /// * `device_id` - The unique id of the device that owns this machine.
-    #[cfg(feature = "sled_cryptostore")]
-    pub async fn with_default_store(
-        user_id: &UserId,
-        device_id: &DeviceId,
-        path: impl AsRef<Path>,
-        passphrase: Option<&str>,
-    ) -> StoreResult<Self> {
-        let store = SledStore::open_with_passphrase(path, passphrase)?;
-
-        OlmMachine::with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
-    }
-
     /// The unique user id that owns this `OlmMachine` instance.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
@@ -2003,44 +1982,6 @@ pub(crate) mod test {
         } else {
             panic!("Decrypted room event has the wrong type")
         }
-    }
-
-    #[async_test]
-    #[cfg(feature = "sled_cryptostore")]
-    async fn test_machine_with_default_store() {
-        use tempfile::tempdir;
-
-        let tmpdir = tempdir().unwrap();
-
-        let machine = OlmMachine::with_default_store(
-            user_id(),
-            alice_device_id(),
-            tmpdir.as_ref(),
-            Some("test"),
-        )
-        .await
-        .unwrap();
-
-        let user_id = machine.user_id().to_owned();
-        let device_id = machine.device_id().to_owned();
-        let ed25519_key = machine.identity_keys().ed25519;
-
-        machine.receive_keys_upload_response(&keys_upload_response()).await.unwrap();
-
-        drop(machine);
-
-        let machine = OlmMachine::with_default_store(
-            &user_id,
-            alice_device_id(),
-            tmpdir.as_ref(),
-            Some("test"),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(&user_id, machine.user_id());
-        assert_eq!(&*device_id, machine.device_id());
-        assert_eq!(ed25519_key, machine.identity_keys().ed25519);
     }
 
     #[async_test]

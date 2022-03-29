@@ -76,6 +76,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
+    utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
 };
@@ -178,6 +179,21 @@ struct InnerPickle {
 impl RecoveryKey {
     /// The number of bytes the recovery key will hold.
     pub const KEY_SIZE: usize = 32;
+
+    /// Create a new random recovery key.
+    pub fn new() -> Result<Self, rand::Error> {
+        let mut rng = rand::thread_rng();
+
+        let mut key = [0u8; Self::KEY_SIZE];
+        rand::Fill::try_fill(&mut key, &mut rng)?;
+
+        Ok(Self { inner: key })
+    }
+
+    /// Export the `RecoveryKey` as a base64 encoded string.
+    pub fn to_base64(&self) -> String {
+        encode(self.inner)
+    }
 }
 
 impl Debug for RecoveryKey {
