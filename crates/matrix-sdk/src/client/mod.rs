@@ -2414,7 +2414,7 @@ pub(crate) mod test {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let _homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = no_retry_test_client().await;
         let idp = crate::client::get_login_types::v3::IdentityProvider::new(
             "some-id".to_owned(),
