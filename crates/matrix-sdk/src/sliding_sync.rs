@@ -22,7 +22,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use anymap2::any::CloneAnySendSync;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
@@ -601,7 +601,56 @@ impl SlidingSyncView {
                         })
                         .count();
                 }
-                _ => {}
+                sliding_sync_events::SlidingOp::Delete => {
+                    let pos: u32 = op.range.0.try_into()?;
+                    rooms_list.set_cloned(pos as usize, None);
+                }
+                sliding_sync_events::SlidingOp::Insert => {
+                    let pos: u32 = op.range.0.try_into()?;
+                    let sliced = rooms_list.as_slice();
+                    let room = room_ids.first().cloned();
+                    let mut dif = 0;
+                    loop {
+                        let check_prev = dif > pos;
+                        let check_after = ((dif + pos) as usize) < sliced.len();
+                        if !check_prev && !check_after {
+                            bail!("We were asked to insert but could not find any direction to shift to");
+                        }
+
+                        if  check_prev && sliced[(pos - dif) as usize].is_none() {
+                            // we only check for previous, if there are items left
+                            rooms_list.insert_cloned(pos as usize, room);
+                            rooms_list.remove((pos - dif) as usize);
+                            break;
+                        } else if check_after && sliced[(pos + dif) as usize].is_none() {
+                            rooms_list.remove((pos + dif) as usize);
+                            rooms_list.insert_cloned(pos as usize, room);
+                            break;
+                        } else {
+                            // let's check the next position;
+                            dif += 1;
+                        }
+                    }
+                }
+                sliding_sync_events::SlidingOp::Invalidate => {
+                    let max_len = rooms_list.len();
+                    let mut pos: u32 = op.range.0.try_into()?;
+                    let end: u32 = op.range.1.try_into()?;
+                    if pos > end {
+                        bail!("Invalid invalidation, end smaller than start");
+                    } 
+
+                    while (pos < end) {
+                        if (pos as usize >= max_len) {
+                            break // how does this happen?
+                        }
+                        rooms_list.set_cloned(pos as usize, None);
+                        pos += 1;
+                    }
+                }
+                sliding_sync_events::SlidingOp::Update => {
+                    // Nothing for us to do here
+                }
             }
         }
 
