@@ -12,7 +12,7 @@ use ruma::{
         room::member::{
             RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
-        AnyRoomEvent, AnySyncRoomEvent, Unsigned,
+        AnyRoomEvent, AnySyncRoomEvent, StateUnsigned,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
@@ -301,21 +301,19 @@ pub struct MemberEvent {
     pub content: RoomMemberEventContent,
     pub event_id: Box<EventId>,
     pub origin_server_ts: MilliSecondsSinceUnixEpoch,
-    pub prev_content: Option<RoomMemberEventContent>,
     pub sender: Box<UserId>,
     pub state_key: Box<UserId>,
-    pub unsigned: Unsigned,
+    pub unsigned: StateUnsigned<RoomMemberEventContent>,
 }
 
 impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
-    type Error = ruma::identifiers::Error;
+    type Error = ruma::IdParseError;
 
     fn try_from(event: SyncRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
             origin_server_ts: event.origin_server_ts,
-            prev_content: event.prev_content,
             sender: event.sender,
             state_key: event.state_key.try_into()?,
             unsigned: event.unsigned,
@@ -324,14 +322,13 @@ impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
 }
 
 impl TryFrom<RoomMemberEvent> for MemberEvent {
-    type Error = ruma::identifiers::Error;
+    type Error = ruma::IdParseError;
 
     fn try_from(event: RoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
             origin_server_ts: event.origin_server_ts,
-            prev_content: event.prev_content,
             sender: event.sender,
             state_key: event.state_key.try_into()?,
             unsigned: event.unsigned,
@@ -347,7 +344,6 @@ impl From<MemberEvent> for SyncRoomMemberEvent {
             sender: other.sender,
             origin_server_ts: other.origin_server_ts,
             state_key: other.state_key.to_string(),
-            prev_content: other.prev_content,
             unsigned: other.unsigned,
         }
     }
@@ -362,7 +358,7 @@ pub struct StrippedMemberEvent {
 }
 
 impl TryFrom<StrippedRoomMemberEvent> for StrippedMemberEvent {
-    type Error = ruma::identifiers::Error;
+    type Error = ruma::IdParseError;
 
     fn try_from(event: StrippedRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(StrippedMemberEvent {
@@ -399,25 +395,27 @@ mod test {
     use ruma::{
         event_id,
         events::{
-            room::message::RoomMessageEventContent, AnyMessageEvent, AnySyncMessageEvent,
-            AnySyncRoomEvent, MessageEvent,
+            room::message::RoomMessageEventContent, AnyMessageLikeEvent, AnySyncMessageLikeEvent,
+            AnySyncRoomEvent, MessageLikeEvent, MessageLikeUnsigned,
         },
-        room_id, user_id, MilliSecondsSinceUnixEpoch,
+        room_id,
+        serde::Raw,
+        user_id, MilliSecondsSinceUnixEpoch,
     };
 
-    use super::{Raw, RoomEvent, SyncRoomEvent, Unsigned};
+    use super::{RoomEvent, SyncRoomEvent};
 
     #[test]
     fn room_event_to_sync_room_event() {
         let content = RoomMessageEventContent::text_plain("foobar");
 
-        let event = MessageEvent {
+        let event = MessageLikeEvent {
             content,
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             room_id: room_id!("!someroom:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             sender: user_id!("@carl:example.com").to_owned(),
-            unsigned: Unsigned::default(),
+            unsigned: MessageLikeUnsigned::default(),
         };
 
         let room_event =
@@ -427,8 +425,8 @@ mod test {
 
         let converted_event: AnySyncRoomEvent = converted_room_event.event.deserialize().unwrap();
 
-        let event: AnyMessageEvent = event.into();
-        let sync_event: AnySyncMessageEvent = event.into();
+        let event: AnyMessageLikeEvent = event.into();
+        let sync_event: AnySyncMessageLikeEvent = event.into();
         let sync_event: AnySyncRoomEvent = sync_event.into();
 
         // There is no PartialEq implementation for AnySyncRoomEvent, so we

@@ -54,25 +54,20 @@ use std::{
     sync::Arc,
 };
 
-use base64::DecodeError;
 use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
-use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
-#[allow(unused_imports)]
-pub use olm_rs::{account::IdentityKeys, PicklingMode};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, IdParseError, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
+use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroize;
 
 use crate::{
-    error::SessionUnpicklingError,
     identities::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
@@ -157,7 +152,7 @@ pub struct DeviceChanges {
 }
 
 /// The private part of a backup key.
-#[derive(Zeroize)]
+#[derive(Zeroize, Deserialize, Serialize)]
 #[zeroize(drop)]
 pub struct RecoveryKey {
     pub(crate) inner: [u8; RecoveryKey::KEY_SIZE],
@@ -183,68 +178,6 @@ struct InnerPickle {
 impl RecoveryKey {
     /// The number of bytes the recovery key will hold.
     pub const KEY_SIZE: usize = 32;
-    const NONCE_SIZE: usize = 12;
-
-    /// Export this [`RecoveryKey`] as an encrypted pickle that can be safely
-    /// stored.
-    pub fn pickle(&self, pickle_key: &[u8]) -> PickledRecoveryKey {
-        use aes::cipher::generic_array::GenericArray;
-        use aes_gcm::aead::{Aead, NewAead};
-        use rand::Fill;
-
-        let key = GenericArray::from_slice(pickle_key);
-        let cipher = aes_gcm::Aes256Gcm::new(key);
-
-        let mut nonce = vec![0u8; Self::NONCE_SIZE];
-        let mut rng = rand::thread_rng();
-
-        nonce.try_fill(&mut rng).expect("Can't generate random nocne to pickle the recovery key");
-        let nonce = GenericArray::from_slice(nonce.as_slice());
-
-        let ciphertext =
-            cipher.encrypt(nonce, self.inner.as_ref()).expect("Can't encrypt recovery key");
-
-        let ciphertext = crate::utilities::encode_url_safe(ciphertext);
-
-        let pickle = InnerPickle {
-            version: 1,
-            nonce: crate::utilities::encode_url_safe(nonce.as_slice()),
-            ciphertext,
-        };
-
-        PickledRecoveryKey(serde_json::to_string(&pickle).expect("Can't encode pickled signing"))
-    }
-
-    /// Try to import a `RecoveryKey` from a previously exported pickle.
-    pub fn from_pickle(
-        pickle: PickledRecoveryKey,
-        pickle_key: &[u8],
-    ) -> Result<Self, CryptoStoreError> {
-        use aes::cipher::generic_array::GenericArray;
-        use aes_gcm::aead::{Aead, NewAead};
-
-        let pickled: InnerPickle = serde_json::from_str(pickle.as_ref())?;
-
-        let key = GenericArray::from_slice(pickle_key);
-        let cipher = aes_gcm::Aes256Gcm::new(key);
-
-        let nonce = crate::utilities::decode_url_safe(pickled.nonce).unwrap();
-        let nonce = GenericArray::from_slice(&nonce);
-        let ciphertext = &crate::utilities::decode_url_safe(pickled.ciphertext).unwrap();
-
-        let decrypted = cipher
-            .decrypt(nonce, ciphertext.as_slice())
-            .map_err(|_| CryptoStoreError::UnpicklingError)?;
-
-        if decrypted.len() != Self::KEY_SIZE {
-            Err(CryptoStoreError::UnpicklingError)
-        } else {
-            let mut key = [0u8; Self::KEY_SIZE];
-            key.copy_from_slice(&decrypted);
-
-            Ok(Self { inner: key })
-        }
-    }
 }
 
 impl Debug for RecoveryKey {
@@ -311,9 +244,9 @@ impl Debug for CrossSigningKeyExport {
 /// or the key backup key.
 #[derive(Debug, Error)]
 pub enum SecretImportError {
-    /// The seed for the private key wasn't valid base64.
+    /// The key that we tried to import was invalid.
     #[error(transparent)]
-    Base64(#[from] DecodeError),
+    Key(#[from] vodozemac::KeyError),
     /// The public key of the imported private key doesn't match to the public
     /// key that was uploaded to the server.
     #[error(
@@ -443,11 +376,13 @@ impl Store {
         user_id: &UserId,
         curve_key: &str,
     ) -> Result<Option<Device>> {
-        self.get_user_devices(user_id).await.map(|d| {
-            d.devices().find(|d| {
-                d.get_key(DeviceKeyAlgorithm::Curve25519).map_or(false, |k| k == curve_key)
-            })
-        })
+        if let Ok(curve_key) = Curve25519PublicKey::from_base64(curve_key) {
+            self.get_user_devices(user_id)
+                .await
+                .map(|d| d.devices().find(|d| d.curve25519_key().map_or(false, |k| k == curve_key)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get all devices associated with the given `user_id`
@@ -633,8 +568,8 @@ impl Deref for Store {
     }
 }
 
-#[derive(Debug, Error)]
 /// The crypto store's error type.
+#[derive(Debug, Error)]
 pub enum CryptoStoreError {
     /// The account that owns the sessions, group sessions, and devices wasn't
     /// found.
@@ -645,33 +580,33 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     Io(#[from] IoError),
 
-    /// The underlying Olm Account operation returned an error.
-    #[error(transparent)]
-    OlmAccount(#[from] OlmAccountError),
-
-    /// The underlying Olm session operation returned an error.
-    #[error(transparent)]
-    OlmSession(#[from] OlmSessionError),
-
-    /// The underlying Olm group session operation returned an error.
-    #[error(transparent)]
-    OlmGroupSession(#[from] OlmGroupSessionError),
-
-    /// A session time-stamp couldn't be loaded.
-    #[error(transparent)]
-    SessionUnpickling(#[from] SessionUnpicklingError),
-
     /// Failed to decrypt an pickled object.
     #[error("An object failed to be decrypted while unpickling")]
     UnpicklingError,
 
+    /// Failed to decrypt an pickled object.
+    #[error(transparent)]
+    Pickle(#[from] vodozemac::PickleError),
+
+    /// The received room key couldn't be converted into a valid Megolm session.
+    #[error(transparent)]
+    SessionCreation(#[from] vodozemac::megolm::SessionCreationError),
+
     /// A Matrix identifier failed to be validated.
     #[error(transparent)]
-    IdentifierValidation(#[from] IdentifierValidationError),
+    IdentifierValidation(#[from] IdParseError),
 
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]
     Serialization(#[from] SerdeError),
+
+    /// The database format has changed in a backwards incompatible way.
+    #[error(
+        "The database format changed in an incompatible way, current \
+        version: {0}, latest version: {1}"
+    )]
+    UnsupportedDatabaseVersion(usize, usize),
+
     /// A problem with the underlying database backend
     #[error(transparent)]
     Backend(#[from] anyhow::Error),

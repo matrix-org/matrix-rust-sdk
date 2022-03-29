@@ -26,7 +26,9 @@ use ruma::{
         typing::create_typing_event::v3::{Request as TypingRequest, Typing},
     },
     assign,
-    events::{room::message::RoomMessageEventContent, MessageEventContent, StateEventContent},
+    events::{
+        room::message::RoomMessageEventContent, EventContent, MessageLikeEventType, StateEventType,
+    },
     receipt::ReceiptType,
     serde::Raw,
     EventId, TransactionId, UserId,
@@ -402,8 +404,8 @@ impl Joined {
     ///       earlier transaction ID.
     ///     * On the receiving side, the field is used for recognizing our own
     ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`Unsigned`] field [`transaction_id`] of the
-    ///       corresponding [`SyncMessageEvent`], but only for the *sending*
+    ///       ID in the [`MessageLikeUnsigned`] field [`transaction_id`] of the
+    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
     ///       device. Other devices will not see it. This is then used to ignore
     ///       events sent by our own device and/or to implement local echo.
     ///
@@ -438,7 +440,7 @@ impl Joined {
     ///
     /// // Custom events work too:
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = Message)]
+    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = MessageLike)]
     /// struct TokenEventContent {
     ///     token: String,
     ///     #[serde(rename = "exp")]
@@ -461,18 +463,18 @@ impl Joined {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
-    /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
-    /// [`Unsigned`]: ruma::events::Unsigned
-    /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
+    /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
+    /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
+    /// [`transaction_id`]: ruma::events::MessageLikeUnsigned#structfield.transaction_id
     pub async fn send(
         &self,
-        content: impl MessageEventContent,
+        content: impl EventContent<EventType = MessageLikeEventType>,
         txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::v3::Response> {
-        let event_type = content.event_type();
+        let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
 
-        self.send_raw(content, event_type, txn_id).await
+        self.send_raw(content, &event_type, txn_id).await
     }
 
     /// Send a room message to this room from a json `Value`.
@@ -500,8 +502,8 @@ impl Joined {
     ///       earlier transaction ID.
     ///     * On the receiving side, the field is used for recognizing our own
     ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`Unsigned`] field [`transaction_id`] of the
-    ///       corresponding [`SyncMessageEvent`], but only for the *sending*
+    ///       ID in the [`StateUnsigned`] field [`transaction_id`] of the
+    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
     ///       device. Other devices will not see it. This is then used to ignore
     ///       events sent by our own device and/or to implement local echo.
     ///
@@ -529,9 +531,9 @@ impl Joined {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
-    /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
-    /// [`Unsigned`]: ruma::events::Unsigned
-    /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
+    /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
+    /// [`StateUnsigned`]: ruma::events::StateUnsigned
+    /// [`transaction_id`]: ruma::events::StateUnsigned#structfield.transaction_id
     pub async fn send_raw(
         &self,
         content: Value,
@@ -583,7 +585,7 @@ impl Joined {
         let request = send_message_event::v3::Request::new_raw(
             self.inner.room_id(),
             &txn_id,
-            event_type,
+            event_type.into(),
             content,
         );
 
@@ -806,7 +808,7 @@ impl Joined {
     /// ```
     pub async fn send_state_event(
         &self,
-        content: impl StateEventContent,
+        content: impl EventContent<EventType = StateEventType>,
         state_key: &str,
     ) -> Result<send_state_event::v3::Response> {
         let request =
@@ -857,7 +859,7 @@ impl Joined {
         let content = Raw::new(&content)?.cast();
         let request = send_state_event::v3::Request::new_raw(
             self.inner.room_id(),
-            event_type,
+            event_type.into(),
             state_key,
             content,
         );

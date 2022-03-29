@@ -23,8 +23,8 @@ use ruma::{
 
 use super::{
     sas_state::{
-        Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
-        WeAccepted,
+        Accepted, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
+        WaitingForDone, WeAccepted,
     },
     FlowId,
 };
@@ -32,7 +32,7 @@ use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
-        Cancelled, Done,
+        Cancelled,
     },
     Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };

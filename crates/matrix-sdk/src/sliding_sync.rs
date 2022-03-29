@@ -29,7 +29,7 @@ use futures_core::stream::Stream;
 use futures_util::{pin_mut, stream::StreamExt};
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
-    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
     BaseClient, Session, Store,
 };
 use matrix_sdk_common::locks::RwLock;

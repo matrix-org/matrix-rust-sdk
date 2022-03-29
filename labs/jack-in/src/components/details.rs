@@ -65,7 +65,7 @@ impl Details {
             .filter_map(|r| r.deserialize().ok())
             .fold(BTreeMap::<String, Vec<_>>::new(), |mut b, r| {
                 let event_name = r.event_type().to_owned();
-                b.entry(event_name)
+                b.entry(event_name.to_string())
                     .and_modify(|l| l.push(r.clone()))
                     .or_insert_with(|| vec![r.clone()]);
                 b

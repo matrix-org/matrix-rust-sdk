@@ -24,11 +24,8 @@ use ruma::{
     events::{
         receipt::Receipt,
         room::{
-            create::{RoomCreateEventContent, RoomType as CreateRoomType},
-            encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess,
-            history_visibility::HistoryVisibility,
-            join_rules::JoinRule,
+            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
+            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
@@ -36,6 +33,7 @@ use ruma::{
         StateEventType,
     },
     receipt::ReceiptType,
+    room::RoomType as CreateRoomType,
     EventId, MxcUri, RoomAliasId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -622,6 +620,11 @@ impl RoomInfo {
     /// Mark this Room as left
     pub fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
+    }
+
+    /// Mark this Room as invited
+    pub fn mark_as_invited(&mut self) {
+        self.room_type = RoomType::Invited;
     }
 
     /// Mark this Room as having all the members synced

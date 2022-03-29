@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 tuirealm = "1.5"
-matrix-sdk = { path = "../../crates/matrix-sdk" }
+matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["encryption", "anyhow", "native-tls", "sled_state_store", "sled_cryptostore"] }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }

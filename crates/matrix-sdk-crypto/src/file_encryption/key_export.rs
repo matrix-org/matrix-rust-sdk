@@ -19,9 +19,9 @@ use aes::{
     Aes256, Aes256Ctr,
 };
 use byteorder::{BigEndian, ReadBytesExt};
-use getrandom::getrandom;
 use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2;
+use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
 use thiserror::Error;
@@ -152,8 +152,10 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
     let mut iv = [0u8; IV_SIZE];
     let mut derived_keys = [0u8; KEY_SIZE * 2];
 
-    getrandom(&mut salt).expect("Can't generate randomness");
-    getrandom(&mut iv).expect("Can't generate randomness");
+    let mut rng = thread_rng();
+
+    rng.fill_bytes(&mut salt);
+    rng.fill_bytes(&mut iv);
 
     let mut iv = u128::from_be_bytes(iv);
     iv &= !(1 << 63);
@@ -319,7 +321,10 @@ mod test {
         let encrypted = encrypt_key_export(&export, "1234", 1).unwrap();
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
-        assert_eq!(export, decrypted);
+        for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
+            assert_eq!(exported.session_key.as_str(), decrypted.session_key.as_str());
+        }
+
         assert_eq!(
             machine.import_keys(decrypted, false, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
@@ -346,7 +351,9 @@ mod test {
             )]),
         );
 
-        assert_eq!(machine.import_keys(export.clone(), false, |_, _| {}).await?, keys,);
+        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys,);
+
+        let export = vec![session.export_at_index(10).await];
         assert_eq!(
             machine.import_keys(export, false, |_, _| {}).await?,
             RoomKeyImportResult::new(0, 1, BTreeMap::new())

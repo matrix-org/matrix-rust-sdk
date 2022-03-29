@@ -18,19 +18,17 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     io::Read,
-    ops::Deref,
     pin::Pin,
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use anyhow::{bail, Context};
 use anymap2::any::CloneAnySendSync;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
-use futures_util::{pin_mut, stream::StreamExt};
+use futures_util::stream::StreamExt;
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
-    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
     BaseClient, Session, Store,
 };
 use matrix_sdk_common::{
@@ -44,9 +42,9 @@ use ruma::{
     api::{
         client::{
             account::{register, whoami},
-            capabilities::{get_capabilities, Capabilities},
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
+            discovery::get_capabilities::{self, Capabilities},
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -60,9 +58,8 @@ use ruma::{
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign,
-    events::EventType,
+    events::room::MediaSource,
     presence::PresenceState,
-    serde::Raw,
     DeviceId, MxcUri, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
@@ -382,7 +379,7 @@ impl Client {
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = Message)]
+    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = MessageLike)]
     /// struct TokenEventContent {
     ///     token: String,
     ///     #[serde(rename = "exp")]
@@ -702,7 +699,7 @@ impl Client {
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(user, password))]
+    #[instrument(skip(self, user, password))]
     pub async fn login(
         &self,
         user: impl AsRef<str>,
@@ -990,7 +987,7 @@ impl Client {
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(token))]
+    #[instrument(skip(self, token))]
     #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn login_with_token(
         &self,
@@ -1133,7 +1130,7 @@ impl Client {
     /// client.register(request).await;
     /// # })
     /// ```
-    #[instrument(skip(registration))]
+    #[instrument(skip_all)]
     pub async fn register(
         &self,
         registration: impl Into<register::v3::Request<'_>>,
@@ -1182,15 +1179,10 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).await.unwrap();
     /// let mut filter = FilterDefinition::default();
-    /// let mut room_filter = RoomFilter::default();
-    /// let mut event_filter = RoomEventFilter::default();
     ///
     /// // Let's enable member lazy loading.
-    /// event_filter.lazy_load_options = LazyLoadOptions::Enabled {
-    ///     include_redundant_members: false,
-    /// };
-    /// room_filter.state = event_filter;
-    /// filter.room = room_filter;
+    /// filter.room.state.lazy_load_options =
+    ///     LazyLoadOptions::Enabled { include_redundant_members: false };
     ///
     /// let filter_id = client
     ///     .get_or_upload_filter("sync", filter)
@@ -1434,7 +1426,7 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .upload(request, Some(request_config), self.inner.server_versions.clone())
+            .send(request, Some(request_config), self.inner.server_versions.clone())
             .await?)
     }
 
@@ -1671,7 +1663,7 @@ impl Client {
     /// [`get_or_upload_filter()`]: #method.get_or_upload_filter
     /// [long polling]: #long-polling
     /// [filtered]: #filtering-events
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn sync_once(
         &self,
         sync_settings: crate::config::SyncSettings<'_>,
@@ -1685,7 +1677,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error =? e, "Error while sending outgoing E2EE requests");
-        };
+        }
 
         let request = assign!(sync_events::v3::Request::new(), {
             filter: sync_settings.filter.as_ref(),
@@ -1706,7 +1698,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error =? e, "Error while sending outgoing E2EE requests");
-        };
+        }
 
         self.inner.sync_beat.notify(usize::MAX);
 
@@ -1820,7 +1812,7 @@ impl Client {
     ///     .await;
     /// })
     /// ```
-    #[instrument(skip(callback))]
+    #[instrument(skip(self, callback))]
     pub async fn sync_with_callback<C>(
         &self,
         mut sync_settings: crate::config::SyncSettings<'_>,
@@ -1890,7 +1882,7 @@ impl Client {
     ///
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn sync_stream<'a>(
         &'a self,
         mut sync_settings: crate::config::SyncSettings<'a>,
@@ -1940,8 +1932,8 @@ impl Client {
         if let Some(content) = content {
             Ok(content)
         } else {
-            let content: Vec<u8> = match &request.media_type {
-                MediaType::Encrypted(file) => {
+            let content: Vec<u8> = match &request.source {
+                MediaSource::Encrypted(file) => {
                     let content: Vec<u8> =
                         self.send(get_content::v3::Request::from_url(&file.url)?, None).await?.file;
 
@@ -1961,7 +1953,7 @@ impl Client {
 
                     content
                 }
-                MediaType::Uri(uri) => {
+                MediaSource::Plain(uri) => {
                     if let MediaFormat::Thumbnail(size) = &request.format {
                         self.send(
                             get_content_thumbnail::v3::Request::from_url(
@@ -2026,10 +2018,10 @@ impl Client {
         event_content: impl MediaEventContent,
         use_cache: bool,
     ) -> Result<Option<Vec<u8>>> {
-        if let Some(media_type) = event_content.file() {
+        if let Some(source) = event_content.source() {
             Ok(Some(
                 self.get_media_content(
-                    &MediaRequest { media_type, format: MediaFormat::File },
+                    &MediaRequest { source, format: MediaFormat::File },
                     use_cache,
                 )
                 .await?,
@@ -2048,9 +2040,8 @@ impl Client {
     ///
     /// * `event_content` - The media event content.
     pub async fn remove_file(&self, event_content: impl MediaEventContent) -> Result<()> {
-        if let Some(media_type) = event_content.file() {
-            self.remove_media_content(&MediaRequest { media_type, format: MediaFormat::File })
-                .await?
+        if let Some(source) = event_content.source() {
+            self.remove_media_content(&MediaRequest { source, format: MediaFormat::File }).await?
         }
 
         Ok(())
@@ -2080,10 +2071,10 @@ impl Client {
         size: MediaThumbnailSize,
         use_cache: bool,
     ) -> Result<Option<Vec<u8>>> {
-        if let Some(media_type) = event_content.thumbnail() {
+        if let Some(source) = event_content.thumbnail_source() {
             Ok(Some(
                 self.get_media_content(
-                    &MediaRequest { media_type, format: MediaFormat::Thumbnail(size) },
+                    &MediaRequest { source, format: MediaFormat::Thumbnail(size) },
                     use_cache,
                 )
                 .await?,
@@ -2109,9 +2100,9 @@ impl Client {
         event_content: impl MediaEventContent,
         size: MediaThumbnailSize,
     ) -> Result<()> {
-        if let Some(media_type) = event_content.file() {
+        if let Some(source) = event_content.source() {
             self.remove_media_content(&MediaRequest {
-                media_type,
+                source,
                 format: MediaFormat::Thumbnail(size),
             })
             .await?
@@ -2136,7 +2127,7 @@ impl Client {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail<'_, T>>,
     ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_url, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
             let response = self.upload(thumbnail.content_type, thumbnail.reader).await?;
             let url = response.content_uri;
 
@@ -2146,7 +2137,7 @@ impl Client {
                 { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
             );
 
-            (Some(url), Some(Box::new(thumbnail_info)))
+            (Some(MediaSource::Plain(url)), Some(Box::new(thumbnail_info)))
         } else {
             (None, None)
         };
@@ -2162,8 +2153,8 @@ impl Client {
                     info.map(room::ImageInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_url,
-                        thumbnail_info
+                        thumbnail_source,
+                        thumbnail_info,
                     }
                 );
                 message::MessageType::Image(message::ImageMessageEventContent::plain(
@@ -2190,7 +2181,7 @@ impl Client {
                     info.map(message::VideoInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_url,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -2205,7 +2196,7 @@ impl Client {
                     info.map(message::FileInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_url,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -2228,7 +2219,7 @@ pub(crate) mod test {
 
     use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
-    use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
+    use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize};
     use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
@@ -2255,7 +2246,7 @@ pub(crate) mod test {
         events::{
             room::{
                 message::{ImageMessageEventContent, RoomMessageEventContent},
-                ImageInfo,
+                ImageInfo, MediaSource,
             },
             AnySyncStateEvent, StateEventType,
         },
@@ -2596,7 +2587,7 @@ pub(crate) mod test {
             .create();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::Http(HttpError::ClientApi(FromHttpResponseError::Http(
+            if let crate::Error::Http(HttpError::ClientApi(FromHttpResponseError::Server(
                 ServerError::Known(client_api::Error { kind, message, status_code }),
             ))) = err
             {
@@ -2633,7 +2624,7 @@ pub(crate) mod test {
         });
 
         if let Err(err) = client.register(user).await {
-            if let HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
+            if let HttpError::UiaaError(FromHttpResponseError::Server(ServerError::Known(
                 UiaaResponse::MatrixError(client_api::Error { kind, message, status_code }),
             ))) = err
             {
@@ -3189,7 +3180,7 @@ pub(crate) mod test {
         let config = AttachmentConfig::new().info(AttachmentInfo::Video(BaseVideoInfo {
             height: Some(uint!(600)),
             width: Some(uint!(800)),
-            duration: Some(uint!(3600)),
+            duration: Some(Duration::from_millis(3600)),
             size: None,
             blurhash: None,
         }));
@@ -3570,7 +3561,7 @@ pub(crate) mod test {
         let client = logged_in_client().await;
 
         let request = MediaRequest {
-            media_type: MediaType::Uri(mxc_uri!("mxc://localhost/textfile").to_owned()),
+            source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
             format: MediaFormat::File,
         };
 
@@ -3959,12 +3950,12 @@ pub(crate) mod test {
         }
 
         let expected_backwards_events = vec![
-            "$152037280074GZeOm:localhost",
-            "$editevid:localhost",
-            "$151957878228ssqrJ:localhost",
-            "$15275046980maRLj:localhost",
-            "$15275047031IXQRi:localhost",
             "$098237280074GZeOm:localhost",
+            "$15275047031IXQRi:localhost",
+            "$15275046980maRLj:localhost",
+            "$151957878228ssqrJ:localhost",
+            "$editevid:localhost",
+            "$152037280074GZeOm:localhost",
             // ^^^ These come from the first sync before we asked for the timeline and thus
             //     where cached
             //

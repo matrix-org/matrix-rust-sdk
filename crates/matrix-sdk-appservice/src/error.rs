@@ -45,7 +45,7 @@ pub enum Error {
     HttpRequest(#[from] ruma::api::error::FromHttpRequestError),
 
     #[error(transparent)]
-    Identifier(#[from] ruma::identifiers::Error),
+    Identifier(#[from] ruma::IdParseError),
 
     #[error(transparent)]
     Http(#[from] http::Error),

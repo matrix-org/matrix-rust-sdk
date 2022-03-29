@@ -45,7 +45,7 @@ use ruma::{
             },
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, DeviceKeyId, EventId, RoomId, TransactionId, UserId,
 };
@@ -239,14 +239,15 @@ impl From<QrVerification> for Verification {
 ///
 /// We can now mark the device in our verified devices list as verified and sign
 /// the master keys in the verified devices list.
+#[cfg(feature = "qrcode")]
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
+#[cfg(feature = "qrcode")]
 impl Done {
-    #[cfg(feature = "qrcode")]
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
@@ -255,9 +256,9 @@ impl Done {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
-                    Relation::new(e.to_owned()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationDone(
+                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                ),
             )
                 .into(),
         }
@@ -340,7 +341,7 @@ impl Cancelled {
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationCancel(
+                AnyMessageLikeEventContent::KeyVerificationCancel(
                     KeyVerificationCancelEventContent::new(
                         self.reason.to_owned(),
                         self.cancel_code.clone(),

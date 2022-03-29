@@ -41,7 +41,7 @@ use matrix_sdk_common::{
             presence::PresenceEvent,
             receipt::Receipt,
             room::member::{MembershipState, RoomMemberEventContent},
-            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageEvent,
+            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
             AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
             RoomAccountDataEventType, StateEventType,
         },
@@ -59,6 +59,8 @@ use sled::{
 use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
+#[cfg(feature = "encryption")]
+use super::OpenStoreError;
 #[cfg(feature = "encryption")]
 pub use crate::CryptoStore;
 
@@ -79,7 +81,7 @@ pub enum SledStoreError {
     #[error(transparent)]
     TransactionError(#[from] sled::Error),
     #[error(transparent)]
-    Identifier(#[from] ruma::identifiers::Error),
+    Identifier(#[from] ruma::IdParseError),
     #[error(transparent)]
     Task(#[from] tokio::task::JoinError),
 }
@@ -192,19 +194,19 @@ impl EncodeKey for (&str, &str, &str, &str) {
 
 impl EncodeKey for StateEventType {
     fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+        self.to_string().encode()
     }
 }
 
 impl EncodeKey for GlobalAccountDataEventType {
     fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+        self.to_string().encode()
     }
 }
 
 /* impl EncodeKey for RoomAccountDataEventType {
     fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+        self.to_string().encode()
     }
 } */
 
@@ -384,7 +386,10 @@ impl SledStore {
     /// Open a `CryptoStore` that uses the same database as this store.
     ///
     /// The given passphrase will be used to encrypt private data.
-    pub fn get_crypto_store(&self, passphrase: Option<&str>) -> Result<CryptoStore, anyhow::Error> {
+    pub fn open_crypto_store(
+        &self,
+        passphrase: Option<&str>,
+    ) -> Result<CryptoStore, OpenStoreError> {
         CryptoStore::open_with_database(self.inner.clone(), passphrase)
     }
 
@@ -529,7 +534,7 @@ impl SledStore {
                     for (room, events) in &changes.room_account_data {
                         for (event_type, event) in events {
                             room_account_data.insert(
-                                (room.as_str(), event_type.as_str()).encode(),
+                                (room.as_str(), event_type.to_string().as_str()).encode(),
                                 self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -540,7 +545,11 @@ impl SledStore {
                         for (event_type, events) in event_types {
                             for (state_key, event) in events {
                                 state.insert(
-                                    (room.as_str(), event_type.as_str(), state_key.as_str())
+                                    (
+                                        room.as_str(),
+                                        event_type.to_string().as_str(),
+                                        state_key.as_str(),
+                                    )
                                         .encode(),
                                     self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
@@ -587,7 +596,11 @@ impl SledStore {
                         for (event_type, events) in event_types {
                             for (state_key, event) in events {
                                 stripped_state.insert(
-                                    (room.as_str(), event_type.as_str(), state_key.as_str())
+                                    (
+                                        room.as_str(),
+                                        event_type.to_string().as_str(),
+                                        state_key.as_str(),
+                                    )
                                         .encode(),
                                     self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
@@ -677,7 +690,7 @@ impl SledStore {
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         let db = self.clone();
-        let key = (room_id.as_str(), event_type.as_str(), state_key).encode();
+        let key = (room_id.as_str(), event_type.to_string().as_str(), state_key).encode();
         spawn_blocking(move || {
             db.room_state.get(key)?.map(|e| db.deserialize_event(&e)).transpose()
         })
@@ -690,7 +703,7 @@ impl SledStore {
         event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         let db = self.clone();
-        let key = (room_id.as_str(), event_type.as_str()).encode();
+        let key = (room_id.as_str(), event_type.to_string().as_str()).encode();
         spawn_blocking(move || {
             db.room_state
                 .scan_prefix(key)
@@ -849,7 +862,7 @@ impl SledStore {
         event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         let db = self.clone();
-        let key = (room_id.as_str(), event_type.as_str()).encode();
+        let key = (room_id.as_str(), event_type.to_string().as_str()).encode();
         spawn_blocking(move || {
             db.room_account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
@@ -899,8 +912,7 @@ impl SledStore {
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
         self.media.insert(
-            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-                .encode(),
+            (request.source.unique_key().as_str(), request.format.unique_key().as_str()).encode(),
             data,
         )?;
 
@@ -911,8 +923,8 @@ impl SledStore {
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let db = self.clone();
-        let key = (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-            .encode();
+        let key =
+            (request.source.unique_key().as_str(), request.format.unique_key().as_str()).encode();
 
         spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
     }
@@ -932,8 +944,7 @@ impl SledStore {
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
         self.media.remove(
-            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
-                .encode(),
+            (request.source.unique_key().as_str(), request.format.unique_key().as_str()).encode(),
         )?;
 
         Ok(())
@@ -1222,11 +1233,11 @@ impl SledStore {
                 });
 
             if timeline.sync {
-                for event in timeline.events.iter().rev() {
+                for event in &timeline.events {
                     // Redact events already in store only on sync response
-                    if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomRedaction(
-                        redaction,
-                    ))) = event.event.deserialize()
+                    if let Ok(AnySyncRoomEvent::MessageLike(
+                        AnySyncMessageLikeEvent::RoomRedaction(redaction),
+                    )) = event.event.deserialize()
                     {
                         let redacts_key = (room_id.as_ref(), redaction.redacts.as_ref()).encode();
                         if let Some(position_key) =
@@ -1262,7 +1273,7 @@ impl SledStore {
                     }
                 }
             } else {
-                for event in timeline.events.iter() {
+                for event in &timeline.events {
                     metadata.end_position += 1;
                     let key = (room_id.as_ref(), metadata.end_position).encode();
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);

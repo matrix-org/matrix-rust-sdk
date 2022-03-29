@@ -16,16 +16,17 @@ use ruma::{
     },
     assign,
     events::{
-        room::history_visibility::HistoryVisibility,
+        room::{history_visibility::HistoryVisibility, MediaSource},
         tag::{TagInfo, TagName},
-        AnyStateEvent, AnySyncStateEvent, StateEventType,
+        AnyStateEvent, AnySyncStateEvent, EventContent, StateEventType, StaticEventContent,
+        SyncStateEvent,
     },
     serde::Raw,
     uint, EventId, RoomId, UInt, UserId,
 };
 
 use crate::{
-    media::{MediaFormat, MediaRequest, MediaType},
+    media::{MediaFormat, MediaRequest},
     room::RoomType,
     BaseRoom, Client, HttpError, HttpResult, Result, RoomMember,
 };
@@ -130,7 +131,7 @@ impl Common {
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { media_type: MediaType::Uri(url.clone()), format };
+            let request = MediaRequest { source: MediaSource::Plain(url.clone()), format };
             Ok(Some(self.client.get_media_content(&request, true).await?))
         } else {
             Ok(None)
@@ -645,6 +646,27 @@ impl Common {
         self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
     }
 
+    /// Get all state events of a given statically-known type in this room.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// use matrix_sdk::ruma::{events::room::member::SyncRoomMemberEvent, serde::Raw};
+    ///
+    /// let room_members: Vec<Raw<SyncRoomMemberEvent>> = room.get_state_events_static().await?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
+    {
+        // FIXME: Could be more efficient, if we had streaming store accessor functions
+        Ok(self.get_state_events(C::TYPE.into()).await?.into_iter().map(Raw::cast).collect())
+    }
+
     /// Get a specific state event in this room.
     pub async fn get_state_event(
         &self,
@@ -656,6 +678,32 @@ impl Common {
             .get_state_event(self.room_id(), event_type, state_key)
             .await
             .map_err(Into::into)
+    }
+
+    /// Get a specific state event of statically-known type in this room.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// use matrix_sdk::ruma::events::room::power_levels::SyncRoomPowerLevelsEvent;
+    ///
+    /// let power_levels: SyncRoomPowerLevelsEvent = room
+    ///     .get_state_event_static("").await?
+    ///     .expect("every room has a power_levels event")
+    ///     .deserialize()?;
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn get_state_event_static<C>(
+        &self,
+        state_key: &str,
+    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
+    {
+        Ok(self.get_state_event(C::TYPE.into(), state_key).await?.map(Raw::cast))
     }
 
     /// Check if all members of this room are verified and all their devices are

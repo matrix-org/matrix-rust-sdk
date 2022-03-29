@@ -3,7 +3,11 @@ use std::sync::Arc;
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
 use ruma::{
     api::{
-        client::discover::{discover_homeserver, get_supported_versions},
+        client::{
+            discovery::{discover_homeserver, get_supported_versions},
+            Error,
+        },
+        error::FromHttpResponseError,
         MatrixVersion,
     },
     ServerName, UserId,
@@ -312,7 +316,11 @@ impl ClientBuilder {
                         None,
                         [MatrixVersion::V1_0].into_iter().collect(),
                     )
-                    .await?;
+                    .await
+                    .map_err(|e| match e {
+                        HttpError::ClientApi(err) => ClientBuildError::AutoDiscovery(err),
+                        err => ClientBuildError::Http(err),
+                    })?;
 
                 well_known.homeserver.base_url
             }
@@ -410,6 +418,10 @@ pub enum ClientBuildError {
     #[error("no homeserver or user ID was configured")]
     MissingHomeserver,
 
+    /// Error looking up the .well-known endpoint on auto-discovery
+    #[error("Error looking up the .well-known endpoint on auto-discovery")]
+    AutoDiscovery(FromHttpResponseError<Error>),
+
     /// An error encountered when trying to parse the homeserver url.
     #[error(transparent)]
     Url(#[from] url::ParseError),
@@ -417,6 +429,16 @@ pub enum ClientBuildError {
     /// Error doing an HTTP request.
     #[error(transparent)]
     Http(#[from] HttpError),
+
+    /// Error opening the indexeddb store.
+    #[cfg(any(feature = "indexeddb_state_store", feature = "indexeddb_cryptostore"))]
+    #[error(transparent)]
+    IndexeddbStore(#[from] matrix_sdk_indexeddb::OpenStoreError),
+
+    /// Error opening the sled store.
+    #[cfg(any(feature = "sled_state_store", feature = "sled_cryptostore"))]
+    #[error(transparent)]
+    SledStore(#[from] matrix_sdk_sled::OpenStoreError),
 }
 
 impl ClientBuildError {

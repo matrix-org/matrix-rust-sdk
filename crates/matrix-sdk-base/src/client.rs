@@ -45,7 +45,7 @@ use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnySyncMessageEvent, MessageEventContent,
+        AnySyncMessageLikeEvent, EventContent, MessageLikeEventType,
     },
     DeviceId, TransactionId,
 };
@@ -54,7 +54,7 @@ use ruma::{
     events::{
         room::member::MembershipState, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        EventContent, GlobalAccountDataEventType, StateEventType,
+        GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -300,7 +300,7 @@ impl BaseClient {
                         },
 
                         #[cfg(feature = "encryption")]
-                        AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(
+                        AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
                             encrypted,
                         )) => {
                             if let Some(olm) = self.olm_machine().await {
@@ -367,7 +367,7 @@ impl BaseClient {
         room_info: &mut RoomInfo,
     ) -> (
         BTreeMap<Box<UserId>, StrippedMemberEvent>,
-        BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
+        BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     ) {
         events.iter().fold(
             (BTreeMap::new(), BTreeMap::new()),
@@ -387,7 +387,7 @@ impl BaseClient {
                     Ok(e) => {
                         room_info.handle_state_event(&e.content());
                         state_events
-                            .entry(e.content().event_type().to_owned())
+                            .entry(e.event_type())
                             .or_insert_with(BTreeMap::new)
                             .insert(e.state_key().to_owned(), raw_event.clone());
                     }
@@ -460,7 +460,7 @@ impl BaseClient {
                 }
             } else {
                 state_events
-                    .entry(event.content().event_type().to_owned())
+                    .entry(event.event_type())
                     .or_insert_with(BTreeMap::new)
                     .insert(event.state_key().to_owned(), raw_event.clone());
             }
@@ -522,7 +522,7 @@ impl BaseClient {
                 }
             }
 
-            account_data.insert(event.content().event_type().to_owned(), raw_event.clone());
+            account_data.insert(event.event_type(), raw_event.clone());
         }
 
         changes.account_data = account_data;
@@ -716,6 +716,12 @@ impl BaseClient {
         for (room_id, new_info) in rooms.invite {
             let room = self.store.get_or_create_stripped_room(&room_id).await;
             let mut room_info = room.clone_info();
+
+            if let Some(r) = self.store.get_room(&room_id) {
+                let mut room_info = r.clone_info();
+                room_info.mark_as_invited();
+                changes.add_room(room_info);
+            }
 
             let (members, state_events) =
                 self.handle_invited_state(&new_info.invite_state.events, &mut room_info);
@@ -1014,7 +1020,7 @@ impl BaseClient {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl MessageEventContent,
+        content: impl EventContent<EventType = MessageLikeEventType>,
     ) -> Result<RoomEncryptedEventContent> {
         match self.olm_machine().await {
             Some(o) => Ok(o.encrypt(room_id, content).await?),
@@ -1150,7 +1156,7 @@ impl BaseClient {
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = changes
             .account_data
-            .get(GlobalAccountDataEventType::PushRules.as_str())
+            .get(&GlobalAccountDataEventType::PushRules)
             .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
@@ -1199,7 +1205,7 @@ impl BaseClient {
         let room_power_levels = if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(room_id)
-            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(&StateEventType::RoomPowerLevels))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
@@ -1249,7 +1255,7 @@ impl BaseClient {
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(&**room_id)
-            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(&StateEventType::RoomPowerLevels))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
@@ -1269,4 +1275,67 @@ impl Default for BaseClient {
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use matrix_sdk_test::{async_test, EventBuilder};
+    use ruma::{room_id, user_id};
+    use serde_json::json;
+
+    use super::BaseClient;
+    use crate::{RoomType, Session};
+
+    #[async_test]
+    async fn invite_after_leaving() {
+        let user_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!test:example.org");
+
+        let client = BaseClient::new();
+        client
+            .restore_login(Session {
+                access_token: "token".to_owned(),
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
+            .await
+            .unwrap();
+
+        let mut ev_builder = EventBuilder::new();
+
+        let response = ev_builder
+            .add_custom_left_event(
+                room_id,
+                json!({
+                    "content": {
+                        "displayname": "Alice",
+                        "membership": "left",
+                    },
+                    "event_id": "$994173582443PhrSn:example.org",
+                    "origin_server_ts": 1432135524678u64,
+                    "sender": user_id,
+                    "state_key": user_id,
+                    "type": "m.room.member",
+                }),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Left);
+
+        let response = ev_builder
+            .add_custom_invited_event(
+                room_id,
+                json!({
+                    "content": {
+                        "displayname": "Alice",
+                        "membership": "invite",
+                    },
+                    "event_id": "$143273582443PhrSn:example.org",
+                    "origin_server_ts": 1432735824653u64,
+                    "sender": "@example:example.org",
+                    "state_key": user_id,
+                    "type": "m.room.member",
+                }),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Invited);
+    }
+}

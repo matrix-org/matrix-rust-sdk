@@ -15,11 +15,6 @@
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use matrix_sdk_common::{instant::Instant, locks::Mutex};
-use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
-pub use olm_rs::{
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
 use ruma::{
     events::{
         room::encrypted::{
@@ -28,14 +23,18 @@ use ruma::{
         },
         AnyToDeviceEventContent, EventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, UserId,
+    DeviceId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use vodozemac::{
+    olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionPickle},
+    Curve25519PublicKey,
+};
 
 use super::{deserialize_instant, serialize_instant, IdentityKeys};
 use crate::{
-    error::{EventError, OlmResult, SessionUnpicklingError},
+    error::{EventError, OlmResult},
     ReadOnlyDevice,
 };
 
@@ -50,11 +49,11 @@ pub struct Session {
     /// The `IdentityKeys` associated with this session
     pub our_identity_keys: Arc<IdentityKeys>,
     /// The OlmSession
-    pub inner: Arc<Mutex<OlmSession>>,
+    pub inner: Arc<Mutex<InnerSession>>,
     /// Our sessionId
     pub session_id: Arc<str>,
     /// The Key of the sender
-    pub sender_key: Arc<str>,
+    pub sender_key: Curve25519PublicKey,
     /// Has this been created using the fallback key
     pub created_using_fallback_key: bool,
     /// When the session was created
@@ -76,21 +75,21 @@ impl fmt::Debug for Session {
 impl Session {
     /// Decrypt the given Olm message.
     ///
-    /// Returns the decrypted plaintext or an `OlmSessionError` if decryption
+    /// Returns the decrypted plaintext or an `DecrypitonError` if decryption
     /// failed.
     ///
     /// # Arguments
     ///
     /// * `message` - The Olm message that should be decrypted.
-    pub async fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
+    pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let plaintext = self.inner.lock().await.decrypt(message)?;
         self.last_use_time = Arc::new(Instant::now());
         Ok(plaintext)
     }
 
     /// Get the sender key that was used to establish this Session.
-    pub fn sender_key(&self) -> &str {
-        &self.sender_key
+    pub fn sender_key(&self) -> Curve25519PublicKey {
+        self.sender_key
     }
 
     /// Encrypt the given plaintext as a OlmMessage.
@@ -121,9 +120,8 @@ impl Session {
         recipient_device: &ReadOnlyDevice,
         content: AnyToDeviceEventContent,
     ) -> OlmResult<ToDeviceRoomEncryptedEventContent> {
-        let recipient_signing_key = recipient_device
-            .get_key(DeviceKeyAlgorithm::Ed25519)
-            .ok_or(EventError::MissingSigningKey)?;
+        let recipient_signing_key =
+            recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
         let event_type = content.event_type();
 
@@ -131,49 +129,30 @@ impl Session {
             "sender": self.user_id.as_str(),
             "sender_device": self.device_id.as_ref(),
             "keys": {
-                "ed25519": self.our_identity_keys.ed25519(),
+                "ed25519": self.our_identity_keys.ed25519.to_base64(),
             },
             "recipient": recipient_device.user_id(),
             "recipient_keys": {
-                "ed25519": recipient_signing_key,
+                "ed25519": recipient_signing_key.to_base64(),
             },
             "type": event_type,
             "content": content,
         });
 
         let plaintext = serde_json::to_string(&payload)?;
-        let ciphertext = self.encrypt_helper(&plaintext).await.to_tuple();
+        let ciphertext = self.encrypt_helper(&plaintext).await.to_parts();
 
         let message_type = ciphertext.0;
         let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
 
         let mut content = BTreeMap::new();
-        content.insert((*self.sender_key).to_owned(), ciphertext);
+        content.insert(self.sender_key.to_base64(), ciphertext);
 
         Ok(EncryptedEventScheme::OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content::new(
             content,
-            self.our_identity_keys.curve25519().to_owned(),
+            self.our_identity_keys.curve25519.to_base64(),
         ))
         .into())
-    }
-
-    /// Check if a pre-key Olm message was encrypted for this session.
-    ///
-    /// Returns true if it matches, false if not and a OlmSessionError if there
-    /// was an error checking if it matches.
-    ///
-    /// # Arguments
-    ///
-    /// * `their_identity_key` - The identity/curve25519 key of the account
-    /// that encrypted this Olm message.
-    ///
-    /// * `message` - The pre-key Olm message that should be checked.
-    pub async fn matches(
-        &self,
-        their_identity_key: &str,
-        message: PreKeyMessage,
-    ) -> Result<bool, OlmSessionError> {
-        self.inner.lock().await.matches_inbound_session_from(their_identity_key, message)
     }
 
     /// Returns the unique identifier for this session.
@@ -187,12 +166,12 @@ impl Session {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    pub async fn pickle(&self, pickle_mode: PicklingMode) -> PickledSession {
-        let pickle = self.inner.lock().await.pickle(pickle_mode);
+    pub async fn pickle(&self) -> PickledSession {
+        let pickle = self.inner.lock().await.pickle();
 
         PickledSession {
-            pickle: SessionPickle::from(pickle),
-            sender_key: self.sender_key.to_string(),
+            pickle,
+            sender_key: self.sender_key,
             created_using_fallback_key: self.created_using_fallback_key,
             creation_time: *self.creation_time,
             last_use_time: *self.last_use_time,
@@ -221,22 +200,21 @@ impl Session {
         device_id: Arc<DeviceId>,
         our_identity_keys: Arc<IdentityKeys>,
         pickle: PickledSession,
-        pickle_mode: PicklingMode,
-    ) -> Result<Self, SessionUnpicklingError> {
-        let session = OlmSession::unpickle(pickle.pickle.0, pickle_mode)?;
+    ) -> Self {
+        let session: vodozemac::olm::Session = pickle.pickle.into();
         let session_id = session.session_id();
 
-        Ok(Session {
+        Session {
             user_id,
             device_id,
             our_identity_keys,
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             created_using_fallback_key: pickle.created_using_fallback_key,
-            sender_key: pickle.sender_key.into(),
+            sender_key: pickle.sender_key,
             creation_time: Arc::new(pickle.creation_time),
             last_use_time: Arc::new(pickle.last_use_time),
-        })
+        }
     }
 }
 
@@ -250,12 +228,13 @@ impl PartialEq for Session {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// a Session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledSession {
     /// The pickle string holding the Olm Session.
     pub pickle: SessionPickle,
     /// The curve25519 key of the other user that we share this session with.
-    pub sender_key: String,
+    pub sender_key: Curve25519PublicKey,
     /// Was the session created using a fallback key.
     #[serde(default)]
     pub created_using_fallback_key: bool,
@@ -265,22 +244,4 @@ pub struct PickledSession {
     /// The relative time elapsed since the session was last used.
     #[serde(deserialize_with = "deserialize_instant", serialize_with = "serialize_instant")]
     pub last_use_time: Instant,
-}
-
-/// The typed representation of a base64 encoded string of the Olm Session
-/// pickle.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionPickle(String);
-
-impl From<String> for SessionPickle {
-    fn from(pickle_string: String) -> Self {
-        SessionPickle(pickle_string)
-    }
-}
-
-impl SessionPickle {
-    /// Get the string representation of the pickle.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }

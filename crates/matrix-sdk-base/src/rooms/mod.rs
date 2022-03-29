@@ -76,56 +76,43 @@ impl BaseRoomInfo {
         match content {
             AnyStateEventContent::RoomEncryption(encryption) => {
                 self.encryption = Some(encryption.clone());
-                true
             }
             AnyStateEventContent::RoomAvatar(a) => {
                 self.avatar_url = a.url.clone();
-                true
             }
             AnyStateEventContent::RoomName(n) => {
                 self.name = n.name.as_ref().map(|n| n.to_string());
-                true
             }
-            AnyStateEventContent::RoomCreate(c) => {
-                if self.create.is_none() {
-                    self.create = Some(c.clone());
-                    true
-                } else {
-                    false
-                }
+            AnyStateEventContent::RoomCreate(c) if self.create.is_none() => {
+                self.create = Some(c.clone());
             }
             AnyStateEventContent::RoomHistoryVisibility(h) => {
                 self.history_visibility = h.history_visibility.clone();
-                true
             }
             AnyStateEventContent::RoomGuestAccess(g) => {
                 self.guest_access = g.guest_access.clone();
-                true
             }
             AnyStateEventContent::RoomJoinRules(c) => {
                 self.join_rule = c.join_rule.clone();
-                true
             }
             AnyStateEventContent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = a.alias.clone();
-                true
             }
             AnyStateEventContent::RoomTopic(t) => {
                 self.topic = Some(t.topic.clone());
-                true
             }
             AnyStateEventContent::RoomTombstone(t) => {
                 self.tombstone = Some(t.clone());
-                true
             }
             AnyStateEventContent::RoomPowerLevels(p) => {
                 let max_power_level =
-                    p.users.values().fold(self.max_power_level, |acc, p| max(acc, (*p).into()));
+                    p.users.values().fold(self.max_power_level, |acc, &p| max(acc, p.into()));
                 self.max_power_level = max_power_level;
-                true
             }
-            _ => false,
+            _ => return false,
         }
+
+        true
     }
 }
 

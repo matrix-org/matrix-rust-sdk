@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use matrix_sdk_base::ruma::events::StateEventType;
+use matrix_sdk_base::ruma::events::{GlobalAccountDataEventType, StateEventType};
 use matrix_sdk_common::ruma::{
     receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
@@ -135,9 +135,15 @@ impl SafeEncode for TransactionId {
     }
 }
 
+impl SafeEncode for GlobalAccountDataEventType {
+    fn as_encoded_string(&self) -> String {
+        self.to_string().as_encoded_string()
+    }
+}
+
 impl SafeEncode for StateEventType {
     fn as_encoded_string(&self) -> String {
-        self.as_str().as_encoded_string()
+        self.to_string().as_encoded_string()
     }
 }
 
