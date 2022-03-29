@@ -1217,7 +1217,7 @@ impl SledStore {
                 TimelineMetadata {
                     start: timeline.start.clone(),
                     end: timeline.end.clone(),
-                    start_position: usize::MAX / 2,
+                    start_position: usize::MAX / 2 + 1,
                     end_position: usize::MAX / 2,
                 }
             };
