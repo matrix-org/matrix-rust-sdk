@@ -59,10 +59,10 @@ use sled::{
 use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
 use crate::encode_key::{encode_key_with_usize, EncodeKey, ENCODE_SEPARATOR};
-#[cfg(feature = "encryption")]
+#[cfg(feature = "crypto-store")]
 pub use crate::CryptoStore;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -274,10 +274,10 @@ impl SledStore {
         SledStore::open_helper(db, Some(path), None)
     }
 
-    #[cfg(feature = "encryption")]
     /// Open a `CryptoStore` that uses the same database as this store.
     ///
     /// The given passphrase will be used to encrypt private data.
+    #[cfg(feature = "crypto-store")]
     pub fn open_crypto_store(
         &self,
         passphrase: Option<&str>,

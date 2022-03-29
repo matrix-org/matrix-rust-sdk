@@ -33,3 +33,58 @@
 pub use matrix_sdk_indexeddb::*;
 #[cfg(any(feature = "sled_state_store", feature = "sled_cryptostore"))]
 pub use matrix_sdk_sled::*;
+
+// FIXME Move these two methods back to the matrix-sdk-sled crate once weak
+// dependency features are stable and we decide to bump the MSRV.
+
+/// Create a [`StoreConfig`] with an opened sled [`StateStore`] that uses the
+/// given path and passphrase. If `encryption` is enabled, a [`CryptoStore`]
+/// with the same parameters is also opened.
+///
+/// [`StoreConfig`]: #crate::config::StoreConfig
+#[cfg(any(feature = "sled_state_store", feature = "sled_cryptostore"))]
+pub fn make_store_config(
+    path: impl AsRef<std::path::Path>,
+    passphrase: Option<&str>,
+) -> Result<crate::config::StoreConfig, OpenStoreError> {
+    #[cfg(all(feature = "encryption", feature = "sled_state_store"))]
+    {
+        let (state_store, crypto_store) = open_stores_with_path(path, passphrase)?;
+        Ok(crate::config::StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
+    }
+
+    #[cfg(all(feature = "encryption", not(feature = "sled_state_store")))]
+    {
+        let crypto_store = CryptoStore::open_with_passphrase(path, passphrase)?;
+        Ok(crate::config::StoreConfig::new().crypto_store(Box::new(crypto_store)))
+    }
+
+    #[cfg(not(feature = "encryption"))]
+    {
+        let state_store = if let Some(passphrase) = passphrase {
+            StateStore::open_with_passphrase(path, passphrase)?
+        } else {
+            StateStore::open_with_path(path)?
+        };
+
+        Ok(crate::config::StoreConfig::new().state_store(Box::new(state_store)))
+    }
+}
+
+/// Create a [`StateStore`] and a [`CryptoStore`] that use the same database and
+/// passphrase.
+#[cfg(all(feature = "sled_state_store", feature = "sled_cryptostore"))]
+fn open_stores_with_path(
+    path: impl AsRef<std::path::Path>,
+    passphrase: Option<&str>,
+) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
+    if let Some(passphrase) = passphrase {
+        let state_store = StateStore::open_with_passphrase(path, passphrase)?;
+        let crypto_store = state_store.open_crypto_store(Some(passphrase))?;
+        Ok((Box::new(state_store), Box::new(crypto_store)))
+    } else {
+        let state_store = StateStore::open_with_path(path)?;
+        let crypto_store = state_store.open_crypto_store(None)?;
+        Ok((Box::new(state_store), Box::new(crypto_store)))
+    }
+}

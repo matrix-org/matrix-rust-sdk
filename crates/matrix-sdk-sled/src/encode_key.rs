@@ -145,6 +145,7 @@ impl EncodeKey for GlobalAccountDataEventType {
     }
 }
 
+#[cfg(feature = "state-store")]
 pub fn encode_key_with_usize<A: AsRef<str>>(s: A, i: usize) -> Vec<u8> {
     // FIXME: Not portable across architectures
     [s.as_ref().as_bytes(), &[ENCODE_SEPARATOR], i.to_be_bytes().as_ref(), &[ENCODE_SEPARATOR]]

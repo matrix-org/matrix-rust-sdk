@@ -9,9 +9,10 @@ path = "bin/state_inspector.rs"
 required-features = ["binary-build"]
 
 [features]
-default = ["encryption"]
+default = ["state-store", "crypto-store"]
 
-encryption = ["matrix-sdk-base/encryption", "matrix-sdk-crypto"]
+state-store = ["matrix-sdk-base"]
+crypto-store = ["matrix-sdk-crypto"]
 binary-build = [
     "atty",
     "clap",
@@ -24,7 +25,7 @@ binary-build = [
 [dependencies]
 futures-core = "0.3.15"
 futures-util = { version = "0.3.15", default-features = false }
-matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"] }
+matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"], optional = true }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }
