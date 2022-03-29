@@ -18,7 +18,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = [
     "encryption",
-    "qrcode",
     "sled_cryptostore",
     "sled_state_store",
     "native-tls"
