@@ -79,7 +79,9 @@ impl CrossSigningKey {
 /// a string.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SigningKey {
+    /// The ed25519 cross-signing key.
     Ed25519(Ed25519PublicKey),
+    /// An unknown cross-signing key.
     Unknown(String),
 }
 
