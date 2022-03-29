@@ -88,6 +88,37 @@ impl Default for SlidingSyncMode {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum RoomListEntry {
+    Empty,
+    Invalidated(Box<RoomId>),
+    Filled(Box<RoomId>),
+}
+
+impl RoomListEntry {
+    pub fn none_or_invalid(&self) -> bool{
+        matches!{&self, RoomListEntry::Empty | RoomListEntry::Invalidated(_)}
+    }
+    pub fn room_id(&self) -> Option<Box<RoomId>> {
+        match &self  {
+            RoomListEntry::Empty => None,
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.clone())
+        }
+    }
+    pub fn as_ref<'a>(&'a self) -> Option<&'a Box<RoomId>> {
+        match &self  {
+            RoomListEntry::Empty => None,
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b)
+        }
+
+    }
+}
+
+impl Default for RoomListEntry {
+    fn default() -> Self {
+        RoomListEntry::Empty
+    }
+}
 /// Room info as giving by the SlidingSync Feature
 pub type SlidingSyncRoom = sliding_sync_events::Room;
 
@@ -96,7 +127,7 @@ type SyncMode = futures_signals::signal::Mutable<SlidingSyncMode>;
 type PosState = futures_signals::signal::Mutable<Option<String>>;
 type RangeState = futures_signals::signal::Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = futures_signals::signal::Mutable<Option<u32>>;
-type RoomsList = Arc<futures_signals::signal_vec::MutableVec<Option<Box<RoomId>>>>;
+type RoomsList = Arc<futures_signals::signal_vec::MutableVec<RoomListEntry>>;
 type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, SlidingSyncRoom>>;
 type RoomsSubscriptions = Arc<
     futures_signals::signal_map::MutableBTreeMap<
@@ -590,6 +621,7 @@ impl SlidingSyncView {
             }
 
             match op.op {
+                sliding_sync_events::SlidingOp::Update |
                 sliding_sync_events::SlidingOp::Sync => {
                     let start: u32 = op.range.0.try_into()?;
                     room_ids
@@ -597,18 +629,18 @@ impl SlidingSyncView {
                         .enumerate()
                         .map(|(i, r)| {
                             let idx = start as usize + i;
-                            rooms_list.set_cloned(idx, Some(r));
+                            rooms_list.set_cloned(idx, RoomListEntry::Filled(r));
                         })
                         .count();
                 }
                 sliding_sync_events::SlidingOp::Delete => {
                     let pos: u32 = op.range.0.try_into()?;
-                    rooms_list.set_cloned(pos as usize, None);
+                    rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
                 }
                 sliding_sync_events::SlidingOp::Insert => {
                     let pos: u32 = op.range.0.try_into()?;
                     let sliced = rooms_list.as_slice();
-                    let room = room_ids.first().cloned();
+                    let room = room_ids.first().cloned().map(|r| RoomListEntry::Filled(r)).unwrap_or_default();
                     let mut dif = 0;
                     loop {
                         let check_prev = dif > pos;
@@ -617,12 +649,12 @@ impl SlidingSyncView {
                             bail!("We were asked to insert but could not find any direction to shift to");
                         }
 
-                        if  check_prev && sliced[(pos - dif) as usize].is_none() {
+                        if  check_prev && sliced[(pos - dif) as usize].none_or_invalid() {
                             // we only check for previous, if there are items left
                             rooms_list.insert_cloned(pos as usize, room);
                             rooms_list.remove((pos - dif) as usize);
                             break;
-                        } else if check_after && sliced[(pos + dif) as usize].is_none() {
+                        } else if check_after && sliced[(pos + dif) as usize].none_or_invalid() {
                             rooms_list.remove((pos + dif) as usize);
                             rooms_list.insert_cloned(pos as usize, room);
                             break;
@@ -644,12 +676,14 @@ impl SlidingSyncView {
                         if (pos as usize >= max_len) {
                             break // how does this happen?
                         }
-                        rooms_list.set_cloned(pos as usize, None);
+                        let idx = pos as usize;
+                        if let Some(RoomListEntry::Filled(b)) = rooms_list.get(idx) {
+                            rooms_list.set_cloned(pos as usize, RoomListEntry::Invalidated(b.clone()));
+                        } else {
+                            rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
+                        }
                         pos += 1;
                     }
-                }
-                sliding_sync_events::SlidingOp::Update => {
-                    // Nothing for us to do here
                 }
             }
         }
@@ -668,7 +702,7 @@ impl SlidingSyncView {
             let mut list = self.rooms_list.lock_mut();
             list.reserve_exact(missing as usize);
             while missing > 0 {
-                list.push_cloned(None);
+                list.push_cloned(RoomListEntry::Empty);
                 missing -= 1;
             }
             self.rooms_count.replace(Some(rooms_count));
