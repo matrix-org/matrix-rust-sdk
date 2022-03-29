@@ -100,8 +100,10 @@ interface BackwardsStream {
 
 
 interface AnyMessage {
-    TextMessage? text();
-    ImageMessage? image();
+    TextMessage? text_message();
+    ImageMessage? image_message();
+    NoticeMessage? notice_message();
+    EmoteMessage? emote_message();
 };
 
 
@@ -120,4 +122,14 @@ interface TextMessage {
 interface ImageMessage {
     BaseMessage base_message();
     string? url();
+};
+
+interface NoticeMessage {
+    BaseMessage base_message();
+    string? html_body();
+};
+
+interface EmoteMessage {
+    BaseMessage base_message();
+    string? html_body();
 };

@@ -67,18 +67,59 @@ impl ImageMessage {
     }
 }
 
+pub struct NoticeMessage {
+    base_message: Arc<BaseMessage>,
+    html_body: Option<String>,
+}
+
+impl NoticeMessage {
+    pub fn base_message(&self) -> Arc<BaseMessage> {
+        return self.base_message.clone();
+    }
+
+    pub fn html_body(&self) -> Option<String> {
+        self.html_body.clone()
+    }
+}
+
+pub struct EmoteMessage {
+    base_message: Arc<BaseMessage>,
+    html_body: Option<String>,
+}
+
+impl EmoteMessage {
+    pub fn base_message(&self) -> Arc<BaseMessage> {
+        return self.base_message.clone();
+    }
+
+    pub fn html_body(&self) -> Option<String> {
+        self.html_body.clone()
+    }
+}
+
+
 pub struct AnyMessage {
     text: Option<Arc<TextMessage>>,
     image: Option<Arc<ImageMessage>>,
+    notice: Option<Arc<NoticeMessage>>,
+    emote: Option<Arc<EmoteMessage>>,
 }
 
 impl AnyMessage {
-    pub fn text(&self) -> Option<Arc<TextMessage>> {
+    pub fn text_message(&self) -> Option<Arc<TextMessage>> {
         self.text.clone()
     }
 
-    pub fn image(&self) -> Option<Arc<ImageMessage>> {
+    pub fn image_message(&self) -> Option<Arc<ImageMessage>> {
         self.image.clone()
+    }
+
+    pub fn notice_message(&self) -> Option<Arc<NoticeMessage>> {
+        self.notice.clone()
+    }
+
+    pub fn emote_message(&self) -> Option<Arc<EmoteMessage>> {
+        self.emote.clone()
     }
 }
 
@@ -97,12 +138,13 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
                     let any_message = AnyMessage {
                         text: None,
                         image: Some(Arc::new(ImageMessage { base_message, url: content.url })),
+                        notice: None,
+                        emote: None
                     };
 
                     return Some(Arc::new(any_message));
                 }
                 MessageType::Text(content) => {
-
                     let mut html_body: Option<String> = None;
                     if let Some(formatted_body) = content.formatted {
                         if formatted_body.format == MessageFormat::Html {
@@ -113,28 +155,49 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
                     let any_message = AnyMessage {
                         text: Some(Arc::new(TextMessage { base_message, html_body })),
                         image: None,
+                        notice: None,
+                        emote: None
                     };
                     return Some(Arc::new(any_message));
                 }
-                // MessageType::Audio(content) => {
+                MessageType::Notice(content) => {
+                    let mut html_body: Option<String> = None;
+                    if let Some(formatted_body) = content.formatted {
+                        if formatted_body.format == MessageFormat::Html {
+                            html_body = Some(formatted_body.body);
+                        }
+                    }
 
-                // }
-                // MessageType::Emote(content) => {
+                    let any_message = AnyMessage {
+                        text: None,
+                        image: None,
+                        notice: Some(Arc::new(NoticeMessage { base_message, html_body })),
+                        emote: None
+                    };
+                    return Some(Arc::new(any_message));
+                }
+                MessageType::Emote(content) => {
+                    let mut html_body: Option<String> = None;
+                    if let Some(formatted_body) = content.formatted {
+                        if formatted_body.format == MessageFormat::Html {
+                            html_body = Some(formatted_body.body);
+                        }
+                    }
 
-                // }
-                // MessageType::Location(content) => {
-
-                // }
-                // MessageType::File(content) => {
-
-                // }
-                // MessageType::Video(content) => {
-
-                // }
+                    let any_message = AnyMessage {
+                        text: None,
+                        image: None,
+                        notice: None,
+                        emote: Some(Arc::new(EmoteMessage { base_message, html_body }))
+                    };
+                    return Some(Arc::new(any_message));
+                }
                 _ => {
                     let any_message = AnyMessage {
                         text: Some(Arc::new(TextMessage { base_message, html_body: None })),
                         image: None,
+                        notice: None,
+                        emote: None
                     };
                     return Some(Arc::new(any_message));
                 }
