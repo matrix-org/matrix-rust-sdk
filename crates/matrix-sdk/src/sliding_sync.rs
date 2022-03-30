@@ -44,7 +44,7 @@ use ruma::{
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
-use crate::Client;
+use crate::{Client, Result};
 /// Define the state the SlidingSync View is in
 ///
 /// The lifetime of a SlidingSync usually starts at a `Preload`, getting a fast
@@ -255,6 +255,7 @@ impl SlidingSync {
         resp: sliding_sync_events::Response,
         views: &[SlidingSyncView],
     ) -> anyhow::Result<UpdateSummary> {
+        self.client.process_sliding_sync(resp.clone());
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
 
@@ -611,13 +612,18 @@ impl SlidingSyncView {
         let mut rooms_map = self.rooms.lock_mut();
         for op in ops {
             let mut room_ids = Vec::new();
-            {
-                for room in &op.rooms {
+            if let Some(rooms) = &op.rooms {
+                for room in rooms {
                     let r: Box<RoomId> =
                         room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
                     rooms_map.insert_cloned(r.clone(), room.clone());
                     room_ids.push(r);
                 }
+            } else if let Some(room) = &op.room { // Insert specific 
+                let r: Box<RoomId> =
+                    room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
+                rooms_map.insert_cloned(r.clone(), room.clone());
+                room_ids.push(r);
             }
 
             match op.op {
@@ -727,5 +733,12 @@ impl Client {
     /// Create a SlidingSyncBuilder tied to this client
     pub fn sliding_sync(&self) -> SlidingSyncBuilder {
         SlidingSyncBuilder::default().client(self.clone()).to_owned()
+    }
+    pub(crate) async fn process_sliding_sync(
+        &self,
+        response: sliding_sync_events::Response,
+    ) -> Result<SyncResponse> {
+        let response = self.base_client().process_sliding_sync(response).await?;
+        self.handle_sync_response(response).await
     }
 }

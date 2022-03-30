@@ -31,6 +31,8 @@ pub mod media;
 mod rooms;
 mod session;
 pub mod store;
+// FIXME: make optional
+mod sliding_sync;
 mod timeline_stream;
 
 pub use client::BaseClient;

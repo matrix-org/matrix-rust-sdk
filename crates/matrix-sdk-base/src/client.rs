@@ -361,7 +361,7 @@ impl BaseClient {
     }
 
     #[allow(clippy::type_complexity)]
-    fn handle_invited_state(
+    pub(crate) fn handle_invited_state(
         &self,
         events: &[Raw<AnyStrippedStateEvent>],
         room_info: &mut RoomInfo,
@@ -403,7 +403,7 @@ impl BaseClient {
         )
     }
 
-    async fn handle_state(
+    pub(crate) async fn handle_state(
         &self,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
@@ -774,7 +774,7 @@ impl BaseClient {
         Ok(response)
     }
 
-    async fn apply_changes(&self, changes: &StateChanges) {
+    pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
                 room.update_summary(room_info.clone())
