@@ -93,6 +93,8 @@ impl OlmMachine {
                     matrix_sdk_sled::OpenStoreError::Sled(s) => {
                         CryptoStoreError::CryptoStore(anyhow!(s).into())
                     }
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
                 },
             )?);
 
