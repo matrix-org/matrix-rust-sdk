@@ -18,6 +18,7 @@ pub use state_store::SledStore as StateStore;
 
 /// All the errors that can occur when opening a sled store.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum OpenStoreError {
     /// An error occurred with the state store implementation.
     #[cfg(feature = "state-store")]

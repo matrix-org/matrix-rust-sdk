@@ -534,8 +534,6 @@ impl Encryption {
             matrix_sdk_base::crypto::Verification::QrV1(qr) => {
                 Some(verification::QrVerification { inner: qr, client: self.client.clone() }.into())
             }
-            #[cfg(not(feature = "qrcode"))]
-            #[allow(unreachable_patterns)]
             _ => None,
         })
     }

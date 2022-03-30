@@ -93,7 +93,6 @@ impl OlmMachine {
                     matrix_sdk_sled::OpenStoreError::Sled(s) => {
                         CryptoStoreError::CryptoStore(anyhow!(s).into())
                     }
-                    #[allow(unreachable_patterns)]
                     _ => unreachable!(),
                 },
             )?);
@@ -909,6 +908,7 @@ impl OlmMachine {
         self.inner.get_verification(&user_id, flow_id).map(|v| match v {
             RustVerification::SasV1(s) => Verification::SasV1 { sas: s.into() },
             RustVerification::QrV1(qr) => Verification::QrCodeV1 { qrcode: qr.into() },
+            _ => unreachable!(),
         })
     }
 
@@ -945,6 +945,7 @@ impl OlmMachine {
                 RustVerification::QrV1(v) => {
                     v.cancel_with_code(cancel_code.into()).map(|r| r.into())
                 }
+                _ => unreachable!(),
             }
         } else {
             None
@@ -985,6 +986,7 @@ impl OlmMachine {
                 RustVerification::QrV1(v) => v.confirm_scanning().map(|r| {
                     ConfirmVerificationResult { requests: vec![r.into()], signature_request: None }
                 }),
+                _ => unreachable!(),
             }
         } else {
             None
