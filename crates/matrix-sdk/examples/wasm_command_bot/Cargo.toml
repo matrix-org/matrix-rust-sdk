@@ -25,7 +25,7 @@ getrandom = { version = "0.2.4", features = ["js"] }
 [dependencies.matrix-sdk]
 path = "../.."
 default-features = false
-features = ["native-tls", "encryption", "indexeddb_state_store", "indexeddb_cryptostore"]
+features = ["native-tls", "encryption", "indexeddb-state-store", "indexeddb-crypto-store"]
 
 [workspace]
 

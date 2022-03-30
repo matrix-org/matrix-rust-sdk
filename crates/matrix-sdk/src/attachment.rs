@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 use std::io::{BufRead, Cursor, Seek};
 use std::{io::Read, time::Duration};
 
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 use image::GenericImageView;
 use ruma::{
     assign,
@@ -27,7 +27,7 @@ use ruma::{
     TransactionId, UInt,
 };
 
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 use crate::ImageError;
 
 /// Base metadata about an image.
@@ -182,9 +182,9 @@ pub struct AttachmentConfig<'a, R: Read> {
     pub(crate) txn_id: Option<&'a TransactionId>,
     pub(crate) info: Option<AttachmentInfo>,
     pub(crate) thumbnail: Option<Thumbnail<'a, R>>,
-    #[cfg(feature = "image_proc")]
+    #[cfg(feature = "image-proc")]
     pub(crate) generate_thumbnail: bool,
-    #[cfg(feature = "image_proc")]
+    #[cfg(feature = "image-proc")]
     pub(crate) thumbnail_size: Option<(u32, u32)>,
 }
 
@@ -197,9 +197,9 @@ impl AttachmentConfig<'static, &'static [u8]> {
             txn_id: Default::default(),
             info: Default::default(),
             thumbnail: None,
-            #[cfg(feature = "image_proc")]
+            #[cfg(feature = "image-proc")]
             generate_thumbnail: Default::default(),
-            #[cfg(feature = "image_proc")]
+            #[cfg(feature = "image-proc")]
             thumbnail_size: Default::default(),
         }
     }
@@ -216,7 +216,7 @@ impl AttachmentConfig<'static, &'static [u8]> {
     ///
     /// * `size` - The size of the thumbnail in pixels as a `(width, height)`
     /// tuple. If set to `None`, defaults to `(800, 600)`.
-    #[cfg(feature = "image_proc")]
+    #[cfg(feature = "image-proc")]
     #[must_use]
     pub fn generate_thumbnail(mut self, size: Option<(u32, u32)>) -> Self {
         self.generate_thumbnail = true;
@@ -247,9 +247,9 @@ impl<'a, R: Read> AttachmentConfig<'a, R> {
             txn_id: Default::default(),
             info: Default::default(),
             thumbnail: Some(thumbnail),
-            #[cfg(feature = "image_proc")]
+            #[cfg(feature = "image-proc")]
             generate_thumbnail: Default::default(),
-            #[cfg(feature = "image_proc")]
+            #[cfg(feature = "image-proc")]
             thumbnail_size: Default::default(),
         }
     }
@@ -338,7 +338,7 @@ impl<'a, R: Read> AttachmentConfig<'a, R> {
 /// }
 /// # Result::<_, matrix_sdk::Error>::Ok(()) });
 /// ```
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 pub fn generate_image_thumbnail<R: BufRead + Seek>(
     content_type: &mime::Mime,
     reader: &mut R,

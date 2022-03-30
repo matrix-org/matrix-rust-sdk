@@ -16,8 +16,8 @@
 //! The re-exports present here depend on the store-related features that are
 //! enabled:
 //!
-//! 1. `sled_state_store` provides a `StateStore`, while
-//! `sled_cryptostore` provides also a `CryptoStore` for encryption data. This
+//! 1. `sled-state-store` provides a `StateStore`, while
+//! `sled-crypto-store` provides also a `CryptoStore` for encryption data. This
 //! is the default persistent store implementation for non-WebAssembly.
 //! 2. `indexeddb_store` provides both a `StateStore` and a `CryptoStore` if
 //! `encryption` is also enabled. This is the default persistent store
@@ -29,9 +29,9 @@
 //! [`StoreConfig`]: crate::config::StoreConfig
 //! [`ClientBuilder::store_config()`]: crate::ClientBuilder::store_config
 
-#[cfg(any(feature = "indexeddb_state_store", feature = "indexeddb_cryptostore"))]
+#[cfg(any(feature = "indexeddb-state-store", feature = "indexeddb-crypto-store"))]
 pub use matrix_sdk_indexeddb::*;
-#[cfg(any(feature = "sled_state_store", feature = "sled_cryptostore"))]
+#[cfg(any(feature = "sled-state-store", feature = "sled-crypto-store"))]
 pub use matrix_sdk_sled::*;
 
 // FIXME Move these two methods back to the matrix-sdk-sled crate once weak
@@ -42,18 +42,18 @@ pub use matrix_sdk_sled::*;
 /// with the same parameters is also opened.
 ///
 /// [`StoreConfig`]: #crate::config::StoreConfig
-#[cfg(any(feature = "sled_state_store", feature = "sled_cryptostore"))]
+#[cfg(any(feature = "sled-state-store", feature = "sled-crypto-store"))]
 pub fn make_store_config(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
 ) -> Result<crate::config::StoreConfig, OpenStoreError> {
-    #[cfg(all(feature = "encryption", feature = "sled_state_store"))]
+    #[cfg(all(feature = "encryption", feature = "sled-state-store"))]
     {
         let (state_store, crypto_store) = open_stores_with_path(path, passphrase)?;
         Ok(crate::config::StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
     }
 
-    #[cfg(all(feature = "encryption", not(feature = "sled_state_store")))]
+    #[cfg(all(feature = "encryption", not(feature = "sled-state-store")))]
     {
         let crypto_store = CryptoStore::open_with_passphrase(path, passphrase)?;
         Ok(crate::config::StoreConfig::new().crypto_store(Box::new(crypto_store)))
@@ -73,7 +73,7 @@ pub fn make_store_config(
 
 /// Create a [`StateStore`] and a [`CryptoStore`] that use the same database and
 /// passphrase.
-#[cfg(all(feature = "sled_state_store", feature = "sled_cryptostore"))]
+#[cfg(all(feature = "sled-state-store", feature = "sled-crypto-store"))]
 fn open_stores_with_path(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
