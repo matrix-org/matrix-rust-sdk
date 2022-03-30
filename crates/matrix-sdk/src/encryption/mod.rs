@@ -525,14 +525,18 @@ impl Encryption {
     /// Get a verification object with the given flow id.
     pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
         let olm = self.client.olm_machine().await?;
-        olm.get_verification(user_id, flow_id).map(|v| match v {
+        #[allow(clippy::bind_instead_of_map)]
+        olm.get_verification(user_id, flow_id).and_then(|v| match v {
             matrix_sdk_base::crypto::Verification::SasV1(s) => {
-                SasVerification { inner: s, client: self.client.clone() }.into()
+                Some(SasVerification { inner: s, client: self.client.clone() }.into())
             }
             #[cfg(feature = "qrcode")]
             matrix_sdk_base::crypto::Verification::QrV1(qr) => {
-                verification::QrVerification { inner: qr, client: self.client.clone() }.into()
+                Some(verification::QrVerification { inner: qr, client: self.client.clone() }.into())
             }
+            #[cfg(not(feature = "qrcode"))]
+            #[allow(unreachable_patterns)]
+            _ => None,
         })
     }
 
