@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use std::{collections::HashMap, convert::TryFrom};
+use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
@@ -239,12 +239,12 @@ impl From<DeviceLists> for RumaDeviceLists {
             changed: d
                 .changed
                 .into_iter()
-                .filter_map(|u| Box::<UserId>::try_from(u).ok())
+                .filter_map(|u| UserId::parse(u).ok())
                 .collect(),
             left: d
                 .left
                 .into_iter()
-                .filter_map(|u| Box::<UserId>::try_from(u).ok())
+                .filter_map(|u| UserId::parse(u).ok())
                 .collect(),
         })
     }

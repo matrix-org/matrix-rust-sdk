@@ -150,8 +150,7 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
 }
 
 fn parse_user_id(user_id: &str) -> Result<Box<ruma::UserId>, CryptoStoreError> {
-    Box::<ruma::UserId>::try_from(user_id)
-        .map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
+    ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 
 #[allow(warnings)]
