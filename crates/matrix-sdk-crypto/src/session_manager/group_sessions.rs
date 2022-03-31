@@ -610,7 +610,7 @@ mod test {
     }
 
     fn keys_query_response() -> get_keys::v3::Response {
-        let data = include_bytes!("../../benches/keys_query.json");
+        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         get_keys::v3::Response::try_from_http_response(data)
@@ -618,7 +618,7 @@ mod test {
     }
 
     fn keys_claim_response() -> claim_keys::v3::Response {
-        let data = include_bytes!("../../benches/keys_claim.json");
+        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         claim_keys::v3::Response::try_from_http_response(data)

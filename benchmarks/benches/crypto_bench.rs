@@ -26,7 +26,7 @@ fn alice_device_id() -> &'static DeviceId {
 }
 
 fn keys_query_response() -> get_keys::v3::Response {
-    let data = include_bytes!("./keys_query.json");
+    let data = include_bytes!("crypto_bench/keys_query.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
     get_keys::v3::Response::try_from_http_response(data)
@@ -34,7 +34,7 @@ fn keys_query_response() -> get_keys::v3::Response {
 }
 
 fn keys_claim_response() -> claim_keys::v3::Response {
-    let data = include_bytes!("./keys_claim.json");
+    let data = include_bytes!("crypto_bench/keys_claim.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
     claim_keys::v3::Response::try_from_http_response(data)
@@ -42,7 +42,7 @@ fn keys_claim_response() -> claim_keys::v3::Response {
 }
 
 fn huge_keys_query_response() -> get_keys::v3::Response {
-    let data = include_bytes!("./keys_query_2000_members.json");
+    let data = include_bytes!("crypto_bench/keys_query_2000_members.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
     get_keys::v3::Response::try_from_http_response(data)

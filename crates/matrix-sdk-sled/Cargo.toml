@@ -3,24 +3,11 @@ name = "matrix-sdk-sled"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "state-inspector"
-path = "bin/state_inspector.rs"
-required-features = ["binary-build"]
-
 [features]
 default = ["state-store", "crypto-store"]
 
 state-store = ["matrix-sdk-base"]
 crypto-store = ["matrix-sdk-crypto"]
-binary-build = [
-    "atty",
-    "clap",
-    "futures",
-    "rustyline",
-    "rustyline-derive",
-    "syntect",
-]
 
 [dependencies]
 futures-core = "0.3.15"
@@ -38,14 +25,6 @@ tokio = { version = "1.7.1", default-features = false, features = ["sync", "fs"]
 tracing = "0.1.26"
 anyhow = "1"
 dashmap = "5.1.0"
-
-# binary-build only
-atty = { version = "0.2.14", optional = true }
-clap = { version = "3.1.0", optional = true }
-futures = { version = "0.3.15", default-features = false, features = ["executor"], optional = true }
-rustyline = { version = "9.0.0", optional = true }
-rustyline-derive = { version = "0.6.0", optional = true }
-syntect = { version = "4.5.0", optional = true }
 
 [dev-dependencies]
 lazy_static = "1.4"
