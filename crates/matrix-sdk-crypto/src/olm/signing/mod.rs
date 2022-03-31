@@ -267,6 +267,37 @@ impl PrivateCrossSigningIdentity {
         Ok(())
     }
 
+    /// Import the private parts of the cross signing keys into this identity.
+    ///
+    /// The private parts should be unexpanded Ed25519 keys encoded as a base64
+    /// string.
+    ///
+    /// *Note*: This method won't check if the public keys match the public
+    /// keys present on the server.
+    pub async fn import_secrets_unchecked(
+        &self,
+        master_key: Option<&str>,
+        self_signing_key: Option<&str>,
+        user_signing_key: Option<&str>,
+    ) -> Result<(), SecretImportError> {
+        if let Some(master_key) = master_key {
+            let master = MasterSigning::from_base64(self.user_id().to_owned(), master_key)?;
+            *self.master_key.lock().await = Some(master);
+        }
+
+        if let Some(user_signing_key) = user_signing_key {
+            let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)?;
+            *self.user_signing_key.lock().await = Some(subkey);
+        };
+
+        if let Some(self_signing_key) = self_signing_key {
+            let subkey = SelfSigning::from_base64(self.user_id().to_owned(), self_signing_key)?;
+            *self.self_signing_key.lock().await = Some(subkey);
+        }
+
+        Ok(())
+    }
+
     /// Remove our private cross signing key if the public keys differ from
     /// what's found in the `ReadOnlyOwnUserIdentity`.
     pub(crate) async fn clear_if_differs(
@@ -339,7 +370,7 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Create a new empty identity.
-    pub(crate) fn empty(user_id: Box<UserId>) -> Self {
+    pub fn empty(user_id: Box<UserId>) -> Self {
         Self {
             user_id: user_id.into(),
             shared: Arc::new(AtomicBool::new(false)),
