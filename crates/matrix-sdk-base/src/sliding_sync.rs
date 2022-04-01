@@ -161,7 +161,8 @@ impl BaseClient {
 
                 // FIXME not yet supported by sliding sync. 
                 // room_info.update_summary(&room_data.summary);
-                // room_info.set_prev_batch(room_data.timeline.prev_batch.as_deref());
+
+                room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
                 let mut user_ids = self
                     .handle_state(
