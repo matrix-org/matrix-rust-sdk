@@ -49,5 +49,7 @@ if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GE
 if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
 
 # Debug -> Copy generated files over to ../../../matrix-rust-components-swift
+echo "$(echo "import MatrixSDKFFIWrapper\n"; cat "${SWIFT_DIR}/sdk.swift")" > "${SWIFT_DIR}/sdk.swift"
+
 rsync -a --delete "${GENERATED_DIR}/MatrixSDKFFI.xcframework" "../../../matrix-rust-components-swift/"
 rsync -a --delete "${GENERATED_DIR}/swift/" "../../../matrix-rust-components-swift/Sources/MatrixRustSDK"
