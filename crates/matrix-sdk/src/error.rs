@@ -165,7 +165,7 @@ pub enum Error {
     UserTagName(#[from] InvalidUserTagName),
 
     /// An error while processing images.
-    #[cfg(feature = "image_proc")]
+    #[cfg(feature = "image-proc")]
     #[error(transparent)]
     ImageError(#[from] ImageError),
 }
@@ -272,7 +272,7 @@ impl From<ReqwestError> for Error {
 }
 
 /// All possible errors that can happen during image processing.
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 #[derive(Error, Debug)]
 pub enum ImageError {
     /// Error processing the image data.

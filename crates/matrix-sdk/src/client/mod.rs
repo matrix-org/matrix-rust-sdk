@@ -808,7 +808,7 @@ impl Client {
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`login_with_token`]: #method.login_with_token
     /// [`restore_login`]: #method.restore_login
-    #[cfg(all(feature = "sso_login", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
     #[deny(clippy::future_not_send)]
     pub async fn login_with_sso<C>(
         &self,
@@ -1676,7 +1676,7 @@ impl Client {
         // This will mostly be a no-op.
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
-            error!(error =? e, "Error while sending outgoing E2EE requests");
+            error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
 
         let request = assign!(sync_events::v3::Request::new(), {
@@ -1697,7 +1697,7 @@ impl Client {
 
         #[cfg(feature = "encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
-            error!(error =? e, "Error while sending outgoing E2EE requests");
+            error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
 
         self.inner.sync_beat.notify(usize::MAX);
@@ -2409,15 +2409,15 @@ pub(crate) mod test {
         assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
     }
 
-    #[cfg(feature = "sso_login")]
     #[async_test]
+    #[cfg(feature = "sso-login")]
     async fn login_with_sso() {
         let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let _homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = no_retry_test_client().await;
         let idp = crate::client::get_login_types::v3::IdentityProvider::new(
             "some-id".to_owned(),

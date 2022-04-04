@@ -1,5 +1,7 @@
 #![allow(dead_code)]
-use matrix_sdk_base::ruma::events::{GlobalAccountDataEventType, StateEventType};
+use matrix_sdk_base::ruma::events::{
+    GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+};
 use matrix_sdk_common::ruma::{
     receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
@@ -50,25 +52,25 @@ pub trait SafeEncode {
     }
 }
 
-/// Implement SafeEncode for tuple of two references, separating the escaped
+/// Implement SafeEncode for tuple of two elements, separating the escaped
 /// values with with `KEY_SEPARATOR`.
-impl<A, B> SafeEncode for (&A, &B)
+impl<A, B> SafeEncode for (A, B)
 where
-    A: SafeEncode + ?Sized,
-    B: SafeEncode + ?Sized,
+    A: SafeEncode,
+    B: SafeEncode,
 {
     fn as_encoded_string(&self) -> String {
         [&self.0.as_encoded_string(), KEY_SEPARATOR, &self.1.as_encoded_string()].concat()
     }
 }
 
-/// Implement SafeEncode for tuple of three references, separating the escaped
+/// Implement SafeEncode for tuple of three elements, separating the escaped
 /// values with with `KEY_SEPARATOR`.
-impl<A, B, C> SafeEncode for (&A, &B, &C)
+impl<A, B, C> SafeEncode for (A, B, C)
 where
-    A: SafeEncode + ?Sized,
-    B: SafeEncode + ?Sized,
-    C: SafeEncode + ?Sized,
+    A: SafeEncode,
+    B: SafeEncode,
+    C: SafeEncode,
 {
     fn as_encoded_string(&self) -> String {
         [
@@ -82,14 +84,14 @@ where
     }
 }
 
-/// Implement SafeEncode for tuple of four references, separating the escaped
+/// Implement SafeEncode for tuple of four elements, separating the escaped
 /// values with with `KEY_SEPARATOR`.
-impl<A, B, C, D> SafeEncode for (&A, &B, &C, &D)
+impl<A, B, C, D> SafeEncode for (A, B, C, D)
 where
-    A: SafeEncode + ?Sized,
-    B: SafeEncode + ?Sized,
-    C: SafeEncode + ?Sized,
-    D: SafeEncode + ?Sized,
+    A: SafeEncode,
+    B: SafeEncode,
+    C: SafeEncode,
+    D: SafeEncode,
 {
     fn as_encoded_string(&self) -> String {
         [
@@ -131,11 +133,17 @@ impl<T: SafeEncode + ?Sized> SafeEncode for Box<T> {
 
 impl SafeEncode for TransactionId {
     fn as_encoded_string(&self) -> String {
-        self.to_string()
+        self.to_string().as_encoded_string()
     }
 }
 
 impl SafeEncode for GlobalAccountDataEventType {
+    fn as_encoded_string(&self) -> String {
+        self.to_string().as_encoded_string()
+    }
+}
+
+impl SafeEncode for RoomAccountDataEventType {
     fn as_encoded_string(&self) -> String {
         self.to_string().as_encoded_string()
     }

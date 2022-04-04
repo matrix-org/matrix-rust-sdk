@@ -388,7 +388,7 @@ impl IndexeddbStore {
             let store = tx.object_store(KEYS::ROOM_ACCOUNT_DATA)?;
             for (room, events) in &changes.room_account_data {
                 for (event_type, event) in events {
-                    let key = (room, event_type.to_string().as_str()).encode();
+                    let key = (room, event_type).encode();
                     store.put_key_val(&key, &self.serialize_event(&event)?)?;
                 }
             }
@@ -616,7 +616,7 @@ impl IndexeddbStore {
                     TimelineMetadata {
                         start: timeline.start.clone(),
                         end: timeline.end.clone(),
-                        start_position: usize::MAX / 2,
+                        start_position: usize::MAX / 2 + 1,
                         end_position: usize::MAX / 2,
                     }
                 };

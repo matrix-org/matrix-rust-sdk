@@ -4,7 +4,7 @@ use matrix_sdk_crypto::{
     store::CryptoStoreError as InnerStoreError, KeyExportError, MegolmError, OlmError,
     SecretImportError as RustSecretImportError, SignatureError as InnerSignatureError,
 };
-use ruma::{identifiers::Error as RumaIdentifierError, UserId};
+use ruma::{IdParseError, UserId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum KeyImportError {
@@ -29,7 +29,7 @@ pub enum SignatureError {
     #[error(transparent)]
     Signature(#[from] InnerSignatureError),
     #[error(transparent)]
-    Identifier(#[from] RumaIdentifierError),
+    Identifier(#[from] IdParseError),
     #[error(transparent)]
     CryptoStore(#[from] InnerStoreError),
     #[error("Unknown device {0} {1}")]
@@ -47,9 +47,9 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
     #[error("The given string is not a valid user ID: source {0}, error {1}")]
-    InvalidUserId(String, RumaIdentifierError),
+    InvalidUserId(String, IdParseError),
     #[error(transparent)]
-    Identifier(#[from] RumaIdentifierError),
+    Identifier(#[from] IdParseError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -57,7 +57,7 @@ pub enum DecryptionError {
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
     #[error(transparent)]
-    Identifier(#[from] RumaIdentifierError),
+    Identifier(#[from] IdParseError),
     #[error(transparent)]
     Megolm(#[from] MegolmError),
 }

@@ -30,7 +30,7 @@ tracing = "0.1.26"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # for wasm32 we need to activate this
-getrandom = { version = "0.2", features = ["js"]}
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 matrix-sdk-base = {  path = "../matrix-sdk-base", features = ["testing"] }

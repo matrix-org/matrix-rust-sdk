@@ -1,12 +1,7 @@
 [workspace]
-members = [
-    "crates/*",
-    "labs/*",
-    "xtask"
-]
+members = ["benchmarks", "crates/*", "labs/*", "xtask"]
 # xtask and labs should only be compiled when invoked explicitly
-default-members = ["crates/*"]
-
+default-members = ["benchmarks", "crates/*"]
 
 [patch."https://github.com/ruma/ruma"]
 ruma = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }

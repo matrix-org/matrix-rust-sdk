@@ -366,7 +366,7 @@ impl Room {
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
             heroes_count = heroes_count,
-            heroes =? summary.heroes,
+            heroes = ?summary.heroes,
             "Calculating name for a room",
         );
 

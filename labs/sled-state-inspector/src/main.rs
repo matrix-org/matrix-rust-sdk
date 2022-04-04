@@ -3,8 +3,10 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
-use matrix_sdk_base::{RoomInfo, Store};
-use matrix_sdk_common::ruma::{events::StateEventType, RoomId, UserId};
+use matrix_sdk_base::{
+    ruma::{events::StateEventType, RoomId, UserId},
+    RoomInfo, Store,
+};
 use matrix_sdk_sled::StateStore;
 use rustyline::{
     completion::{Completer, Pair},
@@ -66,7 +68,7 @@ impl InspectorHelper {
     fn complete_event_types(&self, arg: Option<&&str>) -> Vec<Pair> {
         Self::EVENT_TYPES
             .iter()
-            .map(|t| Pair { display: t.to_string(), replacement: format!("{} ", t) })
+            .map(|&t| Pair { display: t.to_owned(), replacement: format!("{} ", t) })
             .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()
     }
@@ -161,8 +163,8 @@ struct Printer {
 
 impl Printer {
     fn new(json: bool, color: bool) -> Self {
-        let syntax_set: SyntaxSet = from_binary(include_bytes!("./syntaxes.bin"));
-        let themes: ThemeSet = from_binary(include_bytes!("./themes.bin"));
+        let syntax_set: SyntaxSet = from_binary(include_bytes!("../syntaxes.bin"));
+        let themes: ThemeSet = from_binary(include_bytes!("../themes.bin"));
 
         Self { ps: syntax_set.into(), ts: themes.into(), json, color }
     }
@@ -223,7 +225,7 @@ impl Inspector {
             Some(("list-rooms", _)) => self.list_rooms().await,
             Some(("get-display-names", args)) => {
                 let room_id = RoomId::parse(args.value_of("room-id").unwrap()).unwrap();
-                let display_name = args.value_of("display-name").unwrap().to_string();
+                let display_name = args.value_of("display-name").unwrap().to_owned();
                 self.get_display_name_owners(room_id, display_name).await;
             }
             Some(("get-state", args)) => {

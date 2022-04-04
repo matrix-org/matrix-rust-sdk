@@ -1,4 +1,4 @@
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 use std::io::Cursor;
 #[cfg(feature = "encryption")]
 use std::sync::Arc;
@@ -38,7 +38,7 @@ use tracing::debug;
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 use crate::{attachment::generate_image_thumbnail, error::ImageError};
 use crate::{
     attachment::{AttachmentConfig, Thumbnail},
@@ -650,16 +650,16 @@ impl Joined {
     ) -> Result<send_message_event::v3::Response> {
         let reader = &mut BufReader::new(reader);
 
-        #[cfg(feature = "image_proc")]
+        #[cfg(feature = "image-proc")]
         let mut cursor;
 
         if config.thumbnail.is_some() {
             self.prepare_and_send_attachment(body, content_type, reader, config).await
         } else {
-            #[cfg(not(feature = "image_proc"))]
+            #[cfg(not(feature = "image-proc"))]
             let thumbnail = Thumbnail::NONE;
 
-            #[cfg(feature = "image_proc")]
+            #[cfg(feature = "image-proc")]
             let thumbnail = if config.generate_thumbnail {
                 match generate_image_thumbnail(content_type, reader, config.thumbnail_size) {
                     Ok((thumbnail_data, thumbnail_info)) => {
@@ -688,9 +688,9 @@ impl Joined {
                 txn_id: config.txn_id,
                 info: config.info,
                 thumbnail,
-                #[cfg(feature = "image_proc")]
+                #[cfg(feature = "image-proc")]
                 generate_thumbnail: false,
-                #[cfg(feature = "image_proc")]
+                #[cfg(feature = "image-proc")]
                 thumbnail_size: None,
             };
 

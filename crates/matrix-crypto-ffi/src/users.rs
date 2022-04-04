@@ -1,5 +1,4 @@
-use matrix_sdk_crypto::UserIdentities;
-use ruma::encryption::CrossSigningKey;
+use matrix_sdk_crypto::{types::CrossSigningKey, UserIdentities};
 
 use crate::CryptoStoreError;
 
@@ -34,9 +33,9 @@ impl UserIdentity {
     pub(crate) async fn from_rust(i: UserIdentities) -> Result<Self, CryptoStoreError> {
         Ok(match i {
             UserIdentities::Own(i) => {
-                let master: CrossSigningKey = i.master_key().to_owned().into();
-                let user_signing: CrossSigningKey = i.user_signing_key().to_owned().into();
-                let self_signing: CrossSigningKey = i.self_signing_key().to_owned().into();
+                let master: CrossSigningKey = i.master_key().as_ref().to_owned();
+                let user_signing: CrossSigningKey = i.user_signing_key().as_ref().to_owned();
+                let self_signing: CrossSigningKey = i.self_signing_key().as_ref().to_owned();
 
                 UserIdentity::Own {
                     user_id: i.user_id().to_string(),
@@ -47,8 +46,8 @@ impl UserIdentity {
                 }
             }
             UserIdentities::Other(i) => {
-                let master: CrossSigningKey = i.master_key().to_owned().into();
-                let self_signing: CrossSigningKey = i.self_signing_key().to_owned().into();
+                let master: CrossSigningKey = i.master_key().as_ref().to_owned();
+                let self_signing: CrossSigningKey = i.self_signing_key().as_ref().to_owned();
 
                 UserIdentity::Other {
                     user_id: i.user_id().to_string(),

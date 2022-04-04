@@ -1,40 +1,40 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    convert::{TryFrom, TryInto},
+    convert::TryInto,
     io::Cursor,
     ops::Deref,
 };
 
+use anyhow::anyhow;
 use base64::{decode_config, encode, STANDARD_NO_PAD};
 use js_int::UInt;
-use matrix_sdk_common::{deserialized_responses::AlgorithmInfo, uuid::Uuid};
+use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
-    backups::{MegolmV1BackupKey as RustBackupKey, RecoveryKey},
-    decrypt_key_export, encrypt_key_export,
-    matrix_qrcode::QrVerificationData,
-    olm::ExportedRoomKey,
+    backups::MegolmV1BackupKey as RustBackupKey, decrypt_key_export, encrypt_key_export,
+    matrix_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey,
     EncryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentities,
     Verification as RustVerification,
 };
 use ruma::{
     api::{
-        client::r0::{
-            backup::add_backup_keys::Response as KeysBackupResponse,
+        client::{
+            backup::add_backup_keys::v3::Response as KeysBackupResponse,
             keys::{
-                claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
-                upload_keys::Response as KeysUploadResponse,
-                upload_signatures::Response as SignatureUploadResponse,
+                claim_keys::v3::Response as KeysClaimResponse,
+                get_keys::v3::Response as KeysQueryResponse,
+                upload_keys::v3::Response as KeysUploadResponse,
+                upload_signatures::v3::Response as SignatureUploadResponse,
             },
-            sync::sync_events::{DeviceLists as RumaDeviceLists, ToDevice},
-            to_device::send_event_to_device::Response as ToDeviceResponse,
+            sync::sync_events::v3::{DeviceLists as RumaDeviceLists, ToDevice},
+            to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         IncomingResponse,
     },
     events::{
-        key::verification::VerificationMethod, room::encrypted::RoomEncryptedEventContent,
-        AnyMessageEventContent, EventContent, SyncMessageEvent,
+        key::verification::VerificationMethod, room::encrypted::SyncRoomEncryptedEvent,
+        AnyMessageLikeEventContent, EventContent,
     },
-    DeviceKeyAlgorithm, EventId, RoomId, UserId,
+    DeviceKeyAlgorithm, EventId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -82,9 +82,23 @@ impl OlmMachine {
         let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
+        let store =
+            Box::new(matrix_sdk_sled::CryptoStore::open_with_passphrase(path, None).map_err(
+                |e| match e {
+                    // This is a bit of an error in the sled store, the
+                    // CryptoStore returns an `OpenStoreError` which has a
+                    // variant for the state store. Not sure what to do about
+                    // this.
+                    matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
+                    matrix_sdk_sled::OpenStoreError::Sled(s) => {
+                        CryptoStoreError::CryptoStore(anyhow!(s).into())
+                    }
+                    _ => unreachable!(),
+                },
+            )?);
+
         Ok(OlmMachine {
-            inner: runtime
-                .block_on(InnerMachine::new_with_default_store(&user_id, device_id, path, None))?,
+            inner: runtime.block_on(InnerMachine::with_store(user_id, device_id, store))?,
             runtime,
         })
     }
@@ -141,7 +155,7 @@ impl OlmMachine {
     /// Returns a request that needs to be sent out for the user identity to be
     /// marked as verified.
     pub fn verify_identity(&self, user_id: &str) -> Result<SignatureUploadRequest, SignatureError> {
-        let user_id = Box::<UserId>::try_from(user_id)?;
+        let user_id = UserId::parse(user_id)?;
 
         let user_identity = self.runtime.block_on(self.inner.get_identity(&user_id))?;
 
@@ -194,7 +208,7 @@ impl OlmMachine {
         user_id: &str,
         device_id: &str,
     ) -> Result<SignatureUploadRequest, SignatureError> {
-        let user_id = Box::<UserId>::try_from(user_id)?;
+        let user_id = UserId::parse(user_id)?;
         let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id.into()))?;
 
         if let Some(device) = device {
@@ -239,7 +253,11 @@ impl OlmMachine {
 
     /// Get our own identity keys.
     pub fn identity_keys(&self) -> HashMap<String, String> {
-        self.inner.identity_keys().iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect()
+        let identity_keys = self.inner.identity_keys();
+        let curve_key = identity_keys.curve25519.to_base64();
+        let ed25519_key = identity_keys.ed25519.to_base64();
+
+        HashMap::from([("ed25519".to_owned(), ed25519_key), ("curve25519".to_owned(), curve_key)])
     }
 
     /// Get the list of outgoing requests that need to be sent to the
@@ -275,7 +293,7 @@ impl OlmMachine {
         request_type: RequestType,
         response_body: &str,
     ) -> Result<(), CryptoStoreError> {
-        let id = Uuid::parse_str(request_id).expect("Can't parse request id");
+        let id: Box<TransactionId> = request_id.into();
 
         let response = response_from_string(response_body);
 
@@ -367,7 +385,7 @@ impl OlmMachine {
     /// `users` - The users that should be queued up for a key query.
     pub fn update_tracked_users(&self, users: Vec<String>) {
         let users: Vec<Box<UserId>> =
-            users.into_iter().filter_map(|u| Box::<UserId>::try_from(u).ok()).collect();
+            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         self.runtime.block_on(self.inner.update_tracked_users(users.iter().map(Deref::deref)));
     }
@@ -400,7 +418,7 @@ impl OlmMachine {
         users: Vec<String>,
     ) -> Result<Option<Request>, CryptoStoreError> {
         let users: Vec<Box<UserId>> =
-            users.into_iter().filter_map(|u| Box::<UserId>::try_from(u).ok()).collect();
+            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         Ok(self
             .runtime
@@ -431,9 +449,9 @@ impl OlmMachine {
         users: Vec<String>,
     ) -> Result<Vec<Request>, CryptoStoreError> {
         let users: Vec<Box<UserId>> =
-            users.into_iter().filter_map(|u| Box::<UserId>::try_from(u).ok()).collect();
+            users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
-        let room_id = Box::<RoomId>::try_from(room_id)?;
+        let room_id = RoomId::parse(room_id)?;
         let requests = self.runtime.block_on(self.inner.share_group_session(
             &room_id,
             users.iter().map(Deref::deref),
@@ -482,10 +500,10 @@ impl OlmMachine {
         event_type: &str,
         content: &str,
     ) -> Result<String, CryptoStoreError> {
-        let room_id = Box::<RoomId>::try_from(room_id)?;
+        let room_id = RoomId::parse(room_id)?;
         let content: Box<RawValue> = serde_json::from_str(content)?;
 
-        let content = AnyMessageEventContent::from_parts(event_type, &content)?;
+        let content = AnyMessageLikeEventContent::from_parts(event_type, &content)?;
         let encrypted_content = self
             .runtime
             .block_on(self.inner.encrypt(&room_id, content))
@@ -517,8 +535,8 @@ impl OlmMachine {
             content: &'a RawValue,
         }
 
-        let event: SyncMessageEvent<RoomEncryptedEventContent> = serde_json::from_str(event)?;
-        let room_id = Box::<RoomId>::try_from(room_id)?;
+        let event: SyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let room_id = RoomId::parse(room_id)?;
 
         let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(&event, &room_id))?;
 
@@ -555,8 +573,8 @@ impl OlmMachine {
         event: &str,
         room_id: &str,
     ) -> Result<KeyRequestPair, DecryptionError> {
-        let event: SyncMessageEvent<RoomEncryptedEventContent> = serde_json::from_str(event)?;
-        let room_id = Box::<RoomId>::try_from(room_id)?;
+        let event: SyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let room_id = RoomId::parse(room_id)?;
 
         let (cancel, request) =
             self.runtime.block_on(self.inner.request_room_key(&event, &room_id))?;
@@ -662,7 +680,7 @@ impl OlmMachine {
     /// Discard the currently active room key for the given room if there is
     /// one.
     pub fn discard_room_key(&self, room_id: &str) -> Result<(), CryptoStoreError> {
-        let room_id = Box::<RoomId>::try_from(room_id)?;
+        let room_id = RoomId::parse(room_id)?;
 
         self.runtime.block_on(self.inner.invalidate_group_session(&room_id))?;
 
@@ -676,7 +694,7 @@ impl OlmMachine {
     /// * `user_id` - The ID of the user for which we would like to fetch the
     /// verification requests.
     pub fn get_verification_requests(&self, user_id: &str) -> Vec<VerificationRequest> {
-        let user_id = if let Ok(user_id) = Box::<UserId>::try_from(user_id) {
+        let user_id = if let Ok(user_id) = UserId::parse(user_id) {
             user_id
         } else {
             return vec![];
@@ -699,7 +717,7 @@ impl OlmMachine {
         user_id: &str,
         flow_id: &str,
     ) -> Option<VerificationRequest> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
 
         self.inner.get_verification_request(&user_id, flow_id).map(|v| v.into())
     }
@@ -724,7 +742,7 @@ impl OlmMachine {
         flow_id: &str,
         methods: Vec<String>,
     ) -> Option<OutgoingVerificationRequest> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
         if let Some(verification) = self.inner.get_verification_request(&user_id, flow_id) {
@@ -791,8 +809,8 @@ impl OlmMachine {
         methods: Vec<String>,
     ) -> Result<Option<VerificationRequest>, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
-        let event_id = Box::<EventId>::try_from(event_id)?;
-        let room_id = Box::<RoomId>::try_from(room_id)?;
+        let event_id = EventId::parse(event_id)?;
+        let room_id = RoomId::parse(room_id)?;
 
         let identity = self.runtime.block_on(self.inner.get_identity(&user_id))?;
 
@@ -885,11 +903,12 @@ impl OlmMachine {
     ///
     /// * `flow_id` - The ID that uniquely identifies the verification flow.
     pub fn get_verification(&self, user_id: &str, flow_id: &str) -> Option<Verification> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
 
         self.inner.get_verification(&user_id, flow_id).map(|v| match v {
             RustVerification::SasV1(s) => Verification::SasV1 { sas: s.into() },
             RustVerification::QrV1(qr) => Verification::QrCodeV1 { qrcode: qr.into() },
+            _ => unreachable!(),
         })
     }
 
@@ -914,7 +933,7 @@ impl OlmMachine {
         flow_id: &str,
         cancel_code: &str,
     ) -> Option<OutgoingVerificationRequest> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
 
         if let Some(request) = self.inner.get_verification_request(&user_id, flow_id) {
             request.cancel().map(|r| r.into())
@@ -926,6 +945,7 @@ impl OlmMachine {
                 RustVerification::QrV1(v) => {
                     v.cancel_with_code(cancel_code.into()).map(|r| r.into())
                 }
+                _ => unreachable!(),
             }
         } else {
             None
@@ -954,16 +974,19 @@ impl OlmMachine {
         Ok(if let Some(verification) = self.inner.get_verification(&user_id, flow_id) {
             match verification {
                 RustVerification::SasV1(v) => {
-                    let (request, signature_request) = self.runtime.block_on(v.confirm())?;
+                    let (requests, signature_request) = self.runtime.block_on(v.confirm())?;
 
-                    request.map(|r| ConfirmVerificationResult {
-                        request: r.into(),
+                    let requests = requests.into_iter().map(|r| r.into()).collect();
+
+                    Some(ConfirmVerificationResult {
+                        requests,
                         signature_request: signature_request.map(|s| s.into()),
                     })
                 }
                 RustVerification::QrV1(v) => v.confirm_scanning().map(|r| {
-                    ConfirmVerificationResult { request: r.into(), signature_request: None }
+                    ConfirmVerificationResult { requests: vec![r.into()], signature_request: None }
                 }),
+                _ => unreachable!(),
             }
         } else {
             None
@@ -1015,7 +1038,7 @@ impl OlmMachine {
     ///
     /// [start_qr_verification()]: #method.start_qr_verification
     pub fn generate_qr_code(&self, user_id: &str, flow_id: &str) -> Option<String> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
         self.inner
             .get_verification(&user_id, flow_id)
             .and_then(|v| v.qr_v1().and_then(|qr| qr.to_bytes().map(encode).ok()))
@@ -1038,7 +1061,7 @@ impl OlmMachine {
     /// * `data` - The data that was extracted from the scanned QR code as an
     /// base64 encoded string, without padding.
     pub fn scan_qr_code(&self, user_id: &str, flow_id: &str, data: &str) -> Option<ScanResult> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
         let data = decode_config(data, STANDARD_NO_PAD).ok()?;
         let data = QrVerificationData::from_bytes(data).ok()?;
 
@@ -1128,7 +1151,7 @@ impl OlmMachine {
         user_id: &str,
         flow_id: &str,
     ) -> Option<OutgoingVerificationRequest> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
 
         self.inner
             .get_verification(&user_id, flow_id)
@@ -1150,7 +1173,7 @@ impl OlmMachine {
     ///
     /// * `flow_id` - The ID that uniquely identifies the verification flow.
     pub fn get_emoji_index(&self, user_id: &str, flow_id: &str) -> Option<Vec<i32>> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
 
         self.inner.get_verification(&user_id, flow_id).and_then(|s| {
             s.sas_v1()
@@ -1171,7 +1194,7 @@ impl OlmMachine {
     ///
     /// * `flow_id` - The ID that uniquely identifies the verification flow.
     pub fn get_decimals(&self, user_id: &str, flow_id: &str) -> Option<Vec<i32>> {
-        let user_id = Box::<UserId>::try_from(user_id).ok()?;
+        let user_id = UserId::parse(user_id).ok()?;
 
         self.inner.get_verification(&user_id, flow_id).and_then(|s| {
             s.sas_v1()
