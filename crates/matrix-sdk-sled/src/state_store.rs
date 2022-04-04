@@ -1090,7 +1090,7 @@ impl SledStore {
                 .get(room_id.encode())?
                 .map(|r| self.deserialize_event::<RoomInfo>(&r))
                 .transpose()?
-                .and_then(|info| info.base_info.create.map(|event| event.room_version))
+                .and_then(|info| info.room_version().cloned())
                 .unwrap_or_else(|| {
                     warn!("Unable to find the room version for {}, assume version 9", room_id);
                     RoomVersionId::V9
