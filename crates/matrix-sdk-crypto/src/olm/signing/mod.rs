@@ -82,14 +82,15 @@ impl ClearResult {
 /// The pickled version of a `PrivateCrossSigningIdentity`.
 ///
 /// Can be used to store the identity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledCrossSigningIdentity {
     /// The user id of the identity owner.
     pub user_id: Box<UserId>,
     /// Have the public keys of the identity been shared.
     pub shared: bool,
-    /// The encrypted pickle of the identity.
-    pub pickle: String,
+    /// The pickled signing keys
+    pub keys: PickledSignings,
 }
 
 /// Struct representing the state of our private cross signing keys, it shows
@@ -395,8 +396,7 @@ impl PrivateCrossSigningIdentity {
             .await
             .as_ref()
             .ok_or(SignatureError::MissingSigningKey)?
-            .sign_user(user_identity)
-            .await?;
+            .sign_user(user_identity)?;
 
         let mut user_signed_keys = SignedKeys::new();
         user_signed_keys.add_cross_signing_keys(
@@ -441,8 +441,7 @@ impl PrivateCrossSigningIdentity {
             .await
             .as_ref()
             .ok_or(SignatureError::MissingSigningKey)?
-            .sign_device(device_keys)
-            .await?;
+            .sign_device(device_keys)?;
 
         let mut user_signed_keys = SignedKeys::new();
         user_signed_keys.add_device_keys(device_keys.device_id.clone(), device_keys.to_raw());
@@ -458,8 +457,7 @@ impl PrivateCrossSigningIdentity {
             .await
             .as_ref()
             .ok_or(SignatureError::MissingSigningKey)?
-            .sign(message)
-            .await)
+            .sign(message))
     }
 
     /// Create a new identity for the given Olm Account.
@@ -502,14 +500,14 @@ impl PrivateCrossSigningIdentity {
     async fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
         let user = Signing::new();
         let mut public_key = user.cross_signing_key(user_id.to_owned(), KeyUsage::UserSigning);
-        master.sign_subkey(&mut public_key).await;
+        master.sign_subkey(&mut public_key);
 
         let user = UserSigning { inner: user, public_key: public_key.into() };
 
         let self_signing = Signing::new();
         let mut public_key =
             self_signing.cross_signing_key(user_id.to_owned(), KeyUsage::SelfSigning);
-        master.sign_subkey(&mut public_key).await;
+        master.sign_subkey(&mut public_key);
 
         let self_signing = SelfSigning { inner: self_signing, public_key: public_key.into() };
 
@@ -568,32 +566,18 @@ impl PrivateCrossSigningIdentity {
     ///
     /// This will panic if the provided pickle key isn't 32 bytes long.
     pub async fn pickle(&self) -> Result<PickledCrossSigningIdentity, JsonError> {
-        let master_key = if let Some(m) = self.master_key.lock().await.as_ref() {
-            Some(m.pickle().await)
-        } else {
-            None
-        };
+        let master_key = self.master_key.lock().await.as_ref().map(|m| m.pickle());
 
-        let self_signing_key = if let Some(m) = self.self_signing_key.lock().await.as_ref() {
-            Some(m.pickle().await)
-        } else {
-            None
-        };
+        let self_signing_key = self.self_signing_key.lock().await.as_ref().map(|m| m.pickle());
 
-        let user_signing_key = if let Some(m) = self.user_signing_key.lock().await.as_ref() {
-            Some(m.pickle().await)
-        } else {
-            None
-        };
+        let user_signing_key = self.user_signing_key.lock().await.as_ref().map(|m| m.pickle());
 
-        let pickle = PickledSignings { master_key, user_signing_key, self_signing_key };
-
-        let pickle = serde_json::to_string(&pickle)?;
+        let keys = PickledSignings { master_key, user_signing_key, self_signing_key };
 
         Ok(PickledCrossSigningIdentity {
             user_id: self.user_id.as_ref().to_owned(),
             shared: self.shared(),
-            pickle,
+            keys,
         })
     }
 
@@ -603,13 +587,11 @@ impl PrivateCrossSigningIdentity {
     ///
     /// Panics if the pickle_key isn't 32 bytes long.
     pub async fn from_pickle(pickle: PickledCrossSigningIdentity) -> Result<Self, SigningError> {
-        let signings: PickledSignings = serde_json::from_str(&pickle.pickle)?;
+        let keys = pickle.keys;
 
-        let master = signings.master_key.map(MasterSigning::from_pickle).transpose()?;
-
-        let self_signing = signings.self_signing_key.map(SelfSigning::from_pickle).transpose()?;
-
-        let user_signing = signings.user_signing_key.map(UserSigning::from_pickle).transpose()?;
+        let master = keys.master_key.map(MasterSigning::from_pickle).transpose()?;
+        let self_signing = keys.self_signing_key.map(SelfSigning::from_pickle).transpose()?;
+        let user_signing = keys.user_signing_key.map(UserSigning::from_pickle).transpose()?;
 
         Ok(Self {
             user_id: pickle.user_id.into(),
@@ -651,20 +633,20 @@ mod test {
         user_id!("@example:localhost")
     }
 
-    #[async_test]
-    async fn signature_verification() {
+    #[test]
+    fn signature_verification() {
         let signing = Signing::new();
 
         let message = "Hello world";
 
-        let signature = signing.sign(message).await;
-        assert!(signing.verify(message, &signature).await.is_ok());
+        let signature = signing.sign(message);
+        assert!(signing.verify(message, &signature).is_ok());
     }
 
-    #[async_test]
-    async fn pickling_signing() {
+    #[test]
+    fn pickling_signing() {
         let signing = Signing::new();
-        let pickled = signing.pickle().await;
+        let pickled = signing.pickle();
 
         let unpickled = Signing::from_pickle(pickled).unwrap();
 
@@ -729,7 +711,7 @@ mod test {
         let self_signing = self_signing.as_ref().unwrap();
 
         let mut device_keys = device.as_device_keys().to_owned();
-        self_signing.sign_device(&mut device_keys).await.unwrap();
+        self_signing.sign_device(&mut device_keys).unwrap();
         device.update_device(&device_keys).unwrap();
 
         let public_key = &self_signing.public_key;
@@ -748,7 +730,7 @@ mod test {
         let user_signing = identity.user_signing_key.lock().await;
         let user_signing = user_signing.as_ref().unwrap();
 
-        let master = user_signing.sign_user(&bob_public).await.unwrap();
+        let master = user_signing.sign_user(&bob_public).unwrap();
 
         let num_signatures: usize = master.signatures.iter().map(|(_, u)| u.len()).sum();
         assert_eq!(num_signatures, 1, "We're only uploading our own signature");

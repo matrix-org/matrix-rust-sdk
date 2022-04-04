@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
+use std::{collections::BTreeMap, convert::TryInto};
 
 use ruma::{
     encryption::KeyUsage, serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId,
@@ -46,9 +46,9 @@ pub enum SigningError {
     Json(#[from] JsonError),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Signing {
-    inner: Arc<Ed25519SecretKey>,
+    inner: Ed25519SecretKey,
     public_key: Ed25519PublicKey,
 }
 
@@ -64,46 +64,36 @@ impl PartialEq for Signing {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct InnerPickle {
-    version: u8,
-    nonce: String,
-    ciphertext: String,
-}
-
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct MasterSigning {
     pub inner: Signing,
     pub public_key: MasterPubkey,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledMasterSigning {
     pickle: PickledSigning,
     public_key: CrossSigningKey,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledUserSigning {
     pickle: PickledSigning,
     public_key: CrossSigningKey,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledSelfSigning {
     pickle: PickledSigning,
     public_key: CrossSigningKey,
 }
 
-impl PickledSigning {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 impl MasterSigning {
-    pub async fn pickle(&self) -> PickledMasterSigning {
-        let pickle = self.inner.pickle().await;
+    pub fn pickle(&self) -> PickledMasterSigning {
+        let pickle = self.inner.pickle();
         let public_key = self.public_key.as_ref().clone();
         PickledMasterSigning { pickle, public_key }
     }
@@ -125,14 +115,13 @@ impl MasterSigning {
         Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 
-    pub async fn sign(&self, message: &str) -> Ed25519Signature {
-        self.inner.sign(message).await
+    pub fn sign(&self, message: &str) -> Ed25519Signature {
+        self.inner.sign(message)
     }
 
-    pub async fn sign_subkey(&self, subkey: &mut CrossSigningKey) {
+    pub fn sign_subkey(&self, subkey: &mut CrossSigningKey) {
         let json_subkey = serde_json::to_value(&subkey).expect("Can't serialize cross signing key");
-        let signature =
-            self.inner.sign_json(json_subkey).await.expect("Can't sign cross signing keys");
+        let signature = self.inner.sign_json(json_subkey).expect("Can't sign cross signing keys");
 
         subkey
             .signatures
@@ -149,8 +138,8 @@ impl MasterSigning {
 }
 
 impl UserSigning {
-    pub async fn pickle(&self) -> PickledUserSigning {
-        let pickle = self.inner.pickle().await;
+    pub fn pickle(&self) -> PickledUserSigning {
+        let pickle = self.inner.pickle();
         let public_key = self.public_key.as_ref().clone();
         PickledUserSigning { pickle, public_key }
     }
@@ -166,11 +155,11 @@ impl UserSigning {
         Ok(Self { inner, public_key })
     }
 
-    pub async fn sign_user(
+    pub fn sign_user(
         &self,
         user: &ReadOnlyUserIdentity,
     ) -> Result<CrossSigningKey, SignatureError> {
-        let signatures = self.sign_user_helper(user).await?;
+        let signatures = self.sign_user_helper(user)?;
         let mut master_key = user.master_key().as_ref().clone();
 
         master_key.signatures = signatures;
@@ -178,12 +167,12 @@ impl UserSigning {
         Ok(master_key)
     }
 
-    pub async fn sign_user_helper(
+    pub fn sign_user_helper(
         &self,
         user: &ReadOnlyUserIdentity,
     ) -> Result<CrossSigningKeySignatures, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
-        let signature = self.inner.sign_json(serde_json::to_value(user_master)?).await?;
+        let signature = self.inner.sign_json(serde_json::to_value(user_master)?)?;
 
         let mut signatures = BTreeMap::new();
 
@@ -209,8 +198,8 @@ impl UserSigning {
 }
 
 impl SelfSigning {
-    pub async fn pickle(&self) -> PickledSelfSigning {
-        let pickle = self.inner.pickle().await;
+    pub fn pickle(&self) -> PickledSelfSigning {
+        let pickle = self.inner.pickle();
         let public_key = self.public_key.as_ref().clone();
         PickledSelfSigning { pickle, public_key }
     }
@@ -226,15 +215,12 @@ impl SelfSigning {
         Ok(Self { inner, public_key })
     }
 
-    pub async fn sign_device_helper(
-        &self,
-        value: Value,
-    ) -> Result<Ed25519Signature, SignatureError> {
-        self.inner.sign_json(value).await
+    pub fn sign_device_helper(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+        self.inner.sign_json(value)
     }
 
-    pub async fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
-        let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?).await?;
+    pub fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
+        let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?)?;
 
         device_keys
             .signatures
@@ -258,27 +244,28 @@ impl SelfSigning {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct SelfSigning {
     pub inner: Signing,
     pub public_key: SelfSigningPubkey,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct UserSigning {
     pub inner: Signing,
     pub public_key: UserSigningPubkey,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledSignings {
     pub master_key: Option<PickledMasterSigning>,
     pub user_signing_key: Option<PickledUserSigning>,
     pub self_signing_key: Option<PickledSelfSigning>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PickledSigning(String);
+#[derive(Serialize, Deserialize)]
+pub struct PickledSigning(Ed25519SecretKey);
 
 impl Signing {
     pub fn new() -> Self {
@@ -289,7 +276,7 @@ impl Signing {
     fn new_helper(secret_key: Ed25519SecretKey) -> Self {
         let public_key = secret_key.public_key();
 
-        Signing { inner: Arc::new(secret_key), public_key }
+        Signing { inner: secret_key, public_key }
     }
 
     pub fn from_base64(key: &str) -> Result<Self, KeyError> {
@@ -302,12 +289,14 @@ impl Signing {
     }
 
     pub fn from_pickle(pickle: PickledSigning) -> Result<Self, SigningError> {
-        let secret_key: Ed25519SecretKey = serde_json::from_str(pickle.as_str())?;
-        Ok(Self::new_helper(secret_key))
+        Ok(Self::new_helper(pickle.0))
     }
 
-    pub async fn pickle(&self) -> PickledSigning {
-        PickledSigning(serde_json::to_string(&self.inner).expect("Can't serialize signing key"))
+    pub fn pickle(&self) -> PickledSigning {
+        PickledSigning(
+            Ed25519SecretKey::from_slice(self.inner.as_bytes())
+                .expect("Copying the private key should work"),
+        )
     }
 
     pub fn public_key(&self) -> Ed25519PublicKey {
@@ -327,7 +316,7 @@ impl Signing {
     }
 
     #[cfg(test)]
-    pub async fn verify(
+    pub fn verify(
         &self,
         message: &str,
         signature: &Ed25519Signature,
@@ -335,7 +324,7 @@ impl Signing {
         Ok(self.public_key.verify(message.as_bytes(), signature)?)
     }
 
-    pub async fn sign_json(&self, mut json: Value) -> Result<Ed25519Signature, SignatureError> {
+    pub fn sign_json(&self, mut json: Value) -> Result<Ed25519Signature, SignatureError> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let _ = json_object.remove("signatures");
         let _ = json_object.remove("unsigned");
@@ -343,10 +332,10 @@ impl Signing {
         let canonical_json: CanonicalJsonValue =
             json.try_into().expect("Can't canonicalize the json value");
 
-        Ok(self.sign(&canonical_json.to_string()).await)
+        Ok(self.sign(&canonical_json.to_string()))
     }
 
-    pub async fn sign(&self, message: &str) -> Ed25519Signature {
+    pub fn sign(&self, message: &str) -> Ed25519Signature {
         self.inner.sign(message.as_bytes())
     }
 }
