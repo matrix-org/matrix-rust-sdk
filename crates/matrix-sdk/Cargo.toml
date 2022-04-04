@@ -31,6 +31,7 @@ js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
 sled = ["dep:matrix-sdk-sled", "matrix-sdk-sled?/state-store"]
 indexeddb = ["dep:matrix-sdk-indexeddb"]
+redis = ["dep:matrix-sdk-redis", "matrix-sdk-redis?/crypto-store"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 markdown = ["ruma/markdown"]
@@ -52,6 +53,7 @@ sliding-sync = [
 docsrs = [
     "e2e-encryption",
     "sled",
+    "redis",
     "sso-login",
     "qrcode",
     "image-proc",
@@ -76,6 +78,7 @@ hyper = { version = "0.14.20", features = ["http1", "http2", "server"], optional
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
+matrix-sdk-redis = { version = "0.1.0", path = "../matrix-sdk-redis", default-features = false, optional = true }
 matrix-sdk-sled = { version = "0.2.0", path = "../matrix-sdk-sled", default-features = false, optional = true }
 mime = "0.3.16"
 rand = { version = "0.8.5", optional = true }
