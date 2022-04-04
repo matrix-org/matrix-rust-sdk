@@ -18,7 +18,8 @@ use ruma::{
     events::{
         room::{history_visibility::HistoryVisibility, MediaSource},
         tag::{TagInfo, TagName},
-        AnyStateEvent, AnySyncStateEvent, EventContent, StateEventType, StaticEventContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EventContent,
+        RoomAccountDataEvent, RoomAccountDataEventType, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
     serde::Raw,
@@ -704,6 +705,41 @@ impl Common {
         C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         Ok(self.get_state_event(C::TYPE.into(), state_key).await?.map(Raw::cast))
+    }
+
+    /// Get account data in this room.
+    pub async fn account_data(
+        &self,
+        data_type: RoomAccountDataEventType,
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
+        self.client
+            .store()
+            .get_room_account_data_event(self.room_id(), data_type)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Get account data of statically-known type in this room.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
+    ///
+    /// match room.account_data_static::<FullyReadEventContent>().await? {
+    ///     Some(fully_read) => println!("Found read marker: {:?}", fully_read.deserialize()?),
+    ///     None => println!("No read marker for this room"),
+    /// }
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn account_data_static<C>(&self) -> Result<Option<Raw<RoomAccountDataEvent<C>>>>
+    where
+        C: StaticEventContent + EventContent<EventType = RoomAccountDataEventType>,
+    {
+        Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast))
     }
 
     /// Check if all members of this room are verified and all their devices are
