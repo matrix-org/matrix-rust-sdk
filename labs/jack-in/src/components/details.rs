@@ -77,7 +77,8 @@ impl Details {
         state_events_counts.sort_by_key(|(_, count)| *count);
 
         let mut timeline: Vec<AnyRoomEvent> = room_data
-            .timeline
+            .timeline()
+            .lock_ref()
             .iter()
             .filter_map(|d| d.deserialize().ok())
             .map(|e| e.into_full_event(room_id.clone()))

@@ -39,7 +39,7 @@ use matrix_sdk_common::locks::RwLock;
 //     task::Poll
 // };
 use ruma::{
-    api::client::sync::sliding_sync_events, assign, events::EventType, serde::Raw, RoomId, UInt,
+    api::client::sync::sliding_sync_events, assign, events::{EventType, AnySyncRoomEvent}, serde::Raw, RoomId, UInt,
 };
 use tracing::{error, info, instrument, warn};
 use url::Url;
@@ -114,13 +114,63 @@ impl RoomListEntry {
     }
 }
 
+pub type AliveRoomTimeline = Arc<futures_signals::signal_vec::MutableVec<Raw<AnySyncRoomEvent>>>;
+
 impl Default for RoomListEntry {
     fn default() -> Self {
         RoomListEntry::Empty
     }
 }
+
+
+#[derive(Debug, Clone)]
 /// Room info as giving by the SlidingSync Feature
-pub type SlidingSyncRoom = sliding_sync_events::Room;
+pub struct SlidingSyncRoom {
+    inner: sliding_sync_events::Room,
+    is_loading_more: futures_signals::signal::Mutable<bool>,
+    prev_batch: futures_signals::signal::Mutable<Option<String>>,
+    timeline: AliveRoomTimeline,
+}
+
+impl SlidingSyncRoom {
+    pub fn timeline(&self) -> AliveRoomTimeline {
+        self.timeline.clone()
+    }
+    pub fn name(&self) -> &Option<String> {
+        &self.inner.name
+    }
+    pub fn received_newer_timeline(&self, items: &Vec<Raw<AnySyncRoomEvent>>) {
+        let mut timeline = self.timeline.lock_mut();
+        for e in items {
+            timeline.push_cloned(e.clone());
+        }
+    }
+}
+
+impl std::ops::Deref for SlidingSyncRoom {
+    type Target = sliding_sync_events::Room;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl From<sliding_sync_events::Room> for SlidingSyncRoom {
+    fn from(mut inner: sliding_sync_events::Room) -> Self {
+        let sliding_sync_events::Room {
+            timeline,
+            ..
+        } =  inner;
+        // we overwrite to only keep one copy
+        inner.timeline = vec![];
+        Self {
+            is_loading_more: futures_signals::signal::Mutable::new(false),
+            prev_batch: futures_signals::signal::Mutable::new(inner.prev_batch.clone()),
+            timeline: Arc::new(futures_signals::signal_vec::MutableVec::new_with_values(timeline)),
+            inner,
+        }
+    }
+}
+
 
 type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
 type SyncMode = futures_signals::signal::Mutable<SlidingSyncMode>;
@@ -145,7 +195,7 @@ use derive_builder::Builder;
 pub struct UpdateSummary {
     /// The views (according to their name), which have seen an update
     pub views: Option<Vec<String>>,
-    pub rooms: Option<BTreeMap<Box<RoomId>, sliding_sync_events::Room>>,
+    pub rooms: Vec<Box<RoomId>>,
 }
 
 #[derive(Clone, Debug, Builder)]
@@ -166,6 +216,10 @@ pub struct SlidingSync {
 
     #[builder(private, default)]
     unsubscribe: RoomUnsubscribe,
+
+    /// The rooms details
+    #[builder(private, default)]
+    rooms: RoomsMap,
 }
 
 impl SlidingSyncBuilder {
@@ -190,13 +244,19 @@ impl SlidingSyncBuilder {
     }
 
     /// Add the given view to the list of views
-    pub fn add_view(&mut self, v: SlidingSyncView) -> &mut Self {
+    pub fn add_view(&mut self, mut v: SlidingSyncView) -> &mut Self {
         let mut new = self;
+
+        let rooms = new.rooms.clone().unwrap_or_default();
+        new.rooms = Some(rooms.clone());
+        v.rooms = rooms;
+
         let mut views = new.views.clone().unwrap_or_default();
         views.lock_mut().push_cloned(v);
         new.views = Some(views);
         new
     }
+
 }
 
 impl SlidingSync {
@@ -283,7 +343,25 @@ impl SlidingSync {
 
         let views = if updated_views.is_empty() { None } else { Some(updated_views) };
 
-        Ok(UpdateSummary { views, rooms: resp.room_subscriptions })
+        let rooms  = if let Some(subs) = &resp.room_subscriptions {
+            let mut updated = Vec::new();
+            let mut rooms = self.rooms.lock_mut();
+            for (id, room_data) in subs.iter() {
+                if let Some(r) = rooms.get(id) {
+                    // FIXME: other updates
+                    if !room_data.timeline.is_empty() {
+                        r.received_newer_timeline(&room_data.timeline);
+                        updated.push(id.clone())
+                    }
+                }
+            }
+            updated
+        } else {
+            Vec::new()
+        };
+
+
+        Ok(UpdateSummary { views, rooms })
     }
 
     /// Create the inner stream for the view
@@ -602,8 +680,8 @@ impl SlidingSyncView {
             .skip(start)
             .filter_map(|id| id.as_ref())
             .filter_map(|id| rooms.get(id))
+            .map(|r| r.inner.clone())
             .take(count)
-            .cloned()
             .collect()
     }
 
@@ -616,13 +694,13 @@ impl SlidingSyncView {
                 for room in rooms {
                     let r: Box<RoomId> =
                         room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
-                    rooms_map.insert_cloned(r.clone(), room.clone());
+                    rooms_map.insert_cloned(r.clone(), room.clone().into());
                     room_ids.push(r);
                 }
             } else if let Some(room) = &op.room { // Insert specific 
                 let r: Box<RoomId> =
                     room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
-                rooms_map.insert_cloned(r.clone(), room.clone());
+                rooms_map.insert_cloned(r.clone(), room.clone().into());
                 room_ids.push(r);
             }
 
