@@ -160,3 +160,7 @@ required-features = ["encryption"]
 [[example]]
 name = "emoji_verification"
 required-features = ["encryption"]
+
+[[example]]
+name = "timeline"
+required-features = ["sled-state-store"]
