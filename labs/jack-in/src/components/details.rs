@@ -1,14 +1,15 @@
 use std::collections::BTreeMap;
 
-use matrix_sdk_common::ruma::{events::AnyRoomEvent, RoomId};
+use matrix_sdk_common::ruma::{events::{AnyRoomEvent, AnyMessageLikeEvent}, RoomId};
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
     props::{Alignment, Borders, Color, Style, TextModifiers},
     tui::{
-        layout::{Constraint, Rect},
+        layout::{Constraint, Rect, Layout, Direction},
         style::Modifier,
-        widgets::{Cell, Row, Table, TableState},
+        text::Spans,
+        widgets::{Cell, Row, Table, Tabs, List, ListItem, ListState},
     },
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
@@ -20,7 +21,7 @@ use log::warn;
 pub struct Details {
     props: Props,
     sstate: SlidingSyncState,
-    tablestate: TableState,
+    liststate: ListState,
     name: Option<String>,
     state_events_counts: Vec<(String, usize)>,
     current_room_timeline: Vec<AnyRoomEvent>,
@@ -31,7 +32,7 @@ impl Details {
         Self {
             props: Props::default(),
             sstate,
-            tablestate: Default::default(),
+            liststate: Default::default(),
             name: None,
             state_events_counts: Default::default(),
             current_room_timeline: Default::default(),
@@ -89,8 +90,8 @@ impl Details {
     }
 
     pub fn select_dir(&mut self, count: i32) {
-        let total = (self.state_events_counts.len() + self.current_room_timeline.len() + 2) as i32;
-        let current = self.tablestate.selected().unwrap_or_default() as i32;
+        let total = self.current_room_timeline.len() as i32;
+        let current = self.liststate.selected().unwrap_or_default() as i32;
         let next = {
             let next = current + count;
             if next >= total {
@@ -101,7 +102,7 @@ impl Details {
                 next
             }
         };
-        self.tablestate.select(Some(next.try_into().unwrap_or_default()));
+        self.liststate.select(Some(next.try_into().unwrap_or_default()));
     }
 
     pub fn borders(mut self, b: Borders) -> Self {
@@ -112,58 +113,99 @@ impl Details {
 
 impl MockComponent for Details {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-        let title = ("Details".to_owned(), Alignment::Center);
-
-        let borders = self
-            .props
-            .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
-            .unwrap_borders();
-        let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
 
         if self.name.is_none() {
             self.refresh_data();
         }
 
-        if let Some(name) = &self.name {
-            let mut details = vec![Row::new(vec![Cell::from("-- Status Events"), Cell::from("(count of events)")])];
+        let borders = self
+            .props
+            .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
+            .unwrap_borders();
 
-            for (title, count) in &self.state_events_counts {
-                details.push(Row::new(vec![
-                    Cell::from(title.clone()),
-                    Cell::from(format!("{}", count)),
-                ]))
-            }
-
-            details.push(Row::new(vec![Cell::from("-- Timeline"), Cell::from("(latest first):")]));
-
-            for e in self.current_room_timeline.iter() {
-                details.push(Row::new(vec![
-                    Cell::from(e.sender().as_str().to_owned()),
-                    Cell::from(format!("{:?}", e)),
-                ]))
-            }
-
-            frame.render_stateful_widget(
-                Table::new(details)
-                    .style(Style::default().fg(Color::White))
-                    .widths(&[Constraint::Min(30), Constraint::Min(50)])
-                    .highlight_style(
-                        Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC),
-                    )
-                    .highlight_symbol(">>")
-                    .block(get_block(borders, (name.clone(), Alignment::Left), focus)),
-                area,
-                &mut self.tablestate,
-            );
+        let name = if let Some(name) = &self.name {
+            name.clone()
         } else {
+            // still empty
             frame.render_widget(
                 Table::new(vec![Row::new(vec![Cell::from(
                     "Choose a room with up/down and press <enter> to select",
                 )])])
-                .block(get_block(borders, title, focus)),
+                .block(get_block(borders, ("".to_owned(), Alignment::Left), false)),
                 area,
             );
+            return;
+        };
+
+        let mut areas = vec![
+            Constraint::Length(3), // Events
+            Constraint::Min(10),   // Timeline
+        ];
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints(areas)
+            .split(area);
+
+        let events_title = ("Events".to_owned(), Alignment::Left);
+
+        let events_borders = self
+            .props
+            .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
+            .unwrap_borders();
+
+        let mut tabs = vec![];
+
+        for (title, count) in &self.state_events_counts {
+            tabs.push(Spans::from(format!("{}: {}", title.clone(), count)));
         }
+
+        frame.render_widget(
+            Tabs::new(tabs)
+                .style(Style::default().fg(Color::LightCyan))
+                .block(get_block(events_borders, events_title, false))
+                .style(Style::default().fg(Color::White).bg(Color::Black)),
+            chunks[0],
+        );
+
+        let title = (name, Alignment::Left);
+        let focus = self.props.get_or(Attribute::Focus, AttrValue::Flag(false)).unwrap_flag();
+
+        let mut details = vec![];
+
+        for e in self.current_room_timeline.iter() {
+            let body = {
+                match e {
+                    AnyRoomEvent::MessageLike(m) => {
+                        if let AnyMessageLikeEvent::RoomMessage(m) = m {
+                            m.content.body().to_owned()
+                        } else {
+                            m.event_type().to_string()
+                        }
+                    }
+                    AnyRoomEvent::State(s) => {
+                        s.event_type().to_string()
+                    }
+                    AnyRoomEvent::RedactedMessageLike(_) | AnyRoomEvent::RedactedState(_) => {
+                        "Redaction".to_owned()
+                    }
+                }
+            };
+            details.push(ListItem::new(format!("[{}] {}: {}", e.origin_server_ts().as_secs(), e.sender().as_str(), body)));
+        }
+
+        frame.render_stateful_widget(
+            List::new(details)
+                .style(Style::default().fg(Color::White))
+                .highlight_style(
+                    Style::default().fg(Color::LightCyan).add_modifier(Modifier::ITALIC),
+                )
+                .highlight_symbol(">>")
+                .block(get_block(borders, title, focus)),
+            chunks[1],
+            &mut self.liststate,
+        );
     }
 
     fn query(&self, attr: Attribute) -> Option<AttrValue> {
