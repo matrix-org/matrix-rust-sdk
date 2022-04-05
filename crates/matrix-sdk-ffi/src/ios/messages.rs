@@ -3,7 +3,13 @@ use std::sync::Arc;
 use matrix_sdk::{
     deserialized_responses::SyncRoomEvent,
     ruma::{
-        events::{room::message::{MessageType, MessageFormat}, AnySyncMessageEvent, AnySyncRoomEvent},
+        events::{
+            room::{
+                MediaSource,
+                message::{MessageType, MessageFormat, ImageMessageEventContent},
+            },
+            AnySyncMessageLikeEvent, AnySyncRoomEvent,
+        },
         MxcUri,
     },
 };
@@ -125,7 +131,7 @@ impl AnyMessage {
 
 pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage>> {
     match sync_event.event.deserialize() {
-        Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) => {
+        Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(m))) => {
             let base_message = Arc::new(BaseMessage {
                 id: m.event_id.to_string(),
                 body: m.content.body().to_string(),
@@ -134,10 +140,10 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
             });
 
             match m.content.msgtype {
-                MessageType::Image(content) => {
+                MessageType::Image(ImageMessageEventContent { source: MediaSource::Plain(url), ..}) => {
                     let any_message = AnyMessage {
                         text: None,
-                        image: Some(Arc::new(ImageMessage { base_message, url: content.url })),
+                        image: Some(Arc::new(ImageMessage { base_message, url: Some(url) })),
                         notice: None,
                         emote: None
                     };

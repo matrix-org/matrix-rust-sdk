@@ -26,7 +26,7 @@ uniffi_build = { version = "0.17.0",  features = [ "builtin-bindgen" ]}
 [dependencies]
 uniffi = { version = "0.17.0" }
 uniffi_macros = { version = "0.17.0" }
-matrix-sdk = { path = "../matrix-sdk", default-features = false, features = ["sled_state_store", "native-tls"] }
+matrix-sdk = { path = "../matrix-sdk", default-features = false, features = ["sled-state-store", "native-tls"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros"] }
 sanitize-filename-reader-friendly = "2.2.1"
 anyhow = "1.0.51"

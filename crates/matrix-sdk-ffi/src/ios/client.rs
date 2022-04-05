@@ -4,12 +4,13 @@ use anyhow::Result;
 
 use matrix_sdk::{
     config::SyncSettings,
-    media::{MediaFormat, MediaRequest, MediaType},
+    media::{MediaFormat, MediaRequest},
     ruma::{
         api::client::{
             filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
             sync::sync_events::v3::Filter,
         },
+        events::room::MediaSource,
         MxcUri,
     },
     Client as MatrixClient, LoopCtrl,
@@ -159,7 +160,7 @@ impl Client {
 
         RUNTIME.block_on(async move {
             Ok(l.get_media_content(
-                &MediaRequest { media_type: MediaType::Uri(uri), format: MediaFormat::File },
+                &MediaRequest { source: MediaSource::Plain(uri), format: MediaFormat::File },
                 true,
             )
             .await?)
