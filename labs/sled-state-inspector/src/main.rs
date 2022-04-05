@@ -79,8 +79,8 @@ impl InspectorHelper {
         rooms
             .into_iter()
             .map(|r| Pair {
-                display: r.room_id.to_string(),
-                replacement: format!("{} ", r.room_id),
+                display: r.room_id().to_string(),
+                replacement: format!("{} ", r.room_id()),
             })
             .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()

@@ -24,30 +24,30 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub avatar_url: Option<Box<MxcUri>>,
+    pub(crate) avatar_url: Option<Box<MxcUri>>,
     /// The canonical alias of this room.
-    pub canonical_alias: Option<Box<RoomAliasId>>,
+    pub(crate) canonical_alias: Option<Box<RoomAliasId>>,
     /// The `m.room.create` event content of this room.
-    pub create: Option<RoomCreateEventContent>,
+    pub(crate) create: Option<RoomCreateEventContent>,
     /// The user id this room is sharing the direct message with, if the room is
     /// a direct message.
-    pub dm_target: Option<Box<UserId>>,
+    pub(crate) dm_target: Option<Box<UserId>>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
-    pub encryption: Option<RoomEncryptionEventContent>,
+    pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    pub guest_access: GuestAccess,
+    pub(crate) guest_access: GuestAccess,
     /// The history visibility policy of this room.
-    pub history_visibility: HistoryVisibility,
+    pub(crate) history_visibility: HistoryVisibility,
     /// The join rule policy of this room.
-    pub join_rule: JoinRule,
+    pub(crate) join_rule: JoinRule,
     /// The maximal power level that can be found in this room.
-    pub max_power_level: i64,
+    pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    pub name: Option<String>,
+    pub(crate) name: Option<String>,
     /// The `m.room.tombstone` event content of this room.
-    pub tombstone: Option<RoomTombstoneEventContent>,
+    pub(crate) tombstone: Option<RoomTombstoneEventContent>,
     /// The topic of this room.
-    pub topic: Option<String>,
+    pub(crate) topic: Option<String>,
 }
 
 impl BaseRoomInfo {

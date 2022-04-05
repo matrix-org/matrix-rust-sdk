@@ -34,7 +34,7 @@ use ruma::{
     },
     receipt::ReceiptType,
     room::RoomType as CreateRoomType,
-    EventId, MxcUri, RoomAliasId, RoomId, UserId,
+    EventId, MxcUri, RoomAliasId, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -595,20 +595,20 @@ impl Room {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomInfo {
     /// The unique room id of the room.
-    pub room_id: Arc<RoomId>,
+    pub(crate) room_id: Arc<RoomId>,
     /// The type of the room.
-    pub room_type: RoomType,
+    pub(crate) room_type: RoomType,
     /// The unread notifications counts.
-    pub notification_counts: UnreadNotificationsCount,
+    pub(crate) notification_counts: UnreadNotificationsCount,
     /// The summary of this room.
-    pub summary: RoomSummary,
+    pub(crate) summary: RoomSummary,
     /// Flag remembering if the room members are synced.
-    pub members_synced: bool,
+    pub(crate) members_synced: bool,
     /// The prev batch of this room we received during the last sync.
-    pub last_prev_batch: Option<String>,
+    pub(crate) last_prev_batch: Option<String>,
     /// Base room info which holds some basic event contents important for the
     /// room state.
-    pub base_info: BaseRoomInfo,
+    pub(crate) base_info: BaseRoomInfo,
 }
 
 impl RoomInfo {
@@ -697,5 +697,15 @@ impl RoomInfo {
     /// The return value is saturated at `u64::MAX`.
     pub fn active_members_count(&self) -> u64 {
         self.summary.joined_member_count.saturating_add(self.summary.invited_member_count)
+    }
+
+    /// Get the room ID of this room.
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
+    /// Get the room version of this room.
+    pub fn room_version(&self) -> Option<&RoomVersionId> {
+        self.base_info.create.as_ref().map(|c| &c.room_version)
     }
 }
