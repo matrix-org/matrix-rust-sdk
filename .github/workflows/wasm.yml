@@ -34,6 +34,8 @@ jobs:
             cmd: matrix-sdk-no-default
           - name: matrix-sdk / indexeddb_stores
             cmd: matrix-sdk-indexeddb-stores
+          - name: matrix-sdk / wasm-example
+            cmd: matrix-sdk-command-bot
 
     steps:
     - name: Checkout the repo
