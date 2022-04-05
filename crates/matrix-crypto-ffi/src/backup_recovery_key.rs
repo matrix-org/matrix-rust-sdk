@@ -9,10 +9,11 @@ use pbkdf2::pbkdf2;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sha2::Sha512;
 use thiserror::Error;
+use zeroize::Zeroize;
 
 /// The private part of the backup key, the one used for recovery.
 pub struct BackupRecoveryKey {
-    pub(crate) inner: RecoveryKey,
+    inner: RecoveryKey,
     passphrase_info: Option<PassphraseInfo>,
 }
 
@@ -97,13 +98,17 @@ impl BackupRecoveryKey {
 
     /// Restore a [`BackupRecoveryKey`] from the given passphrase.
     pub fn from_passphrase(passphrase: String, salt: String, rounds: i32) -> Self {
-        let mut key = [0u8; Self::KEY_SIZE];
+        let mut key = Box::new([0u8; Self::KEY_SIZE]);
         let rounds = rounds as u32;
 
-        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, &mut key);
+        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, &mut *key);
+
+        let recovery_key = RecoveryKey::from_bytes(&key);
+
+        key.zeroize();
 
         Self {
-            inner: RecoveryKey::from_bytes(key),
+            inner: recovery_key,
             passphrase_info: Some(PassphraseInfo {
                 private_key_salt: salt,
                 private_key_iterations: rounds as i32,

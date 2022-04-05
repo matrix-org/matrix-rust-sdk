@@ -101,8 +101,20 @@ impl RecoveryKey {
     /// **Warning**: You need to make sure that the byte array contains correct
     /// random data, either by using a random number generator or by using an
     /// exported version of a previously created [`RecoveryKey`].
-    pub fn from_bytes(key: [u8; Self::KEY_SIZE]) -> Self {
+    pub fn from_bytes(key: &[u8; Self::KEY_SIZE]) -> Self {
+        let mut inner = Box::new([0u8; Self::KEY_SIZE]);
+        inner.copy_from_slice(key);
+
+        Self::from_boxed_bytes(inner)
+    }
+
+    fn from_boxed_bytes(key: Box<[u8; Self::KEY_SIZE]>) -> Self {
         Self { inner: key }
+    }
+
+    /// Get the recovery key as a raw byte representation.
+    pub fn as_bytes(&self) -> &[u8; Self::KEY_SIZE] {
+        &self.inner
     }
 
     /// Try to create a [`RecoveryKey`] from a base64 export of a `RecoveryKey`.
@@ -112,10 +124,10 @@ impl RecoveryKey {
         if decoded.len() != Self::KEY_SIZE {
             Err(DecodeError::Length(decoded.len(), Self::KEY_SIZE))
         } else {
-            let mut key = [0u8; Self::KEY_SIZE];
+            let mut key = Box::new([0u8; Self::KEY_SIZE]);
             key.copy_from_slice(&decoded);
 
-            Ok(Self::from_bytes(key))
+            Ok(Self::from_boxed_bytes(key))
         }
     }
 
@@ -128,11 +140,11 @@ impl RecoveryKey {
         let mut decoded = Cursor::new(decoded);
 
         let mut prefix = [0u8; 2];
-        let mut key = [0u8; Self::KEY_SIZE];
+        let mut key = Box::new([0u8; Self::KEY_SIZE]);
         let mut expected_parity = [0u8; 1];
 
         decoded.read_exact(&mut prefix)?;
-        decoded.read_exact(&mut key)?;
+        decoded.read_exact(&mut *key)?;
         decoded.read_exact(&mut expected_parity)?;
 
         let expected_parity = expected_parity[0];
@@ -145,7 +157,7 @@ impl RecoveryKey {
         } else if expected_parity != parity {
             Err(DecodeError::Parity(expected_parity, parity))
         } else {
-            Ok(Self::from_bytes(key))
+            Ok(Self::from_boxed_bytes(key))
         }
     }
 
@@ -228,12 +240,20 @@ mod test {
 
         let test_key =
             RecoveryKey::from_base58("EsTcLW2KPGiFwKEA3As5g5c4BXwkqeeJZJV8Q9fugUMNUE4d")?;
-        assert_eq!(test_key.inner, TEST_KEY, "The decoded recovery key doesn't match the test key");
+        assert_eq!(
+            test_key.as_bytes(),
+            &TEST_KEY,
+            "The decoded recovery key doesn't match the test key"
+        );
 
         let test_key = RecoveryKey::from_base58(
             "EsTc LW2K PGiF wKEA 3As5 g5c4 BXwk qeeJ ZJV8 Q9fu gUMN UE4d",
         )?;
-        assert_eq!(test_key.inner, TEST_KEY, "The decoded recovery key doesn't match the test key");
+        assert_eq!(
+            test_key.as_bytes(),
+            &TEST_KEY,
+            "The decoded recovery key doesn't match the test key"
+        );
 
         RecoveryKey::from_base58("EsTc LW2K PGiF wKEA 3As5 g5c4 BXwk qeeJ ZJV8 Q9fu gUMN UE4e")
             .expect_err("Can't create a recovery key if the parity byte is invalid");

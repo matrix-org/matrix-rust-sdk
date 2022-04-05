@@ -155,25 +155,9 @@ pub struct DeviceChanges {
 /// The private part of a backup key.
 #[derive(Zeroize, Deserialize, Serialize)]
 #[zeroize(drop)]
+#[serde(transparent)]
 pub struct RecoveryKey {
-    pub(crate) inner: [u8; RecoveryKey::KEY_SIZE],
-}
-
-/// The pickled version of a recovery key.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PickledRecoveryKey(String);
-
-impl AsRef<str> for PickledRecoveryKey {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct InnerPickle {
-    version: u8,
-    nonce: String,
-    ciphertext: String,
+    pub(crate) inner: Box<[u8; RecoveryKey::KEY_SIZE]>,
 }
 
 impl RecoveryKey {
@@ -184,15 +168,15 @@ impl RecoveryKey {
     pub fn new() -> Result<Self, rand::Error> {
         let mut rng = rand::thread_rng();
 
-        let mut key = [0u8; Self::KEY_SIZE];
-        rand::Fill::try_fill(&mut key, &mut rng)?;
+        let mut key = Box::new([0u8; Self::KEY_SIZE]);
+        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
 
         Ok(Self { inner: key })
     }
 
     /// Export the `RecoveryKey` as a base64 encoded string.
     pub fn to_base64(&self) -> String {
-        encode(self.inner)
+        encode(self.inner.as_slice())
     }
 }
 
