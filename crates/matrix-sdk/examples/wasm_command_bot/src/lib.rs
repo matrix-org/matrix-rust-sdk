@@ -43,7 +43,7 @@ impl WasmBot {
 
             println!("sending");
 
-            if let Some(room) = self.0.get_joined_room(&room_id) {
+            if let Some(room) = self.0.get_joined_room(room_id) {
                 // send our message to the room we found the "!party" command in
                 // the last parameter is an optional transaction id which we
                 // don't care about.
@@ -79,7 +79,7 @@ pub async fn run() -> Result<JsValue, JsValue> {
     let username = "example";
     let password = "wordpass";
 
-    let homeserver_url = Url::parse(&homeserver_url).unwrap();
+    let homeserver_url = Url::parse(homeserver_url).unwrap();
     let client = Client::new(homeserver_url).await.unwrap();
 
     client.login(username, password, None, Some("rust-sdk-wasm")).await.unwrap();
