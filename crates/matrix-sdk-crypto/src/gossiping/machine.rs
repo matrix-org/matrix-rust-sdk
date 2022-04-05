@@ -232,7 +232,7 @@ impl GossipMachine {
             // We ignore cancellations here since there's nothing to serve.
             RequestAction::RequestCancellation => return Ok(None),
             action => {
-                warn!(action =? action, "Unknown secret request action");
+                warn!(?action, "Unknown secret request action");
                 return Ok(None);
             }
         };
@@ -240,7 +240,7 @@ impl GossipMachine {
         let content = if let Some(secret) = self.store.export_secret(secret_name).await {
             SecretSendEventContent::new(event.content.request_id.to_owned(), secret)
         } else {
-            info!(secret_name =? secret_name, "Can't serve a secret request, secret isn't found");
+            info!(?secret_name, "Can't serve a secret request, secret isn't found");
             return Ok(None);
         };
 
@@ -253,7 +253,7 @@ impl GossipMachine {
                     info!(
                         user_id = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
-                        secret_name =? secret_name,
+                        ?secret_name,
                         "Sharing a secret with a device",
                     );
 
@@ -277,7 +277,7 @@ impl GossipMachine {
                     info!(
                         user_id = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
-                        secret_name =? secret_name,
+                        ?secret_name,
                         "Received a secret request that we won't serve, the device isn't trusted",
                     );
 
@@ -287,7 +287,7 @@ impl GossipMachine {
                 info!(
                     user_id = device.user_id().as_str(),
                     device_id = device.device_id().as_str(),
-                    secret_name =? secret_name,
+                    ?secret_name,
                     "Received a secret request that we won't serve, the device doesn't belong to us",
                 );
 
@@ -297,7 +297,7 @@ impl GossipMachine {
             warn!(
                 user_id = event.sender.as_str(),
                 device_id = event.content.requesting_device_id.as_str(),
-                secret_name =? secret_name,
+                ?secret_name,
                 "Received a secret request form an unknown device",
             );
             self.store.update_tracked_user(&event.sender, true).await?;
@@ -377,7 +377,7 @@ impl GossipMachine {
                         debug!(
                             user_id = device.user_id().as_str(),
                             device_id = device.device_id().as_str(),
-                            reason =? e,
+                            reason = ?e,
                             "Received a key request that we won't serve",
                         );
                     }
@@ -390,7 +390,7 @@ impl GossipMachine {
                         device_id = device.device_id().as_str(),
                         session_id = key_info.session_id.as_str(),
                         room_id = key_info.room_id.as_str(),
-                        message_index =? message_index,
+                        ?message_index,
                         "Serving a room key request",
                     );
 
@@ -618,7 +618,7 @@ impl GossipMachine {
         secret_names: Vec<SecretName>,
     ) -> Vec<GossipRequest> {
         if !secret_names.is_empty() {
-            info!(secret_names =? secret_names, "Creating new outgoing secret requests");
+            info!(?secret_names, "Creating new outgoing secret requests");
 
             secret_names
                 .into_iter()
@@ -807,7 +807,7 @@ impl GossipMachine {
                                             // something wrong with the secret.
                                             warn!(
                                                 secret_name = secret_name.as_ref(),
-                                                error =? e,
+                                                error = ?e,
                                                 "Error while importing a secret"
                                             )
                                         }
@@ -951,7 +951,7 @@ mod test {
         },
         room_id,
         to_device::DeviceIdOrAllDevices,
-        user_id, DeviceId, DeviceKeyAlgorithm, RoomId, UserId,
+        user_id, DeviceId, RoomId, UserId,
     };
 
     use super::{GossipMachine, KeyForwardDecision};
@@ -1277,7 +1277,7 @@ mod test {
             .mark_shared_with(
                 bob_device.user_id(),
                 bob_device.device_id(),
-                bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                bob_device.curve25519_key().unwrap(),
             )
             .await;
         assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
@@ -1315,7 +1315,7 @@ mod test {
             .mark_shared_with(
                 own_device.user_id(),
                 own_device.device_id(),
-                own_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                own_device.curve25519_key().unwrap(),
             )
             .await;
 
@@ -1378,7 +1378,7 @@ mod test {
             .mark_shared_with(
                 alice_device.user_id(),
                 alice_device.device_id(),
-                alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                alice_device.curve25519_key().unwrap(),
             )
             .await;
 
@@ -1582,7 +1582,7 @@ mod test {
             .mark_shared_with(
                 alice_device.user_id(),
                 alice_device.device_id(),
-                alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+                alice_device.curve25519_key().unwrap(),
             )
             .await;
 

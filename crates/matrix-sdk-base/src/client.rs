@@ -45,16 +45,16 @@ use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnySyncMessageEvent, MessageEventContent,
+        AnySyncMessageLikeEvent, EventContent, MessageLikeEventType,
     },
     DeviceId, TransactionId,
 };
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
-        room::member::MembershipState, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        EventContent, GlobalAccountDataEventType, StateEventType,
+        push_rules::PushRulesEvent, room::member::MembershipState, AnyGlobalAccountDataEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -300,7 +300,7 @@ impl BaseClient {
                         },
 
                         #[cfg(feature = "encryption")]
-                        AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(
+                        AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
                             encrypted,
                         )) => {
                             if let Some(olm) = self.olm_machine().await {
@@ -367,7 +367,7 @@ impl BaseClient {
         room_info: &mut RoomInfo,
     ) -> (
         BTreeMap<Box<UserId>, StrippedMemberEvent>,
-        BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
+        BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     ) {
         events.iter().fold(
             (BTreeMap::new(), BTreeMap::new()),
@@ -387,7 +387,7 @@ impl BaseClient {
                     Ok(e) => {
                         room_info.handle_state_event(&e.content());
                         state_events
-                            .entry(e.content().event_type().to_owned())
+                            .entry(e.event_type())
                             .or_insert_with(BTreeMap::new)
                             .insert(e.state_key().to_owned(), raw_event.clone());
                     }
@@ -460,7 +460,7 @@ impl BaseClient {
                 }
             } else {
                 state_events
-                    .entry(event.content().event_type().to_owned())
+                    .entry(event.event_type())
                     .or_insert_with(BTreeMap::new)
                     .insert(event.state_key().to_owned(), raw_event.clone());
             }
@@ -497,7 +497,7 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(error =? e, "Failed to deserialize a global account data event");
+                    warn!(error = ?e, "Failed to deserialize a global account data event");
                     continue;
                 }
             };
@@ -522,7 +522,7 @@ impl BaseClient {
                 }
             }
 
-            account_data.insert(event.content().event_type().to_owned(), raw_event.clone());
+            account_data.insert(event.event_type(), raw_event.clone());
         }
 
         changes.account_data = account_data;
@@ -1020,7 +1020,7 @@ impl BaseClient {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl MessageEventContent,
+        content: impl EventContent<EventType = MessageLikeEventType>,
     ) -> Result<RoomEncryptedEventContent> {
         match self.olm_machine().await {
             Some(o) => Ok(o.encrypt(room_id, content).await?),
@@ -1156,15 +1156,16 @@ impl BaseClient {
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = changes
             .account_data
-            .get(GlobalAccountDataEventType::PushRules.as_str())
+            .get(&GlobalAccountDataEventType::PushRules)
             .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
-        } else if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = self
+        } else if let Some(event) = self
             .store
             .get_account_data_event(GlobalAccountDataEventType::PushRules)
             .await?
-            .and_then(|e| e.deserialize().ok())
+            .map(|e| e.deserialize_as::<PushRulesEvent>())
+            .transpose()?
         {
             Ok(event.content.global)
         } else if let Some(session) = self.get_session().await {
@@ -1205,7 +1206,7 @@ impl BaseClient {
         let room_power_levels = if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(room_id)
-            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(&StateEventType::RoomPowerLevels))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
@@ -1255,7 +1256,7 @@ impl BaseClient {
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(&**room_id)
-            .and_then(|types| types.get(StateEventType::RoomPowerLevels.as_str()))
+            .and_then(|types| types.get(&StateEventType::RoomPowerLevels))
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {

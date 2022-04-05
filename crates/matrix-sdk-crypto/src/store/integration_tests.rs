@@ -21,7 +21,7 @@ macro_rules! cryptostore_integration_tests {
                     InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
                     ReadOnlyAccount, Session,
                 },
-                store::{CryptoStore, GossipRequest, Changes, DeviceChanges, IdentityChanges},
+                store::{CryptoStore, GossipRequest, Changes, DeviceChanges, IdentityChanges, RecoveryKey},
             };
 
             fn alice_id() -> &'static UserId {
@@ -130,7 +130,7 @@ macro_rules! cryptostore_integration_tests {
                 store.save_changes(changes).await.unwrap();
 
                 let sessions =
-                    store.get_sessions(&session.sender_key).await.expect("Can't load sessions").unwrap();
+                    store.get_sessions(&session.sender_key.to_base64()).await.expect("Can't load sessions").unwrap();
                 let loaded_session = sessions.lock().await.get(0).cloned().unwrap();
 
                 assert_eq!(&session, &loaded_session);
@@ -141,7 +141,7 @@ macro_rules! cryptostore_integration_tests {
                 let store_name = "add_and_save_session".to_owned();
                 let store = get_store(store_name.clone(), None).await;
                 let (account, session) = get_account_and_session().await;
-                let sender_key = session.sender_key.to_owned();
+                let sender_key = session.sender_key.to_base64();
                 let session_id = session.session_id().to_owned();
 
                 store.save_account(account.clone()).await.expect("Can't save account");
@@ -574,6 +574,40 @@ macro_rules! cryptostore_integration_tests {
                 let stored_request = store.get_secret_request_by_info(&info).await.unwrap();
                 assert_eq!(None, stored_request);
                 assert!(store.get_unsent_secret_requests().await.unwrap().is_empty());
+            }
+
+            #[async_test]
+            async fn recovery_key_saving() {
+                let dir = "recovery_key_saving".to_owned();
+                let (account, store) = get_loaded_store(dir).await;
+
+                let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
+                let encoded_key = recovery_key.to_base64();
+
+                let changes = Changes {
+                    recovery_key: Some(recovery_key),
+                    backup_version: Some("1".to_owned()),
+                    ..Default::default()
+                };
+
+                store.save_changes(changes).await.unwrap();
+
+                let loded_backup = store.load_backup_keys().await.unwrap();
+
+                assert_eq!(
+                    encoded_key,
+                    loded_backup
+                        .recovery_key
+                        .expect("The recovery key wasn't loaded from the store")
+                        .to_base64(),
+                    "The loaded key matches to the one we stored"
+                );
+
+                assert_eq!(
+                    Some("1"),
+                    loded_backup.backup_version.as_deref(),
+                    "The loaded version matches to the one we stored"
+                );
             }
         }
     )*

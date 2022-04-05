@@ -31,7 +31,7 @@ impl From<InnerDevice> for Device {
         Device {
             user_id: d.user_id().to_string(),
             device_id: d.device_id().to_string(),
-            keys: d.keys().iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            keys: d.keys().iter().map(|(k, v)| (k.to_string(), v.to_base64())).collect(),
             algorithms: d.algorithms().iter().map(|a| a.to_string()).collect(),
             display_name: d.display_name().map(|d| d.to_owned()),
             is_blocked: d.is_blacklisted(),

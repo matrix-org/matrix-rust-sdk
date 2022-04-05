@@ -25,6 +25,7 @@ use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
 use thiserror::Error;
+use zeroize::Zeroize;
 
 use crate::{
     olm::ExportedRoomKey,
@@ -101,7 +102,13 @@ pub fn decrypt_key_export(
     let payload: String =
         x.lines().filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER))).collect();
 
-    Ok(serde_json::from_str(&decrypt_helper(&payload, passphrase)?)?)
+    let mut decrypted = decrypt_helper(&payload, passphrase)?;
+
+    let ret = serde_json::from_str(&decrypted);
+
+    decrypted.zeroize();
+
+    Ok(ret?)
 }
 
 /// Encrypt the list of exported room keys using the given passphrase.
@@ -144,6 +151,9 @@ pub fn encrypt_key_export(
 ) -> Result<String, SerdeError> {
     let mut plaintext = serde_json::to_string(keys)?.into_bytes();
     let ciphertext = encrypt_helper(&mut plaintext, passphrase, rounds);
+
+    plaintext.zeroize();
+
     Ok([HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n"))
 }
 
@@ -232,7 +242,11 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
     aes.apply_keystream(ciphertext);
 
-    Ok(String::from_utf8(ciphertext.to_owned())?)
+    let ret = String::from_utf8(ciphertext.to_owned());
+
+    ciphertext.zeroize();
+
+    Ok(ret?)
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

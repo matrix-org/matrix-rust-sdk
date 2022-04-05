@@ -25,7 +25,7 @@ use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{cancel::CancelCode, ShortAuthenticationString},
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, EventId, RoomId, TransactionId, UserId,
 };
@@ -336,7 +336,7 @@ impl Sas {
                 OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
                     room_id,
                     txn_id: TransactionId::new(),
-                    content: AnyMessageEventContent::KeyVerificationAccept(content),
+                    content: AnyMessageLikeEventContent::KeyVerificationAccept(content),
                 }
                 .into(),
             })

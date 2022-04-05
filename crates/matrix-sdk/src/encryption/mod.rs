@@ -48,11 +48,15 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, GlobalAccountDataEventType},
+    events::{
+        AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, GlobalAccountDataEventType,
+    },
     serde::Raw,
     DeviceId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
+#[cfg(feature = "encryption")]
+use {ruma::api::client::config::set_global_account_data, ruma::events::EventContent};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -70,13 +74,13 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn decrypt_room_event(&self, event: Raw<AnyRoomEvent>) -> RoomEvent {
         if let Some(machine) = self.olm_machine().await {
-            if let Ok(AnyRoomEvent::Message(event)) = event.deserialize() {
-                if let AnyMessageEvent::RoomEncrypted(_) = event {
+            if let Ok(AnyRoomEvent::MessageLike(event)) = event.deserialize() {
+                if let AnyMessageLikeEvent::RoomEncrypted(_) = event {
                     let room_id = event.room_id();
-                    // Turn the AnyMessageEvent into a AnySyncMessageEvent
+                    // Turn the AnyMessageLikeEvent into a AnySyncMessageLikeEvent
                     let event = event.clone().into();
 
-                    if let AnySyncMessageEvent::RoomEncrypted(e) = event {
+                    if let AnySyncMessageLikeEvent::RoomEncrypted(e) = event {
                         if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
                             return decrypted;
                         }
@@ -120,7 +124,7 @@ impl Client {
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail<'_, T>>,
     ) -> Result<ruma::events::room::message::MessageType> {
-        let (thumbnail_file, thumbnail_info) = if let Some(thumbnail) = thumbnail {
+        let (thumbnail_source, thumbnail_info) = if let Some(thumbnail) = thumbnail {
             let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(thumbnail.reader);
 
             let response = self.upload(thumbnail.content_type, &mut reader).await?;
@@ -143,7 +147,7 @@ impl Client {
                 { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
             );
 
-            (Some(Box::new(file)), Some(Box::new(thumbnail_info)))
+            (Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info)))
         } else {
             (None, None)
         };
@@ -164,14 +168,14 @@ impl Client {
             .into()
         };
 
-        use ruma::events::room::{self, message};
+        use ruma::events::room::{self, message, MediaSource};
         Ok(match content_type.type_() {
             mime::IMAGE => {
                 let info = assign!(
                     info.map(room::ImageInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_file,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -199,7 +203,7 @@ impl Client {
                     info.map(message::VideoInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_file,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -214,7 +218,7 @@ impl Client {
                     info.map(message::FileInfo::from).unwrap_or_default(),
                     {
                         mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_file,
+                        thumbnail_source,
                         thumbnail_info
                     }
                 );
@@ -228,19 +232,17 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    async fn send_account_data(
+    async fn send_account_data<T>(
         &self,
-        content: ruma::events::AnyGlobalAccountDataEventContent,
-    ) -> Result<ruma::api::client::config::set_global_account_data::v3::Response> {
+        content: T,
+    ) -> Result<set_global_account_data::v3::Response>
+    where
+        T: EventContent<EventType = GlobalAccountDataEventType>,
+    {
         let own_user =
             self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
-        let data = serde_json::value::to_raw_value(&content)?;
 
-        let request = ruma::api::client::config::set_global_account_data::v3::Request::new(
-            &data,
-            ruma::events::EventContent::event_type(&content),
-            &own_user,
-        );
+        let request = set_global_account_data::v3::Request::new(&content, &own_user)?;
 
         Ok(self.send(request, None).await?)
     }
@@ -250,10 +252,7 @@ impl Client {
         &self,
         user_id: Box<UserId>,
     ) -> Result<Option<room::Joined>> {
-        use ruma::{
-            api::client::room::create_room::v3::RoomPreset,
-            events::AnyGlobalAccountDataEventContent,
-        };
+        use ruma::{api::client::room::create_room::v3::RoomPreset, events::direct::DirectEvent};
 
         const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
 
@@ -279,15 +278,9 @@ impl Client {
             .store()
             .get_account_data_event(GlobalAccountDataEventType::Direct)
             .await?
-            .map(|e| e.deserialize())
+            .map(|e| e.deserialize_as::<DirectEvent>())
             .transpose()?
-            .and_then(|e| {
-                if let AnyGlobalAccountDataEventContent::Direct(c) = e.content() {
-                    Some(c)
-                } else {
-                    None
-                }
-            })
+            .map(|e| e.content)
             .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
 
         content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
@@ -295,7 +288,7 @@ impl Client {
         // TODO We should probably save the fact that we need to send this out
         // because otherwise we might end up in a state where we have a DM that
         // isn't marked as one.
-        self.send_account_data(AnyGlobalAccountDataEventContent::Direct(content)).await?;
+        self.send_account_data(content).await?;
 
         // If the room is already in our store, fetch it, otherwise wait for a
         // sync to be done which should put the room into our store.
@@ -376,11 +369,9 @@ impl Client {
         &self,
         request: &ToDeviceRequest,
     ) -> HttpResult<ToDeviceResponse> {
-        let request = RumaToDeviceRequest::new_raw(
-            request.event_type.as_str(),
-            &request.txn_id,
-            request.messages.clone(),
-        );
+        let event_type = request.event_type.to_string();
+        let request =
+            RumaToDeviceRequest::new_raw(&event_type, &request.txn_id, request.messages.clone());
 
         self.send(request, None).await
     }
@@ -407,11 +398,11 @@ impl Client {
         let rooms = self.joined_rooms();
         let room_pairs: Vec<_> =
             rooms.iter().map(|r| (r.room_id().to_owned(), r.direct_target())).collect();
-        trace!(rooms =? room_pairs, "Finding direct room");
+        trace!(rooms = ?room_pairs, "Finding direct room");
 
         let room = rooms.into_iter().find(|r| r.direct_target().as_deref() == Some(user_id));
 
-        trace!(room =? room, "Found room");
+        trace!(?room, "Found room");
         room
     }
 
@@ -480,7 +471,7 @@ impl Client {
             .for_each(|r| async move {
                 match r {
                     Ok(_) => (),
-                    Err(e) => warn!(error =? e, "Error when sending out an outgoing E2EE request"),
+                    Err(e) => warn!(error = ?e, "Error when sending out an outgoing E2EE request"),
                 }
             })
             .await;
@@ -534,14 +525,16 @@ impl Encryption {
     /// Get a verification object with the given flow id.
     pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
         let olm = self.client.olm_machine().await?;
-        olm.get_verification(user_id, flow_id).map(|v| match v {
+        #[allow(clippy::bind_instead_of_map)]
+        olm.get_verification(user_id, flow_id).and_then(|v| match v {
             matrix_sdk_base::crypto::Verification::SasV1(s) => {
-                SasVerification { inner: s, client: self.client.clone() }.into()
+                Some(SasVerification { inner: s, client: self.client.clone() }.into())
             }
             #[cfg(feature = "qrcode")]
             matrix_sdk_base::crypto::Verification::QrV1(qr) => {
-                verification::QrVerification { inner: qr, client: self.client.clone() }.into()
+                Some(verification::QrVerification { inner: qr, client: self.client.clone() }.into())
             }
+            _ => None,
         })
     }
 
@@ -742,13 +735,11 @@ impl Encryption {
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
 
-        let to_raw = |k| Raw::new(&k).expect("Can't serialize newly created cross signing keys");
-
         let request = assign!(UploadSigningKeysRequest::new(), {
             auth: auth_data,
-            master_key: request.master_key.map(to_raw),
-            self_signing_key: request.self_signing_key.map(to_raw),
-            user_signing_key: request.user_signing_key.map(to_raw),
+            master_key: request.master_key.map(|c| c.to_raw()),
+            self_signing_key: request.self_signing_key.map(|c| c.to_raw()),
+            user_signing_key: request.user_signing_key.map(|c| c.to_raw()),
         });
 
         self.client.send(request, None).await?;

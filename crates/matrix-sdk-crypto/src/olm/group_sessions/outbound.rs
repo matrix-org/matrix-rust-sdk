@@ -37,11 +37,12 @@ use ruma::{
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+    DeviceId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{debug, error, info};
+use vodozemac::Curve25519PublicKey;
 pub use vodozemac::{
     megolm::{GroupSession, GroupSessionPickle, MegolmMessage, SessionKey},
     olm::IdentityKeys,
@@ -138,7 +139,7 @@ pub type ShareInfoSet = BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShareInfo {
     /// The sender key of the device that was used to encrypt the room key.
-    pub sender_key: String,
+    pub sender_key: Curve25519PublicKey,
     /// The message index that the device received.
     pub message_index: u32,
 }
@@ -380,7 +381,7 @@ impl OutboundGroupSession {
         // Check if we shared the session.
         let shared_state = self.shared_with_set.get(device.user_id()).and_then(|d| {
             d.get(device.device_id()).map(|s| {
-                if Some(&s.sender_key) == device.get_key(DeviceKeyAlgorithm::Curve25519) {
+                if Some(s.sender_key) == device.curve25519_key() {
                     ShareState::Shared(s.message_index)
                 } else {
                     ShareState::SharedButChangedSenderKey
@@ -401,8 +402,7 @@ impl OutboundGroupSession {
 
                 share_info.get(device.user_id()).and_then(|d| {
                     d.get(device.device_id()).map(|info| {
-                        if Some(&info.sender_key) == device.get_key(DeviceKeyAlgorithm::Curve25519)
-                        {
+                        if Some(info.sender_key) == device.curve25519_key() {
                             ShareState::Shared(info.message_index)
                         } else {
                             ShareState::SharedButChangedSenderKey
@@ -422,25 +422,27 @@ impl OutboundGroupSession {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         index: u32,
     ) {
-        self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
-            device_id.to_owned(),
-            ShareInfo { sender_key: sender_key.to_owned(), message_index: index },
-        );
+        self.shared_with_set
+            .entry(user_id.to_owned())
+            .or_insert_with(DashMap::new)
+            .insert(device_id.to_owned(), ShareInfo { sender_key, message_index: index });
     }
 
     /// Mark the session as shared with the given user/device pair, starting
     /// from the current index.
     #[cfg(test)]
-    pub async fn mark_shared_with(&self, user_id: &UserId, device_id: &DeviceId, sender_key: &str) {
+    pub async fn mark_shared_with(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        sender_key: Curve25519PublicKey,
+    ) {
         self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
             device_id.to_owned(),
-            ShareInfo {
-                sender_key: sender_key.to_owned(),
-                message_index: self.message_index().await,
-            },
+            ShareInfo { sender_key, message_index: self.message_index().await },
         );
     }
 

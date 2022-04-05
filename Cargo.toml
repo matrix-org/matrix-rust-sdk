@@ -1,4 +1,4 @@
 [workspace]
-members = ["crates/*", "xtask"]
-# xtask should only be compiled when invoked explicitly
-default-members = ["crates/*"]
+members = ["benchmarks", "crates/*", "labs/*", "xtask"]
+# xtask and labs should only be compiled when invoked explicitly
+default-members = ["benchmarks", "crates/*"]

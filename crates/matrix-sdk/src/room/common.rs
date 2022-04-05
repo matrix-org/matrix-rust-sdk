@@ -16,9 +16,10 @@ use ruma::{
     },
     assign,
     events::{
-        room::history_visibility::HistoryVisibility,
+        room::{history_visibility::HistoryVisibility, MediaSource},
         tag::{TagInfo, TagName},
-        AnyStateEvent, AnySyncStateEvent, StateEventContent, StateEventType, StaticEventContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EventContent,
+        RoomAccountDataEvent, RoomAccountDataEventType, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
     serde::Raw,
@@ -26,7 +27,7 @@ use ruma::{
 };
 
 use crate::{
-    media::{MediaFormat, MediaRequest, MediaType},
+    media::{MediaFormat, MediaRequest},
     room::RoomType,
     BaseRoom, Client, HttpError, HttpResult, Result, RoomMember,
 };
@@ -131,7 +132,7 @@ impl Common {
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { media_type: MediaType::Uri(url.clone()), format };
+            let request = MediaRequest { source: MediaSource::Plain(url.clone()), format };
             Ok(Some(self.client.get_media_content(&request, true).await?))
         } else {
             Ok(None)
@@ -661,7 +662,7 @@ impl Common {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
         Ok(self.get_state_events(C::TYPE.into()).await?.into_iter().map(Raw::cast).collect())
@@ -701,9 +702,44 @@ impl Common {
         state_key: &str,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + StateEventContent,
+        C: StaticEventContent + EventContent<EventType = StateEventType>,
     {
         Ok(self.get_state_event(C::TYPE.into(), state_key).await?.map(Raw::cast))
+    }
+
+    /// Get account data in this room.
+    pub async fn account_data(
+        &self,
+        data_type: RoomAccountDataEventType,
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
+        self.client
+            .store()
+            .get_room_account_data_event(self.room_id(), data_type)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Get account data of statically-known type in this room.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let room: matrix_sdk::room::Common = todo!();
+    /// use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
+    ///
+    /// match room.account_data_static::<FullyReadEventContent>().await? {
+    ///     Some(fully_read) => println!("Found read marker: {:?}", fully_read.deserialize()?),
+    ///     None => println!("No read marker for this room"),
+    /// }
+    /// # anyhow::Ok(())
+    /// # };
+    /// ```
+    pub async fn account_data_static<C>(&self) -> Result<Option<Raw<RoomAccountDataEvent<C>>>>
+    where
+        C: StaticEventContent + EventContent<EventType = RoomAccountDataEventType>,
+    {
+        Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast))
     }
 
     /// Check if all members of this room are verified and all their devices are

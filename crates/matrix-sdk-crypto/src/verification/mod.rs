@@ -45,7 +45,7 @@ use ruma::{
             },
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, DeviceKeyId, EventId, RoomId, TransactionId, UserId,
 };
@@ -137,11 +137,12 @@ impl VerificationStore {
 
 /// An enum over the different verification types the SDK supports.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(Sas),
-    #[cfg(feature = "qrcode")]
     /// The `m.qr_code.*.v1` verification variant.
+    #[cfg(feature = "qrcode")]
     QrV1(QrVerification),
 }
 
@@ -156,8 +157,8 @@ impl Verification {
         }
     }
 
-    #[cfg(feature = "qrcode")]
     /// Try to deconstruct this verification enum into a QR code verification.
+    #[cfg(feature = "qrcode")]
     pub fn qr_v1(self) -> Option<QrVerification> {
         if let Verification::QrV1(qr) = self {
             Some(qr)
@@ -256,9 +257,9 @@ impl Done {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
-                    Relation::new(e.to_owned()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationDone(
+                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                ),
             )
                 .into(),
         }
@@ -341,7 +342,7 @@ impl Cancelled {
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationCancel(
+                AnyMessageLikeEventContent::KeyVerificationCancel(
                     KeyVerificationCancelEventContent::new(
                         self.reason.to_owned(),
                         self.cancel_code.clone(),

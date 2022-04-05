@@ -23,11 +23,14 @@ use ruma::{
         },
         AnyToDeviceEventContent, EventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, UserId,
+    DeviceId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use vodozemac::olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionPickle};
+use vodozemac::{
+    olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionPickle},
+    Curve25519PublicKey,
+};
 
 use super::{deserialize_instant, serialize_instant, IdentityKeys};
 use crate::{
@@ -50,7 +53,7 @@ pub struct Session {
     /// Our sessionId
     pub session_id: Arc<str>,
     /// The Key of the sender
-    pub sender_key: Arc<str>,
+    pub sender_key: Curve25519PublicKey,
     /// Has this been created using the fallback key
     pub created_using_fallback_key: bool,
     /// When the session was created
@@ -85,8 +88,8 @@ impl Session {
     }
 
     /// Get the sender key that was used to establish this Session.
-    pub fn sender_key(&self) -> &str {
-        &self.sender_key
+    pub fn sender_key(&self) -> Curve25519PublicKey {
+        self.sender_key
     }
 
     /// Encrypt the given plaintext as a OlmMessage.
@@ -117,9 +120,8 @@ impl Session {
         recipient_device: &ReadOnlyDevice,
         content: AnyToDeviceEventContent,
     ) -> OlmResult<ToDeviceRoomEncryptedEventContent> {
-        let recipient_signing_key = recipient_device
-            .get_key(DeviceKeyAlgorithm::Ed25519)
-            .ok_or(EventError::MissingSigningKey)?;
+        let recipient_signing_key =
+            recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
         let event_type = content.event_type();
 
@@ -131,7 +133,7 @@ impl Session {
             },
             "recipient": recipient_device.user_id(),
             "recipient_keys": {
-                "ed25519": recipient_signing_key,
+                "ed25519": recipient_signing_key.to_base64(),
             },
             "type": event_type,
             "content": content,
@@ -144,7 +146,7 @@ impl Session {
         let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
 
         let mut content = BTreeMap::new();
-        content.insert((*self.sender_key).to_owned(), ciphertext);
+        content.insert(self.sender_key.to_base64(), ciphertext);
 
         Ok(EncryptedEventScheme::OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content::new(
             content,
@@ -169,7 +171,7 @@ impl Session {
 
         PickledSession {
             pickle,
-            sender_key: self.sender_key.to_string(),
+            sender_key: self.sender_key,
             created_using_fallback_key: self.created_using_fallback_key,
             creation_time: *self.creation_time,
             last_use_time: *self.last_use_time,
@@ -209,7 +211,7 @@ impl Session {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             created_using_fallback_key: pickle.created_using_fallback_key,
-            sender_key: pickle.sender_key.into(),
+            sender_key: pickle.sender_key,
             creation_time: Arc::new(pickle.creation_time),
             last_use_time: Arc::new(pickle.last_use_time),
         }
@@ -232,7 +234,7 @@ pub struct PickledSession {
     /// The pickle string holding the Olm Session.
     pub pickle: SessionPickle,
     /// The curve25519 key of the other user that we share this session with.
-    pub sender_key: String,
+    pub sender_key: Curve25519PublicKey,
     /// Was the session created using a fallback key.
     #[serde(default)]
     pub created_using_fallback_key: bool,

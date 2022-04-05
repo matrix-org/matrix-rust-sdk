@@ -58,13 +58,13 @@ use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, IdParseError, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
+use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroize;
 
 use crate::{
@@ -76,6 +76,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
+    utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
 };
@@ -178,6 +179,21 @@ struct InnerPickle {
 impl RecoveryKey {
     /// The number of bytes the recovery key will hold.
     pub const KEY_SIZE: usize = 32;
+
+    /// Create a new random recovery key.
+    pub fn new() -> Result<Self, rand::Error> {
+        let mut rng = rand::thread_rng();
+
+        let mut key = [0u8; Self::KEY_SIZE];
+        rand::Fill::try_fill(&mut key, &mut rng)?;
+
+        Ok(Self { inner: key })
+    }
+
+    /// Export the `RecoveryKey` as a base64 encoded string.
+    pub fn to_base64(&self) -> String {
+        encode(self.inner)
+    }
 }
 
 impl Debug for RecoveryKey {
@@ -376,11 +392,13 @@ impl Store {
         user_id: &UserId,
         curve_key: &str,
     ) -> Result<Option<Device>> {
-        self.get_user_devices(user_id).await.map(|d| {
-            d.devices().find(|d| {
-                d.get_key(DeviceKeyAlgorithm::Curve25519).map_or(false, |k| k == curve_key)
-            })
-        })
+        if let Ok(curve_key) = Curve25519PublicKey::from_base64(curve_key) {
+            self.get_user_devices(user_id)
+                .await
+                .map(|d| d.devices().find(|d| d.curve25519_key().map_or(false, |k| k == curve_key)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get all devices associated with the given `user_id`
@@ -478,7 +496,7 @@ impl Store {
                 None
             }
             name => {
-                warn!(secret =? name, "Unknown secret was requested");
+                warn!(secret = ?name, "Unknown secret was requested");
                 None
             }
         }
@@ -503,7 +521,7 @@ impl Store {
                 .await?;
 
             let status = identity.status().await;
-            info!(status =? status, "Successfully imported the private cross signing keys");
+            info!(?status, "Successfully imported the private cross signing keys");
 
             let changes =
                 Changes { private_identity: Some(identity.clone()), ..Default::default() };
@@ -550,7 +568,7 @@ impl Store {
                 // user import it later.
             }
             name => {
-                warn!(secret =? name, "Tried to import an unknown secret");
+                warn!(secret = ?name, "Tried to import an unknown secret");
             }
         }
 
@@ -592,7 +610,7 @@ pub enum CryptoStoreError {
 
     /// A Matrix identifier failed to be validated.
     #[error(transparent)]
-    IdentifierValidation(#[from] IdentifierValidationError),
+    IdentifierValidation(#[from] IdParseError),
 
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]

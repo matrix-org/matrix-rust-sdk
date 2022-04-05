@@ -327,7 +327,7 @@ mod test {
 
         store.save_sessions(vec![session.clone()]).await;
 
-        let sessions = store.get_sessions(&session.sender_key).await.unwrap().unwrap();
+        let sessions = store.get_sessions(&session.sender_key.to_base64()).await.unwrap().unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];

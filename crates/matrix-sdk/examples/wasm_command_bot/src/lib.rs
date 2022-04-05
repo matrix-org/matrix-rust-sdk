@@ -6,7 +6,7 @@ use matrix_sdk::{
             room::message::{
                 MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
             },
-            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
+            AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
         },
         RoomId,
     },
@@ -37,9 +37,9 @@ impl WasmBot {
         console::log_1(&format!("Received message event {:?}", &msg_body).into());
 
         if msg_body.contains("!party") {
-            let content = AnyMessageEventContent::RoomMessage(RoomMessageEventContent::text_plain(
-                "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
-            ));
+            let content = AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉"),
+            );
 
             println!("sending");
 
@@ -59,7 +59,7 @@ impl WasmBot {
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
-                if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(ev))) =
+                if let Ok(AnySyncRoomEvent::Message(AnySyncMessageLikeEvent::RoomMessage(ev))) =
                     event.event.deserialize()
                 {
                     self.on_room_message(&room_id, &ev).await

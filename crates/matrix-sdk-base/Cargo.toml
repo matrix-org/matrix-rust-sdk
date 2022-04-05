@@ -44,7 +44,7 @@ matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.4.0", path = "../matrix-sdk-crypto", optional = true }
 pbkdf2 = { version = "0.10.0", default-features = false, optional = true }
 rand = { version = "0.8.4", optional = true }
-ruma = { version = "0.5.0", features = ["client-api-c", "signatures", "unstable-pre-spec"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "deea762b8", features = ["client-api-c", "signatures"] }
 serde = { version = "1.0.126", features = ["rc"] }
 serde_json = "1.0.64"
 sha2 = { version = "0.10.1", optional = true }

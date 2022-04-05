@@ -138,17 +138,17 @@ fn run_tests() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (FeatureSet::NoEncryption, "--no-default-features --features sled_state_store,native-tls"),
+        (FeatureSet::NoEncryption, "--no-default-features --features sled-state-store,native-tls"),
         (FeatureSet::NoSled, "--no-default-features --features encryption,native-tls"),
         (FeatureSet::NoEncryptionAndSled, "--no-default-features --features native-tls"),
         (
             FeatureSet::SledCryptostore,
-            "--no-default-features --features encryption,sled_cryptostore,native-tls",
+            "--no-default-features --features encryption,sled-crypto-store,native-tls",
         ),
         (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls"),
         (FeatureSet::Markdown, "--features markdown"),
         (FeatureSet::Socks, "--features socks"),
-        (FeatureSet::SsoLogin, "--features sso_login"),
+        (FeatureSet::SsoLogin, "--features sso-login"),
     ]);
 
     let run = |arg_set: &str| {
@@ -193,14 +193,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk \
              --no-default-features \
-             --features qrcode,encryption,indexeddb_state_store,indexeddb_cryptostore,rustls-tls",
+             --features qrcode,encryption,indexeddb-state-store,indexeddb-crypto-store,rustls-tls",
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
         (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
-            "-p matrix-sdk --no-default-features --features indexeddb_state_store,indexeddb_cryptostore,encryption,rustls-tls",
+            "-p matrix-sdk --no-default-features --features indexeddb-state-store,indexeddb-crypto-store,encryption,rustls-tls",
         ),
     ]);
 

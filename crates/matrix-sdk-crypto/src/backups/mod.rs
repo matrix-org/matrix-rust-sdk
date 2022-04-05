@@ -189,9 +189,9 @@ impl BackupMachine {
     pub async fn enable_backup_v1(&self, key: MegolmV1BackupKey) -> Result<(), CryptoStoreError> {
         if key.backup_version().is_some() {
             *self.backup_key.write().await = Some(key.clone());
-            info!(backup_key =? key, "Activated a backup");
+            info!(backup_key = ?key, "Activated a backup");
         } else {
-            warn!(backup_key =? key, "Tried to activate a backup without having the backup key uploaded");
+            warn!(backup_key = ?key, "Tried to activate a backup without having the backup key uploaded");
         }
 
         Ok(())
@@ -277,7 +277,7 @@ impl BackupMachine {
                     session.mark_as_backed_up()
                 }
 
-                trace!(request_id =? r.request_id, keys =? r.sessions, "Marking room keys as backed up");
+                trace!(request_id = ?r.request_id, keys = ?r.sessions, "Marking room keys as backed up");
 
                 let changes = Changes { inbound_group_sessions: sessions, ..Default::default() };
                 self.store.save_changes(changes).await?;
@@ -285,8 +285,8 @@ impl BackupMachine {
                 let counts = self.store.inbound_group_session_counts().await?;
 
                 trace!(
-                    room_key_counts =? counts,
-                    request_id =? r.request_id, keys =? r.sessions, "Marked room keys as backed up"
+                    room_key_counts = ?counts,
+                    request_id = ?r.request_id, keys = ?r.sessions, "Marked room keys as backed up"
                 );
 
                 *request = None;
@@ -319,8 +319,8 @@ impl BackupMachine {
 
                     info!(
                         key_count = key_count,
-                        keys =? session_record,
-                        backup_key =? backup_key,
+                        keys = ?session_record,
+                        ?backup_key,
                         "Successfully created a room keys backup request"
                     );
 
@@ -462,58 +462,5 @@ mod test {
         let machine = OlmMachine::new(alice_id(), alice_device_id());
 
         backup_flow(machine).await
-    }
-
-    #[async_test]
-    #[cfg(feature = "sled_cryptostore")]
-    async fn default_store_backups() -> Result<(), OlmError> {
-        use tempfile::tempdir;
-
-        let tmpdir = tempdir().expect("Can't create a temporary dir");
-        let machine =
-            OlmMachine::with_default_store(alice_id(), alice_device_id(), tmpdir.as_ref(), None)
-                .await?;
-
-        backup_flow(machine).await
-    }
-
-    #[async_test]
-    #[cfg(feature = "sled_cryptostore")]
-    async fn recovery_key_storing() -> Result<(), OlmError> {
-        use tempfile::tempdir;
-
-        let tmpdir = tempdir().expect("Can't create a temporary dir");
-        let machine = OlmMachine::with_default_store(
-            alice_id(),
-            alice_device_id(),
-            tmpdir.as_ref(),
-            Some("test"),
-        )
-        .await?;
-        let backup_machine = machine.backup_machine();
-
-        let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
-        let encoded_key = recovery_key.to_base64();
-
-        backup_machine.save_recovery_key(Some(recovery_key), Some("1".to_owned())).await?;
-
-        let loded_backup = backup_machine.get_backup_keys().await?;
-
-        assert_eq!(
-            encoded_key,
-            loded_backup
-                .recovery_key
-                .expect("The recovery key wasn't loaded from the store")
-                .to_base64(),
-            "The loaded key matches to the one we stored"
-        );
-
-        assert_eq!(
-            Some("1"),
-            loded_backup.backup_version.as_deref(),
-            "The loaded version matches to the one we stored"
-        );
-
-        Ok(())
     }
 }

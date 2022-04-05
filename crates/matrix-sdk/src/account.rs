@@ -16,7 +16,7 @@
 
 use std::io::Read;
 
-use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaType};
+use matrix_sdk_base::media::{MediaFormat, MediaRequest};
 use mime::Mime;
 use ruma::{
     api::client::{
@@ -30,6 +30,7 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
+    events::room::MediaSource,
     thirdparty::Medium,
     ClientSecret, MxcUri, SessionId, UInt,
 };
@@ -167,7 +168,7 @@ impl Account {
     /// ```
     pub async fn get_avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.get_avatar_url().await? {
-            let request = MediaRequest { media_type: MediaType::Uri(url), format };
+            let request = MediaRequest { source: MediaSource::Plain(url), format };
             Ok(Some(self.client.get_media_content(&request, true).await?))
         } else {
             Ok(None)

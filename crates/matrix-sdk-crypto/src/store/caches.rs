@@ -47,7 +47,7 @@ impl SessionStore {
     pub async fn add(&self, session: Session) -> bool {
         let sessions_lock = self
             .entries
-            .entry(session.sender_key.to_string())
+            .entry(session.sender_key.to_base64())
             .or_insert_with(|| Arc::new(Mutex::new(Vec::new())));
 
         let mut sessions = sessions_lock.lock().await;
@@ -205,7 +205,7 @@ mod test {
         assert!(store.add(session.clone()).await);
         assert!(!store.add(session.clone()).await);
 
-        let sessions = store.get(&session.sender_key).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -218,9 +218,9 @@ mod test {
         let (_, session) = get_account_and_session().await;
 
         let store = SessionStore::new();
-        store.set_for_sender(&session.sender_key, vec![session.clone()]);
+        store.set_for_sender(&session.sender_key.to_base64(), vec![session.clone()]);
 
-        let sessions = store.get(&session.sender_key).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];

@@ -44,7 +44,7 @@ async fn login_and_sync(
     #[allow(unused_mut)]
     let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
-    #[cfg(feature = "sled_state_store")]
+    #[cfg(feature = "sled-state-store")]
     {
         // The location to save files to
         let mut home = dirs::home_dir().expect("no home directory found");
@@ -53,7 +53,7 @@ async fn login_and_sync(
         client_builder = client_builder.state_store(Box::new(state_store));
     }
 
-    #[cfg(feature = "indexeddb_state_store")]
+    #[cfg(feature = "indexeddb-state-store")]
     {
         let state_store = matrix_sdk_indexeddb::StateStore::open();
         client_builder = client_builder.state_store(Box::new(state_store));

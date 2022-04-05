@@ -24,11 +24,8 @@ use ruma::{
     events::{
         receipt::Receipt,
         room::{
-            create::{RoomCreateEventContent, RoomType as CreateRoomType},
-            encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess,
-            history_visibility::HistoryVisibility,
-            join_rules::JoinRule,
+            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
+            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
@@ -36,6 +33,7 @@ use ruma::{
         StateEventType,
     },
     receipt::ReceiptType,
+    room::RoomType as CreateRoomType,
     EventId, MxcUri, RoomAliasId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -368,7 +366,7 @@ impl Room {
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
             heroes_count = heroes_count,
-            heroes =? summary.heroes,
+            heroes = ?summary.heroes,
             "Calculating name for a room",
         );
 

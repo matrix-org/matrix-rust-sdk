@@ -23,11 +23,11 @@ compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
 #[cfg(all(feature = "native-tls", feature = "rustls-tls",))]
 compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled");
 
-#[cfg(all(feature = "sso_login", target_arch = "wasm32"))]
-compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
+#[cfg(all(feature = "sso-login", target_arch = "wasm32"))]
+compile_error!("'sso-login' cannot be enabled on 'wasm32' arch");
 
-#[cfg(all(feature = "image_rayon", target_arch = "wasm32"))]
-compile_error!("'image_rayon' cannot be enabled on 'wasm32' arch");
+#[cfg(all(feature = "image-rayon", target_arch = "wasm32"))]
+compile_error!("'image-rayon' cannot be enabled on 'wasm32' arch");
 
 pub use bytes;
 pub use matrix_sdk_base::{
@@ -58,7 +58,7 @@ pub mod encryption;
 
 pub use account::Account;
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl};
-#[cfg(feature = "image_proc")]
+#[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result};
 pub use http_client::HttpSend;

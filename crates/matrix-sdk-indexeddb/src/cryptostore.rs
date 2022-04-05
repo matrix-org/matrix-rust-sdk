@@ -324,11 +324,11 @@ impl IndexeddbStore {
             let sessions = tx.object_store(KEYS::SESSION)?;
 
             for session in &changes.sessions {
-                let sender_key = session.sender_key();
+                let sender_key = session.sender_key().to_base64();
                 let session_id = session.session_id();
 
                 let pickle = session.pickle().await;
-                let key = (sender_key, session_id).encode();
+                let key = (&sender_key, session_id).encode();
 
                 sessions.put_key_val(&key, &self.serialize_value(&pickle)?)?;
             }

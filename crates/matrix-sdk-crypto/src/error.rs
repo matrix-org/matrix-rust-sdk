@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{identifiers::Error as IdentifierError, DeviceId, RoomId, UserId};
+use ruma::{DeviceId, IdParseError, RoomId, UserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
@@ -150,7 +150,7 @@ pub enum SignatureError {
 
     /// The ID of the signing key isn't a valid key ID.
     #[error("the ID of the signing key is invalid")]
-    InvalidKeyId(#[from] IdentifierError),
+    InvalidKeyId(#[from] IdParseError),
 
     /// The signing key that should create or check a signature is missing.
     #[error("the signing key is missing from the object that signed the message")]
@@ -212,4 +212,6 @@ pub enum SessionCreationError {
     InvalidJson(#[from] serde_json::Error),
     #[error("The given curve25519 key is not a valid key")]
     InvalidCurveKey(#[from] vodozemac::KeyError),
+    #[error(transparent)]
+    InboundCreation(#[from] vodozemac::olm::SessionCreationError),
 }

@@ -22,12 +22,11 @@ use olm_rs::{
     errors::OlmPkDecryptionError,
     pk::{OlmPkDecryption, PkMessage},
 };
-use rand::{thread_rng, Error as RandomError, Fill};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
 use super::MegolmV1BackupKey;
-use crate::{store::RecoveryKey, utilities::encode};
+use crate::store::RecoveryKey;
 
 /// Error type for the decoding of a RecoveryKey.
 #[derive(Debug, Error)]
@@ -97,16 +96,6 @@ impl RecoveryKey {
         bytes.iter().fold(Self::PREFIX_PARITY, |acc, x| acc ^ x)
     }
 
-    /// Create a new random recovery key.
-    pub fn new() -> Result<Self, RandomError> {
-        let mut rng = thread_rng();
-
-        let mut key = [0u8; Self::KEY_SIZE];
-        key.try_fill(&mut rng)?;
-
-        Ok(Self { inner: key })
-    }
-
     /// Create a new recovery key from the given byte array.
     ///
     /// **Warning**: You need to make sure that the byte array contains correct
@@ -128,11 +117,6 @@ impl RecoveryKey {
 
             Ok(Self::from_bytes(key))
         }
-    }
-
-    /// Export the `RecoveryKey` as a base64 encoded string.
-    pub fn to_base64(&self) -> String {
-        encode(self.inner)
     }
 
     /// Try to create a [`RecoveryKey`] from a base58 export of a `RecoveryKey`.

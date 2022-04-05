@@ -30,7 +30,7 @@ pub mod olm;
 mod requests;
 mod session_manager;
 pub mod store;
-mod types;
+pub mod types;
 mod utilities;
 mod verification;
 

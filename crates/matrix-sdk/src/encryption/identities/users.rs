@@ -379,7 +379,7 @@ impl UserIdentity {
     ///     // matches what we expect, for this we fetch the first public key we
     ///     // can find, there's currently only a single key allowed so this is
     ///     // fine.
-    ///     if user.master_key().get_first_key() == Some("MyMasterKey") {
+    ///     if user.master_key().get_first_key().map(|k| k.to_base64()) == Some("MyMasterKey".to_string()) {
     ///         println!(
     ///             "Master keys match for user {}, marking the user as verified",
     ///             user.user_id().as_str(),

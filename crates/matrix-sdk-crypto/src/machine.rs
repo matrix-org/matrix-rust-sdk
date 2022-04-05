@@ -41,9 +41,8 @@ use ruma::{
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyRoomEvent, AnyToDeviceEvent, MessageEventContent,
+        AnyRoomEvent, AnyToDeviceEvent, EventContent, MessageLikeEventType,
     },
-    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
     UInt, UserId,
 };
@@ -250,10 +249,7 @@ impl OlmMachine {
                     .master_public_key()
                     .await
                     .and_then(|m| m.get_first_key().map(|m| m.to_owned()));
-                debug!(
-                    master_key =? master_key,
-                    "Restored the cross signing identity"
-                );
+                debug!(?master_key, "Restored the cross signing identity");
                 i
             }
             None => {
@@ -263,27 +259,6 @@ impl OlmMachine {
         };
 
         Ok(OlmMachine::new_helper(&user_id, device_id, store, account, identity))
-    }
-
-    /// Create a new machine with the default crypto store.
-    ///
-    /// The default store uses a Sled database to store the encryption keys.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that owns this machine.
-    ///
-    /// * `device_id` - The unique id of the device that owns this machine.
-    #[cfg(feature = "sled_cryptostore")]
-    pub async fn with_default_store(
-        user_id: &UserId,
-        device_id: &DeviceId,
-        path: impl AsRef<Path>,
-        passphrase: Option<&str>,
-    ) -> StoreResult<Self> {
-        let store = SledStore::open_with_passphrase(path, passphrase)?;
-
-        OlmMachine::with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
     }
 
     /// The unique user id that owns this `OlmMachine` instance.
@@ -534,8 +509,7 @@ impl OlmMachine {
         if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
         } else {
-            let device_keys =
-                device_keys.map(|d| Raw::new(&d).expect("Coulnd't serialize device keys"));
+            let device_keys = device_keys.map(|d| d.to_raw());
 
             Some(assign!(upload_keys::v3::Request::new(), {
                 device_keys, one_time_keys, fallback_keys
@@ -620,7 +594,7 @@ impl OlmMachine {
                     sender = event.sender.as_str(),
                     sender_key = sender_key,
                     room_id = event.content.room_id.as_str(),
-                    algorithm =? event.content.algorithm,
+                    algorithm = ?event.content.algorithm,
                     "Received room key with unsupported key algorithm",
                 );
                 Ok((None, None))
@@ -684,12 +658,12 @@ impl OlmMachine {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl MessageEventContent,
+        content: impl EventContent<EventType = MessageLikeEventType>,
     ) -> MegolmResult<RoomEncryptedEventContent> {
-        let event_type = content.event_type();
+        let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
 
-        self.group_session_manager.encrypt(room_id, content, event_type).await
+        self.group_session_manager.encrypt(room_id, content, &event_type).await
     }
 
     /// Encrypt a json [`Value`] content for the given room.
@@ -766,7 +740,7 @@ impl OlmMachine {
                 warn!(
                     sender = decrypted.sender.as_str(),
                     sender_key = decrypted.sender_key.as_str(),
-                    error =? e,
+                    error = ?e,
                     "Decrypted to-device event failed to be deserialized correctly"
                 );
                 return Ok((None, None));
@@ -776,7 +750,7 @@ impl OlmMachine {
         trace!(
             sender = decrypted.sender.as_str(),
             sender_key = decrypted.sender_key.as_str(),
-            event_type = event.event_type(),
+            event_type = %event.event_type(),
             "Received a decrypted to-device event"
         );
 
@@ -793,7 +767,7 @@ impl OlmMachine {
                 None,
             )),
             _ => {
-                warn!(event_type =? event.event_type(), "Received an unexpected encrypted to-device event");
+                warn!(event_type = ?event.event_type(), "Received an unexpected encrypted to-device event");
                 Ok((Some(event), None))
             }
         }
@@ -906,7 +880,7 @@ impl OlmMachine {
 
         for user_id in &changed_devices.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
-                error!(error =? e, "Error marking a tracked user as changed");
+                error!(error = ?e, "Error marking a tracked user as changed");
             }
         }
 
@@ -916,7 +890,7 @@ impl OlmMachine {
                 Err(e) => {
                     // Skip invalid events.
                     warn!(
-                        error =? e,
+                        error = ?e,
                         "Received an invalid to-device event"
                     );
                     continue;
@@ -925,7 +899,7 @@ impl OlmMachine {
 
             trace!(
                 sender = event.sender().as_str(),
-                event_type = event.event_type(),
+                event_type = %event.event_type(),
                 "Received a to-device event"
             );
 
@@ -942,7 +916,7 @@ impl OlmMachine {
                                 {
                                     error!(
                                         sender = sender.as_str(),
-                                        error =? e,
+                                        error = ?e,
                                         "Couldn't mark device from to be unwedged",
                                     );
                                 }
@@ -1033,9 +1007,7 @@ impl OlmMachine {
     ) -> StoreResult<EncryptionInfo> {
         let verification_state = if let Some(device) =
             self.get_device(sender, device_id).await?.filter(|d| {
-                d.get_key(DeviceKeyAlgorithm::Curve25519)
-                    .map(|k| k == session.sender_key())
-                    .unwrap_or(false)
+                d.curve25519_key().map(|k| k.to_base64() == session.sender_key()).unwrap_or(false)
             }) {
             if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
                 || device.verified()
@@ -1089,7 +1061,7 @@ impl OlmMachine {
                         "Successfully decrypted a room event"
                     );
 
-                    if let AnyRoomEvent::Message(e) = e {
+                    if let AnyRoomEvent::MessageLike(e) = e {
                         self.verification_machine.receive_any_event(&e).await?;
                     }
                 }
@@ -1099,7 +1071,7 @@ impl OlmMachine {
                         room_id = room_id.as_str(),
                         session_id = session.session_id(),
                         sender_key = session.sender_key(),
-                        error =? e,
+                        error = ?e,
                         "Event was successfully decrypted but has an invalid format"
                     );
                 }
@@ -1150,7 +1122,7 @@ impl OlmMachine {
                                 room_id = room_id.as_str(),
                                 sender_key = c.sender_key.as_str(),
                                 session_id = c.session_id.as_str(),
-                                error =? e,
+                                error = ?e,
                                 "Failed to decrypt a room event"
                             );
                         }
@@ -1369,7 +1341,7 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        info!(total_count, imported_count, room_keys =? keys, "Successfully imported room keys");
+        info!(total_count, imported_count, room_keys = ?keys, "Successfully imported room keys");
 
         Ok(RoomKeyImportResult::new(imported_count, total_count, keys))
     }
@@ -1490,6 +1462,7 @@ impl OlmMachine {
             .await
             .and_then(|m| m.get_first_key().map(|k| k.to_owned()))
             .ok_or(crate::SignatureError::MissingSigningKey)?
+            .to_base64()
             .into();
 
         let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key);
@@ -1514,7 +1487,7 @@ impl OlmMachine {
         self.sign_account(message, &mut signatures).await;
 
         if let Err(e) = self.sign_master(message, &mut signatures).await {
-            warn!(error =? e, "Couldn't sign the message using the cross signing master key")
+            warn!(error = ?e, "Couldn't sign the message using the cross signing master key")
         }
 
         signatures
@@ -1561,8 +1534,9 @@ pub(crate) mod test {
                 encrypted::ToDeviceRoomEncryptedEventContent,
                 message::{MessageType, RoomMessageEventContent},
             },
-            AnyMessageEvent, AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent,
-            AnyToDeviceEventContent, MessageEvent, SyncMessageEvent, ToDeviceEvent, Unsigned,
+            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
+            AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned, SyncMessageLikeEvent,
+            ToDeviceEvent,
         },
         room_id,
         serde::Raw,
@@ -1978,22 +1952,22 @@ pub(crate) mod test {
         let content = RoomMessageEventContent::text_plain(plaintext);
 
         let encrypted_content = alice
-            .encrypt(room_id, AnyMessageEventContent::RoomMessage(content.clone()))
+            .encrypt(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
             .await
             .unwrap();
 
-        let event = SyncMessageEvent {
+        let event = SyncMessageLikeEvent {
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             origin_server_ts: milli_seconds_since_unix_epoch(),
             sender: alice.user_id().to_owned(),
             content: encrypted_content,
-            unsigned: Unsigned::default(),
+            unsigned: MessageLikeUnsigned::default(),
         };
 
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
-        if let AnyRoomEvent::Message(AnyMessageEvent::RoomMessage(MessageEvent {
+        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(MessageLikeEvent {
             sender,
             content,
             ..
@@ -2008,44 +1982,6 @@ pub(crate) mod test {
         } else {
             panic!("Decrypted room event has the wrong type")
         }
-    }
-
-    #[async_test]
-    #[cfg(feature = "sled_cryptostore")]
-    async fn test_machine_with_default_store() {
-        use tempfile::tempdir;
-
-        let tmpdir = tempdir().unwrap();
-
-        let machine = OlmMachine::with_default_store(
-            user_id(),
-            alice_device_id(),
-            tmpdir.as_ref(),
-            Some("test"),
-        )
-        .await
-        .unwrap();
-
-        let user_id = machine.user_id().to_owned();
-        let device_id = machine.device_id().to_owned();
-        let ed25519_key = machine.identity_keys().ed25519;
-
-        machine.receive_keys_upload_response(&keys_upload_response()).await.unwrap();
-
-        drop(machine);
-
-        let machine = OlmMachine::with_default_store(
-            &user_id,
-            alice_device_id(),
-            tmpdir.as_ref(),
-            Some("test"),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(&user_id, machine.user_id());
-        assert_eq!(&*device_id, machine.device_id());
-        assert_eq!(ed25519_key, machine.identity_keys().ed25519);
     }
 
     #[async_test]

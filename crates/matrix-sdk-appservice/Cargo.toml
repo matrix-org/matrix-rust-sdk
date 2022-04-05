@@ -13,13 +13,13 @@ default = ["native-tls"]
 anyhow = ["matrix-sdk/anyhow"]
 encryption = ["matrix-sdk/encryption"]
 eyre = ["matrix-sdk/eyre"]
-sled_state_store = ["matrix-sdk/sled_state_store"]
-sled_cryptostore = ["matrix-sdk/sled_cryptostore"]
+sled-state-store = ["matrix-sdk/sled-state-store"]
+sled-crypto-store = ["matrix-sdk/sled-crypto-store"]
 markdown = ["matrix-sdk/markdown"]
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 socks = ["matrix-sdk/socks"]
-sso_login = ["matrix-sdk/sso_login"]
+sso-login = ["matrix-sdk/sso-login"]
 
 docs = []
 
@@ -29,7 +29,7 @@ http = "0.2"
 matrix-sdk = { version = "0.4", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 percent-encoding = "2.1.0"
 regex = "1"
-ruma = { version = "0.5.0", features = ["client-api-c", "appservice-api-s"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "deea762b8", features = ["client-api-c", "appservice-api-s"] }
 serde = "1"
 serde_json = "1"
 serde_yaml = "0.8"

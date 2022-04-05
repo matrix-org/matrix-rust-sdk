@@ -167,9 +167,9 @@ pub struct RequestVerificationResult {
 
 /// A result type for confirming verifications.
 pub struct ConfirmVerificationResult {
-    /// The request that needs to be sent out to notify the other side that we
+    /// The requests that needs to be sent out to notify the other side that we
     /// confirmed the verification.
-    pub request: OutgoingVerificationRequest,
+    pub requests: Vec<OutgoingVerificationRequest>,
     /// A request that will upload signatures of the verified device or user, if
     /// the verification is completed and we're able to sign devices or users
     pub signature_request: Option<SignatureUploadRequest>,

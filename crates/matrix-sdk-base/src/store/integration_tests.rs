@@ -46,15 +46,16 @@ macro_rules! statestore_integration_tests {
                     },
                     device_id, event_id,
                     events::{
-                        presence::PresenceEvent, EventContent,
+                        presence::PresenceEvent,
                         room::{
                             member::{MembershipState, RoomMemberEventContent},
                             power_levels::RoomPowerLevelsEventContent,
+                            MediaSource,
                         },
                         AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent,
                         AnyStrippedStateEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
                         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
-                        StateEventType, Unsigned,
+                        StateEventType, StateUnsigned,
                     },
                     mxc_uri,
                     receipt::ReceiptType,
@@ -70,7 +71,7 @@ macro_rules! statestore_integration_tests {
                     http::Response,
                     RoomType, Session,
                     deserialized_responses::{MemberEvent, StrippedMemberEvent, RoomEvent, SyncRoomEvent, TimelineSlice},
-                    media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+                    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
                     store::{
                         Store,
                         StateStore,
@@ -216,7 +217,7 @@ macro_rules! statestore_integration_tests {
                     changes.stripped_state.insert(
                         stripped_room_id.to_owned(),
                         BTreeMap::from([(
-                            stripped_name_event.content().event_type().to_owned(),
+                            stripped_name_event.event_type(),
                             BTreeMap::from([(
                                 stripped_name_event.state_key().to_owned(),
                                 stripped_name_raw.clone(),
@@ -245,7 +246,6 @@ macro_rules! statestore_integration_tests {
                         "type": "m.room.power_levels",
                         "origin_server_ts": 0u64,
                         "state_key": "",
-                        "unsigned": Unsigned::default(),
                     });
 
                     serde_json::from_value(event).unwrap()
@@ -262,8 +262,7 @@ macro_rules! statestore_integration_tests {
                         sender: user_id.to_owned(),
                         origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
                         state_key: user_id.to_owned(),
-                        prev_content: None,
-                        unsigned: Unsigned::default(),
+                        unsigned: StateUnsigned::default(),
                     }
 
                 }
@@ -454,11 +453,13 @@ macro_rules! statestore_integration_tests {
                     let uri = mxc_uri!("mxc://localhost/media");
                     let content: Vec<u8> = "somebinarydata".into();
 
-                    let request_file =
-                        MediaRequest { media_type: MediaType::Uri(uri.to_owned()), format: MediaFormat::File };
+                    let request_file = MediaRequest {
+                        source: MediaSource::Plain(uri.to_owned()),
+                        format: MediaFormat::File,
+                    };
 
                     let request_thumbnail = MediaRequest {
-                        media_type: MediaType::Uri(uri.to_owned()),
+                        source: MediaSource::Plain(uri.to_owned()),
                         format: MediaFormat::Thumbnail(MediaThumbnailSize {
                             method: Method::Crop,
                             width: uint!(100),
