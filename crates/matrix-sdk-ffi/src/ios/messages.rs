@@ -6,6 +6,7 @@ use matrix_sdk::{
         events::{
             room::{
                 MediaSource,
+                ImageInfo,
                 message::{MessageType, MessageFormat, ImageMessageEventContent},
             },
             AnySyncMessageLikeEvent, AnySyncRoomEvent,
@@ -58,6 +59,7 @@ impl TextMessage {
 pub struct ImageMessage {
     base_message: Arc<BaseMessage>,
     url: Option<Box<MxcUri>>,
+    info: Option<Box<ImageInfo>>
 }
 
 impl ImageMessage {
@@ -70,6 +72,18 @@ impl ImageMessage {
             Some(url) => return Some(url.to_string()),
             _ => return None,
         }
+    }
+
+    pub fn width(&self) -> Option<u64> {
+        return self.info.clone()?.width?.try_into().ok()
+    }
+
+    pub fn height(&self) -> Option<u64> {
+        return self.info.clone()?.height?.try_into().ok()
+    }
+
+    pub fn blurhash(&self) -> Option<String> {
+        return self.info.clone()?.blurhash
     }
 }
 
@@ -140,10 +154,10 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
             });
 
             match m.content.msgtype {
-                MessageType::Image(ImageMessageEventContent { source: MediaSource::Plain(url), ..}) => {
+                MessageType::Image(ImageMessageEventContent { source: MediaSource::Plain(url), info, ..}) => {
                     let any_message = AnyMessage {
                         text: None,
-                        image: Some(Arc::new(ImageMessage { base_message, url: Some(url) })),
+                        image: Some(Arc::new(ImageMessage { base_message, url: Some(url), info: info })),
                         notice: None,
                         emote: None
                     };

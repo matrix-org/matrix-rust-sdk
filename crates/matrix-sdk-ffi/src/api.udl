@@ -122,6 +122,9 @@ interface TextMessage {
 interface ImageMessage {
     BaseMessage base_message();
     string? url();
+    u64? width();
+    u64? height();
+    string? blurhash();
 };
 
 interface NoticeMessage {
