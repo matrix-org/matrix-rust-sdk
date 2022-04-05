@@ -51,12 +51,6 @@ jobs:
     - name: Load cache
       uses: Swatinem/rust-cache@v1
 
-    # needed for libolm-sys compilation
-    - name: Install emscripten
-      uses: mymindstorm/setup-emsdk@v11
-      with:
-        version: latest
-
     - name: check
       uses: actions-rs/cargo@v1
       with:
