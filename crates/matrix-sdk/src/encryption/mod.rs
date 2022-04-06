@@ -20,7 +20,7 @@ pub mod identities;
 pub mod verification;
 use std::{
     collections::{BTreeMap, HashSet},
-    io::{Read, Write},
+    io::Read,
     iter,
     path::PathBuf,
 };
@@ -808,21 +808,28 @@ impl Encryption {
         passphrase: &str,
         predicate: impl FnMut(&matrix_sdk_base::crypto::olm::InboundGroupSession) -> bool,
     ) -> Result<()> {
+        use tokio::{fs, io::AsyncWriteExt, task};
+
         let olm = self.client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
 
         let keys = olm.export_keys(predicate).await?;
         let passphrase = zeroize::Zeroizing::new(passphrase.to_owned());
 
-        let encrypt = move || -> Result<()> {
-            let export: String =
-                matrix_sdk_base::crypto::encrypt_key_export(&keys, &passphrase, 500_000)?;
-            let mut file = std::fs::File::create(path)?;
-            file.write_all(&export.into_bytes())?;
-            Ok(())
-        };
+        let export = task::spawn_blocking(move || {
+            matrix_sdk_base::crypto::encrypt_key_export(&keys, &passphrase, 500_000)
+        })
+        .await
+        .expect("Task join error")?;
 
-        let task = tokio::task::spawn_blocking(encrypt);
-        task.await.expect("Task join error")
+        // Separate tokio task so writing the file doesn't stop in the middle
+        // if the future is dropped
+        task::spawn(async move {
+            let mut file = fs::File::create(path).await?;
+            file.write_all(&export.into_bytes()).await?;
+            Ok(())
+        })
+        .await
+        .expect("Task join error")
     }
 
     /// Import E2EE keys from the given file path.
