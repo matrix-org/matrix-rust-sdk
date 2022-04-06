@@ -79,15 +79,6 @@ impl AnyEvent<'_> {
     pub fn verification_content(&self) -> Option<AnyVerificationContent<'_>> {
         match self {
             AnyEvent::Room(e) => match e {
-                AnyMessageLikeEvent::CallAnswer(_)
-                | AnyMessageLikeEvent::CallInvite(_)
-                | AnyMessageLikeEvent::CallHangup(_)
-                | AnyMessageLikeEvent::CallCandidates(_)
-                | AnyMessageLikeEvent::Reaction(_)
-                | AnyMessageLikeEvent::RoomEncrypted(_)
-                | AnyMessageLikeEvent::RoomMessageFeedback(_)
-                | AnyMessageLikeEvent::RoomRedaction(_)
-                | AnyMessageLikeEvent::Sticker(_) => None,
                 AnyMessageLikeEvent::RoomMessage(m) => {
                     if let MessageType::VerificationRequest(v) = &m.content.msgtype {
                         Some(RequestContent::from(v).into())
@@ -119,11 +110,6 @@ impl AnyEvent<'_> {
                 _ => None,
             },
             AnyEvent::ToDevice(e) => match e {
-                AnyToDeviceEvent::Dummy(_)
-                | AnyToDeviceEvent::RoomKey(_)
-                | AnyToDeviceEvent::RoomKeyRequest(_)
-                | AnyToDeviceEvent::ForwardedRoomKey(_)
-                | AnyToDeviceEvent::RoomEncrypted(_) => None,
                 AnyToDeviceEvent::KeyVerificationRequest(e) => {
                     Some(RequestContent::from(&e.content).into())
                 }
@@ -182,15 +168,6 @@ impl TryFrom<&AnyMessageLikeEvent> for FlowId {
 
     fn try_from(value: &AnyMessageLikeEvent) -> Result<Self, Self::Error> {
         match value {
-            AnyMessageLikeEvent::CallAnswer(_)
-            | AnyMessageLikeEvent::CallInvite(_)
-            | AnyMessageLikeEvent::CallHangup(_)
-            | AnyMessageLikeEvent::CallCandidates(_)
-            | AnyMessageLikeEvent::Reaction(_)
-            | AnyMessageLikeEvent::RoomEncrypted(_)
-            | AnyMessageLikeEvent::RoomMessageFeedback(_)
-            | AnyMessageLikeEvent::RoomRedaction(_)
-            | AnyMessageLikeEvent::Sticker(_) => Err(()),
             AnyMessageLikeEvent::KeyVerificationReady(e) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
@@ -223,11 +200,6 @@ impl TryFrom<&AnyToDeviceEvent> for FlowId {
 
     fn try_from(value: &AnyToDeviceEvent) -> Result<Self, Self::Error> {
         match value {
-            AnyToDeviceEvent::Dummy(_)
-            | AnyToDeviceEvent::RoomKey(_)
-            | AnyToDeviceEvent::RoomKeyRequest(_)
-            | AnyToDeviceEvent::ForwardedRoomKey(_)
-            | AnyToDeviceEvent::RoomEncrypted(_) => Err(()),
             AnyToDeviceEvent::KeyVerificationRequest(e) => {
                 Ok(FlowId::from(e.content.transaction_id.to_owned()))
             }
