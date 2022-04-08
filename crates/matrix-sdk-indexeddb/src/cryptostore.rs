@@ -987,7 +987,7 @@ impl CryptoStore for IndexeddbStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::IndexeddbStore;
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     use matrix_sdk_crypto::cryptostore_integration_tests;

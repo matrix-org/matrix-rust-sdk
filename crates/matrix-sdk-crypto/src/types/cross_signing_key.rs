@@ -157,7 +157,7 @@ impl From<CrossSigningKey> for CrossSigningKeyHelper {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use ruma::user_id;
     use serde_json::json;
 

@@ -592,7 +592,7 @@ pub struct PickledOutboundGroupSession {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::time::Duration;
 
     use ruma::{

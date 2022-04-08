@@ -1248,7 +1248,7 @@ impl SasState<Cancelled> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::convert::TryFrom;
 
     use matrix_sdk_test::async_test;

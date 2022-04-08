@@ -331,7 +331,7 @@ impl SessionManager {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{collections::BTreeMap, iter, sync::Arc};
 
     use dashmap::DashMap;

@@ -775,7 +775,7 @@ struct TimelineData {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
 
     use super::{MemoryStore, Result, StateStore};
 

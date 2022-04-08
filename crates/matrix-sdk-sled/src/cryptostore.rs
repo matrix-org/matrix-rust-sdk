@@ -1099,7 +1099,7 @@ impl CryptoStore for SledStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use lazy_static::lazy_static;
     use matrix_sdk_crypto::cryptostore_integration_tests;
     use tempfile::{tempdir, TempDir};

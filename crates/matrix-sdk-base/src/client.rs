@@ -1276,7 +1276,7 @@ impl Default for BaseClient {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::{async_test, EventBuilder};
     use ruma::{room_id, user_id};
     use serde_json::json;

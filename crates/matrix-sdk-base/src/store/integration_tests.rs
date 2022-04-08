@@ -15,7 +15,7 @@
 /// # };
 ///
 /// #[cfg(test)]
-/// mod test {
+/// mod tests {
 ///
 ///    use super::{MyStore, StoreResult, StateStore};
 ///

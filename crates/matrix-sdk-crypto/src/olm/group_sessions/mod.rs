@@ -151,7 +151,7 @@ impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
 }
 
 #[cfg(all(test, any(target_os = "linux", target_arch = "wasm32")))]
-mod test {
+mod tests {
     use std::{sync::Arc, time::Duration};
 
     use matrix_sdk_common::instant::Instant;

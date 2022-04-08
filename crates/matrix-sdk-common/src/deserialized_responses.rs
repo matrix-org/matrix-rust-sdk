@@ -391,7 +391,7 @@ pub struct MembersResponse {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use ruma::{
         event_id,
         events::{

@@ -1275,7 +1275,7 @@ struct Passive {
 struct Done {}
 
 #[cfg(test)]
-mod test {
+mod tests {
 
     use std::convert::{TryFrom, TryInto};
 

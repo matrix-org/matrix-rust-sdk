@@ -269,7 +269,7 @@ mod proptests {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         io::Cursor,
@@ -280,7 +280,7 @@ mod test {
     use ruma::room_id;
 
     use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
-    use crate::{error::OlmResult, machine::test::get_prepared_machine, RoomKeyImportResult};
+    use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
 
     const PASSPHRASE: &str = "1234";
 

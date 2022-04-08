@@ -208,7 +208,7 @@ impl RecoveryKey {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::{DecodeError, RecoveryKey};
 
     const TEST_KEY: [u8; 32] = [
