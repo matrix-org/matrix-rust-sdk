@@ -43,7 +43,10 @@ use ruma::{
             account::{register, whoami},
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discovery::get_capabilities::{self, Capabilities},
+            discovery::{
+                get_capabilities::{self, Capabilities},
+                get_supported_versions,
+            },
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -125,7 +128,7 @@ pub(crate) struct ClientInner {
     /// User session data.
     base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    server_versions: Arc<[MatrixVersion]>,
+    server_versions: Mutex<Arc<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
@@ -631,19 +634,20 @@ impl Client {
         idp_id: Option<&str>,
     ) -> Result<String> {
         let homeserver = self.homeserver().await;
+        let server_versions = self.server_versions().await?;
 
         let request = if let Some(id) = idp_id {
             sso_login_with_provider::v3::Request::new(id, redirect_url)
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    &self.inner.server_versions,
+                    &server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                &self.inner.server_versions,
+                &server_versions,
             )
         };
 
@@ -1425,7 +1429,7 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .send(request, Some(request_config), self.inner.server_versions.clone())
+            .send(request, Some(request_config), self.server_versions().await?)
             .await?)
     }
 
@@ -1478,7 +1482,33 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config, self.inner.server_versions.clone()).await
+        self.inner.http_client.send(request, config, self.server_versions().await?).await
+    }
+
+    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+        let mut server_versions = self.inner.server_versions.lock().await;
+
+        if server_versions.is_empty() {
+            // Not initialized before
+            *server_versions = self
+                .inner
+                .http_client
+                .send(
+                    get_supported_versions::Request::new(),
+                    None,
+                    [MatrixVersion::V1_0].into_iter().collect(),
+                )
+                .await?
+                .known_versions()
+                .collect();
+
+            if server_versions.is_empty() {
+                // No known versions, fall back to v1.0 (r0 paths)
+                *server_versions = vec![MatrixVersion::V1_0].into();
+            }
+        }
+
+        Ok(server_versions.clone())
     }
 
     /// Get information of all our own devices.
@@ -2326,17 +2356,11 @@ pub(crate) mod test {
         let domain = server_url.strip_prefix("http://").unwrap();
         let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
-        let _m = mock("GET", "/.well-known/matrix/client")
-            .with_status(200)
-            .with_body(
-                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
-            )
-            .create();
+        let _m = mock("GET", "/.well-known/matrix/client").with_status(404).create();
 
         assert!(
             Client::builder().user_id(&alice).build().await.is_err(),
-            "Creating a client from a user ID should fail when the \
-                .well-known server returns no version information."
+            "Creating a client from a user ID should fail when the .well-known request fails."
         );
     }
 
