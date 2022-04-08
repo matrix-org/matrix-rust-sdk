@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::{
-        client::{
-            discovery::{discover_homeserver, get_supported_versions},
-            Error,
-        },
+        client::{discovery::discover_homeserver, Error},
         error::FromHttpResponseError,
         MatrixVersion,
     },
@@ -331,22 +329,14 @@ impl ClientBuilder {
 
         let server_versions = match self.server_versions {
             Some(vs) => vs,
-            None => http_client
-                .send(
-                    get_supported_versions::Request::new(),
-                    Some(RequestConfig::short_retry()),
-                    [MatrixVersion::V1_0].into_iter().collect(),
-                )
-                .await?
-                .known_versions()
-                .collect(),
+            None => vec![].into(),
         };
 
         let inner = Arc::new(ClientInner {
             homeserver,
             http_client,
             base_client,
-            server_versions,
+            server_versions: Mutex::new(server_versions),
             #[cfg(feature = "encryption")]
             group_session_locks: Default::default(),
             #[cfg(feature = "encryption")]
