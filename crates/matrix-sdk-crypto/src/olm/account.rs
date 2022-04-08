@@ -1151,7 +1151,7 @@ impl PartialEq for ReadOnlyAccount {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         ops::Deref,

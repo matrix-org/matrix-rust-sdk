@@ -1347,7 +1347,7 @@ struct TimelineMetadata {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_base::statestore_integration_tests;
 
     use super::{SledStore, StateStore, StoreResult};

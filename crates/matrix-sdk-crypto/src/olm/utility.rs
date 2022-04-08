@@ -90,7 +90,7 @@ impl VerifyJson for vodozemac::Ed25519PublicKey {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
     use vodozemac::Ed25519PublicKey;

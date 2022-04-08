@@ -384,7 +384,7 @@ impl BackupMachine {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id, DeviceId, RoomId, UserId};
 

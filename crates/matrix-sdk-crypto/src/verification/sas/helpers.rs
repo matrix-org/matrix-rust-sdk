@@ -520,7 +520,7 @@ pub fn get_decimal(
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod test {
+mod tests {
     use ruma::{
         events::key::verification::start::ToDeviceKeyVerificationStartEventContent, serde::Base64,
     };

@@ -619,7 +619,7 @@ impl PrivateCrossSigningIdentity {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id, UserId};
 

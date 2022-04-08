@@ -254,7 +254,7 @@ impl StoreKey {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use serde_json::{json, Value};
 
     use super::StoreKey;

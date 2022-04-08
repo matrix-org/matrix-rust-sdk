@@ -673,7 +673,7 @@ pub(crate) mod testing {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use ruma::user_id;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 

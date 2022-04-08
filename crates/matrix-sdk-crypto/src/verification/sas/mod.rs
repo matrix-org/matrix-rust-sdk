@@ -557,7 +557,7 @@ impl AcceptSettings {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{convert::TryFrom, sync::Arc};
 
     use matrix_sdk_test::async_test;

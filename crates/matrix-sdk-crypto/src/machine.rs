@@ -1513,7 +1513,7 @@ pub(crate) mod testing {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
 
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
@@ -1549,7 +1549,7 @@ pub(crate) mod test {
     use crate::{
         machine::OlmMachine,
         olm::VerifyJson,
-        verification::test::{outgoing_request_to_event, request_to_event},
+        verification::tests::{outgoing_request_to_event, request_to_event},
         EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
 
