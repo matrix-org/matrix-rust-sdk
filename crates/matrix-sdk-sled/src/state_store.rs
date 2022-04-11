@@ -240,7 +240,7 @@ impl SledStore {
             StoreCipher::import(passphrase, &inner)?
         } else {
             let ciph = StoreCipher::new()?;
-            db.insert("store_cipher".encode(), ciph.export(passphrase)?);
+            db.insert("store_cipher".encode(), ciph.export(passphrase)?)?;
             ciph
         };
 
