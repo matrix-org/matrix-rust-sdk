@@ -1,7 +1,12 @@
 use matrix_sdk_common::ruma::{
-    events::{secret::request::SecretName, GlobalAccountDataEventType, StateEventType},
+    events::{secret::request::SecretName, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType},
+    receipt::ReceiptType,
+    EventEncryptionAlgorithm,
     DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
+use matrix_sdk_store_encryption::StoreCipher;
+
+
 pub const ENCODE_SEPARATOR: u8 = 0xff;
 
 pub trait EncodeKey {
@@ -70,6 +75,26 @@ impl EncodeKey for SecretName {
     }
 }
 
+impl EncodeKey for ReceiptType {
+    fn encode(&self) -> Vec<u8> {
+        let s: &str = self.as_ref();
+        s.encode()
+    }
+}
+
+impl EncodeKey for EventEncryptionAlgorithm {
+    fn encode(&self) -> Vec<u8> {
+        let s: &str = self.as_ref();
+        s.encode()
+    }
+}
+
+impl EncodeKey for RoomAccountDataEventType {
+    fn encode(&self) -> Vec<u8> {
+        self.to_string().encode()
+    }
+}
+
 impl EncodeKey for UserId {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
@@ -78,15 +103,13 @@ impl EncodeKey for UserId {
 
 impl<A, B> EncodeKey for (A, B)
 where
-    A: AsRef<str>,
-    B: AsRef<str>,
+    A: EncodeKey,
+    B: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
         [
-            self.0.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.1.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
+            self.0.encode(),
+            self.1.encode(),
         ]
         .concat()
     }
@@ -94,18 +117,15 @@ where
 
 impl<A, B, C> EncodeKey for (A, B, C)
 where
-    A: AsRef<str>,
-    B: AsRef<str>,
-    C: AsRef<str>,
+    A: EncodeKey,
+    B: EncodeKey,
+    C: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
         [
-            self.0.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.1.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.2.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
+            self.0.encode(),
+            self.1.encode(),
+            self.2.encode(),
         ]
         .concat()
     }
@@ -113,21 +133,17 @@ where
 
 impl<A, B, C, D> EncodeKey for (A, B, C, D)
 where
-    A: AsRef<str>,
-    B: AsRef<str>,
-    C: AsRef<str>,
-    D: AsRef<str>,
+    A: EncodeKey,
+    B: EncodeKey,
+    C: EncodeKey,
+    D: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
         [
-            self.0.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.1.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.2.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
-            self.3.as_ref().as_bytes(),
-            &[ENCODE_SEPARATOR],
+            self.0.encode(),
+            self.1.encode(),
+            self.2.encode(),
+            self.3.encode(),
         ]
         .concat()
     }
@@ -145,9 +161,143 @@ impl EncodeKey for GlobalAccountDataEventType {
     }
 }
 
-#[cfg(feature = "state-store")]
-pub fn encode_key_with_usize<A: AsRef<str>>(s: A, i: usize) -> Vec<u8> {
-    // FIXME: Not portable across architectures
-    [s.as_ref().as_bytes(), &[ENCODE_SEPARATOR], i.to_be_bytes().as_ref(), &[ENCODE_SEPARATOR]]
+
+pub trait EncodeSecureKey {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8>;
+}
+
+
+impl<T: EncodeSecureKey + ?Sized> EncodeSecureKey for &T {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        T::encode_secure(self, table_name, store_cipher)
+    }
+}
+
+impl<T: EncodeSecureKey + ?Sized> EncodeSecureKey for Box<T> {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        T::encode_secure(self, table_name, store_cipher)
+    }
+}
+
+
+impl EncodeSecureKey for UserId {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let user_id = store_cipher.hash_key(table_name, self.as_bytes());
+
+        [user_id.as_slice(), &[ENCODE_SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for str {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let key = store_cipher.hash_key(table_name, self.as_bytes());
+        [key.as_slice(), &[ENCODE_SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for String {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let key = store_cipher.hash_key(table_name, self.as_bytes());
+        [key.as_slice(), &[ENCODE_SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for RoomId {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let room_id = store_cipher.hash_key(table_name, self.as_bytes());
+
+        [room_id.as_slice(), &[ENCODE_SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for EventId {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let event_id = store_cipher.hash_key(table_name, self.as_bytes());
+
+        [event_id.as_slice(), &[ENCODE_SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for ReceiptType {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let event_id = store_cipher.hash_key(table_name, self.as_str().as_bytes());
+
+        [event_id.as_slice(), &[ENCODE_SEPARATOR]].concat()
+    }
+}
+
+impl EncodeSecureKey for GlobalAccountDataEventType {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            store_cipher.hash_key(table_name, self.to_string().as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+        ].concat()
+    }
+}
+
+impl EncodeSecureKey for StateEventType {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            store_cipher.hash_key(table_name, self.to_string().as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+        ].concat()
+    }
+}
+
+impl EncodeSecureKey for RoomAccountDataEventType {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            store_cipher.hash_key(table_name, self.to_string().as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+        ].concat()
+    }
+}
+
+
+impl<A, B> EncodeSecureKey for (A, B)
+where
+    A: EncodeSecureKey,
+    B: EncodeSecureKey,
+{
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            self.0.encode_secure(table_name, store_cipher),
+            self.1.encode_secure(table_name, store_cipher),
+        ]
         .concat()
+    }
+}
+
+impl<A, B, C> EncodeSecureKey for (A, B, C)
+where
+    A: EncodeSecureKey,
+    B: EncodeSecureKey,
+    C: EncodeSecureKey,
+{
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            self.0.encode_secure(table_name, store_cipher),
+            self.1.encode_secure(table_name, store_cipher),
+            self.2.encode_secure(table_name, store_cipher),
+        ]
+        .concat()
+    }
+}
+
+impl<A, B, C, D> EncodeSecureKey for (A, B, C, D)
+where
+    A: EncodeSecureKey,
+    B: EncodeSecureKey,
+    C: EncodeSecureKey,
+    D: EncodeSecureKey,
+{
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            self.0.encode_secure(table_name, store_cipher),
+            self.1.encode_secure(table_name, store_cipher),
+            self.2.encode_secure(table_name, store_cipher),
+            self.3.encode_secure(table_name, store_cipher),
+        ]
+        .concat()
+    }
 }

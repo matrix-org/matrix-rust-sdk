@@ -50,7 +50,7 @@ use sled::{
 use tracing::debug;
 
 use super::OpenStoreError;
-use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
+use crate::encode_key::{EncodeKey, EncodeSecureKey, ENCODE_SEPARATOR};
 
 const DATABASE_VERSION: u8 = 4;
 
@@ -156,24 +156,9 @@ impl EncodeSecureKey for RequestedKeyInfo {
     }
 }
 
-impl EncodeSecureKey for UserId {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let user_id = store_cipher.hash_key(table_name, self.as_bytes());
-
-        [user_id.as_slice(), &[0xff]].concat()
-    }
-}
-
 impl EncodeSecureKey for ReadOnlyDevice {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         (self.user_id(), self.device_id()).encode_secure(table_name, store_cipher)
-    }
-}
-
-impl EncodeSecureKey for str {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let key = store_cipher.hash_key(table_name, self.as_bytes());
-        [key.as_slice(), &[ENCODE_SEPARATOR]].concat()
     }
 }
 
@@ -183,36 +168,10 @@ impl EncodeSecureKey for OutboundGroupSession {
     }
 }
 
-impl EncodeSecureKey for RoomId {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let room_id = store_cipher.hash_key(table_name, self.as_bytes());
-
-        [room_id.as_slice(), &[ENCODE_SEPARATOR]].concat()
-    }
-}
-
 impl EncodeSecureKey for InboundGroupSession {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         (self.room_id(), self.sender_key(), self.session_id())
             .encode_secure(table_name, store_cipher)
-    }
-}
-
-impl EncodeSecureKey for (&RoomId, &str, &str) {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let first = store_cipher.hash_key(table_name, self.0.as_bytes());
-        let second = store_cipher.hash_key(table_name, self.1.as_bytes());
-        let third = store_cipher.hash_key(table_name, self.2.as_bytes());
-
-        [
-            first.as_slice(),
-            &[ENCODE_SEPARATOR],
-            second.as_slice(),
-            &[ENCODE_SEPARATOR],
-            third.as_slice(),
-            &[ENCODE_SEPARATOR],
-        ]
-        .concat()
     }
 }
 
@@ -227,9 +186,6 @@ impl EncodeSecureKey for Session {
     }
 }
 
-trait EncodeSecureKey {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8>;
-}
 
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
