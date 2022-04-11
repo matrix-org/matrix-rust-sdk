@@ -218,6 +218,16 @@ impl EncodeSecureKey for EventId {
     }
 }
 
+impl EncodeSecureKey for MxcUri {
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let s: &str = self.as_ref();
+        [
+            store_cipher.hash_key(table_name, s.as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+        ].concat()
+    }
+}
+
 impl EncodeSecureKey for ReceiptType {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         let event_id = store_cipher.hash_key(table_name, self.as_str().as_bytes());

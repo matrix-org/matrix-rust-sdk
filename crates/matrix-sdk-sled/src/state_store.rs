@@ -122,7 +122,6 @@ const DISPLAY_NAME: &str = "display-name";
 const JOINED_USER_ID: &str = "joined-user-id";
 const INVITED_USER_ID: &str = "invited-user-ids";
 const ROOM_ACCOUNT_DATA: &str = "room-account-data";
-const STRIPPED_ROOM: &str = "stripped-room";
 const STRIPPED_ROOM_INFO: &str = "stripped-room-info";
 const STRIPPED_ROOM_MEMBER: &str = "stripped-room-member";
 const STRIPPED_ROOM_STATE: &str = "stripped-room-state";
@@ -131,7 +130,7 @@ const ROOM_EVENT_RECEIPT: &str = "room-event-receipt";
 const MEDIA: &str = "media";
 const CUSTOM: &str = "custom";
 const TIMELINE: &str = "timeline";
-const TIMELINE_METADTA: &str = "timeline-metadata";
+const TIMELINE_METADATA: &str = "timeline-metadata";
 const ROOM_EVENT_ID_POSITION: &str = "room-event-id-to-position";
 
 
@@ -224,7 +223,7 @@ impl SledStore {
         let custom = db.open_tree(CUSTOM)?;
 
         let room_timeline = db.open_tree(TIMELINE)?;
-        let room_timeline_metadata = db.open_tree(TIMELINE_METADTA)?;
+        let room_timeline_metadata = db.open_tree(TIMELINE_METADATA)?;
         let room_event_id_to_position = db.open_tree(ROOM_EVENT_ID_POSITION)?;
 
         Ok(Self {
@@ -739,7 +738,7 @@ impl SledStore {
         display_name: &str,
     ) -> Result<BTreeSet<Box<UserId>>> {
         let db = self.clone();
-        let key = (room_id, display_name).encode();
+        let key = self.encode_key(DISPLAY_NAME, &(room_id, display_name));
         spawn_blocking(move || {
             Ok(db
                 .display_names
@@ -756,7 +755,7 @@ impl SledStore {
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         let db = self.clone();
-        let key = event_type.encode();
+        let key = self.encode_key(ACCOUNT_DATA, &event_type);
         spawn_blocking(move || {
             db.account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
@@ -769,7 +768,7 @@ impl SledStore {
         event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         let db = self.clone();
-        let key = (room_id, event_type.to_string()).encode();
+        let key = self.encode_key(ROOM_ACCOUNT_DATA, &(room_id, event_type));
         spawn_blocking(move || {
             db.room_account_data.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
@@ -783,7 +782,7 @@ impl SledStore {
         user_id: &UserId,
     ) -> Result<Option<(Box<EventId>, Receipt)>> {
         let db = self.clone();
-        let key = (room_id, receipt_type, user_id).encode();
+        let key = self.encode_key(ROOM_USER_RECEIPT, &(room_id, receipt_type, user_id));
         spawn_blocking(move || {
             db.room_user_receipts.get(key)?.map(|m| db.deserialize_event(&m)).transpose()
         })
@@ -797,7 +796,7 @@ impl SledStore {
         event_id: &EventId,
     ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
         let db = self.clone();
-        let key = (room_id, receipt_type, event_id).encode();
+        let key = self.encode_key(ROOM_EVENT_RECEIPT, &(room_id, receipt_type, event_id));
         spawn_blocking(move || {
             db.room_event_receipts
                 .scan_prefix(key)
@@ -819,7 +818,7 @@ impl SledStore {
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
         self.media
-            .insert((request.source.unique_key(), request.format.unique_key()).encode(), data)?;
+            .insert(self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key())), data)?;
 
         self.inner.flush_async().await?;
 
@@ -828,7 +827,7 @@ impl SledStore {
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let db = self.clone();
-        let key = (request.source.unique_key(), request.format.unique_key()).encode();
+        let key = self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key()));
 
         spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
     }
@@ -847,13 +846,13 @@ impl SledStore {
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.media.remove((request.source.unique_key(), request.format.unique_key()).encode())?;
+        self.media.remove(self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key())))?;
 
         Ok(())
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let keys = self.media.scan_prefix(uri.encode()).keys();
+        let keys = self.media.scan_prefix(self.encode_key(MEDIA, uri)).keys();
 
         let mut batch = sled::Batch::default();
         for key in keys {
@@ -906,7 +905,7 @@ impl SledStore {
         }
 
         let mut stripped_room_state_batch = sled::Batch::default();
-        for key in self.stripped_room_state.scan_prefix(self.encode_key(STRIPPED_ROOM, room_id)).keys() {
+        for key in self.stripped_room_state.scan_prefix(self.encode_key(STRIPPED_ROOM_STATE, room_id)).keys() {
             stripped_room_state_batch.remove(key?)
         }
 
@@ -952,7 +951,7 @@ impl SledStore {
                     room_event_receipts,
                 )| {
                     rooms.remove(self.encode_key(ROOM, room_id))?;
-                    stripped_rooms.remove(self.encode_key(STRIPPED_ROOM, room_id))?;
+                    stripped_rooms.remove(self.encode_key(STRIPPED_ROOM_INFO, room_id))?;
 
                     members.apply_batch(&members_batch)?;
                     profiles.apply_batch(&profiles_batch)?;
@@ -984,7 +983,7 @@ impl SledStore {
         room_id: &RoomId,
     ) -> Result<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
         let db = self.clone();
-        let key = self.encode_key("ROOM_TIMELINE_METADATA", room_id);
+        let key = self.encode_key(TIMELINE_METADATA, room_id);
         let r_id = room_id.to_owned();
         let metadata: Option<TimelineMetadata> = db
             .room_timeline_metadata
@@ -1018,12 +1017,12 @@ impl SledStore {
         info!("Remove stored timeline for {}", room_id);
 
         let mut timeline_batch = sled::Batch::default();
-        for key in self.room_timeline.scan_prefix(self.encode_key("ROOM_TIMELINE", &room_id)).keys() {
+        for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, &room_id)).keys() {
             timeline_batch.remove(key?)
         }
 
         let mut event_id_to_position_batch = sled::Batch::default();
-        for key in self.room_event_id_to_position.scan_prefix(self.encode_key(ROOM, &room_id)).keys() {
+        for key in self.room_event_id_to_position.scan_prefix(self.encode_key(ROOM_EVENT_ID_POSITION, &room_id)).keys() {
             event_id_to_position_batch.remove(key?)
         }
 
@@ -1031,7 +1030,7 @@ impl SledStore {
             (&self.room_timeline, &self.room_timeline_metadata, &self.room_event_id_to_position)
                 .transaction(
                     |(room_timeline, room_timeline_metadata, room_event_id_to_position)| {
-                        room_timeline_metadata.remove(self.encode_key("ROOM_TIMELINE_METADATA", &room_id))?;
+                        room_timeline_metadata.remove(self.encode_key(TIMELINE_METADATA, &room_id))?;
 
                         room_timeline.apply_batch(&timeline_batch)?;
                         room_event_id_to_position.apply_batch(&event_id_to_position_batch)?;
@@ -1067,7 +1066,7 @@ impl SledStore {
             } else {
                 let metadata: Option<TimelineMetadata> = self
                     .room_timeline_metadata
-                    .get(self.encode_key("ROOM_TIMELINE_METADATA", &room_id))?
+                    .get(self.encode_key(TIMELINE_METADATA, &room_id))?
                     .map(|v| serde_json::from_slice(&v).map_err(StoreError::Json))
                     .transpose()?;
                 if let Some(mut metadata) = metadata {
@@ -1083,7 +1082,7 @@ impl SledStore {
                     let mut delete_timeline = false;
                     for event in &timeline.events {
                         if let Some(event_id) = event.event_id() {
-                            let event_key = self.encode_key("ROOM_EVENT_ID_POSITION", &(room_id, event_id));
+                            let event_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
                             if self.room_event_id_to_position.contains_key(event_key)? {
                                 delete_timeline = true;
                                 break;
@@ -1138,7 +1137,7 @@ impl SledStore {
                         AnySyncMessageLikeEvent::RoomRedaction(redaction),
                     )) = event.event.deserialize()
                     {
-                        let redacts_key = (room_id, redaction.redacts).encode();
+                        let redacts_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, redaction.redacts));
                         if let Some(position_key) =
                             self.room_event_id_to_position.get(redacts_key)?
                         {
@@ -1184,7 +1183,7 @@ impl SledStore {
                 }
             }
 
-            timeline_metadata_batch.insert(self.encode_key(TIMELINE_METADTA, &room_id), serde_json::to_vec(&metadata)?);
+            timeline_metadata_batch.insert(self.encode_key(TIMELINE_METADATA, &room_id), serde_json::to_vec(&metadata)?);
         }
 
         let ret: Result<(), TransactionError<SledStoreError>> =
