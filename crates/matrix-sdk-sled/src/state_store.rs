@@ -24,11 +24,11 @@ use anyhow::anyhow;
 use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, TryStreamExt};
+use matrix_sdk_store_encryption::{StoreCipher, Error as KeyEncryptionError};
 use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     store::{
-        store_key::{self, EncryptedEvent, StoreKey},
         BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
     },
     RoomInfo,
@@ -65,18 +65,12 @@ use crate::encode_key::{encode_key_with_usize, EncodeKey, ENCODE_SEPARATOR};
 #[cfg(feature = "crypto-store")]
 pub use crate::CryptoStore;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum DatabaseType {
-    Unencrypted,
-    Encrypted(store_key::EncryptedStoreKey),
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum SledStoreError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Encryption(#[from] store_key::Error),
+    Encryption(#[from] KeyEncryptionError),
     #[error(transparent)]
     StoreError(#[from] StoreError),
     #[error(transparent)]
@@ -103,9 +97,11 @@ impl Into<StoreError> for SledStoreError {
             SledStoreError::Json(e) => StoreError::Json(e),
             SledStoreError::Identifier(e) => StoreError::Identifier(e),
             SledStoreError::Encryption(e) => match e {
-                store_key::Error::Random(e) => StoreError::Encryption(e.to_string()),
-                store_key::Error::Serialization(e) => StoreError::Json(e),
-                store_key::Error::Encryption(e) => StoreError::Encryption(e),
+                KeyEncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
+                KeyEncryptionError::Serialization(e) => StoreError::Json(e),
+                KeyEncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
+                KeyEncryptionError::Version(found, expected) => StoreError::Encryption(format!("Bad Database Encryption Version: expected {} found {}", expected, found)),
+                KeyEncryptionError::Length(found, expected) => StoreError::Encryption(format!("The database key an invalid length: expected {} found {}", expected, found)),
             },
             SledStoreError::StoreError(e) => e,
             _ => StoreError::Backend(anyhow!(self)),
@@ -132,7 +128,7 @@ pub fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
 pub struct SledStore {
     path: Option<PathBuf>,
     pub(crate) inner: Db,
-    store_key: Arc<Option<StoreKey>>,
+    store_cipher: Arc<Option<StoreCipher>>,
     session: Tree,
     account_data: Tree,
     members: Tree,
@@ -167,7 +163,7 @@ impl std::fmt::Debug for SledStore {
 }
 
 impl SledStore {
-    fn open_helper(db: Db, path: Option<PathBuf>, store_key: Option<StoreKey>) -> Result<Self> {
+    fn open_helper(db: Db, path: Option<PathBuf>, store_cipher: Option<StoreCipher>) -> Result<Self> {
         let session = db.open_tree("session")?;
         let account_data = db.open_tree("account_data")?;
 
@@ -200,7 +196,7 @@ impl SledStore {
         Ok(Self {
             path,
             inner: db,
-            store_key: store_key.into(),
+            store_cipher: store_cipher.into(),
             session,
             account_data,
             members,
@@ -240,27 +236,15 @@ impl SledStore {
         let path = path.as_ref().join("matrix-sdk-state");
         let db = Config::new().temporary(false).path(&path).open()?;
 
-        let store_key: Option<DatabaseType> = db
-            .get("store_key".encode())?
-            .map(|k| serde_json::from_slice(&k).map_err(StoreError::Json))
-            .transpose()?;
-
-        let store_key = if let Some(key) = store_key {
-            if let DatabaseType::Encrypted(k) = key {
-                StoreKey::import(passphrase, k).map_err(|_| StoreError::StoreLocked)?
-            } else {
-                return Err(SledStoreError::StoreError(StoreError::UnencryptedStore));
-            }
+        let store_cipher = if let Some(inner) = db.get("store_cipher".encode())? {
+            StoreCipher::import(passphrase, &inner)?
         } else {
-            let key = StoreKey::new().map_err::<StoreError, _>(|e| e.into())?;
-            let encrypted_key = DatabaseType::Encrypted(
-                key.export(passphrase).map_err::<StoreError, _>(|e| e.into())?,
-            );
-            db.insert("store_key".encode(), serde_json::to_vec(&encrypted_key)?)?;
-            key
+            let ciph = StoreCipher::new()?;
+            db.insert("store_cipher".encode(), ciph.export(passphrase)?);
+            ciph
         };
 
-        SledStore::open_helper(db, Some(path), Some(store_key))
+        SledStore::open_helper(db, Some(path), Some(store_cipher))
     }
 
     pub fn open_with_path(path: impl AsRef<Path>) -> StoreResult<Self> {
@@ -286,9 +270,8 @@ impl SledStore {
     }
 
     fn serialize_event(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
-        if let Some(key) = &*self.store_key {
-            let encrypted = key.encrypt(event)?;
-            Ok(serde_json::to_vec(&encrypted)?)
+        if let Some(key) = &*self.store_cipher {
+            Ok(key.encrypt_value(event)?)
         } else {
             Ok(serde_json::to_vec(event)?)
         }
@@ -298,9 +281,8 @@ impl SledStore {
         &self,
         event: &[u8],
     ) -> Result<T, SledStoreError> {
-        if let Some(key) = &*self.store_key {
-            let encrypted: EncryptedEvent = serde_json::from_slice(event)?;
-            Ok(key.decrypt(encrypted)?)
+        if let Some(key) = &*self.store_cipher {
+            Ok(key.decrypt_value(event)?)
         } else {
             Ok(serde_json::from_slice(event)?)
         }
