@@ -354,7 +354,7 @@ macro_rules! statestore_integration_tests {
 
                 #[async_test]
                 async fn test_receipts_saving() {
-                    let store = get_store().await.unwrap();
+                    let store = get_store().await.expect("creating store failed");
 
                     let room_id = room_id!("!test_receipts_saving:localhost");
 
@@ -370,7 +370,7 @@ macro_rules! statestore_integration_tests {
                             }
                         }
                     }))
-                    .unwrap();
+                    .expect("json creation failed");
 
                     let second_receipt_event = serde_json::from_value(json!({
                         second_event_id.clone(): {
@@ -381,45 +381,45 @@ macro_rules! statestore_integration_tests {
                             }
                         }
                     }))
-                    .unwrap();
+                    .expect("json creation failed");
 
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt")
                         .is_none());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 1")
                         .is_empty());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 2")
                         .is_empty());
 
                     let mut changes = StateChanges::default();
                     changes.add_receipts(room_id, first_receipt_event);
 
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("writing changes fauked");
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt after save")
                         .is_some(),);
                     assert_eq!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                             .await
-                            .unwrap()
+                            .expect("failed to read user room receipt for 1 after save")
                             .len(),
                         1
                     );
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 2 after save")
                         .is_empty());
 
                     let mut changes = StateChanges::default();
