@@ -27,6 +27,7 @@ use futures_util::stream::{self, TryStreamExt};
 use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
+    ruma::events::room::redaction::SyncRoomRedactionEvent,
     store::{
         store_key::{self, EncryptedEvent, StoreKey},
         BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
@@ -1094,7 +1095,9 @@ impl SledStore {
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
                     if let Ok(AnySyncRoomEvent::MessageLike(
-                        AnySyncMessageLikeEvent::RoomRedaction(redaction),
+                        AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
+                            redaction,
+                        )),
                     )) = event.event.deserialize()
                     {
                         let redacts_key = (room_id, redaction.redacts).encode();

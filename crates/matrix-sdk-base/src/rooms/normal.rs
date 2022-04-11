@@ -29,8 +29,8 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
-        AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, RoomAccountDataEventType,
-        StateEventType,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
+        RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     room::RoomType as CreateRoomType,
@@ -654,11 +654,18 @@ impl RoomInfo {
         self.base_info.encryption.is_some()
     }
 
-    /// handle the given State event.
+    /// Handle the given state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
+    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
         self.base_info.handle_state_event(event)
+    }
+
+    /// Handle the given stripped tate event.
+    ///
+    /// Returns true if the event modified the info, false otherwise.
+    pub fn handle_stripped_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
+        self.base_info.handle_stripped_state_event(event)
     }
 
     /// Update the notifications count

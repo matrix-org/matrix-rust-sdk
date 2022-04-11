@@ -26,9 +26,7 @@ use ruma::{
         typing::create_typing_event::v3::{Request as TypingRequest, Typing},
     },
     assign,
-    events::{
-        room::message::RoomMessageEventContent, EventContent, MessageLikeEventType, StateEventType,
-    },
+    events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
     receipt::ReceiptType,
     serde::Raw,
     EventId, TransactionId, UserId,
@@ -468,7 +466,7 @@ impl Joined {
     /// [`transaction_id`]: ruma::events::MessageLikeUnsigned#structfield.transaction_id
     pub async fn send(
         &self,
-        content: impl EventContent<EventType = MessageLikeEventType>,
+        content: impl MessageLikeEventContent,
         txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::v3::Response> {
         let event_type = content.event_type().to_string();
@@ -808,7 +806,7 @@ impl Joined {
     /// ```
     pub async fn send_state_event(
         &self,
-        content: impl EventContent<EventType = StateEventType>,
+        content: impl StateEventContent,
         state_key: &str,
     ) -> Result<send_state_event::v3::Response> {
         let request =
