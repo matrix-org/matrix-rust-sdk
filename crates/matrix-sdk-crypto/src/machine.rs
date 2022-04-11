@@ -35,12 +35,12 @@ use ruma::{
     assign,
     events::{
         room::encrypted::{
-            EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent,
-            SyncRoomEncryptedEvent, ToDeviceRoomEncryptedEvent,
+            EncryptedEventScheme, MegolmV1AesSha2Content, OriginalSyncRoomEncryptedEvent,
+            RoomEncryptedEventContent, ToDeviceRoomEncryptedEvent,
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyRoomEvent, AnyToDeviceEvent, EventContent, MessageLikeEventType,
+        AnyRoomEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
     UInt, UserId,
@@ -659,7 +659,7 @@ impl OlmMachine {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl EventContent<EventType = MessageLikeEventType>,
+        content: impl MessageLikeEventContent,
     ) -> MegolmResult<RoomEncryptedEventContent> {
         let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
@@ -986,7 +986,7 @@ impl OlmMachine {
     /// * `session_id` - The id that uniquely identifies the session.
     pub async fn request_room_key(
         &self,
-        event: &SyncRoomEncryptedEvent,
+        event: &OriginalSyncRoomEncryptedEvent,
         room_id: &RoomId,
     ) -> MegolmResult<(Option<OutgoingRequest>, OutgoingRequest)> {
         let content = match &event.content.scheme {
@@ -1039,7 +1039,7 @@ impl OlmMachine {
     async fn decrypt_megolm_v1_event(
         &self,
         room_id: &RoomId,
-        event: &SyncRoomEncryptedEvent,
+        event: &OriginalSyncRoomEncryptedEvent,
         content: &MegolmV1AesSha2Content,
     ) -> MegolmResult<RoomEvent> {
         if let Some(session) = self
@@ -1100,7 +1100,7 @@ impl OlmMachine {
     /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn decrypt_room_event(
         &self,
-        event: &SyncRoomEncryptedEvent,
+        event: &OriginalSyncRoomEncryptedEvent,
         room_id: &RoomId,
     ) -> MegolmResult<RoomEvent> {
         match &event.content.scheme {
@@ -1536,8 +1536,8 @@ pub(crate) mod tests {
                 message::{MessageType, RoomMessageEventContent},
             },
             AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
-            AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned, SyncMessageLikeEvent,
-            ToDeviceEvent,
+            AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned,
+            OriginalMessageLikeEvent, OriginalSyncMessageLikeEvent, ToDeviceEvent,
         },
         room_id,
         serde::Raw,
@@ -1957,7 +1957,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let event = SyncMessageLikeEvent {
+        let event = OriginalSyncMessageLikeEvent {
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             origin_server_ts: milli_seconds_since_unix_epoch(),
             sender: alice.user_id().to_owned(),
@@ -1968,11 +1968,9 @@ pub(crate) mod tests {
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(MessageLikeEvent {
-            sender,
-            content,
-            ..
-        })) = decrypted_event
+        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+            MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
+        )) = decrypted_event
         {
             assert_eq!(&sender, alice.user_id());
             if let MessageType::Text(c) = &content.msgtype {

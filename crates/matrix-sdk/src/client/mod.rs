@@ -1660,7 +1660,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::SyncRoomMessageEvent,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1671,7 +1671,7 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: SyncRoomMessageEvent| async move {
+    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
     /// }).await;
     ///
@@ -1765,7 +1765,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::SyncRoomMessageEvent,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1773,7 +1773,7 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: SyncRoomMessageEvent| async move {
+    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
     /// }).await;
     ///

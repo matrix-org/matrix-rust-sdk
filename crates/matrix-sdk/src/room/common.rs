@@ -18,8 +18,9 @@ use ruma::{
     events::{
         room::{history_visibility::HistoryVisibility, MediaSource},
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, EventContent,
-        RoomAccountDataEvent, RoomAccountDataEventType, StateEventType, StaticEventContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, RedactContent,
+        RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
     serde::Raw,
@@ -662,7 +663,8 @@ impl Common {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + EventContent<EventType = StateEventType>,
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
         Ok(self.get_state_events(C::TYPE.into()).await?.into_iter().map(Raw::cast).collect())
@@ -702,7 +704,8 @@ impl Common {
         state_key: &str,
     ) -> Result<Option<Raw<SyncStateEvent<C>>>>
     where
-        C: StaticEventContent + EventContent<EventType = StateEventType>,
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
     {
         Ok(self.get_state_event(C::TYPE.into(), state_key).await?.map(Raw::cast))
     }
@@ -737,7 +740,7 @@ impl Common {
     /// ```
     pub async fn account_data_static<C>(&self) -> Result<Option<Raw<RoomAccountDataEvent<C>>>>
     where
-        C: StaticEventContent + EventContent<EventType = RoomAccountDataEventType>,
+        C: StaticEventContent + RoomAccountDataEventContent,
     {
         Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast))
     }

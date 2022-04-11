@@ -47,12 +47,34 @@ pub enum EventKind {
     GlobalAccountData,
     RoomAccountData,
     EphemeralRoomData,
-    Message { redacted: bool },
-    State { redacted: bool },
+    MessageLike,
+    OriginalMessageLike,
+    RedactedMessageLike,
+    State,
+    OriginalState,
+    RedactedState,
     StrippedState,
     InitialState,
     ToDevice,
     Presence,
+}
+
+impl EventKind {
+    fn message_like_redacted(redacted: bool) -> Self {
+        if redacted {
+            Self::RedactedMessageLike
+        } else {
+            Self::OriginalMessageLike
+        }
+    }
+
+    fn state_redacted(redacted: bool) -> Self {
+        if redacted {
+            Self::RedactedState
+        } else {
+            Self::OriginalState
+        }
+    }
 }
 
 /// A statically-known event kind/type that can be retrieved from an event sync.
@@ -269,6 +291,10 @@ impl Client {
             unsigned: Option<UnsignedDetails>,
         }
 
+        // Event handlers for possibly-redacted state events
+        self.handle_sync_events(EventKind::State, room, state_events).await?;
+
+        // Event handlers specifically for redacted OR unredacted state events
         self.handle_sync_events_wrapped_with(
             room,
             state_events,
@@ -276,10 +302,12 @@ impl Client {
             |raw| {
                 let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
                 let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-                Ok((EventKind::State { redacted }, event_type))
+                Ok((EventKind::state_redacted(redacted), event_type))
             },
         )
-        .await
+        .await?;
+
+        Ok(())
     }
 
     pub(crate) async fn handle_sync_timeline_events(
@@ -295,6 +323,25 @@ impl Client {
             unsigned: Option<UnsignedDetails>,
         }
 
+        // Event handlers for possibly-redacted timeline events
+        self.handle_sync_events_wrapped_with(
+            room,
+            timeline_events,
+            |e| (&e.event, e.encryption_info.as_ref()),
+            |raw| {
+                let TimelineEventDetails { event_type, state_key, .. } = raw.deserialize_as()?;
+
+                let kind = match state_key {
+                    Some(_) => EventKind::State,
+                    None => EventKind::MessageLike,
+                };
+
+                Ok((kind, event_type))
+            },
+        )
+        .await?;
+
+        // Event handlers specifically for redacted OR unredacted timeline events
         self.handle_sync_events_wrapped_with(
             room,
             timeline_events,
@@ -305,14 +352,16 @@ impl Client {
 
                 let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
                 let kind = match state_key {
-                    Some(_) => EventKind::State { redacted },
-                    None => EventKind::Message { redacted },
+                    Some(_) => EventKind::state_redacted(redacted),
+                    None => EventKind::message_like_redacted(redacted),
                 };
 
                 Ok((kind, event_type))
             },
         )
-        .await
+        .await?;
+
+        Ok(())
     }
 
     async fn handle_sync_events_wrapped_with<'a, T: 'a, U: 'a>(
@@ -390,101 +439,113 @@ mod static_events {
     use ruma::events::{
         self,
         presence::{PresenceEvent, PresenceEventContent},
-        EphemeralRoomEventType, EventContent, GlobalAccountDataEventType, MessageLikeEventType,
-        RedactedEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
-        ToDeviceEventType,
+        EphemeralRoomEventContent, GlobalAccountDataEventContent, MessageLikeEventContent,
+        RedactContent, RedactedEventContent, RoomAccountDataEventContent, StateEventContent,
+        StaticEventContent, ToDeviceEventContent,
     };
 
     use super::{EventKind, SyncEvent};
 
     impl<C> SyncEvent for events::GlobalAccountDataEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = GlobalAccountDataEventType>,
+        C: StaticEventContent + GlobalAccountDataEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::GlobalAccountData, C::TYPE);
     }
 
     impl<C> SyncEvent for events::RoomAccountDataEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = RoomAccountDataEventType>,
+        C: StaticEventContent + RoomAccountDataEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::RoomAccountData, C::TYPE);
     }
 
     impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = EphemeralRoomEventType>,
+        C: StaticEventContent + EphemeralRoomEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::EphemeralRoomData, C::TYPE);
     }
 
     impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = MessageLikeEventType>,
+        C: StaticEventContent + MessageLikeEventContent + RedactContent,
+        C::Redacted: MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::Message { redacted: false }, C::TYPE);
+        const ID: (EventKind, &'static str) = (EventKind::MessageLike, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
+    where
+        C: StaticEventContent + MessageLikeEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::OriginalMessageLike, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
+    where
+        C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::RedactedMessageLike, C::TYPE);
     }
 
     impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
+        const ID: (EventKind, &'static str) =
+            (EventKind::MessageLike, events::room::redaction::RoomRedactionEventContent::TYPE);
+    }
+
+    impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
         const ID: (EventKind, &'static str) = (
-            EventKind::Message { redacted: false },
+            EventKind::OriginalMessageLike,
             events::room::redaction::RoomRedactionEventContent::TYPE,
         );
     }
 
     impl<C> SyncEvent for events::SyncStateEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = StateEventType>,
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::State { redacted: false }, C::TYPE);
+        const ID: (EventKind, &'static str) = (EventKind::State, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
+    where
+        C: StaticEventContent + StateEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::OriginalState, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
+    where
+        C: StaticEventContent + StateEventContent + RedactedEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::RedactedState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::StrippedStateEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = StateEventType>,
+        C: StaticEventContent + StateEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::StrippedState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::InitialStateEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = StateEventType>,
+        C: StaticEventContent + StateEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::InitialState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::ToDeviceEvent<C>
     where
-        C: StaticEventContent + EventContent<EventType = ToDeviceEventType>,
+        C: StaticEventContent + ToDeviceEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::ToDevice, C::TYPE);
     }
 
     impl SyncEvent for PresenceEvent {
         const ID: (EventKind, &'static str) = (EventKind::Presence, PresenceEventContent::TYPE);
-    }
-
-    impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
-    where
-        C: StaticEventContent
-            + EventContent<EventType = MessageLikeEventType>
-            + RedactedEventContent,
-    {
-        const ID: (EventKind, &'static str) = (EventKind::Message { redacted: true }, C::TYPE);
-    }
-
-    impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::Message { redacted: true },
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
-    }
-
-    impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
-    where
-        C: StaticEventContent + EventContent<EventType = StateEventType> + RedactedEventContent,
-    {
-        const ID: (EventKind, &'static str) = (EventKind::State { redacted: true }, C::TYPE);
     }
 }
 
@@ -497,7 +558,7 @@ mod tests {
 
     use matrix_sdk_test::{EventBuilder, EventsJson};
     use ruma::{
-        events::room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        events::room::member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
         room_id,
     };
     use serde_json::json;
@@ -518,7 +579,7 @@ mod tests {
         client
             .register_event_handler({
                 let member_count = member_count.clone();
-                move |_ev: SyncRoomMemberEvent, _room: room::Room| {
+                move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
                     member_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -526,7 +587,7 @@ mod tests {
             .await
             .register_event_handler({
                 let typing_count = typing_count.clone();
-                move |_ev: SyncRoomMemberEvent| {
+                move |_ev: OriginalSyncRoomMemberEvent| {
                     typing_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -534,7 +595,7 @@ mod tests {
             .await
             .register_event_handler({
                 let power_levels_count = power_levels_count.clone();
-                move |_ev: SyncRoomMemberEvent, _client: Client, _room: room::Room| {
+                move |_ev: OriginalSyncRoomMemberEvent, _client: Client, _room: room::Room| {
                     power_levels_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }

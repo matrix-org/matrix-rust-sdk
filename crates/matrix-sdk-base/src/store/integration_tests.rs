@@ -147,14 +147,14 @@ macro_rules! statestore_integration_tests {
                     let name_json: &JsonValue = &test_json::NAME;
                     let name_raw = serde_json::from_value::<Raw<AnySyncStateEvent>>(name_json.clone()).unwrap();
                     let name_event = name_raw.deserialize().unwrap();
-                    room.handle_state_event(&name_event.content());
+                    room.handle_state_event(&name_event);
                     changes.add_state_event(room_id, name_event, name_raw);
 
                     let topic_json: &JsonValue = &test_json::TOPIC;
                     let topic_raw =
                         serde_json::from_value::<Raw<AnySyncStateEvent>>(topic_json.clone()).unwrap();
                     let topic_event = topic_raw.deserialize().unwrap();
-                    room.handle_state_event(&topic_event.content());
+                    room.handle_state_event(&topic_event);
                     changes.add_state_event(room_id, topic_event, topic_raw);
 
                     let mut room_ambiguity_map = BTreeMap::new();
@@ -213,7 +213,7 @@ macro_rules! statestore_integration_tests {
                         serde_json::from_value::<Raw<AnyStrippedStateEvent>>(stripped_name_json.clone())
                             .unwrap();
                     let stripped_name_event = stripped_name_raw.deserialize().unwrap();
-                    stripped_room.handle_state_event(&stripped_name_event.content());
+                    stripped_room.handle_stripped_state_event(&stripped_name_event);
                     changes.stripped_state.insert(
                         stripped_room_id.to_owned(),
                         BTreeMap::from([(

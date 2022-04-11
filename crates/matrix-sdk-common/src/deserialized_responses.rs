@@ -10,7 +10,8 @@ use ruma::{
     },
     events::{
         room::member::{
-            RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+            OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+            StrippedRoomMemberEvent,
         },
         AnyRoomEvent, AnySyncRoomEvent, StateUnsigned,
     },
@@ -296,7 +297,7 @@ impl TimelineSlice {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(try_from = "SyncRoomMemberEvent", into = "SyncRoomMemberEvent")]
+#[serde(try_from = "OriginalSyncRoomMemberEvent", into = "OriginalSyncRoomMemberEvent")]
 pub struct MemberEvent {
     pub content: RoomMemberEventContent,
     pub event_id: Box<EventId>,
@@ -306,10 +307,10 @@ pub struct MemberEvent {
     pub unsigned: StateUnsigned<RoomMemberEventContent>,
 }
 
-impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
+impl TryFrom<OriginalSyncRoomMemberEvent> for MemberEvent {
     type Error = ruma::IdParseError;
 
-    fn try_from(event: SyncRoomMemberEvent) -> Result<Self, Self::Error> {
+    fn try_from(event: OriginalSyncRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
@@ -321,10 +322,10 @@ impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
     }
 }
 
-impl TryFrom<RoomMemberEvent> for MemberEvent {
+impl TryFrom<OriginalRoomMemberEvent> for MemberEvent {
     type Error = ruma::IdParseError;
 
-    fn try_from(event: RoomMemberEvent) -> Result<Self, Self::Error> {
+    fn try_from(event: OriginalRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
@@ -336,7 +337,7 @@ impl TryFrom<RoomMemberEvent> for MemberEvent {
     }
 }
 
-impl From<MemberEvent> for SyncRoomMemberEvent {
+impl From<MemberEvent> for OriginalSyncRoomMemberEvent {
     fn from(other: MemberEvent) -> Self {
         Self {
             content: other.content,
@@ -395,8 +396,8 @@ mod tests {
     use ruma::{
         event_id,
         events::{
-            room::message::RoomMessageEventContent, AnyMessageLikeEvent, AnySyncMessageLikeEvent,
-            AnySyncRoomEvent, MessageLikeEvent, MessageLikeUnsigned,
+            room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            MessageLikeUnsigned, OriginalMessageLikeEvent, SyncMessageLikeEvent,
         },
         room_id,
         serde::Raw,
@@ -409,7 +410,7 @@ mod tests {
     fn room_event_to_sync_room_event() {
         let content = RoomMessageEventContent::text_plain("foobar");
 
-        let event = MessageLikeEvent {
+        let event = OriginalMessageLikeEvent {
             content,
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             room_id: room_id!("!someroom:example.com").to_owned(),
@@ -425,9 +426,9 @@ mod tests {
 
         let converted_event: AnySyncRoomEvent = converted_room_event.event.deserialize().unwrap();
 
-        let event: AnyMessageLikeEvent = event.into();
-        let sync_event: AnySyncMessageLikeEvent = event.into();
-        let sync_event: AnySyncRoomEvent = sync_event.into();
+        let sync_event = AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncMessageLikeEvent::Original(event.into()),
+        ));
 
         // There is no PartialEq implementation for AnySyncRoomEvent, so we
         // just compare a couple of fields here. The important thing is that

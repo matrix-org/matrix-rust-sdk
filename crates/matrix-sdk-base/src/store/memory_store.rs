@@ -26,7 +26,10 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
-        room::member::{MembershipState, RoomMemberEventContent},
+        room::{
+            member::{MembershipState, RoomMemberEventContent},
+            redaction::SyncRoomRedactionEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncMessageLikeEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         RoomAccountDataEventType, StateEventType,
@@ -361,7 +364,9 @@ impl MemoryStore {
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
                     if let Ok(AnySyncRoomEvent::MessageLike(
-                        AnySyncMessageLikeEvent::RoomRedaction(redaction),
+                        AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
+                            redaction,
+                        )),
                     )) = event.event.deserialize()
                     {
                         let pos = data.event_id_to_position.get(&redaction.redacts).copied();

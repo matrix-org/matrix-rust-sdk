@@ -19,6 +19,7 @@ use matrix_sdk::{
     },
     Client, LoopCtrl,
 };
+use ruma::events::SyncMessageLikeEvent;
 use url::Url;
 
 async fn wait_for_confirmation(client: Client, sas: SasVerification) {
@@ -135,7 +136,9 @@ async fn login(
                     {
                         if let AnySyncRoomEvent::MessageLike(event) = event {
                             match event {
-                                AnySyncMessageLikeEvent::RoomMessage(m) => {
+                                AnySyncMessageLikeEvent::RoomMessage(
+                                    SyncMessageLikeEvent::Original(m),
+                                ) => {
                                     if let MessageType::VerificationRequest(_) = &m.content.msgtype
                                     {
                                         let request = client
@@ -150,7 +153,9 @@ async fn login(
                                             .expect("Can't accept verification request");
                                     }
                                 }
-                                AnySyncMessageLikeEvent::KeyVerificationKey(e) => {
+                                AnySyncMessageLikeEvent::KeyVerificationKey(
+                                    SyncMessageLikeEvent::Original(e),
+                                ) => {
                                     if let Some(Verification::SasV1(sas)) = client
                                         .encryption()
                                         .get_verification(
@@ -162,7 +167,9 @@ async fn login(
                                         tokio::spawn(wait_for_confirmation((*client).clone(), sas));
                                     }
                                 }
-                                AnySyncMessageLikeEvent::KeyVerificationMac(e) => {
+                                AnySyncMessageLikeEvent::KeyVerificationMac(
+                                    SyncMessageLikeEvent::Original(e),
+                                ) => {
                                     if let Some(Verification::SasV1(sas)) = client
                                         .encryption()
                                         .get_verification(

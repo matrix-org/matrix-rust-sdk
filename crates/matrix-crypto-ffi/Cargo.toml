@@ -47,7 +47,7 @@ features = ["rt-multi-thread"]
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma"
-rev = "deea762b8"
+rev = "548232ef5"
 features = ["client-api-c"]
 
 [build-dependencies]

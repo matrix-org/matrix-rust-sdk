@@ -41,6 +41,7 @@ use ruma::{
         },
         room::message::{KeyVerificationRequestEventContent, MessageType},
         AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        MessageLikeEvent,
     },
     serde::{Base64, CanonicalJsonValue},
     DeviceId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
@@ -79,32 +80,32 @@ impl AnyEvent<'_> {
     pub fn verification_content(&self) -> Option<AnyVerificationContent<'_>> {
         match self {
             AnyEvent::Room(e) => match e {
-                AnyMessageLikeEvent::RoomMessage(m) => {
+                AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(m)) => {
                     if let MessageType::VerificationRequest(v) = &m.content.msgtype {
                         Some(RequestContent::from(v).into())
                     } else {
                         None
                     }
                 }
-                AnyMessageLikeEvent::KeyVerificationReady(e) => {
+                AnyMessageLikeEvent::KeyVerificationReady(MessageLikeEvent::Original(e)) => {
                     Some(ReadyContent::from(&e.content).into())
                 }
-                AnyMessageLikeEvent::KeyVerificationStart(e) => {
+                AnyMessageLikeEvent::KeyVerificationStart(MessageLikeEvent::Original(e)) => {
                     Some(StartContent::from(&e.content).into())
                 }
-                AnyMessageLikeEvent::KeyVerificationCancel(e) => {
+                AnyMessageLikeEvent::KeyVerificationCancel(MessageLikeEvent::Original(e)) => {
                     Some(CancelContent::from(&e.content).into())
                 }
-                AnyMessageLikeEvent::KeyVerificationAccept(e) => {
+                AnyMessageLikeEvent::KeyVerificationAccept(MessageLikeEvent::Original(e)) => {
                     Some(AcceptContent::from(&e.content).into())
                 }
-                AnyMessageLikeEvent::KeyVerificationKey(e) => {
+                AnyMessageLikeEvent::KeyVerificationKey(MessageLikeEvent::Original(e)) => {
                     Some(KeyContent::from(&e.content).into())
                 }
-                AnyMessageLikeEvent::KeyVerificationMac(e) => {
+                AnyMessageLikeEvent::KeyVerificationMac(MessageLikeEvent::Original(e)) => {
                     Some(MacContent::from(&e.content).into())
                 }
-                AnyMessageLikeEvent::KeyVerificationDone(e) => {
+                AnyMessageLikeEvent::KeyVerificationDone(MessageLikeEvent::Original(e)) => {
                     Some(DoneContent::from(&e.content).into())
                 }
                 _ => None,
@@ -168,26 +169,28 @@ impl TryFrom<&AnyMessageLikeEvent> for FlowId {
 
     fn try_from(value: &AnyMessageLikeEvent) -> Result<Self, Self::Error> {
         match value {
-            AnyMessageLikeEvent::KeyVerificationReady(e) => {
+            AnyMessageLikeEvent::KeyVerificationReady(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageLikeEvent::RoomMessage(e) => Ok(FlowId::from((&*e.room_id, &*e.event_id))),
-            AnyMessageLikeEvent::KeyVerificationStart(e) => {
+            AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(e)) => {
+                Ok(FlowId::from((&*e.room_id, &*e.event_id)))
+            }
+            AnyMessageLikeEvent::KeyVerificationStart(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageLikeEvent::KeyVerificationCancel(e) => {
+            AnyMessageLikeEvent::KeyVerificationCancel(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageLikeEvent::KeyVerificationAccept(e) => {
+            AnyMessageLikeEvent::KeyVerificationAccept(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageLikeEvent::KeyVerificationKey(e) => {
+            AnyMessageLikeEvent::KeyVerificationKey(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageLikeEvent::KeyVerificationMac(e) => {
+            AnyMessageLikeEvent::KeyVerificationMac(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageLikeEvent::KeyVerificationDone(e) => {
+            AnyMessageLikeEvent::KeyVerificationDone(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             _ => Err(()),

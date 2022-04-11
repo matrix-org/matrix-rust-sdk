@@ -56,7 +56,10 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 #[cfg(feature = "encryption")]
-use {ruma::api::client::config::set_global_account_data, ruma::events::EventContent};
+use {
+    ruma::api::client::config::set_global_account_data,
+    ruma::events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
+};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -80,7 +83,10 @@ impl Client {
                     // Turn the AnyMessageLikeEvent into a AnySyncMessageLikeEvent
                     let event = event.clone().into();
 
-                    if let AnySyncMessageLikeEvent::RoomEncrypted(e) = event {
+                    if let AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(
+                        e,
+                    )) = event
+                    {
                         if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
                             return decrypted;
                         }
@@ -90,6 +96,7 @@ impl Client {
         }
 
         // Fallback to still-encrypted room event
+
         RoomEvent { event, encryption_info: None }
     }
 
@@ -237,7 +244,7 @@ impl Client {
         content: T,
     ) -> Result<set_global_account_data::v3::Response>
     where
-        T: EventContent<EventType = GlobalAccountDataEventType>,
+        T: GlobalAccountDataEventContent,
     {
         let own_user =
             self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
