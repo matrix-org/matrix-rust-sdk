@@ -185,7 +185,7 @@ impl Default for BaseRoomInfo {
             create: None,
             dm_target: None,
             encryption: None,
-            guest_access: GuestAccess::CanJoin,
+            guest_access: GuestAccess::Forbidden,
             history_visibility: HistoryVisibility::WorldReadable,
             join_rule: JoinRule::Public,
             max_power_level: 100,
