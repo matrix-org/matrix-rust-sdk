@@ -23,7 +23,7 @@ use std::{
 use anyhow::anyhow;
 use async_stream::stream;
 use futures_core::stream::Stream;
-use futures_util::stream::{self, TryStreamExt};
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_store_encryption::{StoreCipher, Error as KeyEncryptionError};
 use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
@@ -645,29 +645,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
     ) -> StoreResult<impl Stream<Item = StoreResult<Box<UserId>>>> {
-        let decode = |key: &[u8]| -> StoreResult<Box<UserId>> {
-            let mut iter = key.split(|c| c == &ENCODE_SEPARATOR);
-            // Our key is a the room id separated from the user id by a null
-            // byte, discard the first value of the split.
-            iter.next();
-
-            let user_id = iter.next().expect("User ids weren't properly encoded");
-
-            Ok(UserId::parse(String::from_utf8_lossy(user_id).to_string())?)
-        };
-
-        let members = self.members.clone();
-        let key = room_id.encode();
-
-        spawn_blocking(move || {
-            stream::iter(
-                members
-                    .scan_prefix(key)
-                    .map(move |u| decode(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.0)),
-            )
-        })
-        .await
-        .map_err(|e| StoreError::Backend(anyhow!(e)))
+        Ok(self.get_joined_user_ids(room_id).await?.chain(self.get_invited_user_ids(room_id).await?))
     }
 
     pub async fn get_invited_user_ids(
@@ -675,7 +653,7 @@ impl SledStore {
         room_id: &RoomId,
     ) -> StoreResult<impl Stream<Item = StoreResult<Box<UserId>>>> {
         let db = self.clone();
-        let key = room_id.encode();
+        let key = self.encode_key(INVITED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
                 UserId::parse(
@@ -694,7 +672,7 @@ impl SledStore {
         room_id: &RoomId,
     ) -> StoreResult<impl Stream<Item = StoreResult<Box<UserId>>>> {
         let db = self.clone();
-        let key = room_id.encode();
+        let key = self.encode_key(JOINED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
                 UserId::parse(
