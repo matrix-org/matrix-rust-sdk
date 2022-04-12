@@ -277,17 +277,17 @@ macro_rules! statestore_integration_tests {
 
                     assert!(store.get_sync_token().await?.is_some());
                     assert!(store.get_presence_event(user_id).await?.is_some());
-                    assert_eq!(store.get_room_infos().await?.len(), 1);
-                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
+                    assert_eq!(store.get_room_infos().await?.len(), 1,  "Exepcted to find 1 room info ");
+                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1,  "Exepcted to find 1 stripped room info");
                     assert!(store.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some());
 
                     assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
-                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 1);
+                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 1, "Exepcted to find 1 room topic");
                     assert!(store.get_profile(room_id, user_id).await?.is_some());
                     assert!(store.get_member_event(room_id, user_id).await?.is_some());
                     assert_eq!(store.get_user_ids(room_id).await?.len(), 2, "expected to find 2 members for room");
-                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 1);
-                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1);
+                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 1, "Exepcted to find 1 invited user ids");
+                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1, "Exepcted to find 1 joined user ids");
                     assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2, "expected to find 2 display names for room");
                     assert!(store
                         .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
@@ -302,8 +302,7 @@ macro_rules! statestore_integration_tests {
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
                             .await?
                             .len(),
-                        1
-                    );
+                        1, "Exepcted to find 1 read receipt");
                     Ok(())
                 }
 
@@ -407,14 +406,15 @@ macro_rules! statestore_integration_tests {
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
                         .expect("failed to read user room receipt after save")
-                        .is_some(),);
+                        .is_some());
                     assert_eq!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                             .await
                             .expect("failed to read user room receipt for 1 after save")
                             .len(),
-                        1
+                        1,
+                        "Found a wrong number of receipts for 1 after save"
                     );
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
@@ -442,7 +442,8 @@ macro_rules! statestore_integration_tests {
                             .await
                             .expect("Getting event room receipt events for second event failed")
                             .len(),
-                        1
+                        1,
+                        "Found a wrong number of receipts for second event after save"
                     );
                 }
 

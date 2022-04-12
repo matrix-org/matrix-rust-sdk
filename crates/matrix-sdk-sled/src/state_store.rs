@@ -14,7 +14,6 @@
 
 use std::{
     collections::BTreeSet,
-    convert::TryInto,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -133,29 +132,13 @@ const TIMELINE: &str = "timeline";
 const TIMELINE_METADATA: &str = "timeline-metadata";
 const ROOM_EVENT_ID_POSITION: &str = "room-event-id-to-position";
 
-
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
-
-/// Get the value at `position` in encoded `key`.
-///
-/// The key must have been encoded with the `EncodeKey` trait. `position`
-/// corresponds to the position in the tuple before the key was encoded. If it
-/// wasn't encoded in a tuple, use `0`.
-///
-/// Returns `None` if there is no key at `position`.
-fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
-    let values: Vec<&[u8]> = key.split(|v| *v == ENCODE_SEPARATOR).collect();
-
-    values.get(position).map(|s| String::from_utf8_lossy(s).to_string())
-}
-
 
 pub fn encode_key_with_usize<A: AsRef<str>>(s: A, i: usize) -> Vec<u8> {
     // FIXME: Not portable across architectures
     [s.as_ref().as_bytes(), &[ENCODE_SEPARATOR], i.to_be_bytes().as_ref(), &[ENCODE_SEPARATOR]]
         .concat()
 }
-
 
 #[derive(Clone)]
 pub struct SledStore {
@@ -559,7 +542,7 @@ impl SledStore {
                                     // Add the receipt to the room event receipts
                                     room_event_receipts.insert(
                                         self.encode_key(ROOM_EVENT_RECEIPT, &(room, receipt_type, event_id, user_id)),
-                                        self.serialize_event(receipt)
+                                        self.serialize_event(&(user_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                 }
@@ -778,15 +761,10 @@ impl SledStore {
         spawn_blocking(move || {
             db.room_event_receipts
                 .scan_prefix(key)
+                .values()
                 .map(|u| {
-                    u.map_err(|e| StoreError::Backend(anyhow!(e))).and_then(|(key, value)| {
-                        db.deserialize_event(&value)
-                            // TODO remove this unwrapping
-                            .map(|receipt| {
-                                (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
-                            })
-                            .map_err(|e| StoreError::Backend(anyhow!(e)))
-                    })
+                    let v = u.map_err(|e| StoreError::Backend(anyhow!(e)))?;
+                    db.deserialize_event(&v).map_err(|e| StoreError::Backend(anyhow!(e)))
                 })
                 .collect()
         })
