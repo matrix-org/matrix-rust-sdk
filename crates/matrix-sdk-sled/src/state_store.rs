@@ -674,9 +674,7 @@ impl SledStore {
     pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
         let db = self.clone();
         spawn_blocking(move || {
-            stream::iter(
-                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e)),
-            )
+            stream::iter(db.room_info.iter().map(move |r| db.deserialize_event(&r?.1)))
         })
         .await
         .map_err(Into::into)
@@ -685,11 +683,7 @@ impl SledStore {
     pub async fn get_stripped_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
         let db = self.clone();
         spawn_blocking(move || {
-            stream::iter(
-                db.stripped_room_infos
-                    .iter()
-                    .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e)),
-            )
+            stream::iter(db.stripped_room_infos.iter().map(move |r| db.deserialize_event(&r?.1)))
         })
         .await
         .map_err(Into::into)
