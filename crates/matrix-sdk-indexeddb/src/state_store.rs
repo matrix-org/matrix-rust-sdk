@@ -21,11 +21,12 @@ use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     store::{
-        store_key::{self, EncryptedEvent, StoreKey},
         BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
     },
     RoomInfo,
 };
+use matrix_sdk_store_encryption::{StoreCipher, Error as EncryptionError};
+
 use matrix_sdk_common::{
     async_trait,
     ruma::{
@@ -49,18 +50,15 @@ use wasm_bindgen::JsValue;
 
 use crate::safe_encode::SafeEncode;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum DatabaseType {
-    Unencrypted,
-    Encrypted(store_key::EncryptedStoreKey),
-}
+#[derive(Clone, Serialize, Deserialize)]
+struct StoreKeyWrapper(Vec<u8>);
 
 #[derive(Debug, thiserror::Error)]
 pub enum SerializationError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Encryption(#[from] store_key::Error),
+    Encryption(#[from] EncryptionError),
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
     #[error(transparent)]
@@ -83,9 +81,11 @@ impl From<SerializationError> for StoreError {
             SerializationError::Json(e) => StoreError::Json(e),
             SerializationError::StoreError(e) => e,
             SerializationError::Encryption(e) => match e {
-                store_key::Error::Random(e) => StoreError::Encryption(e.to_string()),
-                store_key::Error::Serialization(e) => StoreError::Json(e),
-                store_key::Error::Encryption(e) => StoreError::Encryption(e),
+                EncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
+                EncryptionError::Serialization(e) => StoreError::Json(e),
+                EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
+                EncryptionError::Version(found, expected) => StoreError::Encryption(format!("Bad Database Encryption Version: expected {} found {}", expected, found)),
+                EncryptionError::Length(found, expected) => StoreError::Encryption(format!("The database key an invalid length: expected {} found {}", expected, found)),
             },
             _ => StoreError::Backend(anyhow!(e)),
         }
@@ -135,7 +135,7 @@ mod KEYS {
 pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
-    store_key: Option<StoreKey>,
+    store_cipher: Option<StoreCipher>,
 }
 
 impl std::fmt::Debug for IndexeddbStore {
@@ -147,7 +147,7 @@ impl std::fmt::Debug for IndexeddbStore {
 type Result<A, E = SerializationError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
-    async fn open_helper(name: String, store_key: Option<StoreKey>) -> Result<Self> {
+    async fn open_helper(name: String, store_cipher: Option<StoreCipher>) -> Result<Self> {
         // Open my_db v1
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
@@ -190,7 +190,7 @@ impl IndexeddbStore {
 
         let db: IdbDatabase = db_req.into_future().await?;
 
-        Ok(Self { name, inner: db, store_key })
+        Ok(Self { name, inner: db, store_cipher })
     }
 
     #[allow(dead_code)]
@@ -200,7 +200,7 @@ impl IndexeddbStore {
 
     #[allow(dead_code)]
     pub(crate) async fn open_encrypted() -> StoreResult<Self> {
-        let key = StoreKey::new().map_err::<SerializationError, _>(|e| e.into())?;
+        let key = StoreCipher::new().map_err::<SerializationError, _>(|e| e.into())?;
         Ok(IndexeddbStore::open_helper("state_encrypted".to_owned(), Some(key)).await?)
     }
 
@@ -228,33 +228,25 @@ impl IndexeddbStore {
             db.transaction_on_one_with_mode("matrix-sdk-state", IdbTransactionMode::Readwrite)?;
         let ob = tx.object_store("matrix-sdk-state")?;
 
-        let store_key: Option<DatabaseType> = ob
+        let cipher = if let Some(StoreKeyWrapper(inner)) = ob
             .get(&JsValue::from_str(KEYS::STORE_KEY))?
             .await?
-            .map(|k| k.into_serde())
-            .transpose()?;
-
-        let store_key = if let Some(key) = store_key {
-            if let DatabaseType::Encrypted(k) = key {
-                StoreKey::import(passphrase, k).map_err(|_| StoreError::StoreLocked)?
-            } else {
-                return Err(StoreError::UnencryptedStore.into());
-            }
+            .map(|v| v.into_serde())
+            .transpose()?
+        {
+            StoreCipher::import(passphrase, &inner)?
         } else {
-            let key = StoreKey::new().map_err::<SerializationError, _>(|e| e.into())?;
-            let encrypted_key = DatabaseType::Encrypted(
-                key.export(passphrase).map_err::<SerializationError, _>(|e| e.into())?,
-            );
+            let ciph = StoreCipher::new()?;
             ob.put_key_val(
                 &JsValue::from_str(KEYS::STORE_KEY),
-                &JsValue::from_serde(&encrypted_key)?,
+                &JsValue::from_serde(&StoreKeyWrapper(ciph.export(passphrase)?))?,
             )?;
-            key
+            ciph
         };
 
         tx.await.into_result()?;
 
-        IndexeddbStore::open_helper(name, Some(store_key)).await
+        IndexeddbStore::open_helper(name, Some(cipher)).await
     }
 
     pub async fn open_with_name(name: String) -> StoreResult<Self> {
@@ -265,8 +257,8 @@ impl IndexeddbStore {
         &self,
         event: &impl Serialize,
     ) -> std::result::Result<JsValue, SerializationError> {
-        Ok(match self.store_key {
-            Some(ref key) => JsValue::from_serde(&key.encrypt(event)?)?,
+        Ok(match self.store_cipher {
+            Some(ref cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
             None => JsValue::from_serde(event)?,
         })
     }
@@ -275,11 +267,8 @@ impl IndexeddbStore {
         &self,
         event: JsValue,
     ) -> std::result::Result<T, SerializationError> {
-        match self.store_key {
-            Some(ref key) => {
-                let encrypted: EncryptedEvent = event.into_serde()?;
-                Ok(key.decrypt(encrypted)?)
-            }
+        match self.store_cipher {
+            Some(ref cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
             None => Ok(event.into_serde()?),
         }
     }
