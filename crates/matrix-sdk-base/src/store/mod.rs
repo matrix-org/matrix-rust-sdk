@@ -50,9 +50,6 @@ use ruma::{
     EventId, MxcUri, RoomId, UserId,
 };
 
-#[cfg(feature = "store_key")]
-pub mod store_key;
-
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 

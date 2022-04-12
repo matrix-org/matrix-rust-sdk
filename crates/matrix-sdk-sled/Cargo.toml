@@ -12,7 +12,7 @@ crypto-store = ["matrix-sdk-crypto"]
 [dependencies]
 futures-core = "0.3.15"
 futures-util = { version = "0.3.15", default-features = false }
-matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"], optional = true }
+matrix-sdk-base = { path = "../matrix-sdk-base", optional = true }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }

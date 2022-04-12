@@ -11,7 +11,7 @@ encryption = ["matrix-sdk-base/encryption", "matrix-sdk-crypto"]
 default-target = "wasm32-unknown-unknown"
 
 [dependencies]
-matrix-sdk-base = { path = "../matrix-sdk-base", features = ["store_key"] }
+matrix-sdk-base = { path = "../matrix-sdk-base" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }
