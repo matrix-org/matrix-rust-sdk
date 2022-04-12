@@ -198,6 +198,12 @@ impl IndexeddbStore {
         Ok(IndexeddbStore::open_helper("state".to_owned(), None).await?)
     }
 
+    #[allow(dead_code)]
+    pub(crate) async fn open_encrypted() -> StoreResult<Self> {
+        let key = StoreKey::new().map_err::<SerializationError, _>(|e| e.into())?;
+        Ok(IndexeddbStore::open_helper("state_encrypted".to_owned(), Some(key)).await?)
+    }
+
     pub async fn open_with_passphrase(name: String, passphrase: &str) -> StoreResult<Self> {
         Ok(Self::inner_open_with_passphrase(name, passphrase).await?)
     }
@@ -1275,3 +1281,20 @@ mod tests {
 
     statestore_integration_tests! { integration }
 }
+
+#[cfg(test)]
+mod encrypted_tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    use matrix_sdk_base::statestore_integration_tests;
+
+    use super::{IndexeddbStore, Result};
+
+    async fn get_store() -> Result<IndexeddbStore> {
+        Ok(IndexeddbStore::open_encrypted().await?)
+    }
+
+    statestore_integration_tests! { integration }
+}
+
