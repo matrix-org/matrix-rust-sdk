@@ -38,3 +38,4 @@ matrix-sdk-base = {  path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../matrix-sdk-test" }
 wasm-bindgen-test = "0.3.24"
+uuid = "0.8"

@@ -199,17 +199,11 @@ impl IndexeddbStore {
         Ok(IndexeddbStore::open_helper("state".to_owned(), None).await?)
     }
 
-    #[allow(dead_code)]
-    pub(crate) async fn open_encrypted() -> StoreResult<Self> {
-        let key = StoreCipher::new().map_err::<SerializationError, _>(|e| e.into())?;
-        Ok(IndexeddbStore::open_helper("state_encrypted".to_owned(), Some(key)).await?)
-    }
-
     pub async fn open_with_passphrase(name: String, passphrase: &str) -> StoreResult<Self> {
         Ok(Self::inner_open_with_passphrase(name, passphrase).await?)
     }
 
-    async fn inner_open_with_passphrase(name: String, passphrase: &str) -> Result<Self> {
+    pub(crate) async fn inner_open_with_passphrase(name: String, passphrase: &str) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-state", name);
 
         let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
@@ -1289,10 +1283,13 @@ mod encrypted_tests {
 
     use matrix_sdk_base::statestore_integration_tests;
 
-    use super::{IndexeddbStore, Result};
+    use super::{IndexeddbStore, Result, StoreCipher};
+    use uuid::Uuid;
 
     async fn get_store() -> Result<IndexeddbStore> {
-        Ok(IndexeddbStore::open_encrypted().await?)
+        let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().to_hyphenated().to_string());
+        let key = StoreCipher::new()?;
+        Ok(IndexeddbStore::open_helper(db_name, Some(key)).await?)
     }
 
     statestore_integration_tests! { integration }
