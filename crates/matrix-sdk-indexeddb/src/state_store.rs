@@ -47,6 +47,7 @@ use matrix_sdk_common::{
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use wasm_bindgen::JsValue;
+use web_sys::IdbKeyRange;
 
 use crate::safe_encode::SafeEncode;
 
@@ -273,6 +274,25 @@ impl IndexeddbStore {
         }
     }
 
+    fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
+        where T: SafeEncode
+    {
+        match self.store_cipher {
+            Some(ref cipher) => key.encode_secure(table_name, cipher),
+            None => key.encode(),
+        }
+    }
+
+    fn encode_to_range<T>(&self, table_name: &str, key: T) -> Result<IdbKeyRange, SerializationError>
+        where T: SafeEncode
+    {
+        match self.store_cipher {
+            Some(ref cipher) => key.encode_to_range_secure(table_name, cipher),
+            None => key.encode_to_range()
+        }.map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e))))
+    }
+
+
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         let tx = self
             .inner
@@ -280,7 +300,7 @@ impl IndexeddbStore {
 
         let obj = tx.object_store(KEYS::SESSION)?;
 
-        obj.put_key_val(&(KEYS::FILTER, filter_name).encode(), &JsValue::from_str(filter_id))?;
+        obj.put_key_val(&self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)), &JsValue::from_str(filter_id))?;
 
         tx.await.into_result()?;
 
@@ -292,7 +312,7 @@ impl IndexeddbStore {
             .inner
             .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
             .object_store(KEYS::SESSION)?
-            .get(&(KEYS::FILTER, filter_name).encode())?
+            .get(&self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)))?
             .await?
             .and_then(|f| f.as_string()))
     }
@@ -365,7 +385,7 @@ impl IndexeddbStore {
             let store = tx.object_store(KEYS::DISPLAY_NAMES)?;
             for (room_id, ambiguity_maps) in &changes.ambiguity_maps {
                 for (display_name, map) in ambiguity_maps {
-                    let key = (room_id, display_name).encode();
+                    let key = self.encode_key(KEYS::DISPLAY_NAMES, (room_id, display_name));
 
                     store.put_key_val(&key, &self.serialize_event(&map)?)?;
                 }
@@ -375,7 +395,9 @@ impl IndexeddbStore {
         if !changes.account_data.is_empty() {
             let store = tx.object_store(KEYS::ACCOUNT_DATA)?;
             for (event_type, event) in &changes.account_data {
-                store.put_key_val(&event_type.encode(), &self.serialize_event(&event)?)?;
+                store.put_key_val(
+                    &self.encode_key(KEYS::ACCOUNT_DATA, event_type),
+                    &self.serialize_event(&event)?)?;
             }
         }
 
@@ -383,7 +405,7 @@ impl IndexeddbStore {
             let store = tx.object_store(KEYS::ROOM_ACCOUNT_DATA)?;
             for (room, events) in &changes.room_account_data {
                 for (event_type, event) in events {
-                    let key = (room, event_type).encode();
+                    let key = self.encode_key(KEYS::ROOM_ACCOUNT_DATA, (room, event_type));
                     store.put_key_val(&key, &self.serialize_event(&event)?)?;
                 }
             }
@@ -394,7 +416,7 @@ impl IndexeddbStore {
             for (room, event_types) in &changes.state {
                 for (event_type, events) in event_types {
                     for (state_key, event) in events {
-                        let key = (room, event_type, state_key).encode();
+                        let key = self.encode_key(KEYS::ROOM_STATE, (room, event_type, state_key));
                         store.put_key_val(&key, &self.serialize_event(&event)?)?;
                     }
                 }
@@ -404,21 +426,29 @@ impl IndexeddbStore {
         if !changes.room_infos.is_empty() {
             let store = tx.object_store(KEYS::ROOM_INFOS)?;
             for (room_id, room_info) in &changes.room_infos {
-                store.put_key_val(&room_id.encode(), &self.serialize_event(&room_info)?)?;
+                store.put_key_val(
+                        &self.encode_key(KEYS::ROOM_INFOS, room_id),
+                        &self.serialize_event(&room_info)?)?;
             }
         }
 
         if !changes.presence.is_empty() {
             let store = tx.object_store(KEYS::PRESENCE)?;
             for (sender, event) in &changes.presence {
-                store.put_key_val(&sender.encode(), &self.serialize_event(&event)?)?;
+                store.put_key_val(
+                    &self.encode_key(KEYS::PRESENCE, sender),
+                    &self.serialize_event(&event)?
+                )?;
             }
         }
 
         if !changes.stripped_room_infos.is_empty() {
             let store = tx.object_store(KEYS::STRIPPED_ROOM_INFOS)?;
             for (room_id, info) in &changes.stripped_room_infos {
-                store.put_key_val(&room_id.encode(), &self.serialize_event(&info)?)?;
+                store.put_key_val(
+                    &self.encode_key(KEYS::STRIPPED_ROOM_INFOS, room_id),
+                    &self.serialize_event(&info)?
+                )?;
             }
         }
 
@@ -426,7 +456,7 @@ impl IndexeddbStore {
             let store = tx.object_store(KEYS::STRIPPED_MEMBERS)?;
             for (room, events) in &changes.stripped_members {
                 for event in events.values() {
-                    let key = (room, &event.state_key).encode();
+                    let key = self.encode_key(KEYS::STRIPPED_MEMBERS, (room, &event.state_key));
                     store.put_key_val(&key, &self.serialize_event(&event)?)?;
                 }
             }
@@ -437,7 +467,7 @@ impl IndexeddbStore {
             for (room, event_types) in &changes.stripped_state {
                 for (event_type, events) in event_types {
                     for (state_key, event) in events {
-                        let key = (room, event_type, state_key).encode();
+                        let key = self.encode_key(KEYS::STRIPPED_ROOM_STATE, (room, event_type, state_key));
                         store.put_key_val(&key, &self.serialize_event(&event)?)?;
                     }
                 }
@@ -454,27 +484,33 @@ impl IndexeddbStore {
                 let members = tx.object_store(KEYS::MEMBERS)?;
 
                 for event in events.values() {
-                    let key = (room, &event.state_key).encode();
+                    let key = (room, &event.state_key);
 
                     match event.content.membership {
                         MembershipState::Join => {
-                            joined.put_key_val_owned(&key, &event.state_key.encode())?;
-                            invited.delete(&key)?;
+                            joined.put_key_val_owned(
+                                &self.encode_key(KEYS::JOINED_USER_IDS, key),
+                                &self.serialize_event(&event.state_key)?
+                            )?;
+                            invited.delete(&self.encode_key(KEYS::INVITED_USER_IDS, key))?;
                         }
                         MembershipState::Invite => {
-                            invited.put_key_val_owned(&key, &event.state_key.encode())?;
-                            joined.delete(&key)?;
+                            invited.put_key_val_owned(
+                                &self.encode_key(KEYS::INVITED_USER_IDS, key),
+                                &self.serialize_event(&event.state_key)?
+                            )?;
+                            joined.delete(&self.encode_key(KEYS::JOINED_USER_IDS, key))?;
                         }
                         _ => {
-                            joined.delete(&key)?;
-                            invited.delete(&key)?;
+                            joined.delete(&self.encode_key(KEYS::JOINED_USER_IDS, key))?;
+                            invited.delete(&self.encode_key(KEYS::INVITED_USER_IDS, key))?;
                         }
                     }
 
-                    members.put_key_val_owned(&key, &self.serialize_event(&event)?)?;
+                    members.put_key_val_owned(&self.encode_key(KEYS::MEMBERS, key), &self.serialize_event(&event)?)?;
 
                     if let Some(profile) = profile_changes.and_then(|p| p.get(&event.state_key)) {
-                        profiles_store.put_key_val_owned(&key, &self.serialize_event(&profile)?)?;
+                        profiles_store.put_key_val_owned(&self.encode_key(KEYS::PROFILES, key), &self.serialize_event(&profile)?)?;
                     }
                 }
             }
@@ -488,7 +524,7 @@ impl IndexeddbStore {
                 for (event_id, receipts) in &content.0 {
                     for (receipt_type, receipts) in receipts {
                         for (user_id, receipt) in receipts {
-                            let key = (room, receipt_type, user_id).encode();
+                            let key = self.encode_key(KEYS::ROOM_USER_RECEIPTS, (room, receipt_type, user_id));
 
                             if let Some((old_event, _)) =
                                 room_user_receipts.get(&key)?.await?.and_then(|f| {
@@ -496,7 +532,7 @@ impl IndexeddbStore {
                                 })
                             {
                                 room_event_receipts
-                                    .delete(&(room, receipt_type, &old_event, user_id).encode())?;
+                                    .delete(&self.encode_key(KEYS::ROOM_EVENT_RECEIPTS, (room, receipt_type, &old_event, user_id)))?;
                             }
 
                             room_user_receipts
@@ -504,8 +540,8 @@ impl IndexeddbStore {
 
                             // Add the receipt to the room event receipts
                             room_event_receipts.put_key_val(
-                                &(room, receipt_type, event_id, user_id).encode(),
-                                &self.serialize_event(&receipt)?,
+                                &self.encode_key(KEYS::ROOM_EVENT_RECEIPTS, (room, receipt_type, event_id, user_id)),
+                                &self.serialize_event(&(user_id, receipt))?,
                             )?;
                         }
                     }
@@ -525,18 +561,19 @@ impl IndexeddbStore {
                 } else {
                     info!("Save new timeline batch from messages response for {}", room_id);
                 }
-                let room_key = room_id.encode();
-
                 let metadata: Option<TimelineMetadata> = if timeline.limited {
                     info!(
                         "Delete stored timeline for {} because the sync response was limited",
                         room_id
                     );
 
-                    let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
-                    let stores =
-                        &[&timeline_store, &timeline_metadata_store, &event_id_to_position_store];
-                    for store in stores {
+                    let stores = &[
+                        (KEYS::ROOM_TIMELINE, &timeline_store),
+                        (KEYS::ROOM_TIMELINE_METADATA, &timeline_metadata_store),
+                        (KEYS::ROOM_EVENT_ID_TO_POSITION, &event_id_to_position_store)
+                    ];
+                    for (table_name, store) in stores {
+                        let range = self.encode_to_range(table_name, room_id)?;
                         for key in store.get_all_keys_with_key(&range)?.await?.iter() {
                             store.delete(&key)?;
                         }
@@ -545,7 +582,7 @@ impl IndexeddbStore {
                     None
                 } else {
                     let metadata: Option<TimelineMetadata> = timeline_metadata_store
-                        .get(&room_key)?
+                        .get(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id))?
                         .await?
                         .map(|v| v.into_serde())
                         .transpose()?;
@@ -562,7 +599,7 @@ impl IndexeddbStore {
                         let mut delete_timeline = false;
                         for event in &timeline.events {
                             if let Some(event_id) = event.event_id() {
-                                let event_key = (room_id, &event_id).encode();
+                                let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &event_id));
                                 if event_id_to_position_store
                                     .count_with_key_owned(event_key)?
                                     .await?
@@ -580,13 +617,14 @@ impl IndexeddbStore {
                                 room_id
                             );
 
-                            let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
+
                             let stores = &[
-                                &timeline_store,
-                                &timeline_metadata_store,
-                                &event_id_to_position_store,
+                                (KEYS::ROOM_TIMELINE, &timeline_store),
+                                (KEYS::ROOM_TIMELINE_METADATA, &timeline_metadata_store),
+                                (KEYS::ROOM_EVENT_ID_TO_POSITION, &event_id_to_position_store)
                             ];
-                            for store in stores {
+                            for (table_name, store) in stores {
+                                let range = self.encode_to_range(table_name, room_id)?;
                                 for key in store.get_all_keys_with_key(&range)?.await?.iter() {
                                     store.delete(&key)?;
                                 }
@@ -618,7 +656,7 @@ impl IndexeddbStore {
 
                 if timeline.sync {
                     let room_version = room_infos
-                        .get(&room_key)?
+                        .get(&self.encode_key(KEYS::ROOM_INFOS, room_id))?
                         .await?
                         .map(|r| self.deserialize_event::<RoomInfo>(r))
                         .transpose()?
@@ -636,7 +674,7 @@ impl IndexeddbStore {
                             AnySyncMessageLikeEvent::RoomRedaction(redaction),
                         )) = event.event.deserialize()
                         {
-                            let redacts_key = (room_id, &redaction.redacts).encode();
+                            let redacts_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &redaction.redacts));
                             if let Some(position_key) =
                                 event_id_to_position_store.get_owned(redacts_key)?.await?
                             {
@@ -663,22 +701,22 @@ impl IndexeddbStore {
                         }
 
                         metadata.start_position -= 1;
-                        let key = (room_id, &metadata.start_position).encode();
+                        let key = self.encode_key(KEYS::ROOM_TIMELINE, (room_id, &metadata.start_position));
                         // Only add event with id to the position map
                         if let Some(event_id) = event.event_id() {
-                            let event_key = (room_id, &event_id).encode();
+                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &event_id));
                             event_id_to_position_store.put_key_val(&event_key, &key)?;
                         }
 
-                        timeline_store.put_key_val_owned(key, &self.serialize_event(&event)?)?;
+                        timeline_store.put_key_val_owned(&key, &self.serialize_event(&event)?)?;
                     }
                 } else {
                     for event in &timeline.events {
                         metadata.end_position += 1;
-                        let key = (room_id, &metadata.end_position).encode();
+                        let key = self.encode_key(KEYS::ROOM_TIMELINE, (room_id, &metadata.end_position));
                         // Only add event with id to the position map
                         if let Some(event_id) = event.event_id() {
-                            let event_key = (room_id, &event_id).encode();
+                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &event_id));
                             event_id_to_position_store.put_key_val(&event_key, &key)?;
                         }
 
@@ -687,7 +725,7 @@ impl IndexeddbStore {
                 }
 
                 timeline_metadata_store
-                    .put_key_val_owned(room_key, &JsValue::from_serde(&metadata)?)?;
+                    .put_key_val_owned(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id), &JsValue::from_serde(&metadata)?)?;
             }
         }
 
@@ -698,7 +736,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::PRESENCE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PRESENCE)?
-            .get(&user_id.encode())?
+            .get(&self.encode_key(KEYS::PRESENCE, user_id))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
@@ -713,7 +751,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_STATE)?
-            .get(&(room_id, &event_type, state_key).encode())?
+            .get(&self.encode_key(KEYS::ROOM_STATE, (room_id, &event_type, state_key)))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
@@ -724,7 +762,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        let range = (room_id, &event_type).encode_to_range().map_err(StoreError::Codec)?;
+        let range = self.encode_to_range(KEYS::ROOM_STATE, (room_id, &event_type))?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
@@ -744,7 +782,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::PROFILES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PROFILES)?
-            .get(&(room_id, user_id).encode())?
+            .get(&self.encode_key(KEYS::PROFILES, (room_id, user_id)))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
@@ -758,31 +796,21 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
-            .get(&(room_id, state_key).encode())?
+            .get(&self.encode_key(KEYS::MEMBERS, (room_id, state_key)))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
     }
 
     pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
-        let skip = room_id.as_encoded_string().len() + 1;
-        Ok(self
-            .inner
-            .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
-            .object_store(KEYS::MEMBERS)?
-            .get_all_keys_with_key(&range)?
-            .await?
-            .iter()
-            .filter_map(|key| match key.as_string() {
-                Some(k) => UserId::parse(&k[skip..]).ok(),
-                _ => None,
-            })
-            .collect::<Vec<_>>())
+        Ok([
+            self.get_invited_user_ids(room_id).await?,
+            self.get_joined_user_ids(room_id).await?
+        ].concat())
     }
 
     pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
+        let range = self.encode_to_range(KEYS::INVITED_USER_IDS, room_id)?;
         let entries = self
             .inner
             .transaction_on_one_with_mode(KEYS::INVITED_USER_IDS, IdbTransactionMode::Readonly)?
@@ -797,7 +825,7 @@ impl IndexeddbStore {
     }
 
     pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
+        let range = self.encode_to_range(KEYS::JOINED_USER_IDS, room_id)?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::JOINED_USER_IDS, IdbTransactionMode::Readonly)?
@@ -845,7 +873,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::DISPLAY_NAMES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::DISPLAY_NAMES)?
-            .get(&(room_id, display_name).encode())?
+            .get(&self.encode_key(KEYS::DISPLAY_NAMES, (room_id, display_name)))?
             .await?
             .map(|f| {
                 self.deserialize_event::<BTreeSet<Box<UserId>>>(f)
@@ -861,7 +889,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ACCOUNT_DATA)?
-            .get(&JsValue::from_str(&event_type.to_string()))?
+            .get(&self.encode_key(KEYS::ACCOUNT_DATA, event_type))?
             .await?
             .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
             .transpose()
@@ -875,7 +903,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_ACCOUNT_DATA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
-            .get(&(room_id.as_str(), &event_type.to_string()).encode())?
+            .get(&self.encode_key(KEYS::ROOM_ACCOUNT_DATA, (room_id, event_type)))?
             .await?
             .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
             .transpose()
@@ -890,7 +918,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_USER_RECEIPTS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_USER_RECEIPTS)?
-            .get(&(room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode())?
+            .get(&self.encode_key(KEYS::ROOM_USER_RECEIPTS, (room_id, receipt_type, user_id)))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
@@ -902,38 +930,23 @@ impl IndexeddbStore {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> Result<Vec<(Box<UserId>, Receipt)>> {
-        let key = (room_id, &receipt_type, event_id);
-        let prefix_len = key.as_encoded_string().len() + 1;
-        let range = key.encode_to_range().map_err(StoreError::Codec)?;
+        let range = self.encode_to_range(KEYS::ROOM_EVENT_RECEIPTS, (room_id, &receipt_type, event_id))?;
         let tx = self.inner.transaction_on_one_with_mode(
             KEYS::ROOM_EVENT_RECEIPTS,
             IdbTransactionMode::Readonly,
         )?;
         let store = tx.object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
 
-        let mut all = Vec::new();
-        for k in store.get_all_keys_with_key(&range)?.await?.iter() {
-            // FIXME: we should probably parallelize this...
-            let res = store
-                .get(&k)?
-                .await?
-                .ok_or_else(|| StoreError::Codec(format!("no data at {:?}", k)))?;
-            let u = if let Some(k_str) = k.as_string() {
-                UserId::parse(&k_str[prefix_len..])
-                    .map_err(|e| StoreError::Codec(format!("{:?}", e)))?
-            } else {
-                return Err(StoreError::Codec(format!("{:?}", k)).into());
-            };
-            let r = self
-                .deserialize_event::<Receipt>(res)
-                .map_err(|e| StoreError::Codec(e.to_string()))?;
-            all.push((u, r));
-        }
-        Ok(all)
+        Ok(store
+            .get_all_with_key(&range)?
+            .await?
+            .iter()
+            .filter_map(|f| self.deserialize_event(f).ok())
+            .collect::<Vec<_>>())
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        let key = (&request.source.unique_key(), &request.format.unique_key()).encode();
+        let key = self.encode_key(KEYS::MEDIA, request.format.unique_key());
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
@@ -943,7 +956,7 @@ impl IndexeddbStore {
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let key = (&request.source.unique_key(), &request.format.unique_key()).encode();
+        let key = self.encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
         self.inner
             .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEDIA)?
@@ -987,7 +1000,7 @@ impl IndexeddbStore {
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        let key = (&request.source.unique_key(), &request.format.unique_key()).encode();
+        let key = self.encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
@@ -997,7 +1010,7 @@ impl IndexeddbStore {
     }
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        let range = uri.encode_to_range().map_err(StoreError::Codec)?;
+        let range = self.encode_to_range(KEYS::MEDIA, uri)?;
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
         let store = tx.object_store(KEYS::MEDIA)?;
@@ -1040,14 +1053,13 @@ impl IndexeddbStore {
             .inner
             .transaction_on_multi_with_mode(&all_stores, IdbTransactionMode::Readwrite)?;
 
-        let room_key = room_id.encode();
         for store_name in direct_stores {
-            tx.object_store(store_name)?.delete(&room_key)?;
+            tx.object_store(store_name)?.delete(&self.encode_key(store_name, room_id))?;
         }
 
-        let range = room_id.encode_to_range().map_err(StoreError::Codec)?;
         for store_name in prefixed_stores {
             let store = tx.object_store(store_name)?;
+            let range = self.encode_to_range(store_name, room_id)?;
             for key in store.get_all_keys_with_key(&range)?.await?.iter() {
                 store.delete(&key)?;
             }
@@ -1059,7 +1071,6 @@ impl IndexeddbStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
-        let key = room_id.encode();
         let tx = self.inner.transaction_on_multi_with_mode(
             &[KEYS::ROOM_TIMELINE, KEYS::ROOM_TIMELINE_METADATA],
             IdbTransactionMode::Readonly,
@@ -1068,7 +1079,7 @@ impl IndexeddbStore {
         let metadata = tx.object_store(KEYS::ROOM_TIMELINE_METADATA)?;
 
         let metadata: Option<TimelineMetadata> =
-            metadata.get(&key)?.await?.map(|v| v.into_serde()).transpose()?;
+            metadata.get(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id))?.await?.map(|v| v.into_serde()).transpose()?;
         if metadata.is_none() {
             info!("No timeline for {} was previously stored", room_id);
             return Ok(None);
@@ -1076,7 +1087,7 @@ impl IndexeddbStore {
         let end_token = metadata.and_then(|m| m.end);
         #[allow(clippy::needless_collect)]
         let timeline: Vec<StoreResult<SyncRoomEvent>> = timeline
-            .get_all_with_key(&key)?
+            .get_all_with_key(&self.encode_to_range(KEYS::ROOM_TIMELINE, room_id)?)?
             .await?
             .iter()
             .map(|v| self.deserialize_event(v).map_err(|e| e.into()))

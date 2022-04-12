@@ -5,8 +5,10 @@ use matrix_sdk_base::ruma::events::{
 use matrix_sdk_common::ruma::{
     receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
+use matrix_sdk_store_encryption::StoreCipher;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
+use base64::{STANDARD_NO_PAD, encode_config as base64_encode};
 
 /// Helpers for wasm32/browser environments
 
@@ -39,11 +41,32 @@ pub trait SafeEncode {
         JsValue::from(self.as_encoded_string())
     }
 
+    /// Encode self into a Uint8Array for usage as a key
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> JsValue {
+        JsValue::from(self.as_secure_string(table_name, store_cipher))
+    }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        base64_encode(
+            store_cipher.hash_key(table_name, self.as_encoded_string().as_bytes()),
+            STANDARD_NO_PAD
+        )
+    }
+
     /// Encode self into a IdbKeyRange for searching all keys that are
     /// prefixed with this key, followed by `KEY_SEPARATOR`. Internally
     /// uses `as_encoded_string` to ensure the given key is escaped properly.
     fn encode_to_range(&self) -> Result<IdbKeyRange, String> {
         let key = self.as_encoded_string();
+        IdbKeyRange::bound(
+            &JsValue::from([&key, KEY_SEPARATOR].concat()),
+            &JsValue::from([&key, RANGE_END].concat()),
+        )
+        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_owned()))
+    }
+
+    fn encode_to_range_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Result<IdbKeyRange, String> {
+        let key = self.as_secure_string(table_name, store_cipher);
         IdbKeyRange::bound(
             &JsValue::from([&key, KEY_SEPARATOR].concat()),
             &JsValue::from([&key, RANGE_END].concat()),
@@ -61,6 +84,21 @@ where
 {
     fn as_encoded_string(&self) -> String {
         [&self.0.as_encoded_string(), KEY_SEPARATOR, &self.1.as_encoded_string()].concat()
+    }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        [
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+            KEY_SEPARATOR
+        ].concat()
     }
 }
 
@@ -81,6 +119,25 @@ where
             &self.2.as_encoded_string(),
         ]
         .concat()
+    }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        [
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+        ].concat()
     }
 }
 
@@ -104,6 +161,30 @@ where
             &self.3.as_encoded_string(),
         ]
         .concat()
+    }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        [
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.3.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD
+            ),
+        ].concat()
     }
 }
 
