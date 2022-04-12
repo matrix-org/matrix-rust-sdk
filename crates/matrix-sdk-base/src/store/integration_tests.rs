@@ -468,24 +468,24 @@ macro_rules! statestore_integration_tests {
                         }),
                     };
 
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "unexpectd media found");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none(), "media not found");
 
-                    store.add_media_content(&request_file, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+                    store.add_media_content(&request_file, content.clone()).await.expect("adding media failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_some(), "media not found though added");
 
-                    store.remove_media_content(&request_file).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+                    store.remove_media_content(&request_file).await.expect("removing media failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "media still there after removing");
 
-                    store.add_media_content(&request_file, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+                    store.add_media_content(&request_file, content.clone()).await.expect("adding media again failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_some(), "media not found after adding again");
 
-                    store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+                    store.add_media_content(&request_thumbnail, content.clone()).await.expect("adding thumbnail failed");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some(), "thumbnail not found");
 
-                    store.remove_media_content_for_uri(uri).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+                    store.remove_media_content_for_uri(uri).await.expect("removing all media for uri failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "media wasn't removed");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none(), "thumbnail wasn't removed");
                 }
 
                 #[async_test]

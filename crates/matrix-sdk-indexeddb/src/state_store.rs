@@ -946,7 +946,7 @@ impl IndexeddbStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        let key = self.encode_key(KEYS::MEDIA, request.format.unique_key());
+        let key = self.encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
