@@ -73,7 +73,7 @@ pub(crate) mod tests {
     use serde_json::json;
     use vodozemac::olm::OlmMessage;
 
-    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
+    use crate::olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -185,8 +185,7 @@ pub(crate) mod tests {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         assert_eq!(0, inbound.first_known_index());
 
@@ -223,8 +222,7 @@ pub(crate) mod tests {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         assert_eq!(0, inbound.first_known_index());
 
@@ -274,8 +272,9 @@ pub(crate) mod tests {
 
         let export = inbound.export().await;
         let export: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let export = ExportedRoomKey::try_from(export).unwrap();
 
-        let imported = InboundGroupSession::from_export(export).unwrap();
+        let imported = InboundGroupSession::from_export(export);
 
         assert_eq!(inbound.session_id(), imported.session_id());
     }

@@ -372,7 +372,7 @@ impl OutboundGroupSession {
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             self.room_id().to_owned(),
             self.session_id().to_owned(),
-            session_key.0.clone(),
+            session_key.to_base64(),
         ))
     }
 

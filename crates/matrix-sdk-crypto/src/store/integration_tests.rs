@@ -275,7 +275,7 @@ macro_rules! cryptostore_integration_tests {
 
                 export.forwarding_curve25519_key_chain = vec!["some_chain".to_owned()];
 
-                let session = InboundGroupSession::from_export(export).unwrap();
+                let session = InboundGroupSession::from_export(export);
 
                 let changes =
                     Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };

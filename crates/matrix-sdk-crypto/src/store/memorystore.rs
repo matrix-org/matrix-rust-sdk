@@ -347,8 +347,7 @@ mod tests {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = MemoryStore::new();
         let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;

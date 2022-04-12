@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    mem,
     sync::Arc,
 };
 
@@ -48,6 +47,7 @@ use ruma::{
 };
 use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
+use zeroize::Zeroize;
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -556,16 +556,17 @@ impl OlmMachine {
     ) -> OlmResult<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
         match event.content.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                let session_key = SessionKey(mem::take(&mut event.content.session_key));
+                match SessionKey::from_base64(&event.content.session_key) {
+                    Ok(session_key) => {
+                        event.content.session_key.zeroize();
+                        let session = InboundGroupSession::new(
+                            sender_key,
+                            signing_key,
+                            &event.content.room_id,
+                            session_key,
+                            None,
+                        );
 
-                match InboundGroupSession::new(
-                    sender_key,
-                    signing_key,
-                    &event.content.room_id,
-                    session_key,
-                    None,
-                ) {
-                    Ok(session) => {
                         info!(
                             sender = event.sender.as_str(),
                             sender_key = sender_key,
@@ -1312,7 +1313,7 @@ impl OlmMachine {
         let mut keys = BTreeMap::new();
 
         for (i, key) in exported_keys.into_iter().enumerate() {
-            let session = InboundGroupSession::from_export(key)?;
+            let session = InboundGroupSession::from_export(key);
 
             // Only import the session if we didn't have this session or if it's
             // a better version of the same session, that is the first known

@@ -30,7 +30,9 @@ pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, GroupSession, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
+use vodozemac::megolm::SessionKeyDecodeError;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
+use zeroize::Zeroize;
 
 /// An exported version of an `InboundGroupSession`
 ///
@@ -110,7 +112,7 @@ impl TryInto<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
                 room_id: self.room_id,
                 sender_key: self.sender_key,
                 session_id: self.session_id,
-                session_key: self.session_key.0.clone(),
+                session_key: self.session_key.to_base64(),
                 sender_claimed_ed25519_key: claimed_key.to_owned(),
                 forwarding_curve25519_key_chain: self.forwarding_curve25519_key_chain,
             }
@@ -131,22 +133,29 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
     }
 }
 
-impl From<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
+impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
+    type Error = SessionKeyDecodeError;
+
     /// Convert the content of a forwarded room key into a exported room key.
-    fn from(forwarded_key: ToDeviceForwardedRoomKeyEventContent) -> Self {
+    fn try_from(
+        mut forwarded_key: ToDeviceForwardedRoomKeyEventContent,
+    ) -> Result<Self, Self::Error> {
         let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
         sender_claimed_keys
             .insert(DeviceKeyAlgorithm::Ed25519, forwarded_key.sender_claimed_ed25519_key);
 
-        Self {
+        let session_key = ExportedSessionKey::from_base64(&forwarded_key.session_key)?;
+        forwarded_key.session_key.zeroize();
+
+        Ok(Self {
             algorithm: forwarded_key.algorithm,
             room_id: forwarded_key.room_id,
             session_id: forwarded_key.session_id,
             forwarding_curve25519_key_chain: forwarded_key.forwarding_curve25519_key_chain,
             sender_claimed_keys,
             sender_key: forwarded_key.sender_key,
-            session_key: ExportedSessionKey(forwarded_key.session_key),
-        }
+            session_key,
+        })
     }
 }
 

@@ -16,8 +16,7 @@
 
 use std::{
     collections::BTreeMap,
-    convert::TryFrom,
-    fmt, mem,
+    fmt,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
         Arc,
@@ -42,10 +41,11 @@ use serde_json::Value;
 use vodozemac::{
     megolm::{
         DecryptedMessage, DecryptionError, ExportedSessionKey, InboundGroupSession as InnerSession,
-        InboundGroupSessionPickle, MegolmMessage, SessionCreationError,
+        InboundGroupSessionPickle, MegolmMessage, SessionKeyDecodeError,
     },
     PickleError,
 };
+use zeroize::Zeroize;
 
 use super::{BackedUpRoomKey, ExportedRoomKey, SessionKey};
 use crate::error::{EventError, MegolmResult};
@@ -99,15 +99,15 @@ impl InboundGroupSession {
         room_id: &RoomId,
         session_key: SessionKey,
         history_visibility: Option<HistoryVisibility>,
-    ) -> Result<Self, SessionCreationError> {
-        let session = InnerSession::new(&session_key)?;
+    ) -> Self {
+        let session = InnerSession::new(&session_key);
         let session_id = session.session_id();
         let first_known_index = session.first_known_index();
 
         let mut keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
         keys.insert(DeviceKeyAlgorithm::Ed25519, signing_key.to_owned());
 
-        Ok(InboundGroupSession {
+        InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             history_visibility: history_visibility.into(),
@@ -118,7 +118,7 @@ impl InboundGroupSession {
             forwarding_chains: Vec::new().into(),
             imported: false,
             backed_up: AtomicBool::new(false).into(),
-        })
+        }
     }
 
     /// Create a InboundGroupSession from an exported version of the group
@@ -127,20 +127,14 @@ impl InboundGroupSession {
     /// Most notably this can be called with an `ExportedRoomKey` from a
     /// previous [`export()`] call.
     ///
-    ///
     /// [`export()`]: #method.export
-    pub fn from_export(
-        exported_session: impl Into<ExportedRoomKey>,
-    ) -> Result<Self, SessionCreationError> {
-        Self::try_from(exported_session.into())
+    pub fn from_export(exported_session: ExportedRoomKey) -> Self {
+        Self::from(exported_session)
     }
 
     #[allow(dead_code)]
-    fn from_backup(
-        room_id: &RoomId,
-        backup: BackedUpRoomKey,
-    ) -> Result<Self, SessionCreationError> {
-        let session = InnerSession::import(&backup.session_key)?;
+    fn from_backup(room_id: &RoomId, backup: BackedUpRoomKey) -> Self {
+        let session = InnerSession::import(&backup.session_key);
         let session_id = session.session_id();
 
         Self::from_export(ExportedRoomKey {
@@ -166,10 +160,11 @@ impl InboundGroupSession {
     pub fn from_forwarded_key(
         sender_key: &str,
         content: &mut ToDeviceForwardedRoomKeyEventContent,
-    ) -> Result<Self, SessionCreationError> {
-        let key = ExportedSessionKey(mem::take(&mut content.session_key));
+    ) -> Result<Self, SessionKeyDecodeError> {
+        let key = ExportedSessionKey::from_base64(&content.session_key)?;
+        content.session_key.zeroize();
 
-        let session = InnerSession::import(&key)?;
+        let session = InnerSession::import(&key);
         let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
         forwarding_chains.push(sender_key.to_owned());
@@ -440,14 +435,12 @@ pub struct PickledInboundGroupSession {
     pub history_visibility: Option<HistoryVisibility>,
 }
 
-impl TryFrom<ExportedRoomKey> for InboundGroupSession {
-    type Error = SessionCreationError;
-
-    fn try_from(key: ExportedRoomKey) -> Result<Self, Self::Error> {
-        let session = InnerSession::import(&key.session_key)?;
+impl From<ExportedRoomKey> for InboundGroupSession {
+    fn from(key: ExportedRoomKey) -> Self {
+        let session = InnerSession::import(&key.session_key);
         let first_known_index = session.first_known_index();
 
-        Ok(InboundGroupSession {
+        InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: key.session_id.into(),
             sender_key: key.sender_key.into(),
@@ -458,6 +451,6 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
             forwarding_chains: key.forwarding_curve25519_key_chain.into(),
             imported: true,
             backed_up: AtomicBool::from(false).into(),
-        })
+        }
     }
 }
