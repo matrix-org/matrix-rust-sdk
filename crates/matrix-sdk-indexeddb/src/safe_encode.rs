@@ -97,7 +97,6 @@ where
                 store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
                 STANDARD_NO_PAD
             ),
-            KEY_SEPARATOR
         ].concat()
     }
 }

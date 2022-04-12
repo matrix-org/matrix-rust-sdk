@@ -751,7 +751,7 @@ impl IndexeddbStore {
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_STATE)?
-            .get(&self.encode_key(KEYS::ROOM_STATE, (room_id, &event_type, state_key)))?
+            .get(&self.encode_key(KEYS::ROOM_STATE, (room_id, event_type, state_key)))?
             .await?
             .map(|f| self.deserialize_event(f))
             .transpose()
@@ -762,7 +762,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         event_type: StateEventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        let range = self.encode_to_range(KEYS::ROOM_STATE, (room_id, &event_type))?;
+        let range = self.encode_to_range(KEYS::ROOM_STATE, (room_id, event_type))?;
         Ok(self
             .inner
             .transaction_on_one_with_mode(KEYS::ROOM_STATE, IdbTransactionMode::Readonly)?
