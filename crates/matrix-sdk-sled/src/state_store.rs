@@ -320,7 +320,7 @@ impl SledStore {
         }
     }
 
-    fn encode_key_with_usize<A: EncodeSecureKey + EncodeKey + ?Sized>(
+    fn encode_key_with_counter<A: EncodeSecureKey + EncodeKey + ?Sized>(
         &self,
         tablename: &str,
         s: &A,
@@ -967,7 +967,7 @@ impl SledStore {
         info!("Found previously stored timeline for {}, with end token {:?}", r_id, end_token);
 
         let stream = stream! {
-            while let Ok(Some(item)) = db.room_timeline.get(&db.encode_key_with_usize(TIMELINE, &r_id, position)) {
+            while let Ok(Some(item)) = db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &r_id, position)) {
                 position += 1;
                 yield db.deserialize_event(&item).map_err(SledStoreError::from).map_err(|e| e.into());
             }
@@ -1125,7 +1125,7 @@ impl SledStore {
                     }
 
                     metadata.start_position -= 1;
-                    let key = self.encode_key_with_usize(TIMELINE, room_id, metadata.start_position);
+                    let key = self.encode_key_with_counter(TIMELINE, room_id, metadata.start_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
@@ -1136,7 +1136,7 @@ impl SledStore {
             } else {
                 for event in &timeline.events {
                     metadata.end_position += 1;
-                    let key = self.encode_key_with_usize(TIMELINE, room_id, metadata.end_position);
+                    let key = self.encode_key_with_counter(TIMELINE, room_id, metadata.end_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
