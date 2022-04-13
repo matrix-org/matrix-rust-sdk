@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use extension_trait::extension_trait;
-pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
+pub use matrix_sdk::ruma::events::room::{
+    message::RoomMessageEventContent as MessageEventContent, MediaSource,
+};
 use matrix_sdk::{
     deserialized_responses::SyncRoomEvent,
     ruma::events::{
@@ -19,6 +21,7 @@ pub struct BaseMessage {
     body: String,
     sender: String,
     origin_server_ts: u64,
+    transaction_id: Option<String>,
 }
 
 impl BaseMessage {
@@ -36,6 +39,10 @@ impl BaseMessage {
 
     pub fn origin_server_ts(&self) -> u64 {
         self.origin_server_ts
+    }
+
+    pub fn transaction_id(&self) -> Option<String> {
+        self.transaction_id.clone()
     }
 }
 
@@ -147,6 +154,7 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
                 body: m.content.body().to_owned(),
                 sender: m.sender.to_string(),
                 origin_server_ts: m.origin_server_ts.as_secs().into(),
+                transaction_id: m.unsigned.transaction_id.map(Into::into),
             });
 
             match m.content.msgtype {
@@ -231,8 +239,8 @@ pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
     Arc::new(MediaSource::Plain(url.into()))
 }
 
-pub fn message_event_content_from_markdown(md: String) -> Arc<RoomMessageEventContent> {
-    Arc::new(RoomMessageEventContent::text_markdown(md))
+pub fn message_event_content_from_markdown(md: String) -> Arc<MessageEventContent> {
+    Arc::new(MessageEventContent::text_markdown(md))
 }
 
 #[extension_trait]

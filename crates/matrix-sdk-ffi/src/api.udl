@@ -10,7 +10,7 @@ namespace sdk {
 
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
-    string gen_txn_id();
+    string gen_transaction_id();
 };
 
 [Error]
@@ -106,6 +106,7 @@ interface BaseMessage {
     string body();
     string sender();
     u64 origin_server_ts();
+    string? transaction_id();
 };
 
 interface TextMessage {
