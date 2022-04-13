@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use extension_trait::extension_trait;
-pub use matrix_sdk::ruma::events::room::MediaSource;
+pub use matrix_sdk::ruma::events::room::{message::RoomMessageEventContent, MediaSource};
 use matrix_sdk::{
     deserialized_responses::SyncRoomEvent,
     ruma::events::{
@@ -229,6 +229,10 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
 
 pub fn media_source_from_url(url: String) -> Arc<MediaSource> {
     Arc::new(MediaSource::Plain(url.into()))
+}
+
+pub fn message_event_content_from_markdown(md: String) -> Arc<RoomMessageEventContent> {
+    Arc::new(RoomMessageEventContent::text_markdown(md))
 }
 
 #[extension_trait]

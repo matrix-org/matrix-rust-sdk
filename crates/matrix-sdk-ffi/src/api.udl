@@ -9,6 +9,8 @@ namespace sdk {
     Client login_with_token(string base_path, string restore_token);
 
     MediaSource media_source_from_url(string url);
+    MessageEventContent message_event_content_from_markdown(string md);
+    string gen_txn_id();
 };
 
 [Error]
@@ -80,13 +82,17 @@ interface Room {
     string? member_display_name(string user_id);
 
     BackwardsStream? start_live_event_listener();
-
     void stop_live_event_listener();
+
+    [Throws=ClientError]
+    void send(MessageEventContent msg, string? txn_id);
 };
 
 interface BackwardsStream {
     sequence<AnyMessage> paginate_backwards(u64 count);
 };
+
+interface MessageEventContent {};
 
 interface AnyMessage {
     TextMessage? text_message();

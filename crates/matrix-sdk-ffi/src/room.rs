@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{room::Room as MatrixRoom, ruma::UserId};
+use matrix_sdk::{
+    room::Room as MatrixRoom,
+    ruma::{events::room::message::RoomMessageEventContent, UserId},
+};
 use parking_lot::RwLock;
 
 use super::{
@@ -132,6 +135,19 @@ impl Room {
 
     pub fn stop_live_event_listener(&self) {
         *self.is_listening_to_live_events.write() = false;
+    }
+
+    pub fn send(&self, msg: Arc<RoomMessageEventContent>, txn_id: Option<String>) -> Result<()> {
+        let room = match &self.room {
+            MatrixRoom::Joined(j) => j.clone(),
+            _ => bail!("Can't send to a room that isn't in joined state"),
+        };
+
+        RUNTIME.block_on(async move {
+            room.send((*msg).to_owned(), txn_id.as_deref().map(Into::into)).await
+        })?;
+
+        Ok(())
     }
 }
 

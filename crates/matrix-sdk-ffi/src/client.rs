@@ -9,6 +9,7 @@ use matrix_sdk::{
             sync::sync_events::v3::Filter,
         },
         events::room::MediaSource,
+        TransactionId,
     },
     Client as MatrixClient, LoopCtrl,
 };
@@ -160,4 +161,8 @@ impl Client {
                 .await?)
         })
     }
+}
+
+pub fn gen_txn_id() -> String {
+    TransactionId::new().into()
 }
