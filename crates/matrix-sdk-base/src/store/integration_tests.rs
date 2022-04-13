@@ -568,7 +568,7 @@ macro_rules! statestore_integration_tests {
                     let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
                     // Before the first sync the timeline should be empty
-                    assert!(store.room_timeline(room_id).await.unwrap().is_none());
+                    assert!(store.room_timeline(room_id).await.expect("failed to read timeline").is_none(), "TL wasn't empty");
 
                     // Add sync response
                     let sync = SyncResponse::try_from_http_response(
@@ -701,10 +701,17 @@ macro_rules! statestore_integration_tests {
 
                     let timeline = timeline_iter.collect::<Vec<StoreResult<SyncRoomEvent>>>().await;
 
-                    assert!(timeline
-                            .into_iter()
-                            .zip(stored_events.iter())
-                            .all(|(a, b)| a.unwrap().event_id() == b.event_id()));
+                    let expected: Vec<Box<EventId>> = stored_events.iter().map(|a| a.event_id().expect("event id doesn't exist")).collect();
+                    let found: Vec<Box<EventId>> = timeline.iter().map(|a| a.as_ref().expect("object missing").event_id().clone().expect("event id missing")).collect();
+
+                    for (idx, (a, b)) in timeline
+                        .into_iter()
+                        .zip(stored_events.iter())
+                        .enumerate()
+                    {
+                        assert_eq!(a.expect("not a value").event_id(), b.event_id(), "pos {} not equal - expected: {:#?}, but found {:#?}", idx, expected, found);
+
+                    }
                 }
 
             }
