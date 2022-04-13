@@ -49,7 +49,7 @@ interface Client {
     sequence<Room> rooms();
 
     [Throws=ClientError]
-    sequence<u8> load_image(MediaSource source);
+    sequence<u8> get_media_content(MediaSource source);
 };
 
 callback interface RoomDelegate {
@@ -60,31 +60,24 @@ interface Room {
     void set_delegate(RoomDelegate? delegate);
 
     string id();
+    string? name();
+    string? topic();
+    string? avatar_url();
+
+    boolean is_direct();
+    boolean is_public();
+    boolean is_space();
+    boolean is_encrypted();
+    boolean is_tombstoned();
 
     [Throws=ClientError]
     string display_name();
-
-    string? avatar_url();
 
     [Throws=ClientError]
     string? member_avatar_url(string user_id);
 
     [Throws=ClientError]
     string? member_display_name(string user_id);
-
-    boolean is_direct();
-
-    boolean is_public();
-
-    boolean is_space();
-
-    boolean is_encrypted();
-
-    boolean is_tombstoned();
-
-    string? name();
-
-    string? topic();
 
     BackwardsStream? start_live_event_listener();
 

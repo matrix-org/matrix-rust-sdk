@@ -151,7 +151,7 @@ impl Client {
         })
     }
 
-    pub fn load_image(&self, media_source: Arc<MediaSource>) -> anyhow::Result<Vec<u8>> {
+    pub fn get_media_content(&self, media_source: Arc<MediaSource>) -> anyhow::Result<Vec<u8>> {
         let l = self.client.clone();
         let source = (*media_source).clone();
 
