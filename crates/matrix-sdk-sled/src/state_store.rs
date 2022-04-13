@@ -134,12 +134,6 @@ const ROOM_EVENT_ID_POSITION: &str = "room-event-id-to-position";
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
-pub fn encode_key_with_usize<A: AsRef<str>>(s: A, i: usize) -> Vec<u8> {
-    // FIXME: Not portable across architectures
-    [s.as_ref().as_bytes(), &[ENCODE_SEPARATOR], i.to_be_bytes().as_ref(), &[ENCODE_SEPARATOR]]
-        .concat()
-}
-
 #[derive(Clone)]
 pub struct SledStore {
     path: Option<PathBuf>,
@@ -326,9 +320,22 @@ impl SledStore {
         }
     }
 
+    fn encode_key_with_usize<A: EncodeSecureKey + EncodeKey + ?Sized>(
+        &self,
+        tablename: &str,
+        s: &A,
+        i: usize
+    ) -> Vec<u8> {
+        [
+            &self.encode_key(tablename, s),
+            [ENCODE_SEPARATOR].as_slice(),
+            i.to_be_bytes().as_ref(),
+            [ENCODE_SEPARATOR].as_slice(),
+        ].concat()
+    }
+
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.session.insert(self.encode_key(SESSION, &("filter", filter_name)), filter_id)?;
-
         Ok(())
     }
 
@@ -960,7 +967,7 @@ impl SledStore {
         info!("Found previously stored timeline for {}, with end token {:?}", r_id, end_token);
 
         let stream = stream! {
-            while let Ok(Some(item)) = db.room_timeline.get(&encode_key_with_usize(&r_id, position)) {
+            while let Ok(Some(item)) = db.room_timeline.get(&db.encode_key_with_usize(TIMELINE, &r_id, position)) {
                 position += 1;
                 yield db.deserialize_event(&item).map_err(SledStoreError::from).map_err(|e| e.into());
             }
@@ -1077,7 +1084,7 @@ impl SledStore {
             };
             let room_version = self
                 .room_info
-                .get(room_id.encode())?
+                .get(&self.encode_key(ROOM_INFO, room_id))?
                 .map(|r| self.deserialize_event::<RoomInfo>(&r))
                 .transpose()?
                 .and_then(|info| info.room_version().cloned())
@@ -1118,22 +1125,22 @@ impl SledStore {
                     }
 
                     metadata.start_position -= 1;
-                    let key = encode_key_with_usize(room_id, metadata.start_position);
+                    let key = self.encode_key_with_usize(TIMELINE, room_id, metadata.start_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        let event_key = (room_id, event_id).encode();
+                        let event_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
                         event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
                     }
                 }
             } else {
                 for event in &timeline.events {
                     metadata.end_position += 1;
-                    let key = encode_key_with_usize(room_id, metadata.end_position);
+                    let key = self.encode_key_with_usize(TIMELINE, room_id, metadata.end_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        let event_key = (room_id, event_id).encode();
+                        let event_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
                         event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
                     }
                 }
