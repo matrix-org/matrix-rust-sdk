@@ -661,7 +661,7 @@ impl RoomInfo {
         self.base_info.handle_state_event(event)
     }
 
-    /// Handle the given stripped tate event.
+    /// Handle the given stripped state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_stripped_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
