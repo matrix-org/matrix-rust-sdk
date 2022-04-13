@@ -41,16 +41,39 @@ pub trait SafeEncode {
         JsValue::from(self.as_encoded_string())
     }
 
-    /// Encode self into a Uint8Array for usage as a key
+    /// encode self into a JsValue, internally using `as_secure_string`
+    /// to escape the value of self,
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> JsValue {
         JsValue::from(self.as_secure_string(table_name, store_cipher))
     }
 
+    /// encode self securely for the given tablename with the given `store_cipher` hash_key,
+    /// returns the value as a base64 encoded string without any padding.
     fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
         base64_encode(
             store_cipher.hash_key(table_name, self.as_encoded_string().as_bytes()),
             STANDARD_NO_PAD
         )
+    }
+
+    /// encode self into a JsValue, internally using `as_encoded_string`
+    /// to escape the value of self, and append the given counter
+    fn encode_with_counter(&self, i: usize) -> JsValue {
+        JsValue::from(format!("{}{}{:0000000x}",
+            self.as_encoded_string(),
+            KEY_SEPARATOR,
+            i
+        ))
+    }
+
+    /// encode self into a JsValue, internally using `as_secure_string`
+    /// to escape the value of self, and append the given counter
+    fn encode_with_counter_secure(&self, table_name: &str, store_cipher: &StoreCipher, i: usize) -> JsValue {
+        JsValue::from(format!("{}{}{:0000000x}",
+            self.as_secure_string(table_name, store_cipher),
+            KEY_SEPARATOR,
+            i
+        ))
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are
@@ -273,6 +296,10 @@ impl SafeEncode for MxcUri {
 
 impl SafeEncode for usize {
     fn as_encoded_string(&self) -> String {
+        self.to_string()
+    }
+
+    fn as_secure_string(&self, _table_name: &str, _store_cipher: &StoreCipher) -> String {
         self.to_string()
     }
 }

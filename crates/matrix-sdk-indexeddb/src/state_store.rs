@@ -287,6 +287,16 @@ impl IndexeddbStore {
     }
 
 
+    fn encode_key_with_counter<T>(&self, table_name: &str, key: &T, i: usize) -> JsValue
+        where T: SafeEncode
+    {
+        match self.store_cipher {
+            Some(ref cipher) => key.encode_with_counter_secure(table_name, cipher, i),
+            None => key.encode_with_counter(i)
+        }
+    }
+
+
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         let tx = self
             .inner
@@ -593,7 +603,7 @@ impl IndexeddbStore {
                         let mut delete_timeline = false;
                         for event in &timeline.events {
                             if let Some(event_id) = event.event_id() {
-                                let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &event_id));
+                                let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
                                 if event_id_to_position_store
                                     .count_with_key_owned(event_key)?
                                     .await?
@@ -695,10 +705,10 @@ impl IndexeddbStore {
                         }
 
                         metadata.start_position -= 1;
-                        let key = self.encode_key(KEYS::ROOM_TIMELINE, (room_id, &metadata.start_position));
+                        let key = self.encode_key_with_counter(KEYS::ROOM_TIMELINE, room_id, metadata.start_position);
                         // Only add event with id to the position map
                         if let Some(event_id) = event.event_id() {
-                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &event_id));
+                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
                             event_id_to_position_store.put_key_val(&event_key, &key)?;
                         }
 
@@ -707,10 +717,10 @@ impl IndexeddbStore {
                 } else {
                     for event in &timeline.events {
                         metadata.end_position += 1;
-                        let key = self.encode_key(KEYS::ROOM_TIMELINE, (room_id, &metadata.end_position));
+                        let key = self.encode_key_with_counter(KEYS::ROOM_TIMELINE, room_id, metadata.end_position);
                         // Only add event with id to the position map
                         if let Some(event_id) = event.event_id() {
-                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &event_id));
+                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
                             event_id_to_position_store.put_key_val(&event_key, &key)?;
                         }
 
@@ -1072,13 +1082,20 @@ impl IndexeddbStore {
         let timeline = tx.object_store(KEYS::ROOM_TIMELINE)?;
         let metadata = tx.object_store(KEYS::ROOM_TIMELINE_METADATA)?;
 
-        let metadata: Option<TimelineMetadata> =
-            metadata.get(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id))?.await?.map(|v| v.into_serde()).transpose()?;
-        if metadata.is_none() {
-            info!("No timeline for {} was previously stored", room_id);
-            return Ok(None);
-        }
-        let end_token = metadata.and_then(|m| m.end);
+        let tlm: TimelineMetadata = match metadata
+            .get(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id))?
+            .await?
+            .map(|v| v.into_serde())
+            .transpose()?
+        {
+            Some(tl) => tl,
+            _ => {
+                info!("No timeline for {} was previously stored", room_id);
+                return Ok(None);
+            }
+        };
+
+        let end_token = tlm.end;
         #[allow(clippy::needless_collect)]
         let timeline: Vec<StoreResult<SyncRoomEvent>> = timeline
             .get_all_with_key(&self.encode_to_range(KEYS::ROOM_TIMELINE, room_id)?)?
