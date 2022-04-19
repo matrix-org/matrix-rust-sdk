@@ -13,7 +13,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 pub const ENCODE_SEPARATOR: u8 = 0xff;
 
 pub trait EncodeKey {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         unimplemented!()
     }
 
@@ -27,7 +27,7 @@ pub trait EncodeKey {
 }
 
 impl<T: EncodeKey + ?Sized> EncodeKey for &T {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         T::encode_as_bytes(self)
     }
     fn encode(&self) -> Vec<u8> {
@@ -39,7 +39,7 @@ impl<T: EncodeKey + ?Sized> EncodeKey for &T {
 }
 
 impl<T: EncodeKey + ?Sized> EncodeKey for Box<T> {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         T::encode_as_bytes(self)
     }
     fn encode(&self) -> Vec<u8> {
@@ -51,89 +51,89 @@ impl<T: EncodeKey + ?Sized> EncodeKey for Box<T> {
 }
 
 impl EncodeKey for str {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_bytes().into()
     }
 }
 
 impl EncodeKey for String {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for DeviceId {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for EventId {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for RoomId {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for TransactionId {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for MxcUri {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         let s: &str = self.as_ref();
         s.as_bytes().into()
     }
 }
 
 impl EncodeKey for SecretName {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         let s: &str = self.as_ref();
         s.as_bytes().into()
     }
 }
 
 impl EncodeKey for ReceiptType {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         let s: &str = self.as_ref();
         s.as_bytes().into()
     }
 }
 
 impl EncodeKey for EventEncryptionAlgorithm {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         let s: &str = self.as_ref();
         s.as_bytes().into()
     }
 }
 
 impl EncodeKey for RoomAccountDataEventType {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.to_string().as_bytes().to_vec().into()
     }
 }
 
 impl EncodeKey for UserId {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for StateEventType {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.to_string().as_bytes().to_vec().into()
     }
 }
 
 impl EncodeKey for GlobalAccountDataEventType {
-    fn encode_as_bytes<'a>(&'a self) -> Cow<'a, [u8]> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.to_string().as_bytes().to_vec().into()
     }
 }
