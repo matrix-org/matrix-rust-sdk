@@ -932,8 +932,8 @@ impl ReadOnlyAccount {
             session_id: session_id.into(),
             sender_key: identity_key,
             created_using_fallback_key: fallback_used,
-            creation_time: Arc::new(now),
-            last_use_time: Arc::new(now),
+            creation_time: now,
+            last_use_time: now,
         }
     }
 
@@ -1028,8 +1028,8 @@ impl ReadOnlyAccount {
             session_id: session_id.into(),
             sender_key: their_identity_key,
             created_using_fallback_key: false,
-            creation_time: Arc::new(now),
-            last_use_time: Arc::new(now),
+            creation_time: now,
+            last_use_time: now,
         };
 
         Ok(InboundCreationResult { session, plaintext: result.plaintext })

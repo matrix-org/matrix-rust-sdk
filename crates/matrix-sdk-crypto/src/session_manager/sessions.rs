@@ -84,7 +84,7 @@ impl SessionManager {
 
             if let Some(sessions) = sessions {
                 let mut sessions = sessions.lock().await;
-                sessions.sort_by_key(|s| *s.creation_time);
+                sessions.sort_by_key(|s| s.creation_time);
 
                 let session = sessions.get(0);
 
@@ -451,7 +451,7 @@ mod tests {
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let time = SystemTime::now() - Duration::from_secs(3601);
-        session.creation_time = Arc::new(SecondsSinceUnixEpoch::from_system_time(time).unwrap());
+        session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
         manager.store.save_devices(&[bob_device.clone()]).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();

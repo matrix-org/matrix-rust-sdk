@@ -57,9 +57,9 @@ pub struct Session {
     /// Has this been created using the fallback key
     pub created_using_fallback_key: bool,
     /// When the session was created
-    pub creation_time: Arc<SecondsSinceUnixEpoch>,
+    pub creation_time: SecondsSinceUnixEpoch,
     /// When the session was last used
-    pub last_use_time: Arc<SecondsSinceUnixEpoch>,
+    pub last_use_time: SecondsSinceUnixEpoch,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -83,7 +83,7 @@ impl Session {
     /// * `message` - The Olm message that should be decrypted.
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let plaintext = self.inner.lock().await.decrypt(message)?;
-        self.last_use_time = Arc::new(seconds_since_unix_epoch());
+        self.last_use_time = seconds_since_unix_epoch();
         Ok(plaintext)
     }
 
@@ -101,7 +101,7 @@ impl Session {
     /// * `plaintext` - The plaintext that should be encrypted.
     pub(crate) async fn encrypt_helper(&mut self, plaintext: &str) -> OlmMessage {
         let message = self.inner.lock().await.encrypt(plaintext);
-        self.last_use_time = Arc::new(seconds_since_unix_epoch());
+        self.last_use_time = seconds_since_unix_epoch();
         message
     }
 
@@ -173,8 +173,8 @@ impl Session {
             pickle,
             sender_key: self.sender_key,
             created_using_fallback_key: self.created_using_fallback_key,
-            creation_time: *self.creation_time,
-            last_use_time: *self.last_use_time,
+            creation_time: self.creation_time,
+            last_use_time: self.last_use_time,
         }
     }
 
@@ -212,8 +212,8 @@ impl Session {
             session_id: session_id.into(),
             created_using_fallback_key: pickle.created_using_fallback_key,
             sender_key: pickle.sender_key,
-            creation_time: Arc::new(pickle.creation_time),
-            last_use_time: Arc::new(pickle.last_use_time),
+            creation_time: pickle.creation_time,
+            last_use_time: pickle.last_use_time,
         }
     }
 }

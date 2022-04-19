@@ -161,7 +161,7 @@ impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
 
 #[cfg(all(test, any(target_os = "linux", target_arch = "wasm32")))]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
 
     use matrix_sdk_common::instant::SystemTime;
     use matrix_sdk_test::async_test;
@@ -205,7 +205,7 @@ mod tests {
         assert!(!session.expired());
         // FIXME: this might break on macosx and windows
         let time = SystemTime::now() - Duration::from_secs(60 * 60);
-        session.creation_time = Arc::new(SecondsSinceUnixEpoch::from_system_time(time).unwrap());
+        session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
         assert!(session.expired());
 
         Ok(())
