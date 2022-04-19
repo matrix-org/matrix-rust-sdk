@@ -287,10 +287,10 @@ impl SledStore {
         }
     }
 
-    fn encode_key<T: EncodeSecureKey + EncodeKey + ?Sized>(
+    fn encode_key<T: EncodeSecureKey + EncodeKey>(
         &self,
         table_name: &str,
-        key: &T,
+        key: T,
     ) -> Vec<u8> {
         if let Some(store_cipher) = &*self.store_cipher {
             key.encode_secure(table_name, store_cipher).to_vec()
