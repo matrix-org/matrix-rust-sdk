@@ -84,7 +84,7 @@ impl SessionManager {
 
             if let Some(sessions) = sessions {
                 let mut sessions = sessions.lock().await;
-                sessions.sort_by_key(|s| s.creation_time.clone());
+                sessions.sort_by_key(|s| *s.creation_time);
 
                 let session = sessions.get(0);
 
