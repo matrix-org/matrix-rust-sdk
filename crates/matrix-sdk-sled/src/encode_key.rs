@@ -1,11 +1,12 @@
 use matrix_sdk_common::ruma::{
-    events::{secret::request::SecretName, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType},
+    events::{
+        secret::request::SecretName, GlobalAccountDataEventType, RoomAccountDataEventType,
+        StateEventType,
+    },
     receipt::ReceiptType,
-    EventEncryptionAlgorithm,
-    DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
+    DeviceId, EventEncryptionAlgorithm, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-
 
 pub const ENCODE_SEPARATOR: u8 = 0xff;
 
@@ -107,11 +108,7 @@ where
     B: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
-        [
-            self.0.encode(),
-            self.1.encode(),
-        ]
-        .concat()
+        [self.0.encode(), self.1.encode()].concat()
     }
 }
 
@@ -122,12 +119,7 @@ where
     C: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
-        [
-            self.0.encode(),
-            self.1.encode(),
-            self.2.encode(),
-        ]
-        .concat()
+        [self.0.encode(), self.1.encode(), self.2.encode()].concat()
     }
 }
 
@@ -139,13 +131,7 @@ where
     D: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
-        [
-            self.0.encode(),
-            self.1.encode(),
-            self.2.encode(),
-            self.3.encode(),
-        ]
-        .concat()
+        [self.0.encode(), self.1.encode(), self.2.encode(), self.3.encode()].concat()
     }
 }
 
@@ -161,11 +147,9 @@ impl EncodeKey for GlobalAccountDataEventType {
     }
 }
 
-
 pub trait EncodeSecureKey {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8>;
 }
-
 
 impl<T: EncodeSecureKey + ?Sized> EncodeSecureKey for &T {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
@@ -178,7 +162,6 @@ impl<T: EncodeSecureKey + ?Sized> EncodeSecureKey for Box<T> {
         T::encode_secure(self, table_name, store_cipher)
     }
 }
-
 
 impl EncodeSecureKey for UserId {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
@@ -221,10 +204,7 @@ impl EncodeSecureKey for EventId {
 impl EncodeSecureKey for MxcUri {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         let s: &str = self.as_ref();
-        [
-            store_cipher.hash_key(table_name, s.as_bytes()).as_slice(),
-            &[ENCODE_SEPARATOR],
-        ].concat()
+        [store_cipher.hash_key(table_name, s.as_bytes()).as_slice(), &[ENCODE_SEPARATOR]].concat()
     }
 }
 
@@ -241,7 +221,8 @@ impl EncodeSecureKey for GlobalAccountDataEventType {
         [
             store_cipher.hash_key(table_name, self.to_string().as_bytes()).as_slice(),
             &[ENCODE_SEPARATOR],
-        ].concat()
+        ]
+        .concat()
     }
 }
 
@@ -250,7 +231,8 @@ impl EncodeSecureKey for StateEventType {
         [
             store_cipher.hash_key(table_name, self.to_string().as_bytes()).as_slice(),
             &[ENCODE_SEPARATOR],
-        ].concat()
+        ]
+        .concat()
     }
 }
 
@@ -259,10 +241,10 @@ impl EncodeSecureKey for RoomAccountDataEventType {
         [
             store_cipher.hash_key(table_name, self.to_string().as_bytes()).as_slice(),
             &[ENCODE_SEPARATOR],
-        ].concat()
+        ]
+        .concat()
     }
 }
-
 
 impl<A, B> EncodeSecureKey for (A, B)
 where

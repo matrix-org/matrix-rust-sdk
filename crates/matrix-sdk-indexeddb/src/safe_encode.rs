@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use base64::{encode_config as base64_encode, STANDARD_NO_PAD};
 use matrix_sdk_base::ruma::events::{
     GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
 };
@@ -8,7 +9,6 @@ use matrix_sdk_common::ruma::{
 use matrix_sdk_store_encryption::StoreCipher;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
-use base64::{STANDARD_NO_PAD, encode_config as base64_encode};
 
 /// Helpers for wasm32/browser environments
 
@@ -47,29 +47,32 @@ pub trait SafeEncode {
         JsValue::from(self.as_secure_string(table_name, store_cipher))
     }
 
-    /// encode self securely for the given tablename with the given `store_cipher` hash_key,
-    /// returns the value as a base64 encoded string without any padding.
+    /// encode self securely for the given tablename with the given
+    /// `store_cipher` hash_key, returns the value as a base64 encoded
+    /// string without any padding.
     fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
         base64_encode(
             store_cipher.hash_key(table_name, self.as_encoded_string().as_bytes()),
-            STANDARD_NO_PAD
+            STANDARD_NO_PAD,
         )
     }
 
     /// encode self into a JsValue, internally using `as_encoded_string`
     /// to escape the value of self, and append the given counter
     fn encode_with_counter(&self, i: usize) -> JsValue {
-        JsValue::from(format!("{}{}{:0000000x}",
-            self.as_encoded_string(),
-            KEY_SEPARATOR,
-            i
-        ))
+        JsValue::from(format!("{}{}{:0000000x}", self.as_encoded_string(), KEY_SEPARATOR, i))
     }
 
     /// encode self into a JsValue, internally using `as_secure_string`
     /// to escape the value of self, and append the given counter
-    fn encode_with_counter_secure(&self, table_name: &str, store_cipher: &StoreCipher, i: usize) -> JsValue {
-        JsValue::from(format!("{}{}{:0000000x}",
+    fn encode_with_counter_secure(
+        &self,
+        table_name: &str,
+        store_cipher: &StoreCipher,
+        i: usize,
+    ) -> JsValue {
+        JsValue::from(format!(
+            "{}{}{:0000000x}",
             self.as_secure_string(table_name, store_cipher),
             KEY_SEPARATOR,
             i
@@ -88,7 +91,11 @@ pub trait SafeEncode {
         .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_owned()))
     }
 
-    fn encode_to_range_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Result<IdbKeyRange, String> {
+    fn encode_to_range_secure(
+        &self,
+        table_name: &str,
+        store_cipher: &StoreCipher,
+    ) -> Result<IdbKeyRange, String> {
         let key = self.as_secure_string(table_name, store_cipher);
         IdbKeyRange::bound(
             &JsValue::from([&key, KEY_SEPARATOR].concat()),
@@ -113,14 +120,15 @@ where
         [
             &base64_encode(
                 store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
-        ].concat()
+        ]
+        .concat()
     }
 }
 
@@ -147,19 +155,20 @@ where
         [
             &base64_encode(
                 store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
-        ].concat()
+        ]
+        .concat()
     }
 }
 
@@ -189,24 +198,25 @@ where
         [
             &base64_encode(
                 store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
             KEY_SEPARATOR,
             &base64_encode(
                 store_cipher.hash_key(table_name, self.3.as_encoded_string().as_bytes()),
-                STANDARD_NO_PAD
+                STANDARD_NO_PAD,
             ),
-        ].concat()
+        ]
+        .concat()
     }
 }
 

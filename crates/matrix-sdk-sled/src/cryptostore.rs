@@ -186,7 +186,6 @@ impl EncodeSecureKey for Session {
     }
 }
 
-
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
     user_id: Arc<UserId>,

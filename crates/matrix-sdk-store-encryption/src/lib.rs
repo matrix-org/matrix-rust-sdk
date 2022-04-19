@@ -289,8 +289,9 @@ impl StoreCipher {
 
     /// Encrypt a value before it is inserted into the key/value store.
     ///
-    /// A value can be decrypted using the [`StoreCipher::decrypt_value_typed()`]
-    /// method. This is the lower level function to `encrypt_value`, but returns the 
+    /// A value can be decrypted using the
+    /// [`StoreCipher::decrypt_value_typed()`] method. This is the lower
+    /// level function to `encrypt_value`, but returns the
     /// full `EncryptdValue`-type
     ///
     /// # Arguments
@@ -399,8 +400,9 @@ impl StoreCipher {
 
     /// Decrypt a value after it was fetchetd from the key/value store.
     ///
-    /// A value can be encrypted using the [`StoreCipher::encrypt_value_typed()`]
-    /// method. Lower level method to [`StoreCipher::decrypt_value_typed()`]
+    /// A value can be encrypted using the
+    /// [`StoreCipher::encrypt_value_typed()`] method. Lower level method to
+    /// [`StoreCipher::decrypt_value_typed()`]
     ///
     /// # Arguments
     ///
@@ -427,13 +429,15 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
     /// ```
-    pub fn decrypt_value_typed<T: for<'b> Deserialize<'b>>(&self, value: EncryptedValue) -> Result<T, Error> {
+    pub fn decrypt_value_typed<T: for<'b> Deserialize<'b>>(
+        &self,
+        value: EncryptedValue,
+    ) -> Result<T, Error> {
         let mut plaintext = self.decrypt_value_data(value)?;
         let ret = serde_json::from_slice(&plaintext);
         plaintext.zeroize();
         Ok(ret?)
     }
-
 
     /// Decrypt a value after it was fetchetd from the key/value store.
     ///
@@ -494,7 +498,8 @@ impl MacKey {
     }
 }
 
-/// Encrypted value, ready for storage, as created by the [`StoreCipher::encrypt_value_data()`]
+/// Encrypted value, ready for storage, as created by the
+/// [`StoreCipher::encrypt_value_data()`]
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct EncryptedValue {
     version: u8,

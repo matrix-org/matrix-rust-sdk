@@ -20,13 +20,9 @@ use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
-    store::{
-        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
-    },
+    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
-use matrix_sdk_store_encryption::{StoreCipher, Error as EncryptionError};
-
 use matrix_sdk_common::{
     async_trait,
     ruma::{
@@ -44,6 +40,7 @@ use matrix_sdk_common::{
         EventId, MxcUri, RoomId, RoomVersionId, UserId,
     },
 };
+use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use wasm_bindgen::JsValue;
@@ -85,8 +82,14 @@ impl From<SerializationError> for StoreError {
                 EncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
                 EncryptionError::Serialization(e) => StoreError::Json(e),
                 EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
-                EncryptionError::Version(found, expected) => StoreError::Encryption(format!("Bad Database Encryption Version: expected {} found {}", expected, found)),
-                EncryptionError::Length(found, expected) => StoreError::Encryption(format!("The database key an invalid length: expected {} found {}", expected, found)),
+                EncryptionError::Version(found, expected) => StoreError::Encryption(format!(
+                    "Bad Database Encryption Version: expected {} found {}",
+                    expected, found
+                )),
+                EncryptionError::Length(found, expected) => StoreError::Encryption(format!(
+                    "The database key an invalid length: expected {} found {}",
+                    expected, found
+                )),
             },
             _ => StoreError::Backend(anyhow!(e)),
         }
@@ -231,12 +234,12 @@ impl IndexeddbStore {
         {
             StoreCipher::import(passphrase, &inner)?
         } else {
-            let ciph = StoreCipher::new()?;
+            let cipher = StoreCipher::new()?;
             ob.put_key_val(
                 &JsValue::from_str(KEYS::STORE_KEY),
-                &JsValue::from_serde(&StoreKeyWrapper(ciph.export(passphrase)?))?,
+                &JsValue::from_serde(&StoreKeyWrapper(cipher.export(passphrase)?))?,
             )?;
-            ciph
+            cipher
         };
 
         tx.await.into_result()?;
@@ -269,7 +272,8 @@ impl IndexeddbStore {
     }
 
     fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
-        where T: SafeEncode
+    where
+        T: SafeEncode,
     {
         match self.store_cipher {
             Some(ref cipher) => key.encode_secure(table_name, cipher),
@@ -277,25 +281,30 @@ impl IndexeddbStore {
         }
     }
 
-    fn encode_to_range<T>(&self, table_name: &str, key: T) -> Result<IdbKeyRange, SerializationError>
-        where T: SafeEncode
+    fn encode_to_range<T>(
+        &self,
+        table_name: &str,
+        key: T,
+    ) -> Result<IdbKeyRange, SerializationError>
+    where
+        T: SafeEncode,
     {
         match self.store_cipher {
             Some(ref cipher) => key.encode_to_range_secure(table_name, cipher),
-            None => key.encode_to_range()
-        }.map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e))))
+            None => key.encode_to_range(),
+        }
+        .map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e))))
     }
 
-
     fn encode_key_with_counter<T>(&self, table_name: &str, key: &T, i: usize) -> JsValue
-        where T: SafeEncode
+    where
+        T: SafeEncode,
     {
         match self.store_cipher {
             Some(ref cipher) => key.encode_with_counter_secure(table_name, cipher, i),
-            None => key.encode_with_counter(i)
+            None => key.encode_with_counter(i),
         }
     }
-
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         let tx = self
@@ -304,7 +313,10 @@ impl IndexeddbStore {
 
         let obj = tx.object_store(KEYS::SESSION)?;
 
-        obj.put_key_val(&self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)), &JsValue::from_str(filter_id))?;
+        obj.put_key_val(
+            &self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)),
+            &JsValue::from_str(filter_id),
+        )?;
 
         tx.await.into_result()?;
 
@@ -401,7 +413,8 @@ impl IndexeddbStore {
             for (event_type, event) in &changes.account_data {
                 store.put_key_val(
                     &self.encode_key(KEYS::ACCOUNT_DATA, event_type),
-                    &self.serialize_event(&event)?)?;
+                    &self.serialize_event(&event)?,
+                )?;
             }
         }
 
@@ -431,8 +444,9 @@ impl IndexeddbStore {
             let store = tx.object_store(KEYS::ROOM_INFOS)?;
             for (room_id, room_info) in &changes.room_infos {
                 store.put_key_val(
-                        &self.encode_key(KEYS::ROOM_INFOS, room_id),
-                        &self.serialize_event(&room_info)?)?;
+                    &self.encode_key(KEYS::ROOM_INFOS, room_id),
+                    &self.serialize_event(&room_info)?,
+                )?;
             }
         }
 
@@ -441,7 +455,7 @@ impl IndexeddbStore {
             for (sender, event) in &changes.presence {
                 store.put_key_val(
                     &self.encode_key(KEYS::PRESENCE, sender),
-                    &self.serialize_event(&event)?
+                    &self.serialize_event(&event)?,
                 )?;
             }
         }
@@ -451,7 +465,7 @@ impl IndexeddbStore {
             for (room_id, info) in &changes.stripped_room_infos {
                 store.put_key_val(
                     &self.encode_key(KEYS::STRIPPED_ROOM_INFOS, room_id),
-                    &self.serialize_event(&info)?
+                    &self.serialize_event(&info)?,
                 )?;
             }
         }
@@ -471,7 +485,8 @@ impl IndexeddbStore {
             for (room, event_types) in &changes.stripped_state {
                 for (event_type, events) in event_types {
                     for (state_key, event) in events {
-                        let key = self.encode_key(KEYS::STRIPPED_ROOM_STATE, (room, event_type, state_key));
+                        let key = self
+                            .encode_key(KEYS::STRIPPED_ROOM_STATE, (room, event_type, state_key));
                         store.put_key_val(&key, &self.serialize_event(&event)?)?;
                     }
                 }
@@ -494,14 +509,14 @@ impl IndexeddbStore {
                         MembershipState::Join => {
                             joined.put_key_val_owned(
                                 &self.encode_key(KEYS::JOINED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?
+                                &self.serialize_event(&event.state_key)?,
                             )?;
                             invited.delete(&self.encode_key(KEYS::INVITED_USER_IDS, key))?;
                         }
                         MembershipState::Invite => {
                             invited.put_key_val_owned(
                                 &self.encode_key(KEYS::INVITED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?
+                                &self.serialize_event(&event.state_key)?,
                             )?;
                             joined.delete(&self.encode_key(KEYS::JOINED_USER_IDS, key))?;
                         }
@@ -511,10 +526,16 @@ impl IndexeddbStore {
                         }
                     }
 
-                    members.put_key_val_owned(&self.encode_key(KEYS::MEMBERS, key), &self.serialize_event(&event)?)?;
+                    members.put_key_val_owned(
+                        &self.encode_key(KEYS::MEMBERS, key),
+                        &self.serialize_event(&event)?,
+                    )?;
 
                     if let Some(profile) = profile_changes.and_then(|p| p.get(&event.state_key)) {
-                        profiles_store.put_key_val_owned(&self.encode_key(KEYS::PROFILES, key), &self.serialize_event(&profile)?)?;
+                        profiles_store.put_key_val_owned(
+                            &self.encode_key(KEYS::PROFILES, key),
+                            &self.serialize_event(&profile)?,
+                        )?;
                     }
                 }
             }
@@ -528,15 +549,20 @@ impl IndexeddbStore {
                 for (event_id, receipts) in &content.0 {
                     for (receipt_type, receipts) in receipts {
                         for (user_id, receipt) in receipts {
-                            let key = self.encode_key(KEYS::ROOM_USER_RECEIPTS, (room, receipt_type, user_id));
+                            let key = self.encode_key(
+                                KEYS::ROOM_USER_RECEIPTS,
+                                (room, receipt_type, user_id),
+                            );
 
                             if let Some((old_event, _)) =
                                 room_user_receipts.get(&key)?.await?.and_then(|f| {
                                     self.deserialize_event::<(Box<EventId>, Receipt)>(f).ok()
                                 })
                             {
-                                room_event_receipts
-                                    .delete(&self.encode_key(KEYS::ROOM_EVENT_RECEIPTS, (room, receipt_type, &old_event, user_id)))?;
+                                room_event_receipts.delete(&self.encode_key(
+                                    KEYS::ROOM_EVENT_RECEIPTS,
+                                    (room, receipt_type, &old_event, user_id),
+                                ))?;
                             }
 
                             room_user_receipts
@@ -544,7 +570,10 @@ impl IndexeddbStore {
 
                             // Add the receipt to the room event receipts
                             room_event_receipts.put_key_val(
-                                &self.encode_key(KEYS::ROOM_EVENT_RECEIPTS, (room, receipt_type, event_id, user_id)),
+                                &self.encode_key(
+                                    KEYS::ROOM_EVENT_RECEIPTS,
+                                    (room, receipt_type, event_id, user_id),
+                                ),
                                 &self.serialize_event(&(user_id, receipt))?,
                             )?;
                         }
@@ -574,7 +603,7 @@ impl IndexeddbStore {
                     let stores = &[
                         (KEYS::ROOM_TIMELINE, &timeline_store),
                         (KEYS::ROOM_TIMELINE_METADATA, &timeline_metadata_store),
-                        (KEYS::ROOM_EVENT_ID_TO_POSITION, &event_id_to_position_store)
+                        (KEYS::ROOM_EVENT_ID_TO_POSITION, &event_id_to_position_store),
                     ];
                     for (table_name, store) in stores {
                         let range = self.encode_to_range(table_name, room_id)?;
@@ -603,7 +632,10 @@ impl IndexeddbStore {
                         let mut delete_timeline = false;
                         for event in &timeline.events {
                             if let Some(event_id) = event.event_id() {
-                                let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
+                                let event_key = self.encode_key(
+                                    KEYS::ROOM_EVENT_ID_TO_POSITION,
+                                    (room_id, event_id),
+                                );
                                 if event_id_to_position_store
                                     .count_with_key_owned(event_key)?
                                     .await?
@@ -621,11 +653,10 @@ impl IndexeddbStore {
                                 room_id
                             );
 
-
                             let stores = &[
                                 (KEYS::ROOM_TIMELINE, &timeline_store),
                                 (KEYS::ROOM_TIMELINE_METADATA, &timeline_metadata_store),
-                                (KEYS::ROOM_EVENT_ID_TO_POSITION, &event_id_to_position_store)
+                                (KEYS::ROOM_EVENT_ID_TO_POSITION, &event_id_to_position_store),
                             ];
                             for (table_name, store) in stores {
                                 let range = self.encode_to_range(table_name, room_id)?;
@@ -678,7 +709,10 @@ impl IndexeddbStore {
                             AnySyncMessageLikeEvent::RoomRedaction(redaction),
                         )) = event.event.deserialize()
                         {
-                            let redacts_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, &redaction.redacts));
+                            let redacts_key = self.encode_key(
+                                KEYS::ROOM_EVENT_ID_TO_POSITION,
+                                (room_id, &redaction.redacts),
+                            );
                             if let Some(position_key) =
                                 event_id_to_position_store.get_owned(redacts_key)?.await?
                             {
@@ -705,10 +739,15 @@ impl IndexeddbStore {
                         }
 
                         metadata.start_position -= 1;
-                        let key = self.encode_key_with_counter(KEYS::ROOM_TIMELINE, room_id, metadata.start_position);
+                        let key = self.encode_key_with_counter(
+                            KEYS::ROOM_TIMELINE,
+                            room_id,
+                            metadata.start_position,
+                        );
                         // Only add event with id to the position map
                         if let Some(event_id) = event.event_id() {
-                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
+                            let event_key = self
+                                .encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
                             event_id_to_position_store.put_key_val(&event_key, &key)?;
                         }
 
@@ -717,10 +756,15 @@ impl IndexeddbStore {
                 } else {
                     for event in &timeline.events {
                         metadata.end_position += 1;
-                        let key = self.encode_key_with_counter(KEYS::ROOM_TIMELINE, room_id, metadata.end_position);
+                        let key = self.encode_key_with_counter(
+                            KEYS::ROOM_TIMELINE,
+                            room_id,
+                            metadata.end_position,
+                        );
                         // Only add event with id to the position map
                         if let Some(event_id) = event.event_id() {
-                            let event_key = self.encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
+                            let event_key = self
+                                .encode_key(KEYS::ROOM_EVENT_ID_TO_POSITION, (room_id, event_id));
                             event_id_to_position_store.put_key_val(&event_key, &key)?;
                         }
 
@@ -728,8 +772,10 @@ impl IndexeddbStore {
                     }
                 }
 
-                timeline_metadata_store
-                    .put_key_val_owned(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id), &JsValue::from_serde(&metadata)?)?;
+                timeline_metadata_store.put_key_val_owned(
+                    &self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id),
+                    &JsValue::from_serde(&metadata)?,
+                )?;
             }
         }
 
@@ -807,10 +853,8 @@ impl IndexeddbStore {
     }
 
     pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        Ok([
-            self.get_invited_user_ids(room_id).await?,
-            self.get_joined_user_ids(room_id).await?
-        ].concat())
+        Ok([self.get_invited_user_ids(room_id).await?, self.get_joined_user_ids(room_id).await?]
+            .concat())
     }
 
     pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
@@ -934,7 +978,8 @@ impl IndexeddbStore {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> Result<Vec<(Box<UserId>, Receipt)>> {
-        let range = self.encode_to_range(KEYS::ROOM_EVENT_RECEIPTS, (room_id, &receipt_type, event_id))?;
+        let range =
+            self.encode_to_range(KEYS::ROOM_EVENT_RECEIPTS, (room_id, &receipt_type, event_id))?;
         let tx = self.inner.transaction_on_one_with_mode(
             KEYS::ROOM_EVENT_RECEIPTS,
             IdbTransactionMode::Readonly,
@@ -950,7 +995,8 @@ impl IndexeddbStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        let key = self.encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
+        let key = self
+            .encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
@@ -960,7 +1006,8 @@ impl IndexeddbStore {
     }
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
-        let key = self.encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
+        let key = self
+            .encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
         self.inner
             .transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEDIA)?
@@ -1004,7 +1051,8 @@ impl IndexeddbStore {
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        let key = self.encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
+        let key = self
+            .encode_key(KEYS::MEDIA, (request.source.unique_key(), request.format.unique_key()));
         let tx =
             self.inner.transaction_on_one_with_mode(KEYS::MEDIA, IdbTransactionMode::Readwrite)?;
 
@@ -1299,16 +1347,16 @@ mod encrypted_tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use matrix_sdk_base::statestore_integration_tests;
-
-    use super::{IndexeddbStore, Result, StoreCipher};
     use uuid::Uuid;
 
+    use super::{IndexeddbStore, Result, StoreCipher};
+
     async fn get_store() -> Result<IndexeddbStore> {
-        let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().to_hyphenated().to_string());
+        let db_name =
+            format!("test-state-encrypted-{}", Uuid::new_v4().to_hyphenated().to_string());
         let key = StoreCipher::new()?;
         Ok(IndexeddbStore::open_helper(db_name, Some(key)).await?)
     }
 
     statestore_integration_tests! { integration }
 }
-

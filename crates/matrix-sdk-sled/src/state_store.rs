@@ -23,13 +23,10 @@ use anyhow::anyhow;
 use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
-use matrix_sdk_store_encryption::{StoreCipher, Error as KeyEncryptionError};
 use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
-    store::{
-        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
-    },
+    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
 use matrix_sdk_common::{
@@ -50,6 +47,7 @@ use matrix_sdk_common::{
         EventId, MxcUri, RoomId, RoomVersionId, UserId,
     },
 };
+use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
 use serde::{Deserialize, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
@@ -60,7 +58,7 @@ use tracing::{info, warn};
 
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
-use crate::encode_key::{EncodeSecureKey, EncodeKey, ENCODE_SEPARATOR};
+use crate::encode_key::{EncodeKey, EncodeSecureKey, ENCODE_SEPARATOR};
 #[cfg(feature = "crypto-store")]
 pub use crate::CryptoStore;
 
@@ -99,15 +97,20 @@ impl Into<StoreError> for SledStoreError {
                 KeyEncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
                 KeyEncryptionError::Serialization(e) => StoreError::Json(e),
                 KeyEncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
-                KeyEncryptionError::Version(found, expected) => StoreError::Encryption(format!("Bad Database Encryption Version: expected {} found {}", expected, found)),
-                KeyEncryptionError::Length(found, expected) => StoreError::Encryption(format!("The database key an invalid length: expected {} found {}", expected, found)),
+                KeyEncryptionError::Version(found, expected) => StoreError::Encryption(format!(
+                    "Bad Database Encryption Version: expected {} found {}",
+                    expected, found
+                )),
+                KeyEncryptionError::Length(found, expected) => StoreError::Encryption(format!(
+                    "The database key an invalid length: expected {} found {}",
+                    expected, found
+                )),
             },
             SledStoreError::StoreError(e) => e,
             _ => StoreError::Backend(anyhow!(self)),
         }
     }
 }
-
 
 const SESSION: &str = "session";
 const ACCOUNT_DATA: &str = "account-data";
@@ -173,7 +176,11 @@ impl std::fmt::Debug for SledStore {
 }
 
 impl SledStore {
-    fn open_helper(db: Db, path: Option<PathBuf>, store_cipher: Option<StoreCipher>) -> Result<Self> {
+    fn open_helper(
+        db: Db,
+        path: Option<PathBuf>,
+        store_cipher: Option<StoreCipher>,
+    ) -> Result<Self> {
         let session = db.open_tree(SESSION)?;
         let account_data = db.open_tree(ACCOUNT_DATA)?;
 
@@ -244,9 +251,13 @@ impl SledStore {
         let db =
             Config::new().temporary(true).open().map_err(|e| StoreError::Backend(anyhow!(e)))?;
 
-        SledStore::open_helper(db, None, Some(StoreCipher::new().expect("can't create store cipher"))).map_err(|e| e.into())
+        SledStore::open_helper(
+            db,
+            None,
+            Some(StoreCipher::new().expect("can't create store cipher")),
+        )
+        .map_err(|e| e.into())
     }
-
 
     pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> StoreResult<Self> {
         Self::inner_open_with_passphrase(path, passphrase).map_err(|e| e.into())
@@ -259,9 +270,9 @@ impl SledStore {
         let store_cipher = if let Some(inner) = db.get("store_cipher".encode())? {
             StoreCipher::import(passphrase, &inner)?
         } else {
-            let ciph = StoreCipher::new()?;
-            db.insert("store_cipher".encode(), ciph.export(passphrase)?)?;
-            ciph
+            let cipher = StoreCipher::new()?;
+            db.insert("store_cipher".encode(), cipher.export(passphrase)?)?;
+            cipher
         };
 
         SledStore::open_helper(db, Some(path), Some(store_cipher))
@@ -307,7 +318,7 @@ impl SledStore {
             Ok(serde_json::from_slice(event)?)
         }
     }
-    
+
     fn encode_key<T: EncodeSecureKey + EncodeKey + ?Sized>(
         &self,
         table_name: &str,
@@ -324,14 +335,15 @@ impl SledStore {
         &self,
         tablename: &str,
         s: &A,
-        i: usize
+        i: usize,
     ) -> Vec<u8> {
         [
             &self.encode_key(tablename, s),
             [ENCODE_SEPARATOR].as_slice(),
             i.to_be_bytes().as_ref(),
             [ENCODE_SEPARATOR].as_slice(),
-        ].concat()
+        ]
+        .concat()
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
@@ -401,11 +413,17 @@ impl SledStore {
 
                             match event.content.membership {
                                 MembershipState::Join => {
-                                    joined.insert(self.encode_key(JOINED_USER_ID, &key), event.state_key.as_str())?;
+                                    joined.insert(
+                                        self.encode_key(JOINED_USER_ID, &key),
+                                        event.state_key.as_str(),
+                                    )?;
                                     invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
                                 }
                                 MembershipState::Invite => {
-                                    invited.insert(self.encode_key(INVITED_USER_ID, &key), event.state_key.as_str())?;
+                                    invited.insert(
+                                        self.encode_key(INVITED_USER_ID, &key),
+                                        event.state_key.as_str(),
+                                    )?;
                                     joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
                                 }
                                 _ => {
@@ -499,7 +517,10 @@ impl SledStore {
                     for (room, events) in &changes.stripped_members {
                         for event in events.values() {
                             stripped_members.insert(
-                                self.encode_key(STRIPPED_ROOM_MEMBER, &(room, event.state_key.to_string())),
+                                self.encode_key(
+                                    STRIPPED_ROOM_MEMBER,
+                                    &(room, event.state_key.to_string()),
+                                ),
                                 self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -510,7 +531,10 @@ impl SledStore {
                         for (event_type, events) in event_types {
                             for (state_key, event) in events {
                                 stripped_state.insert(
-                                    self.encode_key(STRIPPED_ROOM_STATE, &(room, event_type.to_string(), state_key)),
+                                    self.encode_key(
+                                        STRIPPED_ROOM_STATE,
+                                        &(room, event_type.to_string(), state_key),
+                                    ),
                                     self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
@@ -533,7 +557,10 @@ impl SledStore {
                                 for (user_id, receipt) in receipts {
                                     // Add the receipt to the room user receipts
                                     if let Some(old) = room_user_receipts.insert(
-                                        self.encode_key(ROOM_USER_RECEIPT, &(room, receipt_type, user_id)),
+                                        self.encode_key(
+                                            ROOM_USER_RECEIPT,
+                                            &(room, receipt_type, user_id),
+                                        ),
                                         self.serialize_event(&(event_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )? {
@@ -541,14 +568,18 @@ impl SledStore {
                                         let (old_event, _): (Box<EventId>, Receipt) = self
                                             .deserialize_event(&old)
                                             .map_err(ConflictableTransactionError::Abort)?;
-                                        room_event_receipts.remove(
-                                            self.encode_key(ROOM_EVENT_RECEIPT, &(room, receipt_type, old_event, user_id)),
-                                        )?;
+                                        room_event_receipts.remove(self.encode_key(
+                                            ROOM_EVENT_RECEIPT,
+                                            &(room, receipt_type, old_event, user_id),
+                                        ))?;
                                     }
 
                                     // Add the receipt to the room event receipts
                                     room_event_receipts.insert(
-                                        self.encode_key(ROOM_EVENT_RECEIPT, &(room, receipt_type, event_id, user_id)),
+                                        self.encode_key(
+                                            ROOM_EVENT_RECEIPT,
+                                            &(room, receipt_type, event_id, user_id),
+                                        ),
                                         self.serialize_event(&(user_id, receipt))
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
@@ -635,7 +666,10 @@ impl SledStore {
         &self,
         room_id: &RoomId,
     ) -> StoreResult<impl Stream<Item = StoreResult<Box<UserId>>>> {
-        Ok(self.get_joined_user_ids(room_id).await?.chain(self.get_invited_user_ids(room_id).await?))
+        Ok(self
+            .get_joined_user_ids(room_id)
+            .await?
+            .chain(self.get_invited_user_ids(room_id).await?))
     }
 
     pub async fn get_invited_user_ids(
@@ -780,8 +814,10 @@ impl SledStore {
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
-        self.media
-            .insert(self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key())), data)?;
+        self.media.insert(
+            self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key())),
+            data,
+        )?;
 
         self.inner.flush_async().await?;
 
@@ -790,7 +826,8 @@ impl SledStore {
 
     async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
         let db = self.clone();
-        let key = self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key()));
+        let key =
+            self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key()));
 
         spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
     }
@@ -809,7 +846,9 @@ impl SledStore {
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
-        self.media.remove(self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key())))?;
+        self.media.remove(
+            self.encode_key(MEDIA, &(request.source.unique_key(), request.format.unique_key())),
+        )?;
 
         Ok(())
     }
@@ -826,8 +865,7 @@ impl SledStore {
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-
-        let mut members_batch = sled::Batch::default();  
+        let mut members_batch = sled::Batch::default();
         for key in self.members.scan_prefix(self.encode_key(MEMBER, room_id)).keys() {
             members_batch.remove(key?)
         }
@@ -843,12 +881,15 @@ impl SledStore {
         }
 
         let mut joined_user_ids_batch = sled::Batch::default();
-        for key in self.joined_user_ids.scan_prefix(self.encode_key(JOINED_USER_ID, room_id)).keys() {
+        for key in self.joined_user_ids.scan_prefix(self.encode_key(JOINED_USER_ID, room_id)).keys()
+        {
             joined_user_ids_batch.remove(key?)
         }
 
         let mut invited_user_ids_batch = sled::Batch::default();
-        for key in self.invited_user_ids.scan_prefix(self.encode_key(INVITED_USER_ID, room_id)).keys() {
+        for key in
+            self.invited_user_ids.scan_prefix(self.encode_key(INVITED_USER_ID, room_id)).keys()
+        {
             invited_user_ids_batch.remove(key?)
         }
 
@@ -858,27 +899,41 @@ impl SledStore {
         }
 
         let mut room_account_data_batch = sled::Batch::default();
-        for key in self.room_account_data.scan_prefix(self.encode_key(ROOM_ACCOUNT_DATA, room_id)).keys() {
+        for key in
+            self.room_account_data.scan_prefix(self.encode_key(ROOM_ACCOUNT_DATA, room_id)).keys()
+        {
             room_account_data_batch.remove(key?)
         }
 
         let mut stripped_members_batch = sled::Batch::default();
-        for key in self.stripped_members.scan_prefix(self.encode_key(STRIPPED_ROOM_MEMBER, room_id)).keys() {
+        for key in
+            self.stripped_members.scan_prefix(self.encode_key(STRIPPED_ROOM_MEMBER, room_id)).keys()
+        {
             stripped_members_batch.remove(key?)
         }
 
         let mut stripped_room_state_batch = sled::Batch::default();
-        for key in self.stripped_room_state.scan_prefix(self.encode_key(STRIPPED_ROOM_STATE, room_id)).keys() {
+        for key in self
+            .stripped_room_state
+            .scan_prefix(self.encode_key(STRIPPED_ROOM_STATE, room_id))
+            .keys()
+        {
             stripped_room_state_batch.remove(key?)
         }
 
         let mut room_user_receipts_batch = sled::Batch::default();
-        for key in self.room_user_receipts.scan_prefix(self.encode_key(ROOM_USER_RECEIPT, room_id)).keys() {
+        for key in
+            self.room_user_receipts.scan_prefix(self.encode_key(ROOM_USER_RECEIPT, room_id)).keys()
+        {
             room_user_receipts_batch.remove(key?)
         }
 
         let mut room_event_receipts_batch = sled::Batch::default();
-        for key in self.room_event_receipts.scan_prefix(self.encode_key(ROOM_EVENT_RECEIPT, room_id)).keys() {
+        for key in self
+            .room_event_receipts
+            .scan_prefix(self.encode_key(ROOM_EVENT_RECEIPT, room_id))
+            .keys()
+        {
             room_event_receipts_batch.remove(key?)
         }
 
@@ -985,7 +1040,11 @@ impl SledStore {
         }
 
         let mut event_id_to_position_batch = sled::Batch::default();
-        for key in self.room_event_id_to_position.scan_prefix(self.encode_key(ROOM_EVENT_ID_POSITION, &room_id)).keys() {
+        for key in self
+            .room_event_id_to_position
+            .scan_prefix(self.encode_key(ROOM_EVENT_ID_POSITION, &room_id))
+            .keys()
+        {
             event_id_to_position_batch.remove(key?)
         }
 
@@ -993,7 +1052,8 @@ impl SledStore {
             (&self.room_timeline, &self.room_timeline_metadata, &self.room_event_id_to_position)
                 .transaction(
                     |(room_timeline, room_timeline_metadata, room_event_id_to_position)| {
-                        room_timeline_metadata.remove(self.encode_key(TIMELINE_METADATA, &room_id))?;
+                        room_timeline_metadata
+                            .remove(self.encode_key(TIMELINE_METADATA, &room_id))?;
 
                         room_timeline.apply_batch(&timeline_batch)?;
                         room_event_id_to_position.apply_batch(&event_id_to_position_batch)?;
@@ -1045,7 +1105,8 @@ impl SledStore {
                     let mut delete_timeline = false;
                     for event in &timeline.events {
                         if let Some(event_id) = event.event_id() {
-                            let event_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
+                            let event_key =
+                                self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
                             if self.room_event_id_to_position.contains_key(event_key)? {
                                 delete_timeline = true;
                                 break;
@@ -1100,7 +1161,8 @@ impl SledStore {
                         AnySyncMessageLikeEvent::RoomRedaction(redaction),
                     )) = event.event.deserialize()
                     {
-                        let redacts_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, redaction.redacts));
+                        let redacts_key =
+                            self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, redaction.redacts));
                         if let Some(position_key) =
                             self.room_event_id_to_position.get(redacts_key)?
                         {
@@ -1125,28 +1187,35 @@ impl SledStore {
                     }
 
                     metadata.start_position -= 1;
-                    let key = self.encode_key_with_counter(TIMELINE, room_id, metadata.start_position);
+                    let key =
+                        self.encode_key_with_counter(TIMELINE, room_id, metadata.start_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        let event_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
+                        let event_key =
+                            self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
                         event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
                     }
                 }
             } else {
                 for event in &timeline.events {
                     metadata.end_position += 1;
-                    let key = self.encode_key_with_counter(TIMELINE, room_id, metadata.end_position);
+                    let key =
+                        self.encode_key_with_counter(TIMELINE, room_id, metadata.end_position);
                     timeline_batch.insert(key.as_slice(), self.serialize_event(&event)?);
                     // Only add event with id to the position map
                     if let Some(event_id) = event.event_id() {
-                        let event_key = self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
+                        let event_key =
+                            self.encode_key(ROOM_EVENT_ID_POSITION, &(room_id, event_id));
                         event_id_to_position_batch.insert(event_key.as_slice(), key.as_slice());
                     }
                 }
             }
 
-            timeline_metadata_batch.insert(self.encode_key(TIMELINE_METADATA, &room_id), serde_json::to_vec(&metadata)?);
+            timeline_metadata_batch.insert(
+                self.encode_key(TIMELINE_METADATA, &room_id),
+                serde_json::to_vec(&metadata)?,
+            );
         }
 
         let ret: Result<(), TransactionError<SledStoreError>> =
