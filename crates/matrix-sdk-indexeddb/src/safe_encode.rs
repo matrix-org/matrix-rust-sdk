@@ -38,13 +38,13 @@ pub trait SafeEncode {
     /// encode self into a JsValue, internally using `as_encoded_string`
     /// to escape the value of self.
     fn encode(&self) -> JsValue {
-        JsValue::from(self.as_encoded_string())
+        self.as_encoded_string().into()
     }
 
     /// encode self into a JsValue, internally using `as_secure_string`
     /// to escape the value of self,
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> JsValue {
-        JsValue::from(self.as_secure_string(table_name, store_cipher))
+        self.as_secure_string(table_name, store_cipher).into()
     }
 
     /// encode self securely for the given tablename with the given
@@ -60,7 +60,7 @@ pub trait SafeEncode {
     /// encode self into a JsValue, internally using `as_encoded_string`
     /// to escape the value of self, and append the given counter
     fn encode_with_counter(&self, i: usize) -> JsValue {
-        JsValue::from(format!("{}{}{:0000000x}", self.as_encoded_string(), KEY_SEPARATOR, i))
+        format!("{}{}{:0000000x}", self.as_encoded_string(), KEY_SEPARATOR, i).into()
     }
 
     /// encode self into a JsValue, internally using `as_secure_string`
@@ -71,12 +71,12 @@ pub trait SafeEncode {
         store_cipher: &StoreCipher,
         i: usize,
     ) -> JsValue {
-        JsValue::from(format!(
+        format!(
             "{}{}{:0000000x}",
             self.as_secure_string(table_name, store_cipher),
             KEY_SEPARATOR,
             i
-        ))
+        ).into()
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are
