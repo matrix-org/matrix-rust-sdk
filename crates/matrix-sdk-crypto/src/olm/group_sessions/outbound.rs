@@ -24,7 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{instant::Instant, locks::Mutex};
+use matrix_sdk_common::{locks::Mutex, util::seconds_since_unix_epoch};
 use ruma::{
     events::{
         room::{
@@ -37,7 +37,7 @@ use ruma::{
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+    DeviceId, EventEncryptionAlgorithm, RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -49,7 +49,6 @@ pub use vodozemac::{
     PickleError,
 };
 
-use super::super::{deserialize_instant, serialize_instant};
 use crate::{Device, ToDeviceRequest};
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
@@ -118,7 +117,7 @@ pub struct OutboundGroupSession {
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
     room_id: Arc<RoomId>,
-    pub(crate) creation_time: Arc<Instant>,
+    pub(crate) creation_time: Arc<SecondsSinceUnixEpoch>,
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
@@ -175,7 +174,7 @@ impl OutboundGroupSession {
             device_id,
             account_identity_keys: identity_keys,
             session_id: session_id.into(),
-            creation_time: Arc::new(Instant::now()),
+            creation_time: Arc::new(seconds_since_unix_epoch()),
             message_count: Arc::new(AtomicU64::new(0)),
             shared: Arc::new(AtomicBool::new(false)),
             invalidated: Arc::new(AtomicBool::new(false)),
@@ -305,6 +304,18 @@ impl OutboundGroupSession {
         )
     }
 
+    fn elapsed(&self) -> bool {
+        let creation_time = Duration::from_secs(self.creation_time.get().into());
+        let now = Duration::from_secs(seconds_since_unix_epoch().get().into());
+
+        // Since the encryption settings are provided by users and not
+        // checked someone could set a really low rotation period so
+        // clamp it to an hour.
+        now.checked_sub(creation_time)
+            .map(|elapsed| elapsed >= max(self.settings.rotation_period, Duration::from_secs(3600)))
+            .unwrap_or(true)
+    }
+
     /// Check if the session has expired and if it should be rotated.
     ///
     /// A session will expire after some time or if enough messages have been
@@ -312,12 +323,7 @@ impl OutboundGroupSession {
     pub fn expired(&self) -> bool {
         let count = self.message_count.load(Ordering::SeqCst);
 
-        count >= self.settings.rotation_period_msgs
-            || self.creation_time.elapsed()
-                // Since the encryption settings are provided by users and not
-                // checked someone could set a really low rotation period so
-                // clamp it to an hour.
-                >= max(self.settings.rotation_period, Duration::from_secs(3600))
+        count >= self.settings.rotation_period_msgs || self.elapsed()
     }
 
     /// Has the session been invalidated.
@@ -577,8 +583,7 @@ pub struct PickledOutboundGroupSession {
     /// The room id this session is used for.
     pub room_id: Arc<RoomId>,
     /// The timestamp when this session was created.
-    #[serde(deserialize_with = "deserialize_instant", serialize_with = "serialize_instant")]
-    pub creation_time: Instant,
+    pub creation_time: SecondsSinceUnixEpoch,
     /// The number of messages this session has already encrypted.
     pub message_count: u64,
     /// Is the session shared.

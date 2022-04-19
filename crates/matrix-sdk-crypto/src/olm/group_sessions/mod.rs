@@ -163,9 +163,12 @@ impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use matrix_sdk_common::instant::Instant;
+    use matrix_sdk_common::instant::SystemTime;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, events::room::message::RoomMessageEventContent, room_id, user_id};
+    use ruma::{
+        device_id, events::room::message::RoomMessageEventContent, room_id, user_id,
+        SecondsSinceUnixEpoch,
+    };
 
     use super::EncryptionSettings;
     use crate::{MegolmError, ReadOnlyAccount};
@@ -201,7 +204,8 @@ mod tests {
 
         assert!(!session.expired());
         // FIXME: this might break on macosx and windows
-        session.creation_time = Arc::new(Instant::now() - Duration::from_secs(60 * 60));
+        let time = SystemTime::now() - Duration::from_secs(60 * 60);
+        session.creation_time = Arc::new(SecondsSinceUnixEpoch::from_system_time(time).unwrap());
         assert!(session.expired());
 
         Ok(())

@@ -30,32 +30,10 @@ pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
     PickledInboundGroupSession, PickledOutboundGroupSession, SessionKey, ShareInfo,
 };
-use matrix_sdk_common::instant::{Duration, Instant};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::VerifyJson;
 pub use vodozemac::olm::IdentityKeys;
-
-pub(crate) fn serialize_instant<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let duration = instant.elapsed();
-    duration.serialize(serializer)
-}
-
-pub(crate) fn deserialize_instant<'de, D>(deserializer: D) -> Result<Instant, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let duration = Duration::deserialize(deserializer)?;
-    let now = Instant::now();
-    let instant = now
-        .checked_sub(duration)
-        .ok_or_else(|| serde::de::Error::custom("Can't subtract the current instant"))?;
-    Ok(instant)
-}
 
 #[cfg(test)]
 pub(crate) mod tests {
