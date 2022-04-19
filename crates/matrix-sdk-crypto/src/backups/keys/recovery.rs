@@ -122,7 +122,7 @@ impl RecoveryKey {
         let decoded = Zeroizing::new(crate::utilities::decode(key)?);
 
         if decoded.len() != Self::KEY_SIZE {
-            Err(DecodeError::Length(decoded.len(), Self::KEY_SIZE))
+            Err(DecodeError::Length(Self::KEY_SIZE, decoded.len()))
         } else {
             let mut key = Box::new([0u8; Self::KEY_SIZE]);
             key.copy_from_slice(&decoded);
