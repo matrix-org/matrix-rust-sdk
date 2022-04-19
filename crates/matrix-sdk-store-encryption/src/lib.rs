@@ -322,7 +322,7 @@ impl StoreCipher {
     /// ```
     pub fn encrypt_value_typed(&self, value: &impl Serialize) -> Result<EncryptedValue, Error> {
         let data = serde_json::to_vec(value)?;
-        Ok(self.encrypt_value_data(data)?)
+        self.encrypt_value_data(data)
     }
 
     /// Encrypt some data before it is inserted into the key/value store.

@@ -714,7 +714,7 @@ impl SledStore {
         let db = self.clone();
         spawn_blocking(move || {
             stream::iter(
-                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e)),
+                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1)),
             )
         })
         .await
@@ -727,7 +727,7 @@ impl SledStore {
             stream::iter(
                 db.stripped_room_infos
                     .iter()
-                    .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e)),
+                    .map(move |r| db.deserialize_event(&r?.1)),
             )
         })
         .await
