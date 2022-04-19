@@ -76,7 +76,8 @@ pub trait SafeEncode {
             self.as_secure_string(table_name, store_cipher),
             KEY_SEPARATOR,
             i
-        ).into()
+        )
+        .into()
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are

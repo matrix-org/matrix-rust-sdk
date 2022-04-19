@@ -59,7 +59,7 @@ use tracing::{info, warn};
 
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
-use crate::encode_key::{EncodeKey, EncodeSecureKey, ENCODE_SEPARATOR};
+use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
 #[cfg(feature = "crypto-store")]
 pub use crate::CryptoStore;
 
@@ -320,11 +320,7 @@ impl SledStore {
         }
     }
 
-    fn encode_key<T: EncodeSecureKey + EncodeKey >(
-        &self,
-        table_name: &str,
-        key: T,
-    ) -> Vec<u8> {
+    fn encode_key<T: EncodeKey>(&self, table_name: &str, key: T) -> Vec<u8> {
         if let Some(store_cipher) = &*self.store_cipher {
             key.encode_secure(table_name, store_cipher).to_vec()
         } else {
@@ -332,12 +328,7 @@ impl SledStore {
         }
     }
 
-    fn encode_key_with_counter<A: EncodeSecureKey + EncodeKey>(
-        &self,
-        tablename: &str,
-        s: A,
-        i: usize,
-    ) -> Vec<u8> {
+    fn encode_key_with_counter<A: EncodeKey>(&self, tablename: &str, s: A, i: usize) -> Vec<u8> {
         [
             &self.encode_key(tablename, s),
             [ENCODE_SEPARATOR].as_slice(),
