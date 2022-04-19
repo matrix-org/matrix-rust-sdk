@@ -315,7 +315,7 @@ impl StoreCipher {
     /// });
     ///
     /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(&encrypted)?;
+    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
@@ -343,12 +343,12 @@ impl StoreCipher {
     ///
     /// let store_cipher = StoreCipher::new()?;
     ///
-    /// let value = serde_json::to_vec(json!({
+    /// let value = serde_json::to_vec(&json!({
     ///     "some": "data",
-    /// }));
+    /// }))?;
     ///
-    /// let encrypted = store_cipher.encrypt_value_data(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_data(&encrypted)?;
+    /// let encrypted = store_cipher.encrypt_value_data(value.clone())?;
+    /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
@@ -424,7 +424,7 @@ impl StoreCipher {
     /// });
     ///
     /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
-    /// let decrypted: Value = store_cipher.decrypt_value_typed(&encrypted)?;
+    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
@@ -459,12 +459,12 @@ impl StoreCipher {
     ///
     /// let store_cipher = StoreCipher::new()?;
     ///
-    /// let value = serde_json::to_vec(json!({
+    /// let value = serde_json::to_vec(&json!({
     ///     "some": "data",
-    /// }));
+    /// }))?;
     ///
-    /// let encrypted = store_cipher.encrypt_value_data(&value)?;
-    /// let decrypted = store_cipher.decrypt_value_data(&encrypted)?;
+    /// let encrypted = store_cipher.encrypt_value_data(value.clone())?;
+    /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
