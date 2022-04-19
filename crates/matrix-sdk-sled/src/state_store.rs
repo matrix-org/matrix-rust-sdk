@@ -27,9 +27,7 @@ use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     ruma::events::room::redaction::SyncRoomRedactionEvent,
-    store::{
-        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
-    },
+    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
 use matrix_sdk_common::{
