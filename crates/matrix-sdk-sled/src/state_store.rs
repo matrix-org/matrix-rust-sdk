@@ -26,7 +26,10 @@ use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
     deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
-    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
+    ruma::events::room::redaction::SyncRoomRedactionEvent,
+    store::{
+        BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError,
+    },
     RoomInfo,
 };
 use matrix_sdk_common::{
@@ -713,9 +716,7 @@ impl SledStore {
     pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
         let db = self.clone();
         spawn_blocking(move || {
-            stream::iter(
-                db.room_info.iter().map(move |r| db.deserialize_event(&r?.1)),
-            )
+            stream::iter(db.room_info.iter().map(move |r| db.deserialize_event(&r?.1)))
         })
         .await
         .map_err(Into::into)
@@ -724,11 +725,7 @@ impl SledStore {
     pub async fn get_stripped_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
         let db = self.clone();
         spawn_blocking(move || {
-            stream::iter(
-                db.stripped_room_infos
-                    .iter()
-                    .map(move |r| db.deserialize_event(&r?.1)),
-            )
+            stream::iter(db.stripped_room_infos.iter().map(move |r| db.deserialize_event(&r?.1)))
         })
         .await
         .map_err(Into::into)
@@ -1158,7 +1155,9 @@ impl SledStore {
                 for event in &timeline.events {
                     // Redact events already in store only on sync response
                     if let Ok(AnySyncRoomEvent::MessageLike(
-                        AnySyncMessageLikeEvent::RoomRedaction(redaction),
+                        AnySyncMessageLikeEvent::RoomRedaction(SyncRoomRedactionEvent::Original(
+                            redaction,
+                        )),
                     )) = event.event.deserialize()
                     {
                         let redacts_key =

@@ -336,7 +336,7 @@ mod tests {
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
-            assert_eq!(exported.session_key.as_str(), decrypted.session_key.as_str());
+            assert_eq!(exported.session_key.to_base64(), decrypted.session_key.to_base64());
         }
 
         assert_eq!(

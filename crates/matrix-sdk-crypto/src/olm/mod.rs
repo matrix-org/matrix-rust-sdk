@@ -67,13 +67,14 @@ pub(crate) mod tests {
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{Relation, Replacement, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            MessageLikeEvent, SyncMessageLikeEvent,
         },
         room_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
     use vodozemac::olm::OlmMessage;
 
-    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
+    use crate::olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -185,8 +186,7 @@ pub(crate) mod tests {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         assert_eq!(0, inbound.first_known_index());
 
@@ -223,8 +223,7 @@ pub(crate) mod tests {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         assert_eq!(0, inbound.first_known_index());
 
@@ -245,19 +244,20 @@ pub(crate) mod tests {
 
         let event: AnySyncRoomEvent = serde_json::from_str(&event).unwrap();
 
-        let event =
-            if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(event)) =
-                event
-            {
-                event
-            } else {
-                panic!("Invalid event type")
-            };
+        let event = if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+            SyncMessageLikeEvent::Original(event),
+        )) = event
+        {
+            event
+        } else {
+            panic!("Invalid event type")
+        };
 
         let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(e)) =
-            decrypted.deserialize().unwrap()
+        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+            MessageLikeEvent::Original(e),
+        )) = decrypted.deserialize().unwrap()
         {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {
@@ -274,8 +274,9 @@ pub(crate) mod tests {
 
         let export = inbound.export().await;
         let export: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let export = ExportedRoomKey::try_from(export).unwrap();
 
-        let imported = InboundGroupSession::from_export(export).unwrap();
+        let imported = InboundGroupSession::from_export(export);
 
         assert_eq!(inbound.session_id(), imported.session_id());
     }

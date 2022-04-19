@@ -590,7 +590,7 @@ pub enum CryptoStoreError {
 
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
-    SessionCreation(#[from] vodozemac::megolm::SessionCreationError),
+    SessionCreation(#[from] vodozemac::megolm::SessionKeyDecodeError),
 
     /// A Matrix identifier failed to be validated.
     #[error(transparent)]

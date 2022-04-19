@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    mem,
     sync::Arc,
 };
 
@@ -36,18 +35,19 @@ use ruma::{
     assign,
     events::{
         room::encrypted::{
-            EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent,
-            SyncRoomEncryptedEvent, ToDeviceRoomEncryptedEvent,
+            EncryptedEventScheme, MegolmV1AesSha2Content, OriginalSyncRoomEncryptedEvent,
+            RoomEncryptedEventContent, ToDeviceRoomEncryptedEvent,
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyRoomEvent, AnyToDeviceEvent, EventContent, MessageLikeEventType,
+        AnyRoomEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
     UInt, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
+use zeroize::Zeroize;
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -556,16 +556,17 @@ impl OlmMachine {
     ) -> OlmResult<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
         match event.content.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                let session_key = SessionKey(mem::take(&mut event.content.session_key));
+                match SessionKey::from_base64(&event.content.session_key) {
+                    Ok(session_key) => {
+                        event.content.session_key.zeroize();
+                        let session = InboundGroupSession::new(
+                            sender_key,
+                            signing_key,
+                            &event.content.room_id,
+                            session_key,
+                            None,
+                        );
 
-                match InboundGroupSession::new(
-                    sender_key,
-                    signing_key,
-                    &event.content.room_id,
-                    session_key,
-                    None,
-                ) {
-                    Ok(session) => {
                         info!(
                             sender = event.sender.as_str(),
                             sender_key = sender_key,
@@ -658,7 +659,7 @@ impl OlmMachine {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl EventContent<EventType = MessageLikeEventType>,
+        content: impl MessageLikeEventContent,
     ) -> MegolmResult<RoomEncryptedEventContent> {
         let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
@@ -985,7 +986,7 @@ impl OlmMachine {
     /// * `session_id` - The id that uniquely identifies the session.
     pub async fn request_room_key(
         &self,
-        event: &SyncRoomEncryptedEvent,
+        event: &OriginalSyncRoomEncryptedEvent,
         room_id: &RoomId,
     ) -> MegolmResult<(Option<OutgoingRequest>, OutgoingRequest)> {
         let content = match &event.content.scheme {
@@ -1038,7 +1039,7 @@ impl OlmMachine {
     async fn decrypt_megolm_v1_event(
         &self,
         room_id: &RoomId,
-        event: &SyncRoomEncryptedEvent,
+        event: &OriginalSyncRoomEncryptedEvent,
         content: &MegolmV1AesSha2Content,
     ) -> MegolmResult<RoomEvent> {
         if let Some(session) = self
@@ -1099,7 +1100,7 @@ impl OlmMachine {
     /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn decrypt_room_event(
         &self,
-        event: &SyncRoomEncryptedEvent,
+        event: &OriginalSyncRoomEncryptedEvent,
         room_id: &RoomId,
     ) -> MegolmResult<RoomEvent> {
         match &event.content.scheme {
@@ -1312,7 +1313,7 @@ impl OlmMachine {
         let mut keys = BTreeMap::new();
 
         for (i, key) in exported_keys.into_iter().enumerate() {
-            let session = InboundGroupSession::from_export(key)?;
+            let session = InboundGroupSession::from_export(key);
 
             // Only import the session if we didn't have this session or if it's
             // a better version of the same session, that is the first known
@@ -1535,8 +1536,8 @@ pub(crate) mod tests {
                 message::{MessageType, RoomMessageEventContent},
             },
             AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
-            AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned, SyncMessageLikeEvent,
-            ToDeviceEvent,
+            AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned,
+            OriginalMessageLikeEvent, OriginalSyncMessageLikeEvent, ToDeviceEvent,
         },
         room_id,
         serde::Raw,
@@ -1956,7 +1957,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let event = SyncMessageLikeEvent {
+        let event = OriginalSyncMessageLikeEvent {
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             origin_server_ts: milli_seconds_since_unix_epoch(),
             sender: alice.user_id().to_owned(),
@@ -1967,11 +1968,9 @@ pub(crate) mod tests {
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();
 
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(MessageLikeEvent {
-            sender,
-            content,
-            ..
-        })) = decrypted_event
+        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+            MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
+        )) = decrypted_event
         {
             assert_eq!(&sender, alice.user_id());
             if let MessageType::Text(c) = &content.msgtype {

@@ -45,7 +45,7 @@ use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnySyncMessageLikeEvent, EventContent, MessageLikeEventType,
+        AnySyncMessageLikeEvent, MessageLikeEventContent, SyncMessageLikeEvent,
     },
     DeviceId, TransactionId,
 };
@@ -55,6 +55,7 @@ use ruma::{
         push_rules::PushRulesEvent, room::member::MembershipState, AnyGlobalAccountDataEvent,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
         AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, StateEventType,
+        SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -260,7 +261,7 @@ impl BaseClient {
                     #[allow(clippy::single_match)]
                     match &e {
                         AnySyncRoomEvent::State(s) => match s {
-                            AnySyncStateEvent::RoomMember(member) => {
+                            AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) => {
                                 if let Ok(member) = MemberEvent::try_from(member.clone()) {
                                     ambiguity_cache.handle_event(changes, room_id, &member).await?;
 
@@ -293,7 +294,7 @@ impl BaseClient {
                                 }
                             }
                             _ => {
-                                room_info.handle_state_event(&s.content());
+                                room_info.handle_state_event(s);
                                 let raw_event: Raw<AnySyncStateEvent> = event.event.clone().cast();
                                 changes.add_state_event(room_id, s.clone(), raw_event);
                             }
@@ -301,7 +302,7 @@ impl BaseClient {
 
                         #[cfg(feature = "encryption")]
                         AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                            encrypted,
+                            SyncMessageLikeEvent::Original(encrypted),
                         )) => {
                             if let Some(olm) = self.olm_machine().await {
                                 if let Ok(decrypted) =
@@ -385,7 +386,7 @@ impl BaseClient {
                         }
                     }
                     Ok(e) => {
-                        room_info.handle_state_event(&e.content());
+                        room_info.handle_stripped_state_event(&e);
                         state_events
                             .entry(e.event_type())
                             .or_insert_with(BTreeMap::new)
@@ -429,9 +430,9 @@ impl BaseClient {
                 }
             };
 
-            room_info.handle_state_event(&event.content());
+            room_info.handle_state_event(&event);
 
-            if let AnySyncStateEvent::RoomMember(member) = event {
+            if let AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) = event {
                 match MemberEvent::try_from(member) {
                     Ok(m) => {
                         ambiguity_cache.handle_event(changes, &room_id, &m).await?;
@@ -1020,7 +1021,7 @@ impl BaseClient {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: impl EventContent<EventType = MessageLikeEventType>,
+        content: impl MessageLikeEventContent,
     ) -> Result<RoomEncryptedEventContent> {
         match self.olm_machine().await {
             Some(o) => Ok(o.encrypt(room_id, content).await?),
@@ -1210,14 +1211,14 @@ impl BaseClient {
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
-            event.content
+            event.power_levels()
         } else if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = self
             .store
             .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
             .await?
             .and_then(|e| e.deserialize().ok())
         {
-            event.content
+            event.power_levels()
         } else {
             return Ok(None);
         };
@@ -1260,7 +1261,7 @@ impl BaseClient {
             .and_then(|events| events.get(""))
             .and_then(|e| e.deserialize().ok())
         {
-            let room_power_levels = event.content;
+            let room_power_levels = event.power_levels();
 
             push_rules.users_power_levels = room_power_levels.users;
             push_rules.default_power_level = room_power_levels.users_default;

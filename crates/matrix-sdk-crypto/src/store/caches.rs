@@ -246,8 +246,7 @@ mod tests {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = GroupSessionStore::new();
         store.add(inbound.clone());

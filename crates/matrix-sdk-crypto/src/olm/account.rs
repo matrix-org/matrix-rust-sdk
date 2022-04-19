@@ -1077,8 +1077,7 @@ impl ReadOnlyAccount {
             room_id,
             outbound.session_key().await,
             Some(visibility),
-        )
-        .expect("Can't create inbound group session from a newly created outbound group session");
+        );
 
         Ok((outbound, inbound))
     }

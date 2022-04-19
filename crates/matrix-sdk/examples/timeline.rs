@@ -8,7 +8,7 @@ use matrix_sdk::{
     ruma::{
         api::client::filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
         assign,
-        events::{AnyMessageLikeEventContent, AnySyncRoomEvent},
+        events::{AnySyncMessageLikeEvent, AnySyncRoomEvent, SyncMessageLikeEvent},
     },
     store::make_store_config,
     Client, LoopCtrl,
@@ -32,12 +32,14 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> Client
 }
 
 fn event_content(event: AnySyncRoomEvent) -> Option<String> {
-    if let AnySyncRoomEvent::MessageLike(event) = event {
-        if let AnyMessageLikeEventContent::RoomMessage(content) = event.content() {
-            return Some(content.msgtype.body().to_owned());
-        }
+    if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+        SyncMessageLikeEvent::Original(event),
+    )) = event
+    {
+        Some(event.content.msgtype.body().to_owned())
+    } else {
+        None
     }
-    None
 }
 async fn print_timeline(room: Room) {
     let backward_stream = room.timeline_backward().await.unwrap();

@@ -39,7 +39,7 @@ pub enum OlmError {
 
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
-    SessionCreation(#[from] vodozemac::megolm::SessionCreationError),
+    SessionCreation(#[from] vodozemac::megolm::SessionKeyDecodeError),
 
     /// The storage layer returned an error.
     #[error("failed to read or write to the crypto store {0}")]
