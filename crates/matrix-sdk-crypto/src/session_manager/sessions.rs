@@ -19,6 +19,7 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
+use matrix_sdk_common::util::seconds_since_unix_epoch;
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
@@ -94,7 +95,15 @@ impl SessionManager {
                         "Marking session to be unwedged"
                     );
 
-                    if session.creation_time.elapsed() > Self::UNWEDGING_INTERVAL {
+                    let creation_time = Duration::from_secs(session.creation_time.get().into());
+                    let now = Duration::from_secs(seconds_since_unix_epoch().get().into());
+
+                    let should_unwedge = now
+                        .checked_sub(creation_time)
+                        .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
+                        .unwrap_or(true);
+
+                    if should_unwedge {
                         self.users_for_key_claim
                             .entry(device.user_id().to_owned())
                             .or_insert_with(DashSet::new)
@@ -433,15 +442,16 @@ mod tests {
     #[async_test]
     #[cfg(target_os = "linux")]
     async fn session_unwedging() {
-        use matrix_sdk_common::instant::{Duration, Instant};
-        use ruma::DeviceKeyAlgorithm;
+        use matrix_sdk_common::instant::{Duration, SystemTime};
+        use ruma::{DeviceKeyAlgorithm, SecondsSinceUnixEpoch};
 
         let manager = session_manager().await;
         let bob = bob_account();
         let (_, mut session) = bob.create_session_for(&manager.account).await;
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
-        session.creation_time = Arc::new(Instant::now() - Duration::from_secs(3601));
+        let time = SystemTime::now() - Duration::from_secs(3601);
+        session.creation_time = Arc::new(SecondsSinceUnixEpoch::from_system_time(time).unwrap());
 
         manager.store.save_devices(&[bob_device.clone()]).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();

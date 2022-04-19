@@ -23,7 +23,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{instant::Instant, locks::Mutex};
+use matrix_sdk_common::{locks::Mutex, util::seconds_since_unix_epoch};
 use ruma::{
     api::client::keys::{
         upload_keys,
@@ -921,7 +921,7 @@ impl ReadOnlyAccount {
     ) -> Session {
         let session = self.inner.lock().await.create_outbound_session(identity_key, one_time_key);
 
-        let now = Instant::now();
+        let now = seconds_since_unix_epoch();
         let session_id = session.session_id();
 
         Session {
@@ -1017,7 +1017,7 @@ impl ReadOnlyAccount {
         let result =
             self.inner.lock().await.create_inbound_session(&their_identity_key, message)?;
 
-        let now = Instant::now();
+        let now = seconds_since_unix_epoch();
         let session_id = result.session.session_id();
 
         let session = Session {
