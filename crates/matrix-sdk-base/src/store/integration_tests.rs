@@ -277,8 +277,8 @@ macro_rules! statestore_integration_tests {
 
                     assert!(store.get_sync_token().await?.is_some());
                     assert!(store.get_presence_event(user_id).await?.is_some());
-                    assert_eq!(store.get_room_infos().await?.len(), 1,  "Expected to find 1 room info ");
-                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1,  "Expected to find 1 stripped room info");
+                    assert_eq!(store.get_room_infos().await?.len(), 1, "Expected to find 1 room info ");
+                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1, "Expected to find 1 stripped room info");
                     assert!(store.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some());
 
                     assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());

@@ -303,7 +303,7 @@ impl StoreCipher {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// # let example = || {
     /// use matrix_sdk_store_encryption::StoreCipher;
     /// use serde_json::{json, value::Value};
@@ -318,7 +318,7 @@ impl StoreCipher {
     /// let decrypted: Value = store_cipher.decrypt_value_typed(&encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value_typed(&self, value: &impl Serialize) -> Result<EncryptedValue, Error> {
         let data = serde_json::to_vec(value)?;
