@@ -113,28 +113,28 @@ impl Into<StoreError> for SledStoreError {
     }
 }
 
-const SESSION: &str = "session";
 const ACCOUNT_DATA: &str = "account-data";
-const MEMBER: &str = "member";
-const PROFILE: &str = "profile";
-const ROOM_STATE: &str = "room-state";
-const PRESENCE: &str = "presence";
-const ROOM: &str = "room";
-const ROOM_INFO: &str = "room-info";
+const CUSTOM: &str = "custom";
 const DISPLAY_NAME: &str = "display-name";
+const INVITED_USER_ID: &str = "invited-user-id";
 const JOINED_USER_ID: &str = "joined-user-id";
-const INVITED_USER_ID: &str = "invited-user-ids";
+const MEDIA: &str = "media";
+const MEMBER: &str = "member";
+const PRESENCE: &str = "presence";
+const PROFILE: &str = "profile";
 const ROOM_ACCOUNT_DATA: &str = "room-account-data";
+const ROOM_EVENT_ID_POSITION: &str = "room-event-id-to-position";
+const ROOM_EVENT_RECEIPT: &str = "room-event-receipt";
+const ROOM_INFO: &str = "room-info";
+const ROOM_STATE: &str = "room-state";
+const ROOM_USER_RECEIPT: &str = "room-user-receipt";
+const ROOM: &str = "room";
+const SESSION: &str = "session";
 const STRIPPED_ROOM_INFO: &str = "stripped-room-info";
 const STRIPPED_ROOM_MEMBER: &str = "stripped-room-member";
 const STRIPPED_ROOM_STATE: &str = "stripped-room-state";
-const ROOM_USER_RECEIPT: &str = "room-user-receipt";
-const ROOM_EVENT_RECEIPT: &str = "room-event-receipt";
-const MEDIA: &str = "media";
-const CUSTOM: &str = "custom";
-const TIMELINE: &str = "timeline";
 const TIMELINE_METADATA: &str = "timeline-metadata";
-const ROOM_EVENT_ID_POSITION: &str = "room-event-id-to-position";
+const TIMELINE: &str = "timeline";
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
