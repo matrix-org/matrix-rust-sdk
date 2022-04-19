@@ -1,91 +1,163 @@
+use std::{borrow::Cow, ops::Deref};
+
 use matrix_sdk_common::ruma::{
-    events::{secret::request::SecretName, GlobalAccountDataEventType, StateEventType},
-    DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
+    events::{
+        secret::request::SecretName, GlobalAccountDataEventType, RoomAccountDataEventType,
+        StateEventType,
+    },
+    receipt::ReceiptType,
+    DeviceId, EventEncryptionAlgorithm, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
+use matrix_sdk_store_encryption::StoreCipher;
+
 pub const ENCODE_SEPARATOR: u8 = 0xff;
 
 pub trait EncodeKey {
-    fn encode(&self) -> Vec<u8>;
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        unimplemented!()
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        [self.encode_as_bytes().deref(), &[ENCODE_SEPARATOR]].concat()
+    }
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let key = store_cipher.hash_key(table_name, &self.encode_as_bytes());
+        [key.as_slice(), &[ENCODE_SEPARATOR]].concat()
+    }
 }
 
 impl<T: EncodeKey + ?Sized> EncodeKey for &T {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        T::encode_as_bytes(self)
+    }
     fn encode(&self) -> Vec<u8> {
         T::encode(self)
+    }
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        T::encode_secure(self, table_name, store_cipher)
     }
 }
 
 impl<T: EncodeKey + ?Sized> EncodeKey for Box<T> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        T::encode_as_bytes(self)
+    }
     fn encode(&self) -> Vec<u8> {
         T::encode(self)
+    }
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        T::encode_secure(self, table_name, store_cipher)
     }
 }
 
 impl EncodeKey for str {
-    fn encode(&self) -> Vec<u8> {
-        [self.as_bytes(), &[ENCODE_SEPARATOR]].concat()
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_bytes().into()
     }
 }
 
 impl EncodeKey for String {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for DeviceId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for EventId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for RoomId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for TransactionId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
     }
 }
 
 impl EncodeKey for MxcUri {
-    fn encode(&self) -> Vec<u8> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         let s: &str = self.as_ref();
-        s.encode()
+        s.as_bytes().into()
     }
 }
 
 impl EncodeKey for SecretName {
-    fn encode(&self) -> Vec<u8> {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         let s: &str = self.as_ref();
-        s.encode()
+        s.as_bytes().into()
+    }
+}
+
+impl EncodeKey for ReceiptType {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        let s: &str = self.as_ref();
+        s.as_bytes().into()
+    }
+}
+
+impl EncodeKey for EventEncryptionAlgorithm {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        let s: &str = self.as_ref();
+        s.as_bytes().into()
+    }
+}
+
+impl EncodeKey for RoomAccountDataEventType {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.to_string().as_bytes().to_vec().into()
     }
 }
 
 impl EncodeKey for UserId {
-    fn encode(&self) -> Vec<u8> {
-        self.as_str().encode()
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
+    }
+}
+
+impl EncodeKey for StateEventType {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.to_string().as_bytes().to_vec().into()
+    }
+}
+
+impl EncodeKey for GlobalAccountDataEventType {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.to_string().as_bytes().to_vec().into()
     }
 }
 
 impl<A, B> EncodeKey for (A, B)
 where
-    A: AsRef<str>,
-    B: AsRef<str>,
+    A: EncodeKey,
+    B: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
         [
-            self.0.as_ref().as_bytes(),
+            self.0.encode_as_bytes().deref(),
             &[ENCODE_SEPARATOR],
-            self.1.as_ref().as_bytes(),
+            self.1.encode_as_bytes().deref(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            store_cipher.hash_key(table_name, &self.0.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.1.encode_as_bytes()).as_slice(),
             &[ENCODE_SEPARATOR],
         ]
         .concat()
@@ -94,17 +166,29 @@ where
 
 impl<A, B, C> EncodeKey for (A, B, C)
 where
-    A: AsRef<str>,
-    B: AsRef<str>,
-    C: AsRef<str>,
+    A: EncodeKey,
+    B: EncodeKey,
+    C: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
         [
-            self.0.as_ref().as_bytes(),
+            self.0.encode_as_bytes().deref(),
             &[ENCODE_SEPARATOR],
-            self.1.as_ref().as_bytes(),
+            self.1.encode_as_bytes().deref(),
             &[ENCODE_SEPARATOR],
-            self.2.as_ref().as_bytes(),
+            self.2.encode_as_bytes().deref(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            store_cipher.hash_key(table_name, &self.0.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.1.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.2.encode_as_bytes()).as_slice(),
             &[ENCODE_SEPARATOR],
         ]
         .concat()
@@ -113,41 +197,36 @@ where
 
 impl<A, B, C, D> EncodeKey for (A, B, C, D)
 where
-    A: AsRef<str>,
-    B: AsRef<str>,
-    C: AsRef<str>,
-    D: AsRef<str>,
+    A: EncodeKey,
+    B: EncodeKey,
+    C: EncodeKey,
+    D: EncodeKey,
 {
     fn encode(&self) -> Vec<u8> {
         [
-            self.0.as_ref().as_bytes(),
+            self.0.encode_as_bytes().deref(),
             &[ENCODE_SEPARATOR],
-            self.1.as_ref().as_bytes(),
+            self.1.encode_as_bytes().deref(),
             &[ENCODE_SEPARATOR],
-            self.2.as_ref().as_bytes(),
+            self.2.encode_as_bytes().deref(),
             &[ENCODE_SEPARATOR],
-            self.3.as_ref().as_bytes(),
+            self.3.encode_as_bytes().deref(),
             &[ENCODE_SEPARATOR],
         ]
         .concat()
     }
-}
 
-impl EncodeKey for StateEventType {
-    fn encode(&self) -> Vec<u8> {
-        self.to_string().encode()
-    }
-}
-
-impl EncodeKey for GlobalAccountDataEventType {
-    fn encode(&self) -> Vec<u8> {
-        self.to_string().encode()
-    }
-}
-
-#[cfg(feature = "state-store")]
-pub fn encode_key_with_usize<A: AsRef<str>>(s: A, i: usize) -> Vec<u8> {
-    // FIXME: Not portable across architectures
-    [s.as_ref().as_bytes(), &[ENCODE_SEPARATOR], i.to_be_bytes().as_ref(), &[ENCODE_SEPARATOR]]
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        [
+            store_cipher.hash_key(table_name, &self.0.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.1.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.2.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+            store_cipher.hash_key(table_name, &self.3.encode_as_bytes()).as_slice(),
+            &[ENCODE_SEPARATOR],
+        ]
         .concat()
+    }
 }

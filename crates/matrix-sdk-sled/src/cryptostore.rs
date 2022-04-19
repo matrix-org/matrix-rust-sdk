@@ -24,10 +24,7 @@ use dashmap::DashSet;
 use matrix_sdk_common::{
     async_trait,
     locks::Mutex,
-    ruma::{
-        events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-        DeviceId, RoomId, TransactionId, UserId,
-    },
+    ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, RoomId, TransactionId, UserId},
 };
 use matrix_sdk_crypto::{
     olm::{
@@ -69,11 +66,19 @@ impl EncodeKey for InboundGroupSession {
     fn encode(&self) -> Vec<u8> {
         (self.room_id(), self.sender_key(), self.session_id()).encode()
     }
+
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        (self.room_id(), self.sender_key(), self.session_id())
+            .encode_secure(table_name, store_cipher)
+    }
 }
 
 impl EncodeKey for OutboundGroupSession {
     fn encode(&self) -> Vec<u8> {
         self.room_id().encode()
+    }
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        self.room_id().encode_secure(table_name, store_cipher)
     }
 }
 
@@ -85,6 +90,15 @@ impl EncodeKey for Session {
         [sender_key.as_bytes(), &[ENCODE_SEPARATOR], session_id.as_bytes(), &[ENCODE_SEPARATOR]]
             .concat()
     }
+
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
+        let sender_key =
+            store_cipher.hash_key(table_name, self.sender_key().to_base64().as_bytes());
+        let session_id = store_cipher.hash_key(table_name, self.session_id().as_bytes());
+
+        [sender_key.as_slice(), &[ENCODE_SEPARATOR], session_id.as_slice(), &[ENCODE_SEPARATOR]]
+            .concat()
+    }
 }
 
 impl EncodeKey for SecretInfo {
@@ -94,31 +108,6 @@ impl EncodeKey for SecretInfo {
             SecretInfo::SecretRequest(s) => s.encode(),
         }
     }
-}
-
-impl EncodeKey for RequestedKeyInfo {
-    fn encode(&self) -> Vec<u8> {
-        (&self.room_id, &self.sender_key, &self.algorithm, &self.session_id).encode()
-    }
-}
-
-impl EncodeKey for ReadOnlyDevice {
-    fn encode(&self) -> Vec<u8> {
-        (self.user_id(), self.device_id()).encode()
-    }
-}
-
-impl EncodeSecureKey for (&UserId, &DeviceId) {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let user_id = store_cipher.hash_key(table_name, self.0.as_bytes());
-        let device_id = store_cipher.hash_key(table_name, self.1.as_bytes());
-
-        [user_id.as_slice(), &[ENCODE_SEPARATOR], device_id.as_slice(), &[ENCODE_SEPARATOR]]
-            .concat()
-    }
-}
-
-impl EncodeSecureKey for SecretInfo {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         match self {
             SecretInfo::KeyRequest(k) => k.encode_secure(table_name, store_cipher),
@@ -127,15 +116,10 @@ impl EncodeSecureKey for SecretInfo {
     }
 }
 
-impl EncodeSecureKey for SecretName {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let name = store_cipher.hash_key(table_name, self.as_ref().as_bytes());
-
-        [name.as_slice(), &[ENCODE_SEPARATOR]].concat()
+impl EncodeKey for RequestedKeyInfo {
+    fn encode(&self) -> Vec<u8> {
+        (&self.room_id, &self.sender_key, &self.algorithm, &self.session_id).encode()
     }
-}
-
-impl EncodeSecureKey for RequestedKeyInfo {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         let room_id = store_cipher.hash_key(table_name, self.room_id.as_bytes());
         let sender_key = store_cipher.hash_key(table_name, self.sender_key.as_bytes());
@@ -156,79 +140,13 @@ impl EncodeSecureKey for RequestedKeyInfo {
     }
 }
 
-impl EncodeSecureKey for UserId {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let user_id = store_cipher.hash_key(table_name, self.as_bytes());
-
-        [user_id.as_slice(), &[0xff]].concat()
+impl EncodeKey for ReadOnlyDevice {
+    fn encode(&self) -> Vec<u8> {
+        (self.user_id(), self.device_id()).encode()
     }
-}
-
-impl EncodeSecureKey for ReadOnlyDevice {
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         (self.user_id(), self.device_id()).encode_secure(table_name, store_cipher)
     }
-}
-
-impl EncodeSecureKey for str {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let key = store_cipher.hash_key(table_name, self.as_bytes());
-        [key.as_slice(), &[ENCODE_SEPARATOR]].concat()
-    }
-}
-
-impl EncodeSecureKey for OutboundGroupSession {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        self.room_id().encode_secure(table_name, store_cipher)
-    }
-}
-
-impl EncodeSecureKey for RoomId {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let room_id = store_cipher.hash_key(table_name, self.as_bytes());
-
-        [room_id.as_slice(), &[ENCODE_SEPARATOR]].concat()
-    }
-}
-
-impl EncodeSecureKey for InboundGroupSession {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        (self.room_id(), self.sender_key(), self.session_id())
-            .encode_secure(table_name, store_cipher)
-    }
-}
-
-impl EncodeSecureKey for (&RoomId, &str, &str) {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let first = store_cipher.hash_key(table_name, self.0.as_bytes());
-        let second = store_cipher.hash_key(table_name, self.1.as_bytes());
-        let third = store_cipher.hash_key(table_name, self.2.as_bytes());
-
-        [
-            first.as_slice(),
-            &[ENCODE_SEPARATOR],
-            second.as_slice(),
-            &[ENCODE_SEPARATOR],
-            third.as_slice(),
-            &[ENCODE_SEPARATOR],
-        ]
-        .concat()
-    }
-}
-
-impl EncodeSecureKey for Session {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        let sender_key =
-            store_cipher.hash_key(table_name, self.sender_key().to_base64().as_bytes());
-        let session_id = store_cipher.hash_key(table_name, self.session_id().as_bytes());
-
-        [sender_key.as_slice(), &[ENCODE_SEPARATOR], session_id.as_slice(), &[ENCODE_SEPARATOR]]
-            .concat()
-    }
-}
-
-trait EncodeSecureKey {
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8>;
 }
 
 #[derive(Clone, Debug)]
@@ -332,11 +250,7 @@ impl SledStore {
         }
     }
 
-    fn encode_key<T: EncodeSecureKey + EncodeKey + ?Sized>(
-        &self,
-        table_name: &str,
-        key: &T,
-    ) -> Vec<u8> {
+    fn encode_key<T: EncodeKey>(&self, table_name: &str, key: T) -> Vec<u8> {
         if let Some(store_cipher) = &*self.store_cipher {
             key.encode_secure(table_name, store_cipher).to_vec()
         } else {

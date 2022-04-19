@@ -284,16 +284,83 @@ impl StoreCipher {
     /// # Result::<_, anyhow::Error>::Ok(()) };
     /// ```
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
-        let mut data = serde_json::to_vec(value)?;
+        Ok(serde_json::to_vec(&self.encrypt_value_typed(value)?)?)
+    }
 
+    /// Encrypt a value before it is inserted into the key/value store.
+    ///
+    /// A value can be decrypted using the
+    /// [`StoreCipher::decrypt_value_typed()`] method. This is the lower
+    /// level function to `encrypt_value`, but returns the
+    /// full `EncryptdValue`-type
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A value that should be encrypted, any value that implements
+    /// `Serialize` can be given to this method. The value will be serialized as
+    /// json before it is encrypted.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = json!({
+    ///     "some": "data",
+    /// });
+    ///
+    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
+    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn encrypt_value_typed(&self, value: &impl Serialize) -> Result<EncryptedValue, Error> {
+        let data = serde_json::to_vec(value)?;
+        self.encrypt_value_data(data)
+    }
+
+    /// Encrypt some data before it is inserted into the key/value store.
+    ///
+    /// A value can be decrypted using the [`StoreCipher::decrypt_value_data()`]
+    /// method. This is the lower level function to `encrypt_value`
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - A value that should be encrypted, encoded as a `Vec<u8>`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = serde_json::to_vec(&json!({
+    ///     "some": "data",
+    /// }))?;
+    ///
+    /// let encrypted = store_cipher.encrypt_value_data(value.clone())?;
+    /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// ```
+    pub fn encrypt_value_data(&self, mut data: Vec<u8>) -> Result<EncryptedValue, Error> {
         let nonce = Keys::get_nonce()?;
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
 
         let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_ref())?;
 
         data.zeroize();
-
-        Ok(serde_json::to_vec(&EncryptedValue { version: VERSION, ciphertext, nonce })?)
+        Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
     }
 
     /// Decrypt a value after it was fetchetd from the key/value store.
@@ -325,22 +392,91 @@ impl StoreCipher {
     ///
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// ```
     pub fn decrypt_value<T: for<'b> Deserialize<'b>>(&self, value: &[u8]) -> Result<T, Error> {
         let value: EncryptedValue = serde_json::from_slice(value)?;
+        self.decrypt_value_typed(value)
+    }
 
+    /// Decrypt a value after it was fetchetd from the key/value store.
+    ///
+    /// A value can be encrypted using the
+    /// [`StoreCipher::encrypt_value_typed()`] method. Lower level method to
+    /// [`StoreCipher::decrypt_value_typed()`]
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The EncryptedValue of a value that should be decrypted.
+    ///
+    /// The method will deserialize the decrypted value into the expected type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = json!({
+    ///     "some": "data",
+    /// });
+    ///
+    /// let encrypted = store_cipher.encrypt_value_typed(&value)?;
+    /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// ```
+    pub fn decrypt_value_typed<T: for<'b> Deserialize<'b>>(
+        &self,
+        value: EncryptedValue,
+    ) -> Result<T, Error> {
+        let mut plaintext = self.decrypt_value_data(value)?;
+        let ret = serde_json::from_slice(&plaintext);
+        plaintext.zeroize();
+        Ok(ret?)
+    }
+
+    /// Decrypt a value after it was fetchetd from the key/value store.
+    ///
+    /// A value can be encrypted using the [`StoreCipher::encrypt_value_data()`]
+    /// method. Lower level method to [`StoreCipher::decrypt_value()`].
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The EncryptedValue of a value that should be decrypted.
+    ///
+    /// The method will return the raw decrypted value
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let example = || {
+    /// use matrix_sdk_store_encryption::StoreCipher;
+    /// use serde_json::{json, value::Value};
+    ///
+    /// let store_cipher = StoreCipher::new()?;
+    ///
+    /// let value = serde_json::to_vec(&json!({
+    ///     "some": "data",
+    /// }))?;
+    ///
+    /// let encrypted = store_cipher.encrypt_value_data(value.clone())?;
+    /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
+    ///
+    /// assert_eq!(value, decrypted);
+    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// ```
+    pub fn decrypt_value_data(&self, value: EncryptedValue) -> Result<Vec<u8>, Error> {
         if value.version != VERSION {
             return Err(Error::Version(VERSION, value.version));
         }
 
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
         let nonce = XNonce::from_slice(&value.nonce);
-        let mut plaintext = cipher.decrypt(nonce, value.ciphertext.as_ref())?;
-
-        let ret = serde_json::from_slice(&plaintext);
-
-        plaintext.zeroize();
-
-        Ok(ret?)
+        Ok(cipher.decrypt(nonce, value.ciphertext.as_ref())?)
     }
 
     /// Expand the given passphrase into a KEY_SIZE long key.
@@ -362,8 +498,10 @@ impl MacKey {
     }
 }
 
+/// Encrypted value, ready for storage, as created by the
+/// [`StoreCipher::encrypt_value_data()`]
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct EncryptedValue {
+pub struct EncryptedValue {
     version: u8,
     ciphertext: Vec<u8>,
     nonce: [u8; XNONCE_SIZE],

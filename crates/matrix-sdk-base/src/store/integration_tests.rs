@@ -277,18 +277,18 @@ macro_rules! statestore_integration_tests {
 
                     assert!(store.get_sync_token().await?.is_some());
                     assert!(store.get_presence_event(user_id).await?.is_some());
-                    assert_eq!(store.get_room_infos().await?.len(), 1);
-                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
+                    assert_eq!(store.get_room_infos().await?.len(), 1, "Expected to find 1 room info ");
+                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1, "Expected to find 1 stripped room info");
                     assert!(store.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some());
 
                     assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
-                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 1);
+                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 1, "Expected to find 1 room topic");
                     assert!(store.get_profile(room_id, user_id).await?.is_some());
                     assert!(store.get_member_event(room_id, user_id).await?.is_some());
-                    assert_eq!(store.get_user_ids(room_id).await?.len(), 2);
-                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 1);
-                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1);
-                    assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2);
+                    assert_eq!(store.get_user_ids(room_id).await?.len(), 2, "Expected to find 2 members for room");
+                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 1, "Expected to find 1 invited user ids");
+                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1, "Expected to find 1 joined user ids");
+                    assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2, "Expected to find 2 display names for room");
                     assert!(store
                         .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
@@ -302,8 +302,7 @@ macro_rules! statestore_integration_tests {
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
                             .await?
                             .len(),
-                        1
-                    );
+                        1, "Expected to find 1 read receipt");
                     Ok(())
                 }
 
@@ -325,7 +324,7 @@ macro_rules! statestore_integration_tests {
                     assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
 
                     let members = store.get_user_ids(room_id).await.unwrap();
-                    assert!(!members.is_empty())
+                    assert!(!members.is_empty(), "We expected to find members for the room")
                 }
 
                 #[async_test]
@@ -354,7 +353,7 @@ macro_rules! statestore_integration_tests {
 
                 #[async_test]
                 async fn test_receipts_saving() {
-                    let store = get_store().await.unwrap();
+                    let store = get_store().await.expect("creating store failed");
 
                     let room_id = room_id!("!test_receipts_saving:localhost");
 
@@ -370,7 +369,7 @@ macro_rules! statestore_integration_tests {
                             }
                         }
                     }))
-                    .unwrap();
+                    .expect("json creation failed");
 
                     let second_receipt_event = serde_json::from_value(json!({
                         second_event_id.clone(): {
@@ -381,68 +380,70 @@ macro_rules! statestore_integration_tests {
                             }
                         }
                     }))
-                    .unwrap();
+                    .expect("json creation failed");
 
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt")
                         .is_none());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 1")
                         .is_empty());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 2")
                         .is_empty());
 
                     let mut changes = StateChanges::default();
                     changes.add_receipts(room_id, first_receipt_event);
 
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("writing changes fauked");
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
-                        .is_some(),);
+                        .expect("failed to read user room receipt after save")
+                        .is_some());
                     assert_eq!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                             .await
-                            .unwrap()
+                            .expect("failed to read user room receipt for 1 after save")
                             .len(),
-                        1
+                        1,
+                        "Found a wrong number of receipts for 1 after save"
                     );
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 2 after save")
                         .is_empty());
 
                     let mut changes = StateChanges::default();
                     changes.add_receipts(room_id, second_receipt_event);
 
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("Saving works");
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
+                        .expect("Getting user room receipts failed")
                         .is_some());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                         .await
-                        .unwrap()
+                        .expect("Getting event room receipt events for first event failed")
                         .is_empty());
                     assert_eq!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                             .await
-                            .unwrap()
+                            .expect("Getting event room receipt events for second event failed")
                             .len(),
-                        1
+                        1,
+                        "Found a wrong number of receipts for second event after save"
                     );
                 }
 
@@ -467,24 +468,24 @@ macro_rules! statestore_integration_tests {
                         }),
                     };
 
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "unexpected media found");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none(), "media not found");
 
-                    store.add_media_content(&request_file, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+                    store.add_media_content(&request_file, content.clone()).await.expect("adding media failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_some(), "media not found though added");
 
-                    store.remove_media_content(&request_file).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+                    store.remove_media_content(&request_file).await.expect("removing media failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "media still there after removing");
 
-                    store.add_media_content(&request_file, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+                    store.add_media_content(&request_file, content.clone()).await.expect("adding media again failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_some(), "media not found after adding again");
 
-                    store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+                    store.add_media_content(&request_thumbnail, content.clone()).await.expect("adding thumbnail failed");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some(), "thumbnail not found");
 
-                    store.remove_media_content_for_uri(uri).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+                    store.remove_media_content_for_uri(uri).await.expect("removing all media for uri failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "media wasn't removed");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none(), "thumbnail wasn't removed");
                 }
 
                 #[async_test]
@@ -526,17 +527,17 @@ macro_rules! statestore_integration_tests {
 
                     store.remove_room(room_id).await?;
 
-                    assert_eq!(store.get_room_infos().await?.len(), 0);
+                    assert!(store.get_room_infos().await?.is_empty(), "room is still there");
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
 
                     assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_none());
-                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 0);
+                    assert!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.is_empty(), "still state events found");
                     assert!(store.get_profile(room_id, user_id).await?.is_none());
                     assert!(store.get_member_event(room_id, user_id).await?.is_none());
-                    assert_eq!(store.get_user_ids(room_id).await?.len(), 0);
-                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 0);
-                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 0);
-                    assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 0);
+                    assert!(store.get_user_ids(room_id).await?.is_empty(), "still user ids found");
+                    assert!(store.get_invited_user_ids(room_id).await?.is_empty(), "still invited user ids found");
+                    assert!(store.get_joined_user_ids(room_id).await?.is_empty(), "still joined users found");
+                    assert!(store.get_users_with_display_name(room_id, "example").await?.is_empty(), "still display names found");
                     assert!(store
                         .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
@@ -545,18 +546,18 @@ macro_rules! statestore_integration_tests {
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
                         .await?
                         .is_none());
-                    assert_eq!(
+                    assert!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
                             .await?
-                            .len(),
-                        0
+                            .is_empty(),
+                        "still event recepts in the store"
                     );
 
                     store.remove_room(stripped_room_id).await?;
 
-                    assert_eq!(store.get_room_infos().await?.len(), 0);
-                    assert_eq!(store.get_stripped_room_infos().await?.len(), 0);
+                    assert!(store.get_room_infos().await?.is_empty(), "still room info found");
+                    assert!(store.get_stripped_room_infos().await?.is_empty(), "still stripped room info found");
                     Ok(())
                 }
 
@@ -567,7 +568,7 @@ macro_rules! statestore_integration_tests {
                     let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
                     // Before the first sync the timeline should be empty
-                    assert!(store.room_timeline(room_id).await.unwrap().is_none());
+                    assert!(store.room_timeline(room_id).await.expect("failed to read timeline").is_none(), "TL wasn't empty");
 
                     // Add sync response
                     let sync = SyncResponse::try_from_http_response(
@@ -700,10 +701,17 @@ macro_rules! statestore_integration_tests {
 
                     let timeline = timeline_iter.collect::<Vec<StoreResult<SyncRoomEvent>>>().await;
 
-                    assert!(timeline
-                            .into_iter()
-                            .zip(stored_events.iter())
-                            .all(|(a, b)| a.unwrap().event_id() == b.event_id()));
+                    let expected: Vec<Box<EventId>> = stored_events.iter().map(|a| a.event_id().expect("event id doesn't exist")).collect();
+                    let found: Vec<Box<EventId>> = timeline.iter().map(|a| a.as_ref().expect("object missing").event_id().clone().expect("event id missing")).collect();
+
+                    for (idx, (a, b)) in timeline
+                        .into_iter()
+                        .zip(stored_events.iter())
+                        .enumerate()
+                    {
+                        assert_eq!(a.expect("not a value").event_id(), b.event_id(), "pos {} not equal - expected: {:#?}, but found {:#?}", idx, expected, found);
+
+                    }
                 }
 
             }
