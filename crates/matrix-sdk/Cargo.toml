@@ -160,4 +160,4 @@ required-features = ["encryption"]
 
 [[example]]
 name = "timeline"
-required-features = ["sled-state-store"]
+required-features = ["sled"]
