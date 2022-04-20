@@ -1,5 +1,5 @@
 #[cfg(feature = "state-store")]
-use matrix_sdk_base::store::{StoreError, StoreConfig};
+use matrix_sdk_base::store::{StoreConfig, StoreError};
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::store::CryptoStoreError;
 use sled::Error as SledError;
@@ -34,7 +34,6 @@ pub enum OpenStoreError {
     #[error(transparent)]
     Sled(#[from] SledError),
 }
-
 
 // FIXME Move these two methods back to the matrix-sdk-sled crate once weak
 // dependency features are stable and we decide to bump the MSRV.
