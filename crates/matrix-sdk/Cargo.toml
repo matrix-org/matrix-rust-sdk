@@ -152,11 +152,11 @@ wasm-bindgen-test = "0.3.24"
 
 [[example]]
 name = "cross_signing_bootstrap"
-required-features = ["encryption"]
+required-features = ["e2e-encryption"]
 
 [[example]]
 name = "emoji_verification"
-required-features = ["encryption"]
+required-features = ["e2e-encryption"]
 
 [[example]]
 name = "timeline"

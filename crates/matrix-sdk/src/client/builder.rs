@@ -421,12 +421,12 @@ pub enum ClientBuildError {
     Http(#[from] HttpError),
 
     /// Error opening the indexeddb store.
-    #[cfg(any(feature = "indexeddb-state-store", feature = "indexeddb-crypto-store"))]
+    #[cfg(feature = "indexeddb")]
     #[error(transparent)]
     IndexeddbStore(#[from] matrix_sdk_indexeddb::OpenStoreError),
 
     /// Error opening the sled store.
-    #[cfg(any(feature = "sled-statehstore", feature = "sled-crypto-store"))]
+    #[cfg(feature = "sled")]
     #[error(transparent)]
     SledStore(#[from] matrix_sdk_sled::OpenStoreError),
 }

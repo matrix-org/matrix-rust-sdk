@@ -16,10 +16,10 @@
 //! The re-exports present here depend on the store-related features that are
 //! enabled:
 //!
-//! 1. `sled-state-store` provides a `StateStore`, while
-//! `sled-crypto-store` provides also a `CryptoStore` for encryption data. This
-//! is the default persistent store implementation for non-WebAssembly.
-//! 2. `indexeddb_store` provides both a `StateStore` and a `CryptoStore` if
+//! 1. `sled` provides a `StateStore`, and a `CryptoStore` for encryption data
+//! if `e2e-encryption` is enabled. This is the default persistent store
+//! implementation for non-WebAssembly.
+//! 2. `indexeddb`, too, provides a `StateStore` and a `CryptoStore` if
 //! `encryption` is also enabled. This is the default persistent store
 //! implementation for WebAssembly.
 //!
