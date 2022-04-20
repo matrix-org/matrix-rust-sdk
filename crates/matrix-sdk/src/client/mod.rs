@@ -850,10 +850,7 @@ impl Client {
         let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
 
         let mut redirect_url = match server_url {
-            Some(s) => match Url::parse(s) {
-                Ok(url) => url,
-                Err(err) => return Err(IoError::new(IoErrorKind::InvalidData, err).into()),
-            },
+            Some(s) => Url::parse(s)?,
             None => {
                 Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
             }
