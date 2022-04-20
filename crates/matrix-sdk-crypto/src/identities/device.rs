@@ -525,7 +525,8 @@ impl ReadOnlyDevice {
         };
 
         let session = if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
-            let sessions = s.lock().await;
+            let mut sessions = s.lock().await;
+            sessions.sort_by_key(|s| s.last_use_time);
             sessions.get(0).cloned()
         } else {
             None
