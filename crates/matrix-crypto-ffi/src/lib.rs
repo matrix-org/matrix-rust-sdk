@@ -136,7 +136,21 @@ impl From<anyhow::Error> for MigrationError {
     }
 }
 
-/// TODO
+/// Migrate a libolm based setup to a vodozemac based setup stored in a Sled
+/// store.
+///
+/// # Arguments
+///
+/// * `data` - The data that should be migrated over to the Sled store.
+///
+/// * `path` - The path where the Sled store should be created.
+///
+/// * `passphrase` - The passphrase that should be used to encrypt the data at
+/// rest in the Sled store. **Warning**, if no passphrase is given, the store
+/// and all its data will remain unencyrpted.
+///
+/// * `progress_listener` - A callback that can be used to introspect the
+/// progress of the migration.
 pub fn migrate(
     mut data: MigrationData,
     path: &str,
