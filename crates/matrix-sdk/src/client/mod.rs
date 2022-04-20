@@ -834,7 +834,10 @@ impl Client {
         use rand::{thread_rng, Rng};
         use warp::Filter;
 
-        /// The range of ports the SSO server will try to bind to randomly
+        /// The range of ports the SSO server will try to bind to randomly.
+        ///
+        /// This is used to avoid binding to a port blocked by the browser.
+        /// See https://fetch.spec.whatwg.org/#port-blocking.
         const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
         /// The number of times the SSO server will try to bind to a random port
         const SSO_SERVER_BIND_TRIES: u8 = 10;
