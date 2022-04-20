@@ -248,7 +248,12 @@ enum RequestType {
 
 interface OlmMachine {
     [Throws=CryptoStoreError]
-    constructor([ByRef] string user_id, [ByRef] string device_id, [ByRef] string path);
+    constructor(
+        [ByRef] string user_id,
+        [ByRef] string device_id,
+        [ByRef] string path,
+        string? passphrase
+    );
 
     record<DOMString, string> identity_keys();
     string user_id();

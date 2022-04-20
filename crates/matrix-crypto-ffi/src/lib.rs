@@ -545,7 +545,7 @@ mod test {
 
         migrate(migration_data, path, None, Box::new(|_, _| {}))?;
 
-        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", path)?;
+        let machine = OlmMachine::new("@ganfra146:matrix.org", "DEWRCMENGS", path, None)?;
 
         assert_eq!(
             machine.identity_keys()["ed25519"],
