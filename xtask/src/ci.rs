@@ -139,12 +139,12 @@ fn run_tests() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (FeatureSet::NoEncryption, "--no-default-features --features sled-state-store,native-tls"),
-        (FeatureSet::NoSled, "--no-default-features --features encryption,native-tls"),
+,        (FeatureSet::NoEncryption, "--no-default-features --features sled,native-tls"),
+        (FeatureSet::NoSled, "--no-default-features --features e2e-encryption,native-tls"),
         (FeatureSet::NoEncryptionAndSled, "--no-default-features --features native-tls"),
         (
             FeatureSet::SledCryptostore,
-            "--no-default-features --features encryption,sled-crypto-store,native-tls",
+            "--no-default-features --features e2e-encryption,sled,native-tls",
         ),
         (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls"),
         (FeatureSet::Markdown, "--features markdown"),
@@ -194,14 +194,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk \
              --no-default-features \
-             --features qrcode,encryption,indexeddb-state-store,indexeddb-crypto-store,rustls-tls",
+             --features qrcode,e2e-encryption,indexeddb,rustls-tls",
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
         (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
-            "-p matrix-sdk --no-default-features --features indexeddb-state-store,indexeddb-crypto-store,encryption,rustls-tls",
+            "-p matrix-sdk --no-default-features --features indexeddb,e2e-encryption,rustls-tls",
         ),
     ]);
 
