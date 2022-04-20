@@ -24,6 +24,10 @@ The rust-sdk consists of multiple crates that can be picked at your convenience:
 - **matrix-sdk-crypto** - No (network) IO encryption state machine that can be
   used to add Matrix E2EE support to your client or client library.
 
+## Minimum Supported Rust Version (MSRV)
+
+These crates are build with Rust language version 2021 and require a minimum compiler version of `> 1.60`
+
 ## Status
 
 The library is in an alpha state, things that are implemented generally work but
