@@ -26,6 +26,7 @@ use thiserror::Error;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Internal representation of errors.
+#[non_exhaustive]
 #[derive(Error, Debug)]
 pub enum Error {
     /// Queried endpoint requires authentication but was called on an anonymous

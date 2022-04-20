@@ -99,6 +99,7 @@ pub enum HttpError {
 
 /// Internal representation of errors.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// Error doing an HTTP request.
     #[error(transparent)]
@@ -168,6 +169,25 @@ pub enum Error {
     #[cfg(feature = "image-proc")]
     #[error(transparent)]
     ImageError(#[from] ImageError),
+
+    /// An other error was raised and formatted with eyre
+    /// this might happen because encryption was enabled on the base-crate
+    /// but not here and that raised.
+    #[cfg(feature = "eyre")]
+    OtherEyreReport(eyre::Report),
+
+    /// An other error was raised and formatted with anyhow
+    /// this might happen because encryption was enabled on the base-crate
+    /// but not here and that raised.
+    #[cfg(feature = "anyhow")]
+    OtherAnyhowError(anyhow::Error),
+
+    /// An other error was raised and neither eyre, nor anyhow were activated
+    /// so it's Debug information was formatted as a String.
+    /// this might happen because encryption was enabled on the base-crate
+    /// but not here and that raised.
+    #[error("unknown error: {0}")]
+    UnknownError(String),
 }
 
 /// Error for the room key importing functionality.
@@ -261,6 +281,12 @@ impl From<SdkBaseError> for Error {
             SdkBaseError::OlmError(e) => Self::OlmError(e),
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::MegolmError(e) => Self::MegolmError(e),
+            #[cfg(feature = "eyre")]
+            _ => Self::OtherEyreReport(eyre::eyre!(e)),
+            #[cfg(all(not(feature = "eyre"), feature = "anyhow"))]
+            _ => Self::OtherAnyhowError(anyhow::anyhow!(e)),
+            #[cfg(all(not(feature = "eyre"), not(feature = "anyhow")))]
+            _ => Self::UnknownError(format!("{:?}", e)),
         }
     }
 }
