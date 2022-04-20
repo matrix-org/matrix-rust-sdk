@@ -39,6 +39,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use tokio::runtime::Runtime;
+use zeroize::Zeroize;
 
 use crate::{
     error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
@@ -77,25 +78,38 @@ impl OlmMachine {
     /// * `device_id` - The unique ID of the device that owns this machine.
     ///
     /// * `path` - The path where the state of the machine should be persisted.
-    pub fn new(user_id: &str, device_id: &str, path: &str) -> Result<Self, CryptoStoreError> {
+    ///
+    /// * `passphrase` - The passphrase that should be used to encrypt the data
+    ///   at rest in the Sled store. **Warning**, if no passphrase is given, the
+    ///   store and all its data will remain unencyrpted.
+    pub fn new(
+        user_id: &str,
+        device_id: &str,
+        path: &str,
+        mut passphrase: Option<String>,
+    ) -> Result<Self, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
         let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
-        let store =
-            Box::new(matrix_sdk_sled::CryptoStore::open_with_passphrase(path, None).map_err(
-                |e| match e {
-                    // This is a bit of an error in the sled store, the
-                    // CryptoStore returns an `OpenStoreError` which has a
-                    // variant for the state store. Not sure what to do about
-                    // this.
-                    matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
-                    matrix_sdk_sled::OpenStoreError::Sled(s) => {
-                        CryptoStoreError::CryptoStore(anyhow!(s).into())
+        let store = Box::new(
+            matrix_sdk_sled::CryptoStore::open_with_passphrase(path, passphrase.as_deref())
+                .map_err(|e| {
+                    match e {
+                        // This is a bit of an error in the sled store, the
+                        // CryptoStore returns an `OpenStoreError` which has a
+                        // variant for the state store. Not sure what to do about
+                        // this.
+                        matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
+                        matrix_sdk_sled::OpenStoreError::Sled(s) => {
+                            CryptoStoreError::CryptoStore(anyhow!(s).into())
+                        }
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
-                },
-            )?);
+                })?,
+        );
+
+        passphrase.zeroize();
 
         Ok(OlmMachine {
             inner: runtime.block_on(InnerMachine::with_store(user_id, device_id, store))?,
