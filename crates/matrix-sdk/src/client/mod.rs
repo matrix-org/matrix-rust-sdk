@@ -761,7 +761,7 @@ impl Client {
     ///   `Err`, the error will be forwarded.
     ///
     /// * `server_url` - The local URL the server is going to try to bind to, e.g. `http://localhost:3030`.
-    ///   If `None`, the server will try to open a random port on localhost.
+    ///   If `None`, the server will try to open a random port on `127.0.0.1`.
     ///
     /// * `server_response` - The text that will be shown on the webpage at the
     ///   end of the login process. This can be an HTML page. If `None`, a
@@ -834,7 +834,10 @@ impl Client {
         use rand::{thread_rng, Rng};
         use warp::Filter;
 
-        /// The range of ports the SSO server will try to bind to randomly
+        /// The range of ports the SSO server will try to bind to randomly.
+        ///
+        /// This is used to avoid binding to a port blocked by browsers.
+        /// See <https://fetch.spec.whatwg.org/#port-blocking>.
         const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
         /// The number of times the SSO server will try to bind to a random port
         const SSO_SERVER_BIND_TRIES: u8 = 10;
@@ -847,12 +850,9 @@ impl Client {
         let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
 
         let mut redirect_url = match server_url {
-            Some(s) => match Url::parse(s) {
-                Ok(url) => url,
-                Err(err) => return Err(IoError::new(IoErrorKind::InvalidData, err).into()),
-            },
+            Some(s) => Url::parse(s)?,
             None => {
-                Url::parse("http://localhost:0/").expect("Couldn't parse good known localhost URL")
+                Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
             }
         };
 
