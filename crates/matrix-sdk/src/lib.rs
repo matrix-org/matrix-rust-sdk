@@ -53,7 +53,7 @@ mod room_member;
 pub mod store;
 mod sync;
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 pub mod encryption;
 
 pub use account::Account;

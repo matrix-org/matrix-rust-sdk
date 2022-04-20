@@ -62,15 +62,15 @@ The following crate feature flags are available:
 | Feature             | Default | Description                                                           |
 | ------------------- | :-----: | --------------------------------------------------------------------- |
 | `anyhow`            |   No    | Better logging for event handlers that return `anyhow::Result`        |
-| `encryption`        |   Yes   | End-to-end encryption support                                         |
+| `e2e-encryption`    |   Yes   | Enable End-to-end encryption support                                  |
 | `eyre`              |   No    | Better logging for event handlers that return `eyre::Result`          |
 | `image-proc`        |   No    | Enables image processing to generate thumbnails                       |
 | `image-rayon`       |   No    | Enables faster image processing                                       |
 | `markdown`          |   No    | Support to send Markdown-formatted messages                           |
 | `qrcode`            |   Yes   | QR code verification support                                          |
-| `sled-crypto-store` |   Yes   | Persistent storage for E2EE related data                              |
-| `sled-state-store`  |   No    | Persistent storage of state data with sled                            |
-| `socks`             |   No    | Enables SOCKS support in the default HTTP client, [`reqwest`]         |
+| `sled`              |   Yes   | Persistent storage of state and E2EE-Data using sled (if `e2e-encryption` is activated)
+| `sled`              |   No    | Persistent storage of state and E2EE-Data for browsers using indexeddb (if `e2e-encryption` is activated)
+| `socks`             |   No    | Enables SOCKS support i        |n the default HTTP client, [`reqwest`]         |
 | `sso-login`         |   No    | Enables SSO login with a local HTTP server                            |
 
 [`reqwest`]: https://docs.rs/reqwest/0.11.5/reqwest/index.html

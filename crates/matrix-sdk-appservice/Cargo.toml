@@ -12,10 +12,12 @@ rust-version = "1.56"
 default = ["native-tls"]
 
 anyhow = ["matrix-sdk/anyhow"]
-encryption = ["matrix-sdk/encryption"]
+e2e-encryption = [
+    "matrix-sdk/e2e-encryption"
+]
 eyre = ["matrix-sdk/eyre"]
-sled-state-store = ["matrix-sdk/sled-state-store"]
-sled-crypto-store = ["matrix-sdk/sled-crypto-store"]
+sled = ["matrix-sdk/sled"]
+
 markdown = ["matrix-sdk/markdown"]
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]

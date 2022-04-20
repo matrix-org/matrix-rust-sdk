@@ -47,19 +47,19 @@ pub fn make_store_config(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
 ) -> Result<crate::config::StoreConfig, OpenStoreError> {
-    #[cfg(all(feature = "encryption", feature = "sled-state-store"))]
+    #[cfg(all(feature = "e2e-encryption", feature = "sled-state-store"))]
     {
         let (state_store, crypto_store) = open_stores_with_path(path, passphrase)?;
         Ok(crate::config::StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
     }
 
-    #[cfg(all(feature = "encryption", not(feature = "sled-state-store")))]
+    #[cfg(all(feature = "e2e-encryption", not(feature = "sled-state-store")))]
     {
         let crypto_store = CryptoStore::open_with_passphrase(path, passphrase)?;
         Ok(crate::config::StoreConfig::new().crypto_store(Box::new(crypto_store)))
     }
 
-    #[cfg(not(feature = "encryption"))]
+    #[cfg(not(feature = "e2e-encryption"))]
     {
         let state_store = if let Some(passphrase) = passphrase {
             StateStore::open_with_passphrase(path, passphrase)?

@@ -17,7 +17,7 @@
 
 use std::io::Error as IoError;
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 use serde_json::Error as JsonError;
 use thiserror::Error;
@@ -35,7 +35,7 @@ pub enum Error {
 
     /// Attempting to restore a session after the olm-machine has already been
     /// set up fails
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error("The olm machine has already been initialized")]
     BadCryptoStoreState,
 
@@ -53,17 +53,17 @@ pub enum Error {
     IoError(#[from] IoError),
 
     /// An error occurred in the crypto store.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     CryptoStore(#[from] CryptoStoreError),
 
     /// An error occurred during a E2EE operation.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     OlmError(#[from] OlmError),
 
     /// An error occurred during a E2EE group operation.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
 }

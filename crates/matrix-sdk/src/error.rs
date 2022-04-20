@@ -19,7 +19,7 @@ use std::io::Error as IoError;
 use http::StatusCode;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_base::crypto::ScanError;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
@@ -111,7 +111,7 @@ pub enum Error {
 
     /// Attempting to restore a session after the olm-machine has already been
     /// set up fails
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error("The olm machine has already been initialized")]
     BadCryptoStoreState,
 
@@ -124,22 +124,22 @@ pub enum Error {
     Io(#[from] IoError),
 
     /// An error occurred in the crypto store.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
     /// An error occurred during a E2EE operation.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     OlmError(#[from] OlmError),
 
     /// An error occurred during a E2EE group operation.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
 
     /// An error occurred during decryption.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
 
@@ -171,7 +171,7 @@ pub enum Error {
 }
 
 /// Error for the room key importing functionality.
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
 // This is allowed because key importing isn't enabled under wasm.
 #[allow(dead_code)]
@@ -253,13 +253,13 @@ impl From<SdkBaseError> for Error {
             SdkBaseError::StateStore(e) => Self::StateStore(e),
             SdkBaseError::SerdeJson(e) => Self::SerdeJson(e),
             SdkBaseError::IoError(e) => Self::Io(e),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::OlmError(e) => Self::OlmError(e),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::MegolmError(e) => Self::MegolmError(e),
         }
     }

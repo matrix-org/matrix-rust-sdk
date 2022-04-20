@@ -17,7 +17,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-encryption = ["matrix-sdk-crypto"]
+e2e-encryption = ["matrix-sdk-crypto"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
 
 # helpers for testing features build upon this

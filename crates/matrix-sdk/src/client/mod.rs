@@ -35,7 +35,7 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use ruma::TransactionId;
 use ruma::{
     api::{
@@ -68,7 +68,7 @@ use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -131,9 +131,9 @@ pub(crate) struct ClientInner {
     server_versions: Mutex<Arc<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) group_session_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
@@ -189,12 +189,12 @@ impl Client {
         &self.inner.base_client
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn olm_machine(&self) -> Option<matrix_sdk_base::crypto::OlmMachine> {
         self.base_client().olm_machine().await
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
@@ -303,7 +303,7 @@ impl Client {
     }
 
     /// Get the encryption manager of the client.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub fn encryption(&self) -> Encryption {
         Encryption::new(self.clone())
     }
@@ -1703,7 +1703,7 @@ impl Client {
         // crypto requests were sent out.
         //
         // This will mostly be a no-op.
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
@@ -1724,7 +1724,7 @@ impl Client {
         let response = self.send(request, Some(request_config)).await?;
         let response = self.process_sync(response).await?;
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
@@ -1966,7 +1966,7 @@ impl Client {
                     let content: Vec<u8> =
                         self.send(get_content::v3::Request::from_url(&file.url)?, None).await?.file;
 
-                    #[cfg(feature = "encryption")]
+                    #[cfg(feature = "e2e-encryption")]
                     let content = {
                         let mut cursor = std::io::Cursor::new(content);
                         let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
