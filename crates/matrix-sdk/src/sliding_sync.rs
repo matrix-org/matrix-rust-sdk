@@ -375,7 +375,7 @@ impl SlidingSync {
 
         // FIXME: hack for while the sliding sync server is on a proxy
         let mut inner_client = self.client.inner.http_client.clone();
-        let server_versions = self.client.inner.server_versions.clone();
+        let client = self.client.clone();
         if let Some(hs) = &self.homeserver {
             inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
         }
@@ -432,7 +432,7 @@ impl SlidingSync {
                     return
                 }
                 warn!("requesting: {:#?}", req);
-                let resp = inner_client.send(req, None, server_versions.clone()).await?;
+                let resp = inner_client.send(req, None, client.server_versions().await?).await?;
                 if cancel.get() {
                     return
                 }

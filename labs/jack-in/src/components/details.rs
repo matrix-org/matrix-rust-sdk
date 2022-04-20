@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use matrix_sdk_common::ruma::{events::{AnyRoomEvent, AnyMessageLikeEvent}, RoomId};
+use matrix_sdk_common::ruma::{events::{AnyRoomEvent, AnyMessageLikeEvent, MessageLikeEvent}, RoomId};
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
@@ -179,7 +179,7 @@ impl MockComponent for Details {
             let body = {
                 match e {
                     AnyRoomEvent::MessageLike(m) => {
-                        if let AnyMessageLikeEvent::RoomMessage(m) = m {
+                        if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(m)) = m {
                             m.content.body().to_owned()
                         } else {
                             m.event_type().to_string()
@@ -187,9 +187,6 @@ impl MockComponent for Details {
                     }
                     AnyRoomEvent::State(s) => {
                         s.event_type().to_string()
-                    }
-                    AnyRoomEvent::RedactedMessageLike(_) | AnyRoomEvent::RedactedState(_) => {
-                        "Redaction".to_owned()
                     }
                 }
             };

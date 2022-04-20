@@ -1486,7 +1486,7 @@ impl Client {
         self.inner.http_client.send(request, config, self.server_versions().await?).await
     }
 
-    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+    pub(crate) async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
         let mut server_versions = self.inner.server_versions.lock().await;
 
         if server_versions.is_empty() {
