@@ -761,7 +761,7 @@ impl Client {
     ///   `Err`, the error will be forwarded.
     ///
     /// * `server_url` - The local URL the server is going to try to bind to, e.g. `http://localhost:3030`.
-    ///   If `None`, the server will try to open a random port on localhost.
+    ///   If `None`, the server will try to open a random port on `127.0.0.1`.
     ///
     /// * `server_response` - The text that will be shown on the webpage at the
     ///   end of the login process. This can be an HTML page. If `None`, a
@@ -855,7 +855,7 @@ impl Client {
                 Err(err) => return Err(IoError::new(IoErrorKind::InvalidData, err).into()),
             },
             None => {
-                Url::parse("http://localhost:0/").expect("Couldn't parse good known localhost URL")
+                Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
             }
         };
 
