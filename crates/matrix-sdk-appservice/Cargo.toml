@@ -6,7 +6,7 @@ keywords = ["matrix", "chat", "messaging", "ruma", "nio", "appservice"]
 license = "Apache-2.0"
 name = "matrix-sdk-appservice"
 version = "0.1.0"
-rust-version = "1.56"
+rust-version = "1.60"
 
 [features]
 default = ["native-tls"]

@@ -35,9 +35,6 @@ pub enum OpenStoreError {
     Sled(#[from] SledError),
 }
 
-// FIXME Move these two methods back to the matrix-sdk-sled crate once weak
-// dependency features are stable and we decide to bump the MSRV.
-
 /// Create a [`StoreConfig`] with an opened sled [`StateStore`] that uses the
 /// given path and passphrase. If `encryption` is enabled, a [`CryptoStore`]
 /// with the same parameters is also opened.
