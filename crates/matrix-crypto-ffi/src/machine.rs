@@ -53,8 +53,8 @@ use crate::{
 
 /// A high level state machine that handles E2EE for Matrix.
 pub struct OlmMachine {
-    inner: InnerMachine,
-    runtime: Runtime,
+    pub(crate) inner: InnerMachine,
+    pub(crate) runtime: Runtime,
 }
 
 /// A pair of outgoing room key requests, both of those are sendToDevice

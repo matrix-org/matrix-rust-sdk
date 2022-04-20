@@ -1,7 +1,12 @@
 namespace olm {
     void set_logger(Logger logger);
     [Throws=MigrationError]
-    void migrate(MigrationData data, [ByRef] string path, string? passphrase);
+    void migrate(
+        MigrationData data,
+        [ByRef] string path,
+        string? passphrase,
+        ProgressListener progress_listener
+    );
 };
 
 [Error]
