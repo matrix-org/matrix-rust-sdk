@@ -212,7 +212,7 @@ impl From<DeviceKeys> for DeviceKeyHelper {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use ruma::{device_id, user_id};
     use serde_json::json;
 

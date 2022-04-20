@@ -796,7 +796,7 @@ impl QrState<Reciprocated> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{convert::TryFrom, sync::Arc};
 
     use matrix_qrcode::QrVerificationData;

@@ -15,12 +15,6 @@ wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.24"
 console_error_panic_hook = "0.1.6"
 web-sys = { version = "0.3.51", features = ["console"] }
-# The uuid and getrandom crates are indirect dependencies that require extra features to be enabled
-# for (some) wasm use cases. FIXME: These features should be re-exposed by matrix-sdk / Ruma but for
-# now adding the extra dependency here is a good-enough workaround.
-uuid = { version = "0.8.2", features = ["wasm-bindgen"] }
-# https://docs.rs/getrandom/latest/getrandom/#webassembly-support
-getrandom = { version = "0.2.4", features = ["js"] }
 
 [dependencies.matrix-sdk]
 path = "../.."
@@ -30,4 +24,4 @@ features = ["native-tls", "encryption", "indexeddb-state-store", "indexeddb-cryp
 [workspace]
 
 [dev-dependencies]
-wasm-bindgen-test = "0.2"
+wasm-bindgen-test = "0.3.29"

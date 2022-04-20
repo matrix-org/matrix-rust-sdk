@@ -1,10 +1,12 @@
 #![allow(dead_code)]
+use base64::{encode_config as base64_encode, STANDARD_NO_PAD};
 use matrix_sdk_base::ruma::events::{
     GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
 };
 use matrix_sdk_common::ruma::{
     receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
 };
+use matrix_sdk_store_encryption::StoreCipher;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -36,7 +38,46 @@ pub trait SafeEncode {
     /// encode self into a JsValue, internally using `as_encoded_string`
     /// to escape the value of self.
     fn encode(&self) -> JsValue {
-        JsValue::from(self.as_encoded_string())
+        self.as_encoded_string().into()
+    }
+
+    /// encode self into a JsValue, internally using `as_secure_string`
+    /// to escape the value of self,
+    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> JsValue {
+        self.as_secure_string(table_name, store_cipher).into()
+    }
+
+    /// encode self securely for the given tablename with the given
+    /// `store_cipher` hash_key, returns the value as a base64 encoded
+    /// string without any padding.
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        base64_encode(
+            store_cipher.hash_key(table_name, self.as_encoded_string().as_bytes()),
+            STANDARD_NO_PAD,
+        )
+    }
+
+    /// encode self into a JsValue, internally using `as_encoded_string`
+    /// to escape the value of self, and append the given counter
+    fn encode_with_counter(&self, i: usize) -> JsValue {
+        format!("{}{}{:0000000x}", self.as_encoded_string(), KEY_SEPARATOR, i).into()
+    }
+
+    /// encode self into a JsValue, internally using `as_secure_string`
+    /// to escape the value of self, and append the given counter
+    fn encode_with_counter_secure(
+        &self,
+        table_name: &str,
+        store_cipher: &StoreCipher,
+        i: usize,
+    ) -> JsValue {
+        format!(
+            "{}{}{:0000000x}",
+            self.as_secure_string(table_name, store_cipher),
+            KEY_SEPARATOR,
+            i
+        )
+        .into()
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are
@@ -44,6 +85,19 @@ pub trait SafeEncode {
     /// uses `as_encoded_string` to ensure the given key is escaped properly.
     fn encode_to_range(&self) -> Result<IdbKeyRange, String> {
         let key = self.as_encoded_string();
+        IdbKeyRange::bound(
+            &JsValue::from([&key, KEY_SEPARATOR].concat()),
+            &JsValue::from([&key, RANGE_END].concat()),
+        )
+        .map_err(|e| e.as_string().unwrap_or_else(|| "Creating key range failed".to_owned()))
+    }
+
+    fn encode_to_range_secure(
+        &self,
+        table_name: &str,
+        store_cipher: &StoreCipher,
+    ) -> Result<IdbKeyRange, String> {
+        let key = self.as_secure_string(table_name, store_cipher);
         IdbKeyRange::bound(
             &JsValue::from([&key, KEY_SEPARATOR].concat()),
             &JsValue::from([&key, RANGE_END].concat()),
@@ -62,6 +116,21 @@ where
     fn as_encoded_string(&self) -> String {
         [&self.0.as_encoded_string(), KEY_SEPARATOR, &self.1.as_encoded_string()].concat()
     }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        [
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
+        ]
+        .concat()
+    }
 }
 
 /// Implement SafeEncode for tuple of three elements, separating the escaped
@@ -79,6 +148,26 @@ where
             &self.1.as_encoded_string(),
             KEY_SEPARATOR,
             &self.2.as_encoded_string(),
+        ]
+        .concat()
+    }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        [
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
         ]
         .concat()
     }
@@ -102,6 +191,31 @@ where
             &self.2.as_encoded_string(),
             KEY_SEPARATOR,
             &self.3.as_encoded_string(),
+        ]
+        .concat()
+    }
+
+    fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
+        [
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.0.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.1.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.2.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
+            KEY_SEPARATOR,
+            &base64_encode(
+                store_cipher.hash_key(table_name, self.3.as_encoded_string().as_bytes()),
+                STANDARD_NO_PAD,
+            ),
         ]
         .concat()
     }
@@ -193,6 +307,10 @@ impl SafeEncode for MxcUri {
 
 impl SafeEncode for usize {
     fn as_encoded_string(&self) -> String {
+        self.to_string()
+    }
+
+    fn as_secure_string(&self, _table_name: &str, _store_cipher: &StoreCipher) -> String {
         self.to_string()
     }
 }

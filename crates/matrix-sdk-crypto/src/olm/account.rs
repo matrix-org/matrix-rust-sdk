@@ -23,7 +23,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{instant::Instant, locks::Mutex};
+use matrix_sdk_common::{locks::Mutex, util::seconds_since_unix_epoch};
 use ruma::{
     api::client::keys::{
         upload_keys,
@@ -921,7 +921,7 @@ impl ReadOnlyAccount {
     ) -> Session {
         let session = self.inner.lock().await.create_outbound_session(identity_key, one_time_key);
 
-        let now = Instant::now();
+        let now = seconds_since_unix_epoch();
         let session_id = session.session_id();
 
         Session {
@@ -932,8 +932,8 @@ impl ReadOnlyAccount {
             session_id: session_id.into(),
             sender_key: identity_key,
             created_using_fallback_key: fallback_used,
-            creation_time: Arc::new(now),
-            last_use_time: Arc::new(now),
+            creation_time: now,
+            last_use_time: now,
         }
     }
 
@@ -1017,7 +1017,7 @@ impl ReadOnlyAccount {
         let result =
             self.inner.lock().await.create_inbound_session(&their_identity_key, message)?;
 
-        let now = Instant::now();
+        let now = seconds_since_unix_epoch();
         let session_id = result.session.session_id();
 
         let session = Session {
@@ -1028,8 +1028,8 @@ impl ReadOnlyAccount {
             session_id: session_id.into(),
             sender_key: their_identity_key,
             created_using_fallback_key: false,
-            creation_time: Arc::new(now),
-            last_use_time: Arc::new(now),
+            creation_time: now,
+            last_use_time: now,
         };
 
         Ok(InboundCreationResult { session, plaintext: result.plaintext })
@@ -1077,8 +1077,7 @@ impl ReadOnlyAccount {
             room_id,
             outbound.session_key().await,
             Some(visibility),
-        )
-        .expect("Can't create inbound group session from a newly created outbound group session");
+        );
 
         Ok((outbound, inbound))
     }
@@ -1151,7 +1150,7 @@ impl PartialEq for ReadOnlyAccount {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         ops::Deref,

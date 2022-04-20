@@ -166,7 +166,7 @@ pub enum OneTimeKey {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matches::assert_matches;
     use serde_json::json;
     use vodozemac::Curve25519PublicKey;

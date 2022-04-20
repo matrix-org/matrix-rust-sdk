@@ -748,7 +748,7 @@ pub(crate) mod testing {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use matrix_sdk_test::async_test;
     use ruma::device_id;
 

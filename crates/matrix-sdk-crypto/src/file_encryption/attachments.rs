@@ -288,7 +288,7 @@ impl From<EncryptedFile> for MediaEncryptionInfo {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::io::{Cursor, Read};
 
     use serde_json::json;

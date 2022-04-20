@@ -12,7 +12,7 @@ use ruma::{
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::RoomTombstoneEventContent,
         },
-        AnyStateEventContent,
+        AnyStrippedStateEvent, AnySyncStateEvent, SyncStateEvent,
     },
     MxcUri, RoomAliasId, UserId,
 };
@@ -24,30 +24,30 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub avatar_url: Option<Box<MxcUri>>,
+    pub(crate) avatar_url: Option<Box<MxcUri>>,
     /// The canonical alias of this room.
-    pub canonical_alias: Option<Box<RoomAliasId>>,
+    pub(crate) canonical_alias: Option<Box<RoomAliasId>>,
     /// The `m.room.create` event content of this room.
-    pub create: Option<RoomCreateEventContent>,
+    pub(crate) create: Option<RoomCreateEventContent>,
     /// The user id this room is sharing the direct message with, if the room is
     /// a direct message.
-    pub dm_target: Option<Box<UserId>>,
+    pub(crate) dm_target: Option<Box<UserId>>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
-    pub encryption: Option<RoomEncryptionEventContent>,
+    pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    pub guest_access: GuestAccess,
+    pub(crate) guest_access: GuestAccess,
     /// The history visibility policy of this room.
-    pub history_visibility: HistoryVisibility,
+    pub(crate) history_visibility: HistoryVisibility,
     /// The join rule policy of this room.
-    pub join_rule: JoinRule,
+    pub(crate) join_rule: JoinRule,
     /// The maximal power level that can be found in this room.
-    pub max_power_level: i64,
+    pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    pub name: Option<String>,
+    pub(crate) name: Option<String>,
     /// The `m.room.tombstone` event content of this room.
-    pub tombstone: Option<RoomTombstoneEventContent>,
+    pub(crate) tombstone: Option<RoomTombstoneEventContent>,
     /// The topic of this room.
-    pub topic: Option<String>,
+    pub(crate) topic: Option<String>,
 }
 
 impl BaseRoomInfo {
@@ -72,42 +72,103 @@ impl BaseRoomInfo {
     /// Handle a state event for this room and update our info accordingly.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, content: &AnyStateEventContent) -> bool {
-        match content {
-            AnyStateEventContent::RoomEncryption(encryption) => {
-                self.encryption = Some(encryption.clone());
+    pub fn handle_state_event(&mut self, ev: &AnySyncStateEvent) -> bool {
+        match ev {
+            // No redacted branch - enabling encryption cannot be undone.
+            AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(encryption)) => {
+                self.encryption = Some(encryption.content.clone());
             }
-            AnyStateEventContent::RoomAvatar(a) => {
-                self.avatar_url = a.url.clone();
+            AnySyncStateEvent::RoomAvatar(a) => {
+                self.avatar_url = a.as_original().and_then(|a| a.content.url.clone());
             }
-            AnyStateEventContent::RoomName(n) => {
-                self.name = n.name.as_ref().map(|n| n.to_string());
+            AnySyncStateEvent::RoomName(n) => {
+                self.name =
+                    n.as_original().and_then(|n| n.content.name.as_ref().map(|n| n.to_string()));
             }
-            AnyStateEventContent::RoomCreate(c) if self.create.is_none() => {
-                self.create = Some(c.clone());
+            AnySyncStateEvent::RoomCreate(SyncStateEvent::Original(c)) if self.create.is_none() => {
+                self.create = Some(c.content.clone());
             }
-            AnyStateEventContent::RoomHistoryVisibility(h) => {
-                self.history_visibility = h.history_visibility.clone();
+            AnySyncStateEvent::RoomHistoryVisibility(h) => {
+                self.history_visibility = match h {
+                    SyncStateEvent::Original(h) => h.content.history_visibility.clone(),
+                    SyncStateEvent::Redacted(h) => h.content.history_visibility.clone(),
+                };
             }
-            AnyStateEventContent::RoomGuestAccess(g) => {
-                self.guest_access = g.guest_access.clone();
+            AnySyncStateEvent::RoomGuestAccess(g) => {
+                self.guest_access = g
+                    .as_original()
+                    .map_or(GuestAccess::Forbidden, |g| g.content.guest_access.clone());
             }
-            AnyStateEventContent::RoomJoinRules(c) => {
-                self.join_rule = c.join_rule.clone();
+            AnySyncStateEvent::RoomJoinRules(c) => {
+                self.join_rule = match c {
+                    SyncStateEvent::Original(c) => c.content.join_rule.clone(),
+                    SyncStateEvent::Redacted(c) => c.content.join_rule.clone(),
+                };
             }
-            AnyStateEventContent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.alias.clone();
+            AnySyncStateEvent::RoomCanonicalAlias(a) => {
+                self.canonical_alias = a.as_original().and_then(|a| a.content.alias.clone());
             }
-            AnyStateEventContent::RoomTopic(t) => {
-                self.topic = Some(t.topic.clone());
+            AnySyncStateEvent::RoomTopic(t) => {
+                self.topic = t.as_original().map(|t| t.content.topic.clone());
             }
-            AnyStateEventContent::RoomTombstone(t) => {
-                self.tombstone = Some(t.clone());
+            AnySyncStateEvent::RoomTombstone(t) => {
+                self.tombstone = t.as_original().map(|t| t.content.clone());
             }
-            AnyStateEventContent::RoomPowerLevels(p) => {
-                let max_power_level =
-                    p.users.values().fold(self.max_power_level, |acc, &p| max(acc, p.into()));
-                self.max_power_level = max_power_level;
+            AnySyncStateEvent::RoomPowerLevels(p) => {
+                self.max_power_level = p
+                    .power_levels()
+                    .users
+                    .values()
+                    .fold(self.max_power_level, |acc, &p| max(acc, p.into()));
+            }
+            _ => return false,
+        }
+
+        true
+    }
+
+    /// Handle a stripped state event for this room and update our info
+    /// accordingly.
+    ///
+    /// Returns true if the event modified the info, false otherwise.
+    pub fn handle_stripped_state_event(&mut self, ev: &AnyStrippedStateEvent) -> bool {
+        match ev {
+            AnyStrippedStateEvent::RoomEncryption(encryption) => {
+                self.encryption = Some(encryption.content.clone());
+            }
+            AnyStrippedStateEvent::RoomAvatar(a) => {
+                self.avatar_url = a.content.url.clone();
+            }
+            AnyStrippedStateEvent::RoomName(n) => {
+                self.name = n.content.name.as_ref().map(|n| n.to_string());
+            }
+            AnyStrippedStateEvent::RoomCreate(c) if self.create.is_none() => {
+                self.create = Some(c.content.clone());
+            }
+            AnyStrippedStateEvent::RoomHistoryVisibility(h) => {
+                self.history_visibility = h.content.history_visibility.clone();
+            }
+            AnyStrippedStateEvent::RoomGuestAccess(g) => {
+                self.guest_access = g.content.guest_access.clone();
+            }
+            AnyStrippedStateEvent::RoomJoinRules(c) => {
+                self.join_rule = c.content.join_rule.clone();
+            }
+            AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
+                self.canonical_alias = a.content.alias.clone();
+            }
+            AnyStrippedStateEvent::RoomTopic(t) => {
+                self.topic = Some(t.content.topic.clone());
+            }
+            AnyStrippedStateEvent::RoomTombstone(t) => {
+                self.tombstone = Some(t.content.clone());
+            }
+            AnyStrippedStateEvent::RoomPowerLevels(p) => {
+                self.max_power_level = p
+                    .content
+                    .users
+                    .values()
+                    .fold(self.max_power_level, |acc, &p| max(acc, p.into()));
             }
             _ => return false,
         }
@@ -124,7 +185,7 @@ impl Default for BaseRoomInfo {
             create: None,
             dm_target: None,
             encryption: None,
-            guest_access: GuestAccess::CanJoin,
+            guest_access: GuestAccess::Forbidden,
             history_visibility: HistoryVisibility::WorldReadable,
             join_rule: JoinRule::Public,
             max_power_level: 100,

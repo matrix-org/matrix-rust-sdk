@@ -969,7 +969,7 @@ pub(crate) mod testing {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use std::sync::Arc;
 
     use matrix_sdk_common::locks::Mutex;

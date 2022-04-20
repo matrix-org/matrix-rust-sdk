@@ -933,7 +933,7 @@ impl GossipMachine {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::Arc;
 
     use dashmap::DashMap;

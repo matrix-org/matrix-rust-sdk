@@ -30,35 +30,13 @@ pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
     PickledInboundGroupSession, PickledOutboundGroupSession, SessionKey, ShareInfo,
 };
-use matrix_sdk_common::instant::{Duration, Instant};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::VerifyJson;
 pub use vodozemac::olm::IdentityKeys;
 
-pub(crate) fn serialize_instant<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let duration = instant.elapsed();
-    duration.serialize(serializer)
-}
-
-pub(crate) fn deserialize_instant<'de, D>(deserializer: D) -> Result<Instant, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let duration = Duration::deserialize(deserializer)?;
-    let now = Instant::now();
-    let instant = now
-        .checked_sub(duration)
-        .ok_or_else(|| serde::de::Error::custom("Can't subtract the current instant"))?;
-    Ok(instant)
-}
-
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -67,13 +45,14 @@ pub(crate) mod test {
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{Relation, Replacement, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            MessageLikeEvent, SyncMessageLikeEvent,
         },
         room_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
     use vodozemac::olm::OlmMessage;
 
-    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
+    use crate::olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -185,8 +164,7 @@ pub(crate) mod test {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         assert_eq!(0, inbound.first_known_index());
 
@@ -223,8 +201,7 @@ pub(crate) mod test {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         assert_eq!(0, inbound.first_known_index());
 
@@ -245,19 +222,20 @@ pub(crate) mod test {
 
         let event: AnySyncRoomEvent = serde_json::from_str(&event).unwrap();
 
-        let event =
-            if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(event)) =
-                event
-            {
-                event
-            } else {
-                panic!("Invalid event type")
-            };
+        let event = if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+            SyncMessageLikeEvent::Original(event),
+        )) = event
+        {
+            event
+        } else {
+            panic!("Invalid event type")
+        };
 
         let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(e)) =
-            decrypted.deserialize().unwrap()
+        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+            MessageLikeEvent::Original(e),
+        )) = decrypted.deserialize().unwrap()
         {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {
@@ -274,8 +252,9 @@ pub(crate) mod test {
 
         let export = inbound.export().await;
         let export: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let export = ExportedRoomKey::try_from(export).unwrap();
 
-        let imported = InboundGroupSession::from_export(export).unwrap();
+        let imported = InboundGroupSession::from_export(export);
 
         assert_eq!(inbound.session_id(), imported.session_id());
     }

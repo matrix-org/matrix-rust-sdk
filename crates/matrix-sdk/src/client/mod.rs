@@ -44,7 +44,10 @@ use ruma::{
             account::{register, whoami},
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discovery::get_capabilities::{self, Capabilities},
+            discovery::{
+                get_capabilities::{self, Capabilities},
+                get_supported_versions,
+            },
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -126,7 +129,7 @@ pub(crate) struct ClientInner {
     /// User session data.
     pub(crate) base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    pub(crate) server_versions: Arc<[MatrixVersion]>,
+    pub(crate) server_versions: Mutex<Arc<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
@@ -632,19 +635,20 @@ impl Client {
         idp_id: Option<&str>,
     ) -> Result<String> {
         let homeserver = self.homeserver().await;
+        let server_versions = self.server_versions().await?;
 
         let request = if let Some(id) = idp_id {
             sso_login_with_provider::v3::Request::new(id, redirect_url)
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    &self.inner.server_versions,
+                    &server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                &self.inner.server_versions,
+                &server_versions,
             )
         };
 
@@ -758,7 +762,7 @@ impl Client {
     ///   `Err`, the error will be forwarded.
     ///
     /// * `server_url` - The local URL the server is going to try to bind to, e.g. `http://localhost:3030`.
-    ///   If `None`, the server will try to open a random port on localhost.
+    ///   If `None`, the server will try to open a random port on `127.0.0.1`.
     ///
     /// * `server_response` - The text that will be shown on the webpage at the
     ///   end of the login process. This can be an HTML page. If `None`, a
@@ -831,7 +835,10 @@ impl Client {
         use rand::{thread_rng, Rng};
         use warp::Filter;
 
-        /// The range of ports the SSO server will try to bind to randomly
+        /// The range of ports the SSO server will try to bind to randomly.
+        ///
+        /// This is used to avoid binding to a port blocked by browsers.
+        /// See <https://fetch.spec.whatwg.org/#port-blocking>.
         const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
         /// The number of times the SSO server will try to bind to a random port
         const SSO_SERVER_BIND_TRIES: u8 = 10;
@@ -844,12 +851,9 @@ impl Client {
         let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
 
         let mut redirect_url = match server_url {
-            Some(s) => match Url::parse(s) {
-                Ok(url) => url,
-                Err(err) => return Err(IoError::new(IoErrorKind::InvalidData, err).into()),
-            },
+            Some(s) => Url::parse(s)?,
             None => {
-                Url::parse("http://localhost:0/").expect("Couldn't parse good known localhost URL")
+                Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
             }
         };
 
@@ -1426,7 +1430,7 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .send(request, Some(request_config), self.inner.server_versions.clone())
+            .send(request, Some(request_config), self.server_versions().await?)
             .await?)
     }
 
@@ -1479,7 +1483,33 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config, self.inner.server_versions.clone()).await
+        self.inner.http_client.send(request, config, self.server_versions().await?).await
+    }
+
+    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+        let mut server_versions = self.inner.server_versions.lock().await;
+
+        if server_versions.is_empty() {
+            // Not initialized before
+            *server_versions = self
+                .inner
+                .http_client
+                .send(
+                    get_supported_versions::Request::new(),
+                    None,
+                    [MatrixVersion::V1_0].into_iter().collect(),
+                )
+                .await?
+                .known_versions()
+                .collect();
+
+            if server_versions.is_empty() {
+                // No known versions, fall back to v1.0 (r0 paths)
+                *server_versions = vec![MatrixVersion::V1_0].into();
+            }
+        }
+
+        Ok(server_versions.clone())
     }
 
     /// Get information of all our own devices.
@@ -1631,7 +1661,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::SyncRoomMessageEvent,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1642,7 +1672,7 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: SyncRoomMessageEvent| async move {
+    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
     /// }).await;
     ///
@@ -1736,7 +1766,7 @@ impl Client {
     /// # let password = "";
     /// use matrix_sdk::{
     ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::SyncRoomMessageEvent,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1744,7 +1774,7 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: SyncRoomMessageEvent| async move {
+    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
     /// }).await;
     ///
@@ -2212,7 +2242,7 @@ impl Client {
 
 // mockito (the http mocking library) is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) mod test {
+pub(crate) mod tests {
     use matrix_sdk_test::async_test;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -2329,17 +2359,11 @@ pub(crate) mod test {
         let domain = server_url.strip_prefix("http://").unwrap();
         let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
-        let _m = mock("GET", "/.well-known/matrix/client")
-            .with_status(200)
-            .with_body(
-                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
-            )
-            .create();
+        let _m = mock("GET", "/.well-known/matrix/client").with_status(404).create();
 
         assert!(
             Client::builder().user_id(&alice).build().await.is_err(),
-            "Creating a client from a user ID should fail when the \
-                .well-known server returns no version information."
+            "Creating a client from a user ID should fail when the .well-known request fails."
         );
     }
 

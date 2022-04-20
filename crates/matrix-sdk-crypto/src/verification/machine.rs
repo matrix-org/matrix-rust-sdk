@@ -517,7 +517,7 @@ impl VerificationMachine {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{convert::TryFrom, sync::Arc, time::Duration};
 
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
@@ -530,7 +530,7 @@ mod test {
         store::MemoryStore,
         verification::{
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
-            test::wrap_any_to_device_content,
+            tests::wrap_any_to_device_content,
             VerificationStore,
         },
         ReadOnlyAccount, ReadOnlyDevice,

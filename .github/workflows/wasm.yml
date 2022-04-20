@@ -34,6 +34,8 @@ jobs:
             cmd: matrix-sdk-no-default
           - name: matrix-sdk / indexeddb_stores
             cmd: matrix-sdk-indexeddb-stores
+          - name: matrix-sdk / wasm-example
+            cmd: matrix-sdk-command-bot
 
     steps:
     - name: Checkout the repo
@@ -50,12 +52,6 @@ jobs:
 
     - name: Load cache
       uses: Swatinem/rust-cache@v1
-
-    # needed for libolm-sys compilation
-    - name: Install emscripten
-      uses: mymindstorm/setup-emsdk@v11
-      with:
-        version: latest
 
     - name: check
       uses: actions-rs/cargo@v1

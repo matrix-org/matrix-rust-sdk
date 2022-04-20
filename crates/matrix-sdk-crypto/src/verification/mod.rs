@@ -680,7 +680,7 @@ impl IdentitiesBeingVerified {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use std::convert::TryInto;
 
     use ruma::{

@@ -62,6 +62,7 @@ enum WasmFeatureSet {
     MatrixSdkCommon,
     MatrixSdkCrypto,
     MatrixSdkIndexeddbStores,
+    MatrixSdkCommandBot,
 }
 
 impl CiArgs {
@@ -211,14 +212,29 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             .run()
     };
 
+    let test_command_bot = || {
+        let _p = pushd("crates/matrix-sdk/examples/wasm_command_bot");
+
+        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
+            .args(["--", "-D", "warnings", "-A", "clippy::unused-unit"])
+            .run()
+    };
+
     match cmd {
-        Some(cmd) => {
-            run(args[&cmd])?;
-        }
+        Some(cmd) => match cmd {
+            WasmFeatureSet::MatrixSdkCommandBot => {
+                test_command_bot()?;
+            }
+            _ => {
+                run(args[&cmd])?;
+            }
+        },
         None => {
             for &arg_set in args.values() {
                 run(arg_set)?;
             }
+
+            test_command_bot()?;
         }
     }
 

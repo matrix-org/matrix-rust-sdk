@@ -307,13 +307,13 @@ impl CryptoStore for MemoryStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
         identities::device::testing::get_device,
-        olm::{test::get_account_and_session, InboundGroupSession, OlmMessageHash},
+        olm::{tests::get_account_and_session, InboundGroupSession, OlmMessageHash},
         store::{memorystore::MemoryStore, Changes, CryptoStore},
     };
 
@@ -347,8 +347,7 @@ mod test {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = MemoryStore::new();
         let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;

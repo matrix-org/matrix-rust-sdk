@@ -4,12 +4,12 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
-        MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
+        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent,
     },
     Client,
 };
 
-async fn on_room_message(event: SyncRoomMessageEvent, room: Room) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
         let msg_body = match event.content.msgtype {
             MessageType::Text(TextMessageEventContent { body, .. }) => body,

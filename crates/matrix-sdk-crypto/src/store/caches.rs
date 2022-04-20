@@ -186,13 +186,13 @@ impl DeviceStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
         identities::device::testing::get_device,
-        olm::{test::get_account_and_session, InboundGroupSession},
+        olm::{tests::get_account_and_session, InboundGroupSession},
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
 
@@ -246,8 +246,7 @@ mod test {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = GroupSessionStore::new();
         store.add(inbound.clone());
