@@ -156,7 +156,7 @@ pub fn migrate(
     path: &str,
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     use matrix_sdk_crypto::{
         olm::PrivateCrossSigningIdentity,
         store::{Changes as RustChanges, CryptoStore, RecoveryKey},
@@ -250,7 +250,7 @@ pub fn migrate(
                 .signing_key
                 .into_iter()
                 .map(|(k, v)| Ok((DeviceKeyAlgorithm::try_from(k)?, v)))
-                .collect::<Result<_, anyhow::Error>>()?,
+                .collect::<anyhow::Result<_>>()?,
             room_id: RoomId::parse(session.room_id)?,
             forwarding_chains: session.forwarding_chains,
             imported: session.imported,
@@ -282,14 +282,13 @@ pub fn migrate(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let tracked_users = data
+    let tracked_users: Vec<_> = data
         .tracked_users
         .into_iter()
         .map(|u| Ok(((parse_user_id(&u)?), true)))
-        .collect::<Result<Vec<(Box<UserId>, bool)>, anyhow::Error>>()?;
+        .collect::<anyhow::Result<_>>()?;
 
-    let tracked_users: Vec<(&UserId, bool)> =
-        tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
+    let tracked_users: Vec<_> = tracked_users.iter().map(|(u, d)| (&**u, *d)).collect();
 
     runtime.block_on(store.save_tracked_users(tracked_users.as_slice()))?;
 
