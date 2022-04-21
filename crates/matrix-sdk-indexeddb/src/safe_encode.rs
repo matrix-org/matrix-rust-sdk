@@ -71,13 +71,8 @@ pub trait SafeEncode {
         store_cipher: &StoreCipher,
         i: usize,
     ) -> JsValue {
-        format!(
-            "{}{}{:016x}",
-            self.as_secure_string(table_name, store_cipher),
-            KEY_SEPARATOR,
-            i,
-        )
-        .into()
+        format!("{}{}{:016x}", self.as_secure_string(table_name, store_cipher), KEY_SEPARATOR, i,)
+            .into()
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are
