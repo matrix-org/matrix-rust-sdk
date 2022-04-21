@@ -4,10 +4,10 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use matrix_sdk::{config::SyncSettings, ruma::UserId, Client, LoopCtrl};
+use matrix_sdk::{config::SyncSettings, ruma::OwnedUserId, Client, LoopCtrl};
 use url::Url;
 
-async fn bootstrap(client: Client, user_id: Box<UserId>, password: String) {
+async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) {
     println!("Bootstrapping a new cross signing identity, press enter to continue.");
 
     let mut input = String::new();

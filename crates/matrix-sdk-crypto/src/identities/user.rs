@@ -28,7 +28,7 @@ use ruma::{
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    DeviceId, DeviceKeyId, EventId, RoomId, UserId,
+    DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
@@ -167,7 +167,7 @@ impl OwnUserIdentity {
         &self,
         methods: Option<Vec<VerificationMethod>>,
     ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
-        let devices: Vec<Box<DeviceId>> = self
+        let devices: Vec<OwnedDeviceId> = self
             .verification_machine
             .store
             .get_user_devices(self.user_id())
@@ -393,7 +393,7 @@ impl MasterPubkey {
     }
 
     /// Get the keys map of containing the master keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
+    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, SigningKey> {
         &self.0.keys
     }
 
@@ -403,7 +403,7 @@ impl MasterPubkey {
     }
 
     /// Get the signatures map of this cross signing key.
-    pub fn signatures(&self) -> &BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
+    pub fn signatures(&self) -> &BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
         &self.0.signatures
     }
 
@@ -468,8 +468,8 @@ impl MasterPubkey {
 }
 
 impl<'a> IntoIterator for &'a MasterPubkey {
-    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
-    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
+    type Item = (&'a OwnedDeviceKeyId, &'a SigningKey);
+    type IntoIter = Iter<'a, OwnedDeviceKeyId, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -483,7 +483,7 @@ impl UserSigningPubkey {
     }
 
     /// Get the keys map of containing the user signing keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
+    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, SigningKey> {
         &self.0.keys
     }
 
@@ -517,8 +517,8 @@ impl UserSigningPubkey {
 }
 
 impl<'a> IntoIterator for &'a UserSigningPubkey {
-    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
-    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
+    type Item = (&'a OwnedDeviceKeyId, &'a SigningKey);
+    type IntoIter = Iter<'a, OwnedDeviceKeyId, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -532,7 +532,7 @@ impl SelfSigningPubkey {
     }
 
     /// Get the keys map of containing the self signing keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
+    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, SigningKey> {
         &self.0.keys
     }
 
@@ -563,8 +563,8 @@ impl SelfSigningPubkey {
 }
 
 impl<'a> IntoIterator for &'a SelfSigningPubkey {
-    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
-    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
+    type Item = (&'a OwnedDeviceKeyId, &'a SigningKey);
+    type IntoIter = Iter<'a, OwnedDeviceKeyId, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -687,7 +687,7 @@ impl ReadOnlyUserIdentity {
     ) -> Result<Self, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        Ok(Self { user_id: master_key.0.user_id.clone().into(), master_key, self_signing_key })
+        Ok(Self { user_id: (&*master_key.0.user_id).into(), master_key, self_signing_key })
     }
 
     #[cfg(test)]
@@ -800,7 +800,7 @@ impl ReadOnlyOwnUserIdentity {
         master_key.verify_subkey(&user_signing_key)?;
 
         Ok(Self {
-            user_id: master_key.0.user_id.clone().into(),
+            user_id: (&*master_key.0.user_id).into(),
             master_key,
             self_signing_key,
             user_signing_key,

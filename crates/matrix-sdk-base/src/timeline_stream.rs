@@ -6,7 +6,7 @@ use futures_core::{
     stream::{BoxStream, Stream},
     task::{Context, Poll},
 };
-use ruma::EventId;
+use ruma::OwnedEventId;
 use thiserror::Error;
 use tracing::trace;
 
@@ -37,7 +37,7 @@ pub struct TimelineStreamBackward<'a> {
     receiver: mpsc::Receiver<TimelineSlice>,
     stored_events: Option<BoxStream<'a, Result<SyncRoomEvent>>>,
     pending: Vec<SyncRoomEvent>,
-    event_ids: Arc<DashSet<Box<EventId>>>,
+    event_ids: Arc<DashSet<OwnedEventId>>,
     token: Option<String>,
 }
 
@@ -72,7 +72,7 @@ impl<'a> TimelineStreamBackward<'a> {
     /// * `stored_events` - A stream of events that are currently stored
     ///   locally.
     pub(crate) fn new(
-        event_ids: Arc<DashSet<Box<EventId>>>,
+        event_ids: Arc<DashSet<OwnedEventId>>,
         token: Option<String>,
         stored_events: Option<BoxStream<'a, Result<SyncRoomEvent>>>,
     ) -> (Self, mpsc::Sender<TimelineSlice>) {
@@ -169,7 +169,7 @@ impl<'a> Stream for TimelineStreamBackward<'a> {
 pub struct TimelineStreamForward {
     receiver: mpsc::Receiver<TimelineSlice>,
     pending: Vec<SyncRoomEvent>,
-    event_ids: Arc<DashSet<Box<EventId>>>,
+    event_ids: Arc<DashSet<OwnedEventId>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -196,7 +196,7 @@ impl TimelineStreamForward {
     ///   This should be shared
     /// between the `TimelineStreamBackward` and `TimelineStreamForward` stream.
     pub(crate) fn new(
-        event_ids: Arc<DashSet<Box<EventId>>>,
+        event_ids: Arc<DashSet<OwnedEventId>>,
     ) -> (Self, mpsc::Sender<TimelineSlice>) {
         let (sender, receiver) = mpsc::channel(CHANNEL_LIMIT);
         let self_ = Self { event_ids, pending: Vec::new(), receiver };

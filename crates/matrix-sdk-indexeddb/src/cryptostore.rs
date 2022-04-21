@@ -23,7 +23,7 @@ use indexed_db_futures::prelude::*;
 use matrix_sdk_common::{
     async_trait,
     locks::Mutex,
-    ruma::{DeviceId, RoomId, TransactionId, UserId},
+    ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId},
 };
 use matrix_sdk_crypto::{
     olm::{
@@ -76,8 +76,8 @@ pub struct IndexeddbStore {
     store_cipher: Arc<Option<StoreCipher>>,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
-    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
+    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
 impl std::fmt::Debug for IndexeddbStore {
@@ -665,11 +665,11 @@ impl IndexeddbStore {
         Ok(())
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
@@ -718,7 +718,7 @@ impl IndexeddbStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let range = user_id.encode_to_range().map_err(|e| IndexeddbStoreError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
@@ -913,11 +913,11 @@ impl CryptoStore for IndexeddbStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query()
     }
 
@@ -945,7 +945,7 @@ impl CryptoStore for IndexeddbStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, CryptoStoreError> {
         self.get_user_devices(user_id).await.map_err(|e| e.into())
     }
 

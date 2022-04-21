@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, convert::TryInto};
 
 use ruma::{
-    encryption::KeyUsage, serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId,
+    encryption::KeyUsage, serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
@@ -102,7 +102,7 @@ impl MasterSigning {
         encode(self.inner.as_bytes())
     }
 
-    pub fn from_base64(user_id: Box<UserId>, key: &str) -> Result<Self, KeyError> {
+    pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
         let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
 
@@ -148,7 +148,7 @@ impl UserSigning {
         encode(self.inner.as_bytes())
     }
 
-    pub fn from_base64(user_id: Box<UserId>, key: &str) -> Result<Self, KeyError> {
+    pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
         let public_key = inner.cross_signing_key(user_id, KeyUsage::UserSigning).into();
 
@@ -208,7 +208,7 @@ impl SelfSigning {
         encode(self.inner.as_bytes())
     }
 
-    pub fn from_base64(user_id: Box<UserId>, key: &str) -> Result<Self, KeyError> {
+    pub fn from_base64(user_id: OwnedUserId, key: &str) -> Result<Self, KeyError> {
         let inner = Signing::from_base64(key)?;
         let public_key = inner.cross_signing_key(user_id, KeyUsage::SelfSigning).into();
 
@@ -303,7 +303,7 @@ impl Signing {
         self.public_key
     }
 
-    pub fn cross_signing_key(&self, user_id: Box<UserId>, usage: KeyUsage) -> CrossSigningKey {
+    pub fn cross_signing_key(&self, user_id: OwnedUserId, usage: KeyUsage) -> CrossSigningKey {
         let keys = BTreeMap::from([(
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,

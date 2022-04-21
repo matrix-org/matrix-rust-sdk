@@ -14,7 +14,7 @@ use ruma::{
         },
         AnyStrippedStateEvent, AnySyncStateEvent, SyncStateEvent,
     },
-    MxcUri, RoomAliasId, UserId,
+    OwnedMxcUri, OwnedRoomAliasId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,14 +24,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub(crate) avatar_url: Option<Box<MxcUri>>,
+    pub(crate) avatar_url: Option<OwnedMxcUri>,
     /// The canonical alias of this room.
-    pub(crate) canonical_alias: Option<Box<RoomAliasId>>,
+    pub(crate) canonical_alias: Option<OwnedRoomAliasId>,
     /// The `m.room.create` event content of this room.
     pub(crate) create: Option<RoomCreateEventContent>,
     /// The user id this room is sharing the direct message with, if the room is
     /// a direct message.
-    pub(crate) dm_target: Option<Box<UserId>>,
+    pub(crate) dm_target: Option<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.

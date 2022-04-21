@@ -34,7 +34,7 @@ use ruma::{
         key::verification::VerificationMethod, room::encrypted::OriginalSyncRoomEncryptedEvent,
         AnyMessageLikeEventContent, EventContent,
     },
-    DeviceKeyAlgorithm, EventId, RoomId, TransactionId, UserId,
+    DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -307,7 +307,7 @@ impl OlmMachine {
         request_type: RequestType,
         response_body: &str,
     ) -> Result<(), CryptoStoreError> {
-        let id: Box<TransactionId> = request_id.into();
+        let id: OwnedTransactionId = request_id.into();
 
         let response = response_from_string(response_body);
 
@@ -398,7 +398,7 @@ impl OlmMachine {
     ///
     /// `users` - The users that should be queued up for a key query.
     pub fn update_tracked_users(&self, users: Vec<String>) {
-        let users: Vec<Box<UserId>> =
+        let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         self.runtime.block_on(self.inner.update_tracked_users(users.iter().map(Deref::deref)));
@@ -431,7 +431,7 @@ impl OlmMachine {
         &self,
         users: Vec<String>,
     ) -> Result<Option<Request>, CryptoStoreError> {
-        let users: Vec<Box<UserId>> =
+        let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         Ok(self
@@ -462,7 +462,7 @@ impl OlmMachine {
         room_id: &str,
         users: Vec<String>,
     ) -> Result<Vec<Request>, CryptoStoreError> {
-        let users: Vec<Box<UserId>> =
+        let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         let room_id = RoomId::parse(room_id)?;

@@ -4,7 +4,7 @@ use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore}
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
-    ServerName, UserId,
+    OwnedServerName, ServerName, UserId,
 };
 use thiserror::Error;
 use url::Url;
@@ -367,7 +367,7 @@ fn homeserver_from_name(server_name: &ServerName) -> Result<Url, url::ParseError
 #[derive(Debug)]
 enum HomeserverConfig {
     Url(String),
-    ServerName(Box<ServerName>),
+    ServerName(OwnedServerName),
 }
 
 #[derive(Debug)]

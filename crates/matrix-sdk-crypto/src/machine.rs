@@ -42,8 +42,8 @@ use ruma::{
         secret::request::SecretName,
         AnyRoomEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, TransactionId,
-    UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
@@ -281,7 +281,7 @@ impl OlmMachine {
     }
 
     /// Get all the tracked users we know about
-    pub fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    pub fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.store.tracked_users()
     }
 
@@ -463,7 +463,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(Box<TransactionId>, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
         self.session_manager.get_missing_sessions(users).await
     }
 
@@ -1439,7 +1439,7 @@ impl OlmMachine {
     async fn sign_account(
         &self,
         message: &str,
-        signatures: &mut BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+        signatures: &mut BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     ) {
         let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
         let signature = self.account.sign(message).await;
@@ -1453,11 +1453,11 @@ impl OlmMachine {
     async fn sign_master(
         &self,
         message: &str,
-        signatures: &mut BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+        signatures: &mut BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     ) -> Result<(), crate::SignatureError> {
         let identity = &*self.user_identity.lock().await;
 
-        let master_key: Box<DeviceId> = identity
+        let master_key: OwnedDeviceId = identity
             .master_public_key()
             .await
             .and_then(|m| m.get_first_key().map(|k| k.to_owned()))
@@ -1481,7 +1481,7 @@ impl OlmMachine {
     pub async fn sign(
         &self,
         message: &str,
-    ) -> BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
+    ) -> BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
         let mut signatures: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
         self.sign_account(message, &mut signatures).await;
@@ -1540,7 +1540,7 @@ pub(crate) mod tests {
         },
         room_id,
         serde::Raw,
-        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
+        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
     };
     use serde_json::json;
     use vodozemac::Ed25519PublicKey;
@@ -1554,7 +1554,7 @@ pub(crate) mod tests {
     };
 
     /// These keys need to be periodically uploaded to the server.
-    type OneTimeKeys = BTreeMap<Box<DeviceKeyId>, Raw<OneTimeKey>>;
+    type OneTimeKeys = BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>;
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")

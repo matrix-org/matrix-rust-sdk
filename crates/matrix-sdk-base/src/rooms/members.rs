@@ -18,19 +18,17 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         room::{
-            member::{MembershipState, RoomMemberEventContent},
+            member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
             power_levels::SyncRoomPowerLevelsEvent,
         },
     },
     MxcUri, UserId,
 };
 
-use crate::deserialized_responses::MemberEvent;
-
 /// A member of a room.
 #[derive(Clone, Debug)]
 pub struct RoomMember {
-    pub(crate) event: Arc<MemberEvent>,
+    pub(crate) event: Arc<OriginalSyncRoomMemberEvent>,
     pub(crate) profile: Arc<Option<RoomMemberEventContent>>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,

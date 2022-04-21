@@ -133,7 +133,7 @@ impl Common {
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { source: MediaSource::Plain(url.clone()), format };
+            let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
             Ok(Some(self.client.get_media_content(&request, true).await?))
         } else {
             Ok(None)

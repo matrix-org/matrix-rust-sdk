@@ -37,7 +37,8 @@ use ruma::{
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, EventEncryptionAlgorithm, RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
+    DeviceId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -123,16 +124,16 @@ pub struct OutboundGroupSession {
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
     #[allow(clippy::type_complexity)]
-    pub(crate) shared_with_set: Arc<DashMap<Box<UserId>, DashMap<Box<DeviceId>, ShareInfo>>>,
+    pub(crate) shared_with_set: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ShareInfo>>>,
     #[allow(clippy::type_complexity)]
-    to_share_with_set: Arc<DashMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
+    to_share_with_set: Arc<DashMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
 }
 
 /// A a map of userid/device it to a `ShareInfo`.
 ///
 /// Holds the `ShareInfo` for all the user/device pairs that will receive the
 /// room key.
-pub type ShareInfoSet = BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>;
+pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>;
 
 /// Struct holding info about the share state of a outbound group session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -186,7 +187,7 @@ impl OutboundGroupSession {
 
     pub(crate) fn add_request(
         &self,
-        request_id: Box<TransactionId>,
+        request_id: OwnedTransactionId,
         request: Arc<ToDeviceRequest>,
         share_infos: ShareInfoSet,
     ) {
@@ -459,7 +460,7 @@ impl OutboundGroupSession {
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
-    pub(crate) fn pending_request_ids(&self) -> Vec<Box<TransactionId>> {
+    pub(crate) fn pending_request_ids(&self) -> Vec<OwnedTransactionId> {
         self.to_share_with_set.iter().map(|e| e.key().clone()).collect()
     }
 
@@ -591,9 +592,9 @@ pub struct PickledOutboundGroupSession {
     /// Has the session been invalidated.
     pub invalidated: bool,
     /// The set of users the session has been already shared with.
-    pub shared_with_set: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+    pub shared_with_set: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
-    pub requests: BTreeMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>,
+    pub requests: BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }
 
 #[cfg(test)]

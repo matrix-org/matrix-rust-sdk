@@ -116,5 +116,5 @@ pub enum RequestVerificationError {
     /// Verifying other users requires having a DM open with them, this error
     /// signals that we didn't have a DM and that we failed to create one.
     #[error("Couldn't create a DM with user {0} where the verification should take place")]
-    RoomCreation(Box<ruma::UserId>),
+    RoomCreation(ruma::OwnedUserId),
 }
