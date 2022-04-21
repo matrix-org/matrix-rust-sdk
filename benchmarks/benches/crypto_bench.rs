@@ -72,9 +72,8 @@ pub fn keys_query(c: &mut Criterion) {
 
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
-    let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id().into(), alice_device_id().into(), store))
-        .unwrap();
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
 
     group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
         b.to_async(&runtime)
@@ -122,11 +121,7 @@ pub fn keys_claiming(c: &mut Criterion) {
                 let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
                 let machine = runtime
-                    .block_on(OlmMachine::with_store(
-                        alice_id().into(),
-                        alice_device_id().into(),
-                        store,
-                    ))
+                    .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store))
                     .unwrap();
                 runtime
                     .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
@@ -187,9 +182,8 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
-    let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id().into(), alice_device_id().into(), store))
-        .unwrap();
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
@@ -243,9 +237,8 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
-    let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id().into(), alice_device_id().into(), store))
-        .unwrap();
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 

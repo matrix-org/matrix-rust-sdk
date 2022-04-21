@@ -913,9 +913,7 @@ mod tests {
             store.save_changes(changes).await.unwrap();
 
             let identities = IdentitiesBeingVerified {
-                private_identity: PrivateCrossSigningIdentity::empty(
-                    alice_account.user_id().to_owned(),
-                ),
+                private_identity: PrivateCrossSigningIdentity::empty(alice_account.user_id()),
                 store: store.clone(),
                 device_being_verified: alice_device.clone(),
                 identity_being_verified: Some(identity.clone().into()),

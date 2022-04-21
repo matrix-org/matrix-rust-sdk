@@ -125,8 +125,8 @@ impl CryptoHolder {
         if let CryptoHolder::PreSetupStore(store) = self {
             *self = CryptoHolder::Olm(Box::new(
                 OlmMachine::with_store(
-                    session.user_id.to_owned(),
-                    session.device_id.as_str().into(),
+                    &session.user_id,
+                    &session.device_id,
                     store.take().expect("We always exist"),
                 )
                 .await

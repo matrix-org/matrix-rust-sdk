@@ -130,21 +130,20 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let device_id: Box<DeviceId> = device_id.into();
-        let account = ReadOnlyAccount::new(user_id, &device_id);
+        let account = ReadOnlyAccount::new(user_id, device_id);
 
         OlmMachine::new_helper(
             user_id,
             device_id,
             store,
             account,
-            PrivateCrossSigningIdentity::empty(user_id.to_owned()),
+            PrivateCrossSigningIdentity::empty(user_id),
         )
     }
 
     fn new_helper(
         user_id: &UserId,
-        device_id: Box<DeviceId>,
+        device_id: &DeviceId,
         store: Box<dyn CryptoStore>,
         account: ReadOnlyAccount,
         user_identity: PrivateCrossSigningIdentity,
@@ -220,8 +219,8 @@ impl OlmMachine {
     ///
     /// [`Cryptostore`]: trait.CryptoStore.html
     pub async fn with_store(
-        user_id: Box<UserId>,
-        device_id: Box<DeviceId>,
+        user_id: &UserId,
+        device_id: &DeviceId,
         store: Box<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
@@ -233,7 +232,7 @@ impl OlmMachine {
                 a
             }
             None => {
-                let account = ReadOnlyAccount::new(&user_id, &device_id);
+                let account = ReadOnlyAccount::new(user_id, device_id);
                 debug!(
                     ed25519_key = account.identity_keys().ed25519.to_base64().as_str(),
                     "Created a new Olm account"
@@ -254,11 +253,11 @@ impl OlmMachine {
             }
             None => {
                 debug!("Creating an empty cross signing identity stub");
-                PrivateCrossSigningIdentity::empty(user_id.clone())
+                PrivateCrossSigningIdentity::empty(user_id)
             }
         };
 
-        Ok(OlmMachine::new_helper(&user_id, device_id, store, account, identity))
+        Ok(OlmMachine::new_helper(user_id, device_id, store, account, identity))
     }
 
     /// The unique user id that owns this `OlmMachine` instance.

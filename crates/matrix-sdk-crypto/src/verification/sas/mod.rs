@@ -607,7 +607,7 @@ mod tests {
         let bob_store = VerificationStore { account: bob.clone(), inner: Arc::new(bob_store) };
 
         let (alice, content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(alice_id().to_owned()),
+            PrivateCrossSigningIdentity::empty(alice_id()),
             bob_device,
             alice_store,
             None,
@@ -624,7 +624,7 @@ mod tests {
             flow_id,
             &content,
             bob_store,
-            PrivateCrossSigningIdentity::empty(bob_id().to_owned()),
+            PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             None,
             None,

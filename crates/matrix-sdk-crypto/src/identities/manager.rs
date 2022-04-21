@@ -575,8 +575,7 @@ pub(crate) mod testing {
     }
 
     pub(crate) fn manager() -> IdentityManager {
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id())));
         let user_id = Arc::from(user_id());
         let account = ReadOnlyAccount::new(&user_id, device_id());
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
