@@ -60,7 +60,7 @@ pub trait SafeEncode {
     /// encode self into a JsValue, internally using `as_encoded_string`
     /// to escape the value of self, and append the given counter
     fn encode_with_counter(&self, i: usize) -> JsValue {
-        format!("{}{}{:0000000x}", self.as_encoded_string(), KEY_SEPARATOR, i).into()
+        format!("{}{}{:016x}", self.as_encoded_string(), KEY_SEPARATOR, i).into()
     }
 
     /// encode self into a JsValue, internally using `as_secure_string`
@@ -71,13 +71,8 @@ pub trait SafeEncode {
         store_cipher: &StoreCipher,
         i: usize,
     ) -> JsValue {
-        format!(
-            "{}{}{:0000000x}",
-            self.as_secure_string(table_name, store_cipher),
-            KEY_SEPARATOR,
-            i
-        )
-        .into()
+        format!("{}{}{:016x}", self.as_secure_string(table_name, store_cipher), KEY_SEPARATOR, i,)
+            .into()
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are
