@@ -1317,13 +1317,13 @@ mod tests {
 
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
         let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
         let alice_store = VerificationStore { account: alice, inner: alice_store.into() };
 
         let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
         let bob_store = VerificationStore { account: bob.clone(), inner: bob_store.into() };
 
@@ -1370,14 +1370,14 @@ mod tests {
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
         let alice_store = VerificationStore { account: alice.clone(), inner: alice_store.into() };
 
         let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
         let bob_store = VerificationStore { account: bob.clone(), inner: bob_store.into() };
 
@@ -1440,14 +1440,14 @@ mod tests {
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
         let alice_store = VerificationStore { account: alice.clone(), inner: alice_store.into() };
 
         let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id().to_owned());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
         let mut changes = Changes::default();
         changes.devices.new.push(bob_device.clone());

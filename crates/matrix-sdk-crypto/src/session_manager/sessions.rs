@@ -374,14 +374,14 @@ mod tests {
     }
 
     async fn session_manager() -> SessionManager {
-        let user_id = user_id().to_owned();
+        let user_id = user_id();
         let device_id = device_id();
 
         let users_for_key_claim = Arc::new(DashMap::new());
-        let account = ReadOnlyAccount::new(&user_id, device_id);
+        let account = ReadOnlyAccount::new(user_id, device_id);
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         store.save_account(account.clone()).await.unwrap();
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id.clone())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification =
             VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 

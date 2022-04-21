@@ -1019,7 +1019,7 @@ pub(crate) mod tests {
         assert!(identity.is_device_signed(&second).is_ok());
 
         let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id().to_owned())));
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
             private_identity,
