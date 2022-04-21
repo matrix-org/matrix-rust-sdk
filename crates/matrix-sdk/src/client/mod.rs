@@ -62,7 +62,8 @@ use ruma::{
     assign,
     events::room::MediaSource,
     presence::PresenceState,
-    DeviceId, MxcUri, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, OwnedUserId, RoomId, RoomOrAliasId,
+    ServerName, UInt,
 };
 use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
@@ -132,12 +133,12 @@ pub(crate) struct ClientInner {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
-    pub(crate) group_session_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     pub(crate) key_claim_lock: Mutex<()>,
-    pub(crate) members_request_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
-    pub(crate) typing_notice_times: DashMap<Box<RoomId>, Instant>,
+    pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `register_event_handler`.
     event_handlers: RwLock<EventHandlerMap>,
     /// Custom event handler context. See `register_event_handler_context`.
@@ -254,7 +255,7 @@ impl Client {
         incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest,
     ) -> Result<()> {
         let txn_id = incoming_transaction.txn_id.clone();
-        let response = incoming_transaction.try_into_sync_response(txn_id)?;
+        let response = incoming_transaction.try_into_sync_response(txn_id.as_str())?;
         self.process_sync(response).await?;
 
         Ok(())
@@ -271,13 +272,13 @@ impl Client {
     }
 
     /// Get the user id of the current owner of the client.
-    pub async fn user_id(&self) -> Option<Box<UserId>> {
+    pub async fn user_id(&self) -> Option<OwnedUserId> {
         let session = self.inner.base_client.session().read().await;
         session.as_ref().cloned().map(|s| s.user_id)
     }
 
     /// Get the device id that identifies the current session.
-    pub async fn device_id(&self) -> Option<Box<DeviceId>> {
+    pub async fn device_id(&self) -> Option<OwnedDeviceId> {
         let session = self.inner.base_client.session().read().await;
         session.as_ref().map(|s| s.device_id.clone())
     }
@@ -1243,7 +1244,7 @@ impl Client {
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
-        server_names: &[Box<ServerName>],
+        server_names: &[OwnedServerName],
     ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
@@ -1592,7 +1593,7 @@ impl Client {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     pub async fn delete_devices(
         &self,
-        devices: &[Box<DeviceId>],
+        devices: &[OwnedDeviceId],
         auth_data: Option<AuthData<'_>>,
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices);

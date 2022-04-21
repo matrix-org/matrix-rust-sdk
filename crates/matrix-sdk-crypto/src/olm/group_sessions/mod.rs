@@ -18,7 +18,7 @@ use ruma::{
     events::forwarded_room_key::{
         ToDeviceForwardedRoomKeyEventContent, ToDeviceForwardedRoomKeyEventContentInit,
     },
-    DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
+    DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +44,7 @@ pub struct ExportedRoomKey {
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The room where the session is used.
-    pub room_id: Box<RoomId>,
+    pub room_id: OwnedRoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
     pub sender_key: String,

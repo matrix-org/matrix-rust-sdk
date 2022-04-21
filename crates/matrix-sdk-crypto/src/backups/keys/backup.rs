@@ -21,7 +21,7 @@ use olm_rs::pk::OlmPkEncryption;
 use ruma::{
     api::client::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
     serde::Base64,
-    DeviceKeyId, UserId,
+    OwnedDeviceKeyId, OwnedUserId,
 };
 use zeroize::Zeroizing;
 
@@ -31,7 +31,7 @@ use crate::olm::InboundGroupSession;
 #[derive(Debug)]
 struct InnerBackupKey {
     key: [u8; MegolmV1BackupKey::KEY_SIZE],
-    signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+    signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     version: Mutex<Option<String>>,
 }
 
@@ -70,7 +70,7 @@ impl MegolmV1BackupKey {
     }
 
     /// Get all the signatures of this `MegolmV1BackupKey`.
-    pub fn signatures(&self) -> BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
+    pub fn signatures(&self) -> BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
         self.inner.signatures.to_owned()
     }
 

@@ -15,7 +15,7 @@
 
 //! User sessions.
 
-use ruma::{DeviceId, UserId};
+use ruma::{OwnedDeviceId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 
 /// A user session, containing an access token and information about the
@@ -40,9 +40,9 @@ pub struct Session {
     /// The access token used for this session.
     pub access_token: String,
     /// The user the access token was issued for.
-    pub user_id: Box<UserId>,
+    pub user_id: OwnedUserId,
     /// The ID of the client device
-    pub device_id: Box<DeviceId>,
+    pub device_id: OwnedDeviceId,
 }
 
 impl From<ruma::api::client::session::login::v3::Response> for Session {

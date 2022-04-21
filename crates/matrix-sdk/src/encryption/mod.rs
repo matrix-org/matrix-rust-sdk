@@ -35,6 +35,12 @@ use matrix_sdk_base::{
     deserialized_responses::RoomEvent,
 };
 use matrix_sdk_common::instant::Duration;
+#[cfg(feature = "encryption")]
+use ruma::{
+    api::client::config::set_global_account_data,
+    events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
+    OwnedDeviceId,
+};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -52,14 +58,9 @@ use ruma::{
         AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, GlobalAccountDataEventType,
     },
     serde::Raw,
-    DeviceId, TransactionId, UserId,
+    DeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
-#[cfg(feature = "encryption")]
-use {
-    ruma::api::client::config::set_global_account_data,
-    ruma::events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
-};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -110,7 +111,7 @@ impl Client {
     pub(crate) async fn keys_query(
         &self,
         request_id: &TransactionId,
-        device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>,
+        device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
     ) -> Result<get_keys::v3::Response> {
         let request = assign!(get_keys::v3::Request::new(), { device_keys });
 
@@ -257,7 +258,7 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn create_dm_room(
         &self,
-        user_id: Box<UserId>,
+        user_id: OwnedUserId,
     ) -> Result<Option<room::Joined>> {
         use ruma::{api::client::room::create_room::v3::RoomPreset, events::direct::DirectEvent};
 
@@ -525,7 +526,7 @@ impl Encryption {
     ///
     /// Tracked users are users for which we keep the device list of E2EE
     /// capable devices up to date.
-    pub async fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    pub async fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.client.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
     }
 

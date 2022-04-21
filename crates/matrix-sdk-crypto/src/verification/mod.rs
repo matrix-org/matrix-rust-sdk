@@ -47,7 +47,8 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyId, EventId, RoomId, TransactionId, UserId,
+    DeviceId, EventId, OwnedDeviceId, OwnedDeviceKeyId, OwnedEventId, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
@@ -107,7 +108,7 @@ impl VerificationStore {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, CryptoStoreError> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -121,7 +122,7 @@ impl VerificationStore {
     /// Get the signatures that have signed our own device.
     pub async fn device_signatures(
         &self,
-    ) -> Result<Option<BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>>, CryptoStoreError>
+    ) -> Result<Option<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>>, CryptoStoreError>
     {
         Ok(self
             .inner
@@ -357,8 +358,8 @@ impl Cancelled {
 
 #[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
 pub enum FlowId {
-    ToDevice(Box<TransactionId>),
-    InRoom(Box<RoomId>, Box<EventId>),
+    ToDevice(OwnedTransactionId),
+    InRoom(OwnedRoomId, OwnedEventId),
 }
 
 impl FlowId {
@@ -378,14 +379,14 @@ impl FlowId {
     }
 }
 
-impl From<Box<TransactionId>> for FlowId {
-    fn from(transaction_id: Box<TransactionId>) -> Self {
+impl From<OwnedTransactionId> for FlowId {
+    fn from(transaction_id: OwnedTransactionId) -> Self {
         FlowId::ToDevice(transaction_id)
     }
 }
 
-impl From<(Box<RoomId>, Box<EventId>)> for FlowId {
-    fn from(ids: (Box<RoomId>, Box<EventId>)) -> Self {
+impl From<(OwnedRoomId, OwnedEventId)> for FlowId {
+    fn from(ids: (OwnedRoomId, OwnedEventId)) -> Self {
         FlowId::InRoom(ids.0, ids.1)
     }
 }

@@ -39,7 +39,8 @@ use ruma::{
         },
         AnyToDeviceEvent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -59,10 +60,10 @@ pub(crate) struct GossipMachine {
     device_id: Arc<DeviceId>,
     store: Store,
     outbound_group_sessions: GroupSessionCache,
-    outgoing_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
+    outgoing_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
     incoming_key_requests: Arc<DashMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
-    users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+    users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
 }
 
 impl GossipMachine {
@@ -71,7 +72,7 @@ impl GossipMachine {
         device_id: Arc<DeviceId>,
         store: Store,
         outbound_group_sessions: GroupSessionCache,
-        users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+        users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     ) -> Self {
         Self {
             user_id,

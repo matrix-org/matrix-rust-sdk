@@ -34,7 +34,8 @@ use ruma::{
     },
     receipt::ReceiptType,
     room::RoomType as CreateRoomType,
-    EventId, MxcUri, RoomAliasId, RoomId, RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomId, RoomVersionId,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -163,12 +164,12 @@ impl Room {
     }
 
     /// Get the avatar url of this room.
-    pub fn avatar_url(&self) -> Option<Box<MxcUri>> {
+    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
         self.inner.read().unwrap().base_info.avatar_url.clone()
     }
 
     /// Get the canonical alias of this room.
-    pub fn canonical_alias(&self) -> Option<Box<RoomAliasId>> {
+    pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
         self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
@@ -192,7 +193,7 @@ impl Room {
     /// *Note*: The member list might have been modified in the meantime and
     /// the target might not even be in the room anymore. This setting should
     /// only be considered as guidance.
-    pub fn direct_target(&self) -> Option<Box<UserId>> {
+    pub fn direct_target(&self) -> Option<OwnedUserId> {
         self.inner.read().unwrap().base_info.dm_target.clone()
     }
 
@@ -267,7 +268,7 @@ impl Room {
 
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
-    pub async fn joined_user_ids(&self) -> StoreResult<Vec<Box<UserId>>> {
+    pub async fn joined_user_ids(&self) -> StoreResult<Vec<OwnedUserId>> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
@@ -465,7 +466,7 @@ impl Room {
     pub async fn user_read_receipt(
         &self,
         user_id: &UserId,
-    ) -> StoreResult<Option<(Box<EventId>, Receipt)>> {
+    ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
         self.store.get_user_room_receipt_event(self.room_id(), ReceiptType::Read, user_id).await
     }
 
@@ -474,7 +475,7 @@ impl Room {
     pub async fn event_read_receipts(
         &self,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
+    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.store.get_event_room_receipt_events(self.room_id(), ReceiptType::Read, event_id).await
     }
 

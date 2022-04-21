@@ -4,7 +4,8 @@ use matrix_sdk_base::ruma::events::{
     GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
 };
 use matrix_sdk_common::ruma::{
-    receipt::ReceiptType, DeviceId, EventId, MxcUri, RoomId, TransactionId, UserId,
+    receipt::ReceiptType, DeviceId, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId,
+    RoomId, TransactionId, UserId,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use wasm_bindgen::JsValue;
@@ -234,11 +235,11 @@ impl<T: SafeEncode + ?Sized> SafeEncode for &T {
     }
 }
 
-impl<T: SafeEncode + ?Sized> SafeEncode for Box<T> {
+/* impl<T: SafeEncode + ?Sized> SafeEncode for Box<T> {
     fn as_encoded_string(&self) -> String {
         (&**self).as_encoded_string()
     }
-}
+} */
 
 impl SafeEncode for TransactionId {
     fn as_encoded_string(&self) -> String {
@@ -276,7 +277,19 @@ impl SafeEncode for RoomId {
     }
 }
 
+impl SafeEncode for OwnedRoomId {
+    fn as_encoded_string(&self) -> String {
+        self.as_str().as_encoded_string()
+    }
+}
+
 impl SafeEncode for UserId {
+    fn as_encoded_string(&self) -> String {
+        self.as_str().as_encoded_string()
+    }
+}
+
+impl SafeEncode for OwnedUserId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }
@@ -289,6 +302,12 @@ impl SafeEncode for DeviceId {
 }
 
 impl SafeEncode for EventId {
+    fn as_encoded_string(&self) -> String {
+        self.as_str().as_encoded_string()
+    }
+}
+
+impl SafeEncode for OwnedEventId {
     fn as_encoded_string(&self) -> String {
         self.as_str().as_encoded_string()
     }

@@ -22,7 +22,8 @@ use std::{
 use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId, UserId,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
+    OwnedDeviceId, OwnedUserId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -204,14 +205,14 @@ impl IdentityManager {
         store: Store,
         own_user_id: Arc<UserId>,
         own_device_id: Arc<DeviceId>,
-        user_id: Box<UserId>,
-        device_map: BTreeMap<Box<DeviceId>, Raw<ruma::encryption::DeviceKeys>>,
+        user_id: OwnedUserId,
+        device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = (*own_device_id).to_owned();
 
         let mut changes = DeviceChanges::default();
 
-        let current_devices: HashSet<Box<DeviceId>> = device_map.keys().cloned().collect();
+        let current_devices: HashSet<OwnedDeviceId> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
             .deserialize_as::<DeviceKeys>(
@@ -253,9 +254,9 @@ impl IdentityManager {
             }
         }
 
-        let current_devices: HashSet<&Box<DeviceId>> = current_devices.iter().collect();
+        let current_devices: HashSet<&OwnedDeviceId> = current_devices.iter().collect();
         let stored_devices = store.get_readonly_devices_unfiltered(&user_id).await?;
-        let stored_devices_set: HashSet<&Box<DeviceId>> = stored_devices.keys().collect();
+        let stored_devices_set: HashSet<&OwnedDeviceId> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
         for device_id in deleted_devices_set {
@@ -286,8 +287,8 @@ impl IdentityManager {
     async fn handle_devices_from_key_query(
         &self,
         device_keys_map: BTreeMap<
-            Box<UserId>,
-            BTreeMap<Box<DeviceId>, Raw<ruma::encryption::DeviceKeys>>,
+            OwnedUserId,
+            BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
         >,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
@@ -490,7 +491,7 @@ impl IdentityManager {
         if users.is_empty() {
             Vec::new()
         } else {
-            let users: Vec<Box<UserId>> = users.into_iter().collect();
+            let users: Vec<OwnedUserId> = users.into_iter().collect();
 
             users
                 .chunks(Self::MAX_KEY_QUERY_USERS)

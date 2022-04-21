@@ -30,7 +30,7 @@ pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
 };
-use ruma::{DeviceId, DeviceKeyAlgorithm, RoomId, SecondsSinceUnixEpoch, UserId};
+use ruma::{DeviceId, DeviceKeyAlgorithm, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UserId};
 use serde::{Deserialize, Serialize};
 pub use users::UserIdentity;
 pub use verification::{
@@ -190,7 +190,7 @@ pub fn migrate(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let user_id: Arc<UserId> = parse_user_id(&data.account.user_id)?.into();
+    let user_id: Arc<UserId> = (&*parse_user_id(&data.account.user_id)?).into();
     let device_id: Box<DeviceId> = data.account.device_id.into();
     let device_id: Arc<DeviceId> = device_id.into();
 
@@ -434,8 +434,8 @@ impl From<matrix_sdk_crypto::CrossSigningStatus> for CrossSigningStatus {
     }
 }
 
-fn parse_user_id(user_id: &str) -> Result<Box<UserId>, CryptoStoreError> {
-    UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
+fn parse_user_id(user_id: &str) -> Result<OwnedUserId, CryptoStoreError> {
+    ruma::UserId::parse(user_id).map_err(|e| CryptoStoreError::InvalidUserId(user_id.to_owned(), e))
 }
 
 #[allow(warnings)]

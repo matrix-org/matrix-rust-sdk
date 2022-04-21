@@ -29,7 +29,7 @@ use ruma::{
     events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
     receipt::ReceiptType,
     serde::Raw,
-    EventId, TransactionId, UserId,
+    EventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::debug;
@@ -538,7 +538,7 @@ impl Joined {
         event_type: &str,
         txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::v3::Response> {
-        let txn_id: Box<TransactionId> = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
+        let txn_id: OwnedTransactionId = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
         #[cfg(not(feature = "encryption"))]
         let content = {
@@ -806,7 +806,7 @@ impl Joined {
     ///
     /// // Custom event:
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State)]
+    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State, state_key_type = String)]
     /// struct XxxStateEventContent { /* fields... */ }
     /// let content: XxxStateEventContent = todo!();
     ///
@@ -913,7 +913,7 @@ impl Joined {
         &self,
         event_id: &EventId,
         reason: Option<&str>,
-        txn_id: Option<Box<TransactionId>>,
+        txn_id: Option<OwnedTransactionId>,
     ) -> HttpResult<redact_event::v3::Response> {
         let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request =

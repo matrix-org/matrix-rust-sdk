@@ -25,7 +25,7 @@ use ruma::{
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     encryption::KeyUsage,
     events::secret::request::SecretName,
-    UserId,
+    OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
@@ -86,7 +86,7 @@ impl ClearResult {
 #[allow(missing_debug_implementations)]
 pub struct PickledCrossSigningIdentity {
     /// The user id of the identity owner.
-    pub user_id: Box<UserId>,
+    pub user_id: OwnedUserId,
     /// Have the public keys of the identity been shared.
     pub shared: bool,
     /// The pickled signing keys
@@ -555,7 +555,7 @@ impl PrivateCrossSigningIdentity {
     /// created it.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub async fn new(user_id: Box<UserId>) -> Self {
+    pub async fn new(user_id: OwnedUserId) -> Self {
         let master = Signing::new();
 
         let public_key = master.cross_signing_key(user_id.clone(), KeyUsage::Master);
@@ -625,7 +625,7 @@ impl PrivateCrossSigningIdentity {
         let user_signing = keys.user_signing_key.map(UserSigning::from_pickle).transpose()?;
 
         Ok(Self {
-            user_id: pickle.user_id.into(),
+            user_id: (&*pickle.user_id).into(),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             master_key: Arc::new(Mutex::new(master)),
             self_signing_key: Arc::new(Mutex::new(self_signing)),
