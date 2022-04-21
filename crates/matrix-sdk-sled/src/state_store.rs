@@ -332,7 +332,7 @@ impl SledStore {
         [
             &self.encode_key(tablename, s),
             [ENCODE_SEPARATOR].as_slice(),
-            i.to_be_bytes().as_ref(),
+            (i as u64).to_be_bytes().as_ref(),
             [ENCODE_SEPARATOR].as_slice(),
         ]
         .concat()
