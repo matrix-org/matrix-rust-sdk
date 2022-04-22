@@ -332,7 +332,7 @@ impl Room {
                 return Ok(DisplayName::Named(name.to_owned()));
             } else if let Some(alias) = &inner.base_info.canonical_alias {
                 let alias = alias.alias().trim();
-                return Ok(DisplayName::Named(alias.to_owned()));
+                return Ok(DisplayName::Aliased(alias.to_owned()));
             }
             inner.summary.clone()
         };
@@ -719,28 +719,137 @@ impl RoomInfo {
 
 #[cfg(test)]
 mod test {
-    use crate::store::MemoryStore;
+    use crate::{
+        store::{MemoryStore, StateChanges},
+        deserialized_responses::{
+            StrippedMemberEvent,
+            MemberEvent,
+        }
+    };
     use std::sync::Arc;
-    use ruma::{user_id, room_id};
+    use ruma::{
+        user_id, room_id, event_id, RoomAliasId,
+        MilliSecondsSinceUnixEpoch,
+        events::{
+            room::member::{
+                RoomMemberEventContent, MembershipState
+            },
+            StateUnsigned,
+        },
+    };
     use super::*;
+    use assign::assign;
 
-    fn make_room(room_type: RoomType) -> Room {
+    fn make_room(room_type: RoomType) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
-        let user_id = user_id!("@something:example.org");
+        let user_id = user_id!("@me:example.org");
         let room_id = room_id!("!test:localhost");
 
-        Room::new(
+        (store.clone(), Room::new(
             &user_id,
             store,
             room_id,
             room_type
-        )
+        ))
+    }
+
+    fn make_stripped_member_event(user_id: &UserId, name: &str) -> StrippedMemberEvent {
+        StrippedMemberEvent {
+            content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
+                displayname: Some(name.to_string())
+            }),
+            sender: user_id.to_owned(),
+            state_key: user_id.to_owned(),
+        }
+    }
+
+    fn make_member_event(user_id: &UserId, name: &str) -> MemberEvent {
+        MemberEvent {
+            content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
+                displayname: Some(name.to_string())
+            }),
+            sender: user_id.to_owned(),
+            state_key: user_id.to_owned(),
+            event_id: event_id!("$h29iv0s1:example.com").to_owned(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
+            unsigned: StateUnsigned::default(),
+
+        }
     }
 
     #[tokio::test]
-    async fn test_display_name() {
-        let mut room = make_room(RoomType::Joined);
+    async fn test_display_name_default() {
+        let (_, room) = make_room(RoomType::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
+        // has precedence
+        room.inner.write().unwrap().base_info.canonical_alias = Some(RoomAliasId::parse("#test:example.com").unwrap());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_string()));
+
+        // has precedence
+        room.inner.write().unwrap().base_info.name = Some("Test Room".to_string());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_string()));
+
+        let (_, room) = make_room(RoomType::Invited);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+
+        // has precedence
+        room.inner.write().unwrap().base_info.canonical_alias = Some(RoomAliasId::parse("#test:example.com").unwrap());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_string()));
+
+        // has precedence
+        room.inner.write().unwrap().base_info.name = Some("Test Room".to_string());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_string()));
+
+    }
+
+    #[tokio::test]
+    async fn test_display_name_dm_invited() {
+        let (store, room) = make_room(RoomType::Invited);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_string());
+        let summary = assign!(RumaSummary::new(), {
+            heroes: vec![me.to_string(), matthew.to_string()],
+        });
+
+        changes.add_stripped_member(
+            &room_id,
+            make_stripped_member_event(matthew, "Matthew")
+        );
+        changes.add_stripped_member(
+            &room_id,
+            make_stripped_member_event(me, "Me")
+        );
+        store.save_changes(&changes).await.unwrap();
+
+        room.inner.write().unwrap().update_summary(&summary);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Calculated("Matthew".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_display_name_dm_joined() {
+        let (store, room) = make_room(RoomType::Joined);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_string());
+        let summary = assign!(RumaSummary::new(), {
+            heroes: vec![me.to_string(), matthew.to_string()],
+        });
+
+        changes.members.entry(room_id.to_owned()).or_default().insert(
+            matthew.to_owned(),
+            make_member_event(matthew, "Matthew")
+        );
+        changes.members.entry(room_id.to_owned()).or_default().insert(
+            me.to_owned(),
+            make_member_event(me, "Me")
+        );
+        store.save_changes(&changes).await.unwrap();
+
+        room.inner.write().unwrap().update_summary(&summary);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Calculated("Matthew".to_string()));
     }
 }

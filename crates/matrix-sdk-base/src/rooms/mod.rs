@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 pub enum DisplayName {
     /// The room has been named explicitly as
     Named(String),
+    /// The room has a canonical alias that should be used
+    Aliased(String),
     /// The room has not given an explicit name but a name could be
     /// calculated
     Calculated(String),
@@ -39,9 +41,11 @@ impl DisplayName {
     /// Generate the caninocal String of the DisplayName in english
     pub fn to_string(&self) -> String {
         match self {
-            DisplayName::Named(s) | DisplayName::Calculated(s) => s.clone(),
-            DisplayName::EmptyWas(s) => format!("Empty (was {})", s),
-            DisplayName::Empty => "Empty".to_string(),
+            DisplayName::Named(s)
+                | DisplayName::Calculated(s)
+                | DisplayName::Aliased(s) => s.clone(),
+            DisplayName::EmptyWas(s) => format!("Empty Room (was {})", s),
+            DisplayName::Empty => "Empty Room".to_string(),
         }
     }
 }

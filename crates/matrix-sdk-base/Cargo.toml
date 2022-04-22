@@ -49,6 +49,7 @@ http = { version = "0.2.4", optional = true }
 [dev-dependencies]
 futures = { version = "0.3.15", default-features = false, features = ["executor"] }
 http = "0.2.4"
+assign = "1.1.1"
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
 tokio = { version = "1.7.1", default-features = false, features = [
     "rt-multi-thread",
