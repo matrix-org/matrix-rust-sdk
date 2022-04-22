@@ -835,22 +835,15 @@ impl Common {
             .await
             .ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
-        let content = self
+        let mut content = self
             .client
             .store()
             .get_account_data_event(GlobalAccountDataEventType::Direct)
             .await?
             .map(|e| e.deserialize_as::<DirectEvent>())
             .transpose()?
-            .map(|e| e.content);
-
-        let mut content = if let Some(content) = content {
-            content
-        } else if is_direct {
-            ruma::events::direct::DirectEventContent(BTreeMap::new())
-        } else {
-            return Ok(());
-        };
+            .map(|e| e.content)
+            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
 
         let this_room_id = self.inner.room_id();
 
