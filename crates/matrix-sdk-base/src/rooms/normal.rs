@@ -39,7 +39,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use super::{BaseRoomInfo, RoomMember};
+use super::{BaseRoomInfo, RoomMember, DisplayName};
 use crate::{
     deserialized_responses::{SyncRoomEvent, TimelineSlice, UnreadNotificationsCount},
     store::{Result as StoreResult, StateStore},
@@ -261,7 +261,7 @@ impl Room {
     /// The display name is calculated according to [this algorithm][spec].
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub async fn display_name(&self) -> StoreResult<String> {
+    pub async fn display_name(&self) -> StoreResult<DisplayName> {
         self.calculate_name().await
     }
 
@@ -323,16 +323,16 @@ impl Room {
         Ok(members)
     }
 
-    async fn calculate_name(&self) -> StoreResult<String> {
+    async fn calculate_name(&self) -> StoreResult<DisplayName> {
         let summary = {
             let inner = self.inner.read().unwrap();
 
             if let Some(name) = &inner.base_info.name {
                 let name = name.trim();
-                return Ok(name.to_owned());
+                return Ok(DisplayName::Named(name.to_owned()));
             } else if let Some(alias) = &inner.base_info.canonical_alias {
                 let alias = alias.alias().trim();
-                return Ok(alias.to_owned());
+                return Ok(DisplayName::Named(alias.to_owned()));
             }
             inner.summary.clone()
         };
@@ -714,5 +714,33 @@ impl RoomInfo {
     /// Get the room version of this room.
     pub fn room_version(&self) -> Option<&RoomVersionId> {
         self.base_info.create.as_ref().map(|c| &c.room_version)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::store::MemoryStore;
+    use std::sync::Arc;
+    use ruma::{user_id, room_id};
+    use super::*;
+
+    fn make_room(room_type: RoomType) -> Room {
+        let store = Arc::new(MemoryStore::new());
+        let user_id = user_id!("@something:example.org");
+        let room_id = room_id!("!test:localhost");
+
+        Room::new(
+            &user_id,
+            store,
+            room_id,
+            room_type
+        )
+    }
+
+    #[tokio::test]
+    async fn test_display_name() {
+        let mut room = make_room(RoomType::Joined);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+
     }
 }
