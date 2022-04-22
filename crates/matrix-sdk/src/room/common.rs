@@ -826,8 +826,6 @@ impl Common {
     /// members of the room. When unsetting this room as DM, it will be
     /// unmarked as DM for all users, not just the members.
     ///
-    /// Returns the [`set_global_account_data::v3::Response`] from the server.
-    ///
     /// # Arguments
     /// * `is_direct` - Whether to mark this room as direct.
     pub async fn set_is_direct(&self, is_direct: bool) -> Result<()> {
