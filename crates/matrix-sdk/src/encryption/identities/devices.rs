@@ -82,14 +82,14 @@ impl Device {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::{device_id, UserId}};
+    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.request_verification().await?;
@@ -127,17 +127,17 @@ impl Device {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        device_id, UserId,
+    /// #        device_id, user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
     /// // verification
@@ -172,14 +172,14 @@ impl Device {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::{device_id, UserId}};
+    /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.start_verification().await?;
@@ -212,19 +212,19 @@ impl Device {
     /// key.
     ///
     /// The state of our private cross signing keys can be inspected using the
-    /// [`Client::cross_signing_status()`] method.
+    /// [`Encryption::cross_signing_status()`] method.
     ///
-    /// [`Client::cross_signing_status()`]: crate::Client::cross_signing_status
+    /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     ///
     /// ### Problems of manual verification
     ///
-    /// Manual verification may be more convenient to use, i.e. both devices need
-    /// to be online and available to interactively verify each other. Despite
-    /// the convenience, interactive verifications should be generally
-    /// preferred. Manually verifying a device won't notify the other device,
-    /// the one being verified, that they should also verify us. This means that
-    /// device `A` will consider device `B` to be verified, but not the other
-    /// way around.
+    /// Manual verification may be more convenient to use, i.e. both devices
+    /// need to be online and available to interactively verify each other.
+    /// Despite the convenience, interactive verifications should be
+    /// generally preferred. Manually verifying a device won't notify the
+    /// other device, the one being verified, that they should also verify
+    /// us. This means that device `A` will consider device `B` to be
+    /// verified, but not the other way around.
     ///
     /// # Examples
     ///
@@ -233,17 +233,17 @@ impl Device {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        device_id, UserId,
+    /// #        device_id, user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     device.verify().await?;
@@ -348,17 +348,17 @@ impl Device {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        device_id, UserId,
+    /// #        device_id, user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org")?;
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await?;
+    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     if device.verified() {

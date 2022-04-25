@@ -28,13 +28,13 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
         client::{
-            r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
+            uiaa::{UiaaInfo, UiaaResponse as UiaaError},
             Error as RumaClientApiError,
         },
         error::{FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError},
     },
     events::tag::InvalidUserTagName,
-    identifiers::Error as IdentifierError,
+    IdParseError,
 };
 use serde_json::Error as JsonError;
 use thiserror::Error;
@@ -109,6 +109,12 @@ pub enum Error {
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
+    /// Attempting to restore a session after the olm-machine has already been
+    /// set up fails
+    #[cfg(feature = "encryption")]
+    #[error("The olm machine has already been initialized")]
+    BadCryptoStoreState,
+
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]
     SerdeJson(#[from] JsonError),
@@ -143,7 +149,7 @@ pub enum Error {
 
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
-    Identifier(#[from] IdentifierError),
+    Identifier(#[from] IdParseError),
 
     /// An error encountered when trying to parse a url.
     #[error(transparent)]
@@ -157,6 +163,11 @@ pub enum Error {
     /// An error encountered when trying to parse a user tag name.
     #[error(transparent)]
     UserTagName(#[from] InvalidUserTagName),
+
+    /// An error while processing images.
+    #[cfg(feature = "image-proc")]
+    #[error(transparent)]
+    ImageError(#[from] ImageError),
 }
 
 /// Error for the room key importing functionality.
@@ -200,7 +211,7 @@ impl HttpError {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
+        if let HttpError::UiaaError(FromHttpResponseError::Server(ServerError::Known(
             UiaaError::AuthResponse(i),
         ))) = self
         {
@@ -224,9 +235,9 @@ impl Error {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
-            UiaaError::AuthResponse(i),
-        )))) = self
+        if let Error::Http(HttpError::UiaaError(FromHttpResponseError::Server(
+            ServerError::Known(UiaaError::AuthResponse(i)),
+        ))) = self
         {
             Some(i)
         } else {
@@ -245,6 +256,8 @@ impl From<SdkBaseError> for Error {
             #[cfg(feature = "encryption")]
             SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
             #[cfg(feature = "encryption")]
+            SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
+            #[cfg(feature = "encryption")]
             SdkBaseError::OlmError(e) => Self::OlmError(e),
             #[cfg(feature = "encryption")]
             SdkBaseError::MegolmError(e) => Self::MegolmError(e),
@@ -256,4 +269,21 @@ impl From<ReqwestError> for Error {
     fn from(e: ReqwestError) -> Self {
         Error::Http(HttpError::Reqwest(e))
     }
+}
+
+/// All possible errors that can happen during image processing.
+#[cfg(feature = "image-proc")]
+#[derive(Error, Debug)]
+pub enum ImageError {
+    /// Error processing the image data.
+    #[error(transparent)]
+    Proc(#[from] image::ImageError),
+
+    /// The image format is not supported.
+    #[error("the image format is not supported")]
+    FormatNotSupported,
+
+    /// The thumbnail size is bigger than the original image.
+    #[error("the thumbnail size is bigger than the original image size")]
+    ThumbnailBiggerThanOriginal,
 }

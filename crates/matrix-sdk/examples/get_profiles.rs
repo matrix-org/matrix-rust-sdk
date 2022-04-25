@@ -1,7 +1,7 @@
-use std::{convert::TryFrom, env, process::exit};
+use std::{env, process::exit};
 
 use matrix_sdk::{
-    ruma::{api::client::r0::profile, MxcUri, UserId},
+    ruma::{api::client::profile, MxcUri, UserId},
     Client, Result as MatrixResult,
 };
 use url::Url;
@@ -19,7 +19,7 @@ struct UserProfile {
 async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile> {
     // First construct the request you want to make
     // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/index.html for all available Endpoints
-    let request = profile::get_profile::Request::new(mxid);
+    let request = profile::get_profile::v3::Request::new(mxid);
 
     // Start the request using matrix_sdk::Client::send
     let resp = client.send(request, None).await?;
@@ -62,7 +62,7 @@ async fn main() -> Result<(), matrix_sdk::Error> {
 
     let client = login(homeserver_url, &username, &password).await?;
 
-    let user_id = Box::<UserId>::try_from(username).expect("Couldn't parse the MXID");
+    let user_id = UserId::parse(username).expect("Couldn't parse the MXID");
     let profile = get_profile(client, &user_id).await?;
     println!("{:#?}", profile);
     Ok(())

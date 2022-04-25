@@ -1,16 +1,21 @@
+#[cfg(feature = "image-proc")]
+use std::io::Cursor;
 #[cfg(feature = "encryption")]
 use std::sync::Arc;
-use std::{io::Read, ops::Deref};
+use std::{
+    io::{BufReader, Read, Seek},
+    ops::Deref,
+};
 
 use matrix_sdk_common::instant::{Duration, Instant};
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
 use mime::{self, Mime};
 use ruma::{
-    api::client::r0::{
+    api::client::{
         membership::{
             ban_user,
-            invite_user::{self, InvitationRecipient},
+            invite_user::{self, v3::InvitationRecipient},
             kick_user, Invite3pid,
         },
         message::send_message_event,
@@ -18,10 +23,10 @@ use ruma::{
         receipt::create_receipt,
         redact::redact_event,
         state::send_state_event,
-        typing::create_typing_event::{Request as TypingRequest, Typing},
+        typing::create_typing_event::v3::{Request as TypingRequest, Typing},
     },
     assign,
-    events::{room::message::RoomMessageEventContent, MessageEventContent, StateEventContent},
+    events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
     receipt::ReceiptType,
     serde::Raw,
     EventId, TransactionId, UserId,
@@ -31,7 +36,14 @@ use tracing::debug;
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
-use crate::{error::HttpResult, room::Common, BaseRoom, Client, Result, RoomType};
+#[cfg(feature = "image-proc")]
+use crate::{attachment::generate_image_thumbnail, error::ImageError};
+use crate::{
+    attachment::{AttachmentConfig, Thumbnail},
+    error::HttpResult,
+    room::Common,
+    BaseRoom, Client, Result, RoomType,
+};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -84,7 +96,8 @@ impl Joined {
     ///
     /// * `reason` - The reason for banning this user.
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request = assign!(ban_user::Request::new(self.inner.room_id(), user_id), { reason });
+        let request =
+            assign!(ban_user::v3::Request::new(self.inner.room_id(), user_id), { reason });
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -98,7 +111,8 @@ impl Joined {
     ///
     /// * `reason` - Optional reason why the room member is being kicked out.
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request = assign!(kick_user::Request::new(self.inner.room_id(), user_id), { reason });
+        let request =
+            assign!(kick_user::v3::Request::new(self.inner.room_id(), user_id), { reason });
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -111,7 +125,7 @@ impl Joined {
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         let recipient = InvitationRecipient::UserId { user_id };
 
-        let request = invite_user::Request::new(self.inner.room_id(), recipient);
+        let request = invite_user::v3::Request::new(self.inner.room_id(), recipient);
         self.client.send(request, None).await?;
 
         Ok(())
@@ -124,7 +138,7 @@ impl Joined {
     /// * `invite_id` - A third party id of a user to invite to the room.
     pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid<'_>) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
-        let request = invite_user::Request::new(self.inner.room_id(), recipient);
+        let request = invite_user::v3::Request::new(self.inner.room_id(), recipient);
         self.client.send(request, None).await?;
 
         Ok(())
@@ -146,7 +160,7 @@ impl Joined {
     ///
     /// ```no_run
     /// use std::time::Duration;
-    /// use matrix_sdk::ruma::api::client::r0::typing::create_typing_event::Typing;
+    /// use matrix_sdk::ruma::api::client::typing::create_typing_event::v3::Typing;
     ///
     /// # use matrix_sdk::{
     /// #     Client, config::SyncSettings,
@@ -216,7 +230,7 @@ impl Joined {
     ///   on.
     pub async fn read_receipt(&self, event_id: &EventId) -> Result<()> {
         let request =
-            create_receipt::Request::new(self.inner.room_id(), ReceiptType::Read, event_id);
+            create_receipt::v3::Request::new(self.inner.room_id(), ReceiptType::Read, event_id);
 
         self.client.send(request, None).await?;
         Ok(())
@@ -236,9 +250,10 @@ impl Joined {
         fully_read: &EventId,
         read_receipt: Option<&EventId>,
     ) -> Result<()> {
-        let request = assign!(set_read_marker::Request::new(self.inner.room_id(), fully_read), {
-            read_receipt
-        });
+        let request =
+            assign!(set_read_marker::v3::Request::new(self.inner.room_id(), fully_read), {
+                read_receipt
+            });
 
         self.client.send(request, None).await?;
         Ok(())
@@ -387,8 +402,8 @@ impl Joined {
     ///       earlier transaction ID.
     ///     * On the receiving side, the field is used for recognizing our own
     ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`Unsigned`] field [`transaction_id`] of the
-    ///       corresponding [`SyncMessageEvent`], but only for the *sending*
+    ///       ID in the [`MessageLikeUnsigned`] field [`transaction_id`] of the
+    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
     ///       device. Other devices will not see it. This is then used to ignore
     ///       events sent by our own device and/or to implement local echo.
     ///
@@ -423,7 +438,7 @@ impl Joined {
     ///
     /// // Custom events work too:
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = Message)]
+    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = MessageLike)]
     /// struct TokenEventContent {
     ///     token: String,
     ///     #[serde(rename = "exp")]
@@ -446,18 +461,18 @@ impl Joined {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
-    /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
-    /// [`Unsigned`]: ruma::events::Unsigned
-    /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
+    /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
+    /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
+    /// [`transaction_id`]: ruma::events::MessageLikeUnsigned#structfield.transaction_id
     pub async fn send(
         &self,
-        content: impl MessageEventContent,
+        content: impl MessageLikeEventContent,
         txn_id: Option<&TransactionId>,
-    ) -> Result<send_message_event::Response> {
-        let event_type = content.event_type();
+    ) -> Result<send_message_event::v3::Response> {
+        let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
 
-        self.send_raw(content, event_type, txn_id).await
+        self.send_raw(content, &event_type, txn_id).await
     }
 
     /// Send a room message to this room from a json `Value`.
@@ -485,8 +500,8 @@ impl Joined {
     ///       earlier transaction ID.
     ///     * On the receiving side, the field is used for recognizing our own
     ///       messages when they arrive down the sync: the server includes the
-    ///       ID in the [`Unsigned`] field [`transaction_id`] of the
-    ///       corresponding [`SyncMessageEvent`], but only for the *sending*
+    ///       ID in the [`StateUnsigned`] field [`transaction_id`] of the
+    ///       corresponding [`SyncMessageLikeEvent`], but only for the *sending*
     ///       device. Other devices will not see it. This is then used to ignore
     ///       events sent by our own device and/or to implement local echo.
     ///
@@ -514,15 +529,15 @@ impl Joined {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
     ///
-    /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
-    /// [`Unsigned`]: ruma::events::Unsigned
-    /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
+    /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
+    /// [`StateUnsigned`]: ruma::events::StateUnsigned
+    /// [`transaction_id`]: ruma::events::StateUnsigned#structfield.transaction_id
     pub async fn send_raw(
         &self,
         content: Value,
         event_type: &str,
         txn_id: Option<&TransactionId>,
-    ) -> Result<send_message_event::Response> {
+    ) -> Result<send_message_event::v3::Response> {
         let txn_id: Box<TransactionId> = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
         #[cfg(not(feature = "encryption"))]
@@ -531,7 +546,7 @@ impl Joined {
                 room_id = self.room_id().as_str(),
                 "Sending plaintext event to room because we don't have encryption support.",
             );
-            serde_json::value::to_raw_value(&content)?
+            Raw::new(&content)?.cast()
         };
 
         #[cfg(feature = "encryption")]
@@ -552,8 +567,8 @@ impl Joined {
 
             let encrypted_content =
                 olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
-            let raw_content = serde_json::value::to_raw_value(&encrypted_content)
-                .expect("Failed to serialize encrypted event");
+            let raw_content =
+                Raw::new(&encrypted_content).expect("Failed to serialize encrypted event").cast();
 
             (raw_content, "m.room.encrypted")
         } else {
@@ -562,14 +577,14 @@ impl Joined {
                 "Sending plaintext event because the room is NOT encrypted.",
             );
 
-            (serde_json::value::to_raw_value(&content)?, event_type)
+            (Raw::new(&content)?.cast(), event_type)
         };
 
-        let request = send_message_event::Request::new_raw(
+        let request = send_message_event::v3::Request::new_raw(
             self.inner.room_id(),
             &txn_id,
-            event_type,
-            Raw::from_json(content),
+            event_type.into(),
+            content,
         );
 
         let response = self.client.send(request, None).await?;
@@ -597,15 +612,13 @@ impl Joined {
     /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
     ///
-    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
+    /// * `config` - Metadata and configuration for the attachment.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, ruma::room_id};
+    /// # use matrix_sdk::{Client, ruma::room_id, attachment::AttachmentConfig};
     /// # use url::Url;
     /// # use mime;
     /// # use futures::executor::block_on;
@@ -621,29 +634,127 @@ impl Joined {
     ///         "My favorite cat",
     ///         &mime::IMAGE_JPEG,
     ///         &mut image,
-    ///         None,
+    ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     /// ```
-    pub async fn send_attachment<R: Read>(
+    pub async fn send_attachment<R: Read + Seek, T: Read>(
         &self,
         body: &str,
         content_type: &Mime,
         reader: &mut R,
-        txn_id: Option<&TransactionId>,
-    ) -> Result<send_message_event::Response> {
+        config: AttachmentConfig<'_, T>,
+    ) -> Result<send_message_event::v3::Response> {
+        let reader = &mut BufReader::new(reader);
+
+        #[cfg(feature = "image-proc")]
+        let mut cursor;
+
+        if config.thumbnail.is_some() {
+            self.prepare_and_send_attachment(body, content_type, reader, config).await
+        } else {
+            #[cfg(not(feature = "image-proc"))]
+            let thumbnail = Thumbnail::NONE;
+
+            #[cfg(feature = "image-proc")]
+            let thumbnail = if config.generate_thumbnail {
+                match generate_image_thumbnail(content_type, reader, config.thumbnail_size) {
+                    Ok((thumbnail_data, thumbnail_info)) => {
+                        reader.rewind()?;
+
+                        cursor = Cursor::new(thumbnail_data);
+                        Some(Thumbnail {
+                            reader: &mut cursor,
+                            content_type: &mime::IMAGE_JPEG,
+                            info: Some(thumbnail_info),
+                        })
+                    }
+                    Err(
+                        ImageError::ThumbnailBiggerThanOriginal | ImageError::FormatNotSupported,
+                    ) => {
+                        reader.rewind()?;
+                        None
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            } else {
+                None
+            };
+
+            let config = AttachmentConfig {
+                txn_id: config.txn_id,
+                info: config.info,
+                thumbnail,
+                #[cfg(feature = "image-proc")]
+                generate_thumbnail: false,
+                #[cfg(feature = "image-proc")]
+                thumbnail_size: None,
+            };
+
+            self.prepare_and_send_attachment(body, content_type, reader, config).await
+        }
+    }
+
+    /// Prepare and send an attachment to this room.
+    ///
+    /// This will upload the given data that the reader produces using the
+    /// [`upload()`](#method.upload) method and post an event to the given room.
+    /// If the room is encrypted and the encryption feature is enabled the
+    /// upload will be encrypted.
+    ///
+    /// This is a convenience method that calls the
+    /// [`Client::upload()`](#Client::method.upload) and afterwards the
+    /// [`send()`](#method.send).
+    ///
+    /// # Arguments
+    /// * `body` - A textual representation of the media that is going to be
+    /// uploaded. Usually the file name.
+    ///
+    /// * `content_type` - The type of the media, this will be used as the
+    /// content-type header.
+    ///
+    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
+    /// media.
+    ///
+    /// * `config` - Metadata and configuration for the attachment.
+    async fn prepare_and_send_attachment<R: Read, T: Read>(
+        &self,
+        body: &str,
+        content_type: &Mime,
+        reader: &mut R,
+        config: AttachmentConfig<'_, T>,
+    ) -> Result<send_message_event::v3::Response> {
         #[cfg(feature = "encryption")]
         let content = if self.is_encrypted() {
-            self.client.prepare_encrypted_attachment_message(body, content_type, reader).await?
+            self.client
+                .prepare_encrypted_attachment_message(
+                    body,
+                    content_type,
+                    reader,
+                    config.info,
+                    config.thumbnail,
+                )
+                .await?
         } else {
-            self.client.prepare_attachment_message(body, content_type, reader).await?
+            self.client
+                .prepare_attachment_message(
+                    body,
+                    content_type,
+                    reader,
+                    config.info,
+                    config.thumbnail,
+                )
+                .await?
         };
 
         #[cfg(not(feature = "encryption"))]
-        let content = self.client.prepare_attachment_message(body, content_type, reader).await?;
+        let content = self
+            .client
+            .prepare_attachment_message(body, content_type, reader, config.info, config.thumbnail)
+            .await?;
 
-        self.send(RoomMessageEventContent::new(content), txn_id).await
+        self.send(RoomMessageEventContent::new(content), config.txn_id).await
     }
 
     /// Send a room state event to the homeserver.
@@ -697,8 +808,9 @@ impl Joined {
         &self,
         content: impl StateEventContent,
         state_key: &str,
-    ) -> Result<send_state_event::Response> {
-        let request = send_state_event::Request::new(self.inner.room_id(), state_key, &content)?;
+    ) -> Result<send_state_event::v3::Response> {
+        let request =
+            send_state_event::v3::Request::new(self.inner.room_id(), state_key, &content)?;
         let response = self.client.send(request, None).await?;
         Ok(response)
     }
@@ -741,11 +853,11 @@ impl Joined {
         content: Value,
         event_type: &str,
         state_key: &str,
-    ) -> Result<send_state_event::Response> {
-        let content = Raw::from_json(serde_json::value::to_raw_value(&content)?);
-        let request = send_state_event::Request::new_raw(
+    ) -> Result<send_state_event::v3::Response> {
+        let content = Raw::new(&content)?.cast();
+        let request = send_state_event::v3::Request::new_raw(
             self.inner.room_id(),
-            event_type,
+            event_type.into(),
             state_key,
             content,
         );
@@ -755,7 +867,7 @@ impl Joined {
 
     /// Strips all information out of an event of the room.
     ///
-    /// Returns the [`redact_event::Response`] from the server.
+    /// Returns the [`redact_event::v3::Response`] from the server.
     ///
     /// This cannot be undone. Users may redact their own events, and any user
     /// with a power level greater than or equal to the redact power level of
@@ -791,10 +903,10 @@ impl Joined {
         event_id: &EventId,
         reason: Option<&str>,
         txn_id: Option<Box<TransactionId>>,
-    ) -> HttpResult<redact_event::Response> {
+    ) -> HttpResult<redact_event::v3::Response> {
         let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request =
-            assign!(redact_event::Request::new(self.inner.room_id(), event_id, &txn_id), {
+            assign!(redact_event::v3::Request::new(self.inner.room_id(), event_id, &txn_id), {
                 reason
             });
 

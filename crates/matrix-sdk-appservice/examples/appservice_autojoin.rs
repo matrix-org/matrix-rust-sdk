@@ -1,11 +1,11 @@
-use std::{convert::TryFrom, env};
+use std::env;
 
 use matrix_sdk_appservice::{
     matrix_sdk::{
         event_handler::Ctx,
         room::Room,
         ruma::{
-            events::room::member::{MembershipState, SyncRoomMemberEvent},
+            events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
             UserId,
         },
     },
@@ -16,12 +16,12 @@ use tracing::trace;
 pub async fn handle_room_member(
     appservice: AppService,
     room: Room,
-    event: SyncRoomMemberEvent,
+    event: OriginalSyncRoomMemberEvent,
 ) -> Result<()> {
     if !appservice.user_id_is_in_namespace(&event.state_key)? {
         trace!("not an appservice user: {}", event.state_key);
     } else if let MembershipState::Invite = event.content.membership {
-        let user_id = Box::<UserId>::try_from(event.state_key.as_str())?;
+        let user_id = UserId::parse(event.state_key.as_str())?;
         appservice.register_virtual_user(user_id.localpart()).await?;
 
         let client = appservice.virtual_user_client(user_id.localpart()).await?;
@@ -44,7 +44,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     appservice
         .register_event_handler_context(appservice.clone())?
         .register_event_handler(
-            move |event: SyncRoomMemberEvent, room: Room, Ctx(appservice): Ctx<AppService>| {
+            move |event: OriginalSyncRoomMemberEvent,
+                  room: Room,
+                  Ctx(appservice): Ctx<AppService>| {
                 handle_room_member(appservice, room, event)
             },
         )

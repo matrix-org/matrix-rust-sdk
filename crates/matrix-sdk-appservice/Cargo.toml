@@ -8,45 +8,38 @@ name = "matrix-sdk-appservice"
 version = "0.1.0"
 
 [features]
-default = ["warp", "native-tls"]
+default = ["native-tls"]
 
 anyhow = ["matrix-sdk/anyhow"]
 encryption = ["matrix-sdk/encryption"]
 eyre = ["matrix-sdk/eyre"]
-sled_state_store = ["matrix-sdk/sled_state_store"]
-sled_cryptostore = ["matrix-sdk/sled_cryptostore"]
+sled-state-store = ["matrix-sdk/sled-state-store"]
+sled-crypto-store = ["matrix-sdk/sled-crypto-store"]
 markdown = ["matrix-sdk/markdown"]
 native-tls = ["matrix-sdk/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls"]
 socks = ["matrix-sdk/socks"]
-sso_login = ["matrix-sdk/sso_login"]
+sso-login = ["matrix-sdk/sso-login"]
 
-docs = ["warp"]
+docs = []
 
 [dependencies]
-dashmap = "4"
+dashmap = "5.1.0"
 http = "0.2"
 matrix-sdk = { version = "0.4", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
+percent-encoding = "2.1.0"
 regex = "1"
+ruma = { git = "https://github.com/ruma/ruma", rev = "548232ef5", features = ["client-api-c", "appservice-api-s"] }
 serde = "1"
 serde_json = "1"
 serde_yaml = "0.8"
 thiserror = "1.0"
 tracing = "0.1"
 url = "2"
-warp = { version = "0.3.1", optional = true, default-features = false }
-
-[dependencies.ruma]
-git = "https://github.com/ruma/ruma/"
-rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
-features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
+warp = { version = "0.3.1", default-features = false }
 
 [dev-dependencies]
 matrix-sdk-test = { version = "0.4", path = "../matrix-sdk-test", features = ["appservice"] }
 mockito = "0.30"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.3.7"
-
-[[example]]
-name = "appservice_autojoin"
-required-features = ["warp"]

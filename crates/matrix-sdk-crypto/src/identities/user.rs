@@ -23,8 +23,8 @@ use std::{
 };
 
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
-    encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
+    encryption::KeyUsage,
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
@@ -33,12 +33,14 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 use tracing::error;
+use vodozemac::Ed25519PublicKey;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::SignatureError,
-    olm::Utility,
+    olm::VerifyJson,
     store::{Changes, IdentityChanges},
+    types::{CrossSigningKey, DeviceKeys, SigningKey},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
@@ -122,7 +124,7 @@ impl OwnUserIdentity {
         };
 
         if let Err(e) = self.verification_machine.store.save_changes(changes).await {
-            error!(error =? e, "Couldn't store our own user identity after marking it as verified");
+            error!(error = ?e, "Couldn't store our own user identity after marking it as verified");
         }
 
         self.verification_machine.store.account.sign_master_key(self.master_key.clone()).await
@@ -312,40 +314,19 @@ impl PartialEq for UserSigningPubkey {
 
 impl From<CrossSigningKey> for MasterPubkey {
     fn from(key: CrossSigningKey) -> Self {
-        Self(Arc::new(key))
+        Self(key.into())
     }
 }
 
 impl From<CrossSigningKey> for SelfSigningPubkey {
     fn from(key: CrossSigningKey) -> Self {
-        Self(Arc::new(key))
+        Self(key.into())
     }
 }
 
 impl From<CrossSigningKey> for UserSigningPubkey {
     fn from(key: CrossSigningKey) -> Self {
-        Self(Arc::new(key))
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<CrossSigningKey> for MasterPubkey {
-    fn into(self) -> CrossSigningKey {
-        self.0.as_ref().clone()
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<CrossSigningKey> for UserSigningPubkey {
-    fn into(self) -> CrossSigningKey {
-        self.0.as_ref().clone()
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<CrossSigningKey> for SelfSigningPubkey {
-    fn into(self) -> CrossSigningKey {
-        self.0.as_ref().clone()
+        Self(key.into())
     }
 }
 
@@ -364,24 +345,6 @@ impl AsRef<CrossSigningKey> for SelfSigningPubkey {
 impl AsRef<CrossSigningKey> for UserSigningPubkey {
     fn as_ref(&self) -> &CrossSigningKey {
         &self.0
-    }
-}
-
-impl From<&CrossSigningKey> for MasterPubkey {
-    fn from(key: &CrossSigningKey) -> Self {
-        Self(Arc::new(key.clone()))
-    }
-}
-
-impl From<&CrossSigningKey> for SelfSigningPubkey {
-    fn from(key: &CrossSigningKey) -> Self {
-        Self(Arc::new(key.clone()))
-    }
-}
-
-impl From<&CrossSigningKey> for UserSigningPubkey {
-    fn from(key: &CrossSigningKey) -> Self {
-        Self(Arc::new(key.clone()))
     }
 }
 
@@ -430,7 +393,7 @@ impl MasterPubkey {
     }
 
     /// Get the keys map of containing the master keys.
-    pub fn keys(&self) -> &BTreeMap<String, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
         &self.0.keys
     }
 
@@ -440,7 +403,7 @@ impl MasterPubkey {
     }
 
     /// Get the signatures map of this cross signing key.
-    pub fn signatures(&self) -> &BTreeMap<Box<UserId>, BTreeMap<String, String>> {
+    pub fn signatures(&self) -> &BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
         &self.0.signatures
     }
 
@@ -449,16 +412,20 @@ impl MasterPubkey {
     /// # Arguments
     ///
     /// * `key_id` - The id of the key that should be fetched.
-    pub fn get_key(&self, key_id: &DeviceKeyId) -> Option<&str> {
-        self.0.keys.get(key_id.as_str()).map(|k| k.as_str())
+    pub fn get_key(&self, key_id: &DeviceKeyId) -> Option<&SigningKey> {
+        self.0.keys.get(key_id)
     }
 
     /// Get the first available master key.
     ///
     /// There's usually only a single master key so this will usually fetch the
     /// only key.
-    pub fn get_first_key(&self) -> Option<&str> {
-        self.0.keys.values().map(|k| k.as_str()).next()
+    pub fn get_first_key(&self) -> Option<Ed25519PublicKey> {
+        if let Some(SigningKey::Ed25519(k)) = self.0.keys.values().next() {
+            Some(*k)
+        } else {
+            None
+        }
     }
 
     /// Check if the given cross signing sub-key is signed by the master key.
@@ -481,25 +448,28 @@ impl MasterPubkey {
         // if self.0.usage.contains(&KeyUsage::Master) {
         //     return Err(SignatureError::MissingSigningKey);
         // }
-        let subkey: CrossSigningSubKeys = subkey.into();
+        let subkey: CrossSigningSubKeys<'_> = subkey.into();
 
         if self.0.user_id != subkey.user_id() {
             return Err(SignatureError::UserIdMismatch);
         }
 
-        let utility = Utility::new();
-        utility.verify_json(
-            &self.0.user_id,
-            key_id,
-            key,
-            &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
-        )
+        if let SigningKey::Ed25519(key) = key {
+            key.verify_json(
+                &self.0.user_id,
+                key_id,
+                &mut to_value(subkey.cross_signing_key())
+                    .map_err(|_| SignatureError::NotAnObject)?,
+            )
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 }
 
 impl<'a> IntoIterator for &'a MasterPubkey {
-    type Item = (&'a String, &'a String);
-    type IntoIter = Iter<'a, String, String>;
+    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
+    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -513,7 +483,7 @@ impl UserSigningPubkey {
     }
 
     /// Get the keys map of containing the user signing keys.
-    pub fn keys(&self) -> &BTreeMap<String, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
         &self.0.keys
     }
 
@@ -534,19 +504,21 @@ impl UserSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        let utility = Utility::new();
-        utility.verify_json(
-            &self.0.user_id,
-            key_id.as_str().try_into()?,
-            key,
-            &mut to_value(&*master_key.0).map_err(|_| SignatureError::NotAnObject)?,
-        )
+        if let SigningKey::Ed25519(key) = key {
+            key.verify_json(
+                &self.0.user_id,
+                key_id.as_str().try_into()?,
+                &mut to_value(&master_key.0).map_err(|_| SignatureError::NotAnObject)?,
+            )
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 }
 
 impl<'a> IntoIterator for &'a UserSigningPubkey {
-    type Item = (&'a String, &'a String);
-    type IntoIter = Iter<'a, String, String>;
+    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
+    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -560,7 +532,7 @@ impl SelfSigningPubkey {
     }
 
     /// Get the keys map of containing the self signing keys.
-    pub fn keys(&self) -> &BTreeMap<String, String> {
+    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, SigningKey> {
         &self.0.keys
     }
 
@@ -570,9 +542,11 @@ impl SelfSigningPubkey {
 
         let mut device = to_value(device_keys)?;
 
-        let utility = Utility::new();
-
-        utility.verify_json(&self.0.user_id, key_id.as_str().try_into()?, key, &mut device)
+        if let SigningKey::Ed25519(key) = key {
+            key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, &mut device)
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 
     /// Check if the given device is signed by this self signing key.
@@ -589,8 +563,8 @@ impl SelfSigningPubkey {
 }
 
 impl<'a> IntoIterator for &'a SelfSigningPubkey {
-    type Item = (&'a String, &'a String);
-    type IntoIter = Iter<'a, String, String>;
+    type Item = (&'a Box<DeviceKeyId>, &'a SigningKey);
+    type IntoIter = Iter<'a, Box<DeviceKeyId>, SigningKey>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys().iter()
@@ -935,67 +909,96 @@ impl ReadOnlyOwnUserIdentity {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test {
-    use std::{convert::TryFrom, sync::Arc};
+#[cfg(any(test, feature = "testing"))]
+pub(crate) mod testing {
+    //! Testing Facilities
+    #![allow(dead_code)]
+    use ruma::{api::client::keys::get_keys::v3::Response as KeyQueryResponse, user_id};
 
-    use matrix_sdk_common::locks::Mutex;
-    use matrix_sdk_test::async_test;
-    use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
-
-    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities, ReadOnlyUserIdentity};
+    use super::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity};
     use crate::{
         identities::{
-            manager::test::{other_key_query, own_key_query},
-            Device, ReadOnlyDevice,
+            manager::testing::{other_key_query, own_key_query},
+            ReadOnlyDevice,
         },
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::MemoryStore,
-        verification::VerificationMachine,
+        types::CrossSigningKey,
     };
 
-    fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
+    /// Generate test devices from KeyQueryResponse
+    pub fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();
         let first =
-            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
+            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
         let second =
-            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize().unwrap()).unwrap();
+            ReadOnlyDevice::try_from(&devices.next().unwrap().deserialize_as().unwrap()).unwrap();
         (first, second)
     }
 
-    fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
+    /// Generate ReadOnlyOwnUserIdentity from KeyQueryResponse for testing
+    pub fn own_identity(response: &KeyQueryResponse) -> ReadOnlyOwnUserIdentity {
         let user_id = user_id!("@example:localhost");
 
-        let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
-        let user_signing = response.user_signing_keys.get(user_id).unwrap().deserialize().unwrap();
-        let self_signing = response.self_signing_keys.get(user_id).unwrap().deserialize().unwrap();
+        let master_key: CrossSigningKey =
+            response.master_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let user_signing: CrossSigningKey =
+            response.user_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let self_signing: CrossSigningKey =
+            response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
         ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
             .unwrap()
     }
 
-    pub(crate) fn get_own_identity() -> ReadOnlyOwnUserIdentity {
+    /// Generate default own identity for tests
+    pub fn get_own_identity() -> ReadOnlyOwnUserIdentity {
         own_identity(&own_key_query())
     }
 
-    pub(crate) fn get_other_identity() -> ReadOnlyUserIdentity {
+    /// Generate default other identify for tests
+    pub fn get_other_identity() -> ReadOnlyUserIdentity {
         let user_id = user_id!("@example2:localhost");
         let response = other_key_query();
 
-        let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
-        let self_signing = response.self_signing_keys.get(user_id).unwrap().deserialize().unwrap();
+        let master_key: CrossSigningKey =
+            response.master_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let self_signing: CrossSigningKey =
+            response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
         ReadOnlyUserIdentity::new(master_key.into(), self_signing.into()).unwrap()
     }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::sync::Arc;
+
+    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_test::async_test;
+    use ruma::user_id;
+
+    use super::{
+        testing::{device, get_other_identity, get_own_identity},
+        ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    };
+    use crate::{
+        identities::{manager::testing::own_key_query, Device},
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        store::MemoryStore,
+        types::CrossSigningKey,
+        verification::VerificationMachine,
+    };
 
     #[test]
     fn own_identity_create() {
         let user_id = user_id!("@example:localhost");
         let response = own_key_query();
 
-        let master_key = response.master_keys.get(user_id).unwrap().deserialize().unwrap();
-        let user_signing = response.user_signing_keys.get(user_id).unwrap().deserialize().unwrap();
-        let self_signing = response.self_signing_keys.get(user_id).unwrap().deserialize().unwrap();
+        let master_key: CrossSigningKey =
+            response.master_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let user_signing: CrossSigningKey =
+            response.user_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
+        let self_signing: CrossSigningKey =
+            response.self_signing_keys.get(user_id).unwrap().deserialize_as().unwrap();
 
         ReadOnlyOwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into())
             .unwrap();
@@ -1054,7 +1057,7 @@ pub(crate) mod test {
         let (_, device) = device(&response);
 
         let account = ReadOnlyAccount::new(device.user_id(), device.device_id());
-        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
 
         let id = Arc::new(Mutex::new(identity.clone()));
 

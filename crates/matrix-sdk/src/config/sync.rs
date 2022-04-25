@@ -14,14 +14,14 @@
 
 use std::time::Duration;
 
-use ruma::api::client::r0::sync::sync_events;
+use ruma::api::client::sync::sync_events;
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 /// Settings for a sync call.
 pub struct SyncSettings<'a> {
-    pub(crate) filter: Option<sync_events::Filter<'a>>,
+    pub(crate) filter: Option<sync_events::v3::Filter<'a>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
@@ -29,12 +29,7 @@ pub struct SyncSettings<'a> {
 
 impl<'a> Default for SyncSettings<'a> {
     fn default() -> Self {
-        Self {
-            filter: Default::default(),
-            timeout: Some(DEFAULT_SYNC_TIMEOUT),
-            token: Default::default(),
-            full_state: Default::default(),
-        }
+        Self::new()
     }
 }
 
@@ -42,7 +37,7 @@ impl<'a> SyncSettings<'a> {
     /// Create new default sync settings.
     #[must_use]
     pub fn new() -> Self {
-        Default::default()
+        Self { filter: None, timeout: Some(DEFAULT_SYNC_TIMEOUT), token: None, full_state: false }
     }
 
     /// Set the sync token.
@@ -76,7 +71,7 @@ impl<'a> SyncSettings<'a> {
     /// * `filter` - The filter configuration that should be used for the sync
     ///   call.
     #[must_use]
-    pub fn filter(mut self, filter: sync_events::Filter<'a>) -> Self {
+    pub fn filter(mut self, filter: sync_events::v3::Filter<'a>) -> Self {
         self.filter = Some(filter);
         self
     }

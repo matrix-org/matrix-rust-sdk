@@ -20,8 +20,6 @@ use std::{
 #[cfg(feature = "qrcode")]
 use matrix_qrcode::QrVerificationData;
 use matrix_sdk_common::{instant::Instant, util::milli_seconds_since_unix_epoch};
-#[cfg(feature = "qrcode")]
-use ruma::DeviceKeyAlgorithm;
 use ruma::{
     events::{
         key::verification::{
@@ -32,7 +30,7 @@ use ruma::{
             Relation, VerificationMethod,
         },
         room::message::KeyVerificationRequestEventContent,
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
     DeviceId, RoomId, TransactionId, UserId,
@@ -164,7 +162,7 @@ impl VerificationRequest {
             milli_seconds_since_unix_epoch(),
         );
 
-        ToDeviceRequest::new_for_recipients(
+        ToDeviceRequest::for_recipients(
             self.other_user(),
             self.recipient_devices.to_vec(),
             AnyToDeviceEventContent::KeyVerificationRequest(content),
@@ -359,7 +357,7 @@ impl VerificationRequest {
         store: VerificationStore,
         sender: &UserId,
         flow_id: FlowId,
-        content: &RequestContent,
+        content: &RequestContent<'_>,
     ) -> Self {
         let account = store.account.clone();
 
@@ -442,7 +440,7 @@ impl VerificationRequest {
         let request = content.map(|c| match c {
             OutgoingContent::ToDevice(content) => {
                 if send_to_everyone {
-                    ToDeviceRequest::new_for_recipients(
+                    ToDeviceRequest::for_recipients(
                         self.other_user(),
                         self.recipient_devices.to_vec(),
                         content,
@@ -537,7 +535,7 @@ impl VerificationRequest {
             if recipients.is_empty() && filter_device.is_some() {
                 None
             } else {
-                Some(ToDeviceRequest::new_for_recipients(
+                Some(ToDeviceRequest::for_recipients(
                     self.other_user(),
                     recipients,
                     c,
@@ -549,7 +547,7 @@ impl VerificationRequest {
         }
     }
 
-    pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) {
+    pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent<'_>) {
         let mut inner = self.inner.lock().unwrap();
 
         match &*inner {
@@ -706,7 +704,7 @@ impl InnerRequest {
         }
     }
 
-    fn receive_done(&mut self, content: &DoneContent) {
+    fn receive_done(&mut self, content: &DoneContent<'_>) {
         *self = InnerRequest::Done(match self {
             InnerRequest::Ready(s) => s.clone().into_done(content),
             InnerRequest::Passive(s) => s.clone().into_done(content),
@@ -775,7 +773,7 @@ struct RequestState<S: Clone> {
 }
 
 impl<S: Clone> RequestState<S> {
-    fn into_done(self, _: &DoneContent) -> RequestState<Done> {
+    fn into_done(self, _: &DoneContent<'_>) -> RequestState<Done> {
         RequestState::<Done> {
             private_cross_signing_identity: self.private_cross_signing_identity,
             verification_cache: self.verification_cache,
@@ -823,7 +821,7 @@ impl RequestState<Created> {
         }
     }
 
-    fn into_ready(self, _sender: &UserId, content: &ReadyContent) -> RequestState<Ready> {
+    fn into_ready(self, _sender: &UserId, content: &ReadyContent<'_>) -> RequestState<Ready> {
         // TODO check the flow id, and that the methods match what we suggested.
         RequestState {
             flow_id: self.flow_id,
@@ -862,7 +860,7 @@ impl RequestState<Requested> {
         store: VerificationStore,
         sender: &UserId,
         flow_id: &FlowId,
-        content: &RequestContent,
+        content: &RequestContent<'_>,
     ) -> RequestState<Requested> {
         // TODO only create this if we support the methods
         RequestState {
@@ -878,7 +876,7 @@ impl RequestState<Requested> {
         }
     }
 
-    fn into_passive(self, content: &ReadyContent) -> RequestState<Passive> {
+    fn into_passive(self, content: &ReadyContent<'_>) -> RequestState<Passive> {
         RequestState {
             flow_id: self.flow_id,
             verification_cache: self.verification_cache,
@@ -914,7 +912,7 @@ impl RequestState<Requested> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationReady(
+                AnyMessageLikeEventContent::KeyVerificationReady(
                     KeyVerificationReadyEventContent::new(
                         state.store.account.device_id().to_owned(),
                         methods,
@@ -1004,9 +1002,7 @@ impl RequestState<Ready> {
                 ReadOnlyUserIdentities::Own(i) => {
                     if let Some(master_key) = i.master_key().get_first_key() {
                         if identites.can_sign_devices().await {
-                            if let Some(device_key) =
-                                identites.other_device().get_key(DeviceKeyAlgorithm::Ed25519)
-                            {
+                            if let Some(device_key) = identites.other_device().ed25519_key() {
                                 Some(QrVerification::new_self(
                                     self.flow_id.as_ref().to_owned(),
                                     master_key.to_owned(),
@@ -1168,7 +1164,7 @@ impl RequestState<Ready> {
                         warn!(
                             user_id = device.user_id().as_str(),
                             device_id = device.device_id().as_str(),
-                            content =? c,
+                            content = ?c,
                             "Can't start key verification, canceling.",
                         );
                         self.verification_cache.queue_up_content(
@@ -1190,13 +1186,13 @@ impl RequestState<Ready> {
                     trace!(
                         sender = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
-                        verification =? qr_verification,
+                        verification = ?qr_verification,
                         "Received a QR code reciprocation"
                     )
                 }
             }
             m => {
-                warn!(method =? m, "Received a key verification start event with an unsupported method")
+                warn!(method = ?m, "Received a key verification start event with an unsupported method")
             }
         }
 
@@ -1279,7 +1275,7 @@ struct Passive {
 struct Done {}
 
 #[cfg(test)]
-mod test {
+mod tests {
 
     use std::convert::{TryFrom, TryInto};
 

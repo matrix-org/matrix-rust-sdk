@@ -22,10 +22,10 @@ use inner_sas::InnerSas;
 #[cfg(test)]
 use matrix_sdk_common::instant::Instant;
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{cancel::CancelCode, ShortAuthenticationString},
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, EventId, RoomId, TransactionId, UserId,
 };
@@ -273,7 +273,7 @@ impl Sas {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_start_event(
         flow_id: FlowId,
-        content: &StartContent,
+        content: &StartContent<'_>,
         store: VerificationStore,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
@@ -336,7 +336,7 @@ impl Sas {
                 OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
                     room_id,
                     txn_id: TransactionId::new(),
-                    content: AnyMessageEventContent::KeyVerificationAccept(content),
+                    content: AnyMessageLikeEventContent::KeyVerificationAccept(content),
                 }
                 .into(),
             })
@@ -504,7 +504,7 @@ impl Sas {
     pub(crate) fn receive_any_event(
         &self,
         sender: &UserId,
-        content: &AnyVerificationContent,
+        content: &AnyVerificationContent<'_>,
     ) -> Option<OutgoingContent> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
@@ -557,7 +557,7 @@ impl AcceptSettings {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{convert::TryFrom, sync::Arc};
 
     use matrix_sdk_test::async_test;

@@ -251,8 +251,9 @@ impl VerificationMachine {
                 let event = ToDeviceEvent { content, sender: self.own_user_id().to_owned() };
 
                 events.push(
-                    Raw::new(&AnyToDeviceEvent::KeyVerificationCancel(event))
-                        .expect("Failed to serialize m.key_verification.cancel event"),
+                    Raw::new(&event)
+                        .expect("Failed to serialize m.key_verification.cancel event")
+                        .cast(),
                 );
             }
 
@@ -356,7 +357,7 @@ impl VerificationMachine {
                             trace!(
                                 sender = event.sender().as_str(),
                                 from_device = r.from_device().as_str(),
-                                timestamp =? timestamp,
+                                ?timestamp,
                                 "The received verification request was too old or too far into the future",
                             );
                         }
@@ -516,7 +517,7 @@ impl VerificationMachine {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{convert::TryFrom, sync::Arc, time::Duration};
 
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
@@ -529,7 +530,7 @@ mod test {
         store::MemoryStore,
         verification::{
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
-            test::wrap_any_to_device_content,
+            tests::wrap_any_to_device_content,
             VerificationStore,
         },
         ReadOnlyAccount, ReadOnlyDevice,

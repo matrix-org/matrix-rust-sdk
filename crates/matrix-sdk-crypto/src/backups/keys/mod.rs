@@ -51,4 +51,4 @@ mod backup;
 mod recovery;
 
 pub use backup::MegolmV1BackupKey;
-pub use recovery::{DecodeError, PickledRecoveryKey, RecoveryKey};
+pub use recovery::DecodeError;

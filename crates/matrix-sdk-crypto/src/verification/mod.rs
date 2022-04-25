@@ -36,7 +36,7 @@ use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
 };
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             cancel::{
@@ -45,7 +45,7 @@ use ruma::{
             },
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     DeviceId, DeviceKeyId, EventId, RoomId, TransactionId, UserId,
 };
@@ -137,11 +137,12 @@ impl VerificationStore {
 
 /// An enum over the different verification types the SDK supports.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(Sas),
-    #[cfg(feature = "qrcode")]
     /// The `m.qr_code.*.v1` verification variant.
+    #[cfg(feature = "qrcode")]
     QrV1(QrVerification),
 }
 
@@ -156,8 +157,8 @@ impl Verification {
         }
     }
 
-    #[cfg(feature = "qrcode")]
     /// Try to deconstruct this verification enum into a QR code verification.
+    #[cfg(feature = "qrcode")]
     pub fn qr_v1(self) -> Option<QrVerification> {
         if let Verification::QrV1(qr) = self {
             Some(qr)
@@ -239,14 +240,15 @@ impl From<QrVerification> for Verification {
 ///
 /// We can now mark the device in our verified devices list as verified and sign
 /// the master keys in the verified devices list.
+#[cfg(feature = "qrcode")]
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
+#[cfg(feature = "qrcode")]
 impl Done {
-    #[cfg(feature = "qrcode")]
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
@@ -255,9 +257,9 @@ impl Done {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
-                    Relation::new(e.to_owned()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationDone(
+                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                ),
             )
                 .into(),
         }
@@ -332,7 +334,7 @@ impl Cancelled {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationCancel(
                 ToDeviceKeyVerificationCancelEventContent::new(
                     s.clone(),
-                    self.reason.to_string(),
+                    self.reason.to_owned(),
                     self.cancel_code.clone(),
                 ),
             )
@@ -340,9 +342,9 @@ impl Cancelled {
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationCancel(
+                AnyMessageLikeEventContent::KeyVerificationCancel(
                     KeyVerificationCancelEventContent::new(
-                        self.reason.to_string(),
+                        self.reason.to_owned(),
                         self.cancel_code.clone(),
                         Relation::new(e.clone()),
                     ),
@@ -678,7 +680,7 @@ impl IdentitiesBeingVerified {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use std::convert::TryInto;
 
     use ruma::{

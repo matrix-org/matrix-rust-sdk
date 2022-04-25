@@ -171,7 +171,7 @@ impl AmbiguityCache {
                     .and_then(|p| p.get(&member_event.state_key))
                     .and_then(|p| p.displayname.as_deref())
                 {
-                    Some(d.to_string())
+                    Some(d.to_owned())
                 } else if let Some(d) = self
                     .store
                     .get_profile(room_id, &member_event.state_key)
@@ -183,7 +183,7 @@ impl AmbiguityCache {
                     event.content.displayname.clone()
                 };
 
-                Some(display_name.unwrap_or_else(|| event.state_key.localpart().to_string()))
+                Some(display_name.unwrap_or_else(|| event.state_key.localpart().to_owned()))
             } else {
                 None
             }
@@ -200,7 +200,7 @@ impl AmbiguityCache {
                 self.store.get_users_with_display_name(room_id, old_name).await?
             };
 
-            Some(AmbiguityMap { display_name: old_name.to_string(), users: old_display_name_map })
+            Some(AmbiguityMap { display_name: old_name.to_owned(), users: old_display_name_map })
         } else {
             None
         };
@@ -235,7 +235,7 @@ impl AmbiguityCache {
             };
 
             Some(AmbiguityMap {
-                display_name: new_display_name.to_string(),
+                display_name: new_display_name.to_owned(),
                 users: new_display_name_map,
             })
         } else {

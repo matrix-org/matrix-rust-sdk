@@ -14,16 +14,7 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-#![deny(
-    missing_debug_implementations,
-    dead_code,
-    trivial_casts,
-    missing_docs,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications
-)]
+#![warn(missing_debug_implementations, missing_docs)]
 
 mod error;
 mod types;
@@ -40,7 +31,7 @@ pub use types::{
 };
 
 #[cfg(test)]
-mod test {
+mod tests {
     #[cfg(feature = "decode_image")]
     use std::{convert::TryFrom, io::Cursor};
 
@@ -196,11 +187,23 @@ mod test {
         let data = b"MATRIX\
                    \x02\x00\x00\x0f\
                    test:localhost\
-                   AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
-                   BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+                   kS /\x92i\x1e6\xcd'g\xf9#\x11\xd8\x8a\xa2\xf61\x05\x1b6\xef\xfc\xa4%\x80\x1a\x0c\xd2\xe8\x04\
+                   \xbdR|\xf8n\x07\xa4\x1f\xb4\xcc3\x0eBT\xe7[~\xfd\x87\xd06B\xdfoVv%\x9b\x86\xae\xbcM\
                    SECRETISLONGENOUGH";
 
         let result = QrVerificationData::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::Identifier(_))))
+    }
+
+    #[test]
+    fn decode_invalid_keys() {
+        let data = b"MATRIX\
+                   \x02\x00\x00\x0f\
+                   !test:localhost\
+                   AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
+                   BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+                   SECRETISLONGENOUGH";
+        let result = QrVerificationData::from_bytes(data);
+        assert!(matches!(result, Err(DecodingError::Keys(_))))
     }
 }

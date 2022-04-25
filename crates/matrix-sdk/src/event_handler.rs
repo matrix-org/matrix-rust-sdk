@@ -47,12 +47,34 @@ pub enum EventKind {
     GlobalAccountData,
     RoomAccountData,
     EphemeralRoomData,
-    Message { redacted: bool },
-    State { redacted: bool },
+    MessageLike,
+    OriginalMessageLike,
+    RedactedMessageLike,
+    State,
+    OriginalState,
+    RedactedState,
     StrippedState,
     InitialState,
     ToDevice,
     Presence,
+}
+
+impl EventKind {
+    fn message_like_redacted(redacted: bool) -> Self {
+        if redacted {
+            Self::RedactedMessageLike
+        } else {
+            Self::OriginalMessageLike
+        }
+    }
+
+    fn state_redacted(redacted: bool) -> Self {
+        if redacted {
+            Self::RedactedState
+        } else {
+            Self::OriginalState
+        }
+    }
 }
 
 /// A statically-known event kind/type that can be retrieved from an event sync.
@@ -252,7 +274,7 @@ impl Client {
             room,
             events,
             |ev| (ev, None),
-            |raw| Ok((kind, raw.deserialize_as::<ExtractType>()?.event_type)),
+            |raw| Ok((kind, raw.deserialize_as::<ExtractType<'_>>()?.event_type)),
         )
         .await
     }
@@ -269,6 +291,10 @@ impl Client {
             unsigned: Option<UnsignedDetails>,
         }
 
+        // Event handlers for possibly-redacted state events
+        self.handle_sync_events(EventKind::State, room, state_events).await?;
+
+        // Event handlers specifically for redacted OR unredacted state events
         self.handle_sync_events_wrapped_with(
             room,
             state_events,
@@ -276,10 +302,12 @@ impl Client {
             |raw| {
                 let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
                 let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-                Ok((EventKind::State { redacted }, event_type))
+                Ok((EventKind::state_redacted(redacted), event_type))
             },
         )
-        .await
+        .await?;
+
+        Ok(())
     }
 
     pub(crate) async fn handle_sync_timeline_events(
@@ -295,6 +323,25 @@ impl Client {
             unsigned: Option<UnsignedDetails>,
         }
 
+        // Event handlers for possibly-redacted timeline events
+        self.handle_sync_events_wrapped_with(
+            room,
+            timeline_events,
+            |e| (&e.event, e.encryption_info.as_ref()),
+            |raw| {
+                let TimelineEventDetails { event_type, state_key, .. } = raw.deserialize_as()?;
+
+                let kind = match state_key {
+                    Some(_) => EventKind::State,
+                    None => EventKind::MessageLike,
+                };
+
+                Ok((kind, event_type))
+            },
+        )
+        .await?;
+
+        // Event handlers specifically for redacted OR unredacted timeline events
         self.handle_sync_events_wrapped_with(
             room,
             timeline_events,
@@ -305,14 +352,16 @@ impl Client {
 
                 let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
                 let kind = match state_key {
-                    Some(_) => EventKind::State { redacted },
-                    None => EventKind::Message { redacted },
+                    Some(_) => EventKind::state_redacted(redacted),
+                    None => EventKind::message_like_redacted(redacted),
                 };
 
                 Ok((kind, event_type))
             },
         )
-        .await
+        .await?;
+
+        Ok(())
     }
 
     async fn handle_sync_events_wrapped_with<'a, T: 'a, U: 'a>(
@@ -390,70 +439,107 @@ mod static_events {
     use ruma::events::{
         self,
         presence::{PresenceEvent, PresenceEventContent},
-        StaticEventContent,
+        EphemeralRoomEventContent, GlobalAccountDataEventContent, MessageLikeEventContent,
+        RedactContent, RedactedEventContent, RoomAccountDataEventContent, StateEventContent,
+        StaticEventContent, ToDeviceEventContent,
     };
 
     use super::{EventKind, SyncEvent};
 
     impl<C> SyncEvent for events::GlobalAccountDataEvent<C>
     where
-        C: StaticEventContent + events::GlobalAccountDataEventContent,
+        C: StaticEventContent + GlobalAccountDataEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::GlobalAccountData, C::TYPE);
     }
 
     impl<C> SyncEvent for events::RoomAccountDataEvent<C>
     where
-        C: StaticEventContent + events::RoomAccountDataEventContent,
+        C: StaticEventContent + RoomAccountDataEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::RoomAccountData, C::TYPE);
     }
 
     impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
     where
-        C: StaticEventContent + events::EphemeralRoomEventContent,
+        C: StaticEventContent + EphemeralRoomEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::EphemeralRoomData, C::TYPE);
     }
 
-    impl<C> SyncEvent for events::SyncMessageEvent<C>
+    impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
     where
-        C: StaticEventContent + events::MessageEventContent,
+        C: StaticEventContent + MessageLikeEventContent + RedactContent,
+        C::Redacted: MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::Message { redacted: false }, C::TYPE);
+        const ID: (EventKind, &'static str) = (EventKind::MessageLike, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
+    where
+        C: StaticEventContent + MessageLikeEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::OriginalMessageLike, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
+    where
+        C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::RedactedMessageLike, C::TYPE);
     }
 
     impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
+        const ID: (EventKind, &'static str) =
+            (EventKind::MessageLike, events::room::redaction::RoomRedactionEventContent::TYPE);
+    }
+
+    impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
         const ID: (EventKind, &'static str) = (
-            EventKind::Message { redacted: false },
+            EventKind::OriginalMessageLike,
             events::room::redaction::RoomRedactionEventContent::TYPE,
         );
     }
 
     impl<C> SyncEvent for events::SyncStateEvent<C>
     where
-        C: StaticEventContent + events::StateEventContent,
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::State { redacted: false }, C::TYPE);
+        const ID: (EventKind, &'static str) = (EventKind::State, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
+    where
+        C: StaticEventContent + StateEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::OriginalState, C::TYPE);
+    }
+
+    impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
+    where
+        C: StaticEventContent + StateEventContent + RedactedEventContent,
+    {
+        const ID: (EventKind, &'static str) = (EventKind::RedactedState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::StrippedStateEvent<C>
     where
-        C: StaticEventContent + events::StateEventContent,
+        C: StaticEventContent + StateEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::StrippedState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::InitialStateEvent<C>
     where
-        C: StaticEventContent + events::StateEventContent,
+        C: StaticEventContent + StateEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::InitialState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::ToDeviceEvent<C>
     where
-        C: StaticEventContent + events::ToDeviceEventContent,
+        C: StaticEventContent + ToDeviceEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::ToDevice, C::TYPE);
     }
@@ -461,31 +547,10 @@ mod static_events {
     impl SyncEvent for PresenceEvent {
         const ID: (EventKind, &'static str) = (EventKind::Presence, PresenceEventContent::TYPE);
     }
-
-    impl<C> SyncEvent for events::RedactedSyncMessageEvent<C>
-    where
-        C: StaticEventContent + events::RedactedMessageEventContent,
-    {
-        const ID: (EventKind, &'static str) = (EventKind::Message { redacted: true }, C::TYPE);
-    }
-
-    impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::Message { redacted: true },
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
-    }
-
-    impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
-    where
-        C: StaticEventContent + events::RedactedStateEventContent,
-    {
-        const ID: (EventKind, &'static str) = (EventKind::State { redacted: true }, C::TYPE);
-    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -493,7 +558,7 @@ mod test {
 
     use matrix_sdk_test::{EventBuilder, EventsJson};
     use ruma::{
-        events::room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        events::room::member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
         room_id,
     };
     use serde_json::json;
@@ -504,7 +569,7 @@ mod test {
     async fn event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
-        let client = crate::client::test::logged_in_client().await;
+        let client = crate::client::tests::logged_in_client().await;
 
         let member_count = Arc::new(AtomicU8::new(0));
         let typing_count = Arc::new(AtomicU8::new(0));
@@ -514,7 +579,7 @@ mod test {
         client
             .register_event_handler({
                 let member_count = member_count.clone();
-                move |_ev: SyncRoomMemberEvent, _room: room::Room| {
+                move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
                     member_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -522,7 +587,7 @@ mod test {
             .await
             .register_event_handler({
                 let typing_count = typing_count.clone();
-                move |_ev: SyncRoomMemberEvent| {
+                move |_ev: OriginalSyncRoomMemberEvent| {
                     typing_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -530,7 +595,7 @@ mod test {
             .await
             .register_event_handler({
                 let power_levels_count = power_levels_count.clone();
-                move |_ev: SyncRoomMemberEvent, _client: Client, _room: room::Room| {
+                move |_ev: OriginalSyncRoomMemberEvent, _client: Client, _room: room::Room| {
                     power_levels_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -552,39 +617,39 @@ mod test {
             .add_custom_invited_event(
                 room_id!("!test_invited:example.org"),
                 json!({
-                "content": {
-                  "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-                  "displayname": "Alice",
-                  "membership": "invite",
-                },
-                "event_id": "$143273582443PhrSn:example.org",
-                "origin_server_ts": 1432735824653u64,
-                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
-                "sender": "@example:example.org",
-                "state_key": "@alice:example.org",
-                "type": "m.room.member",
-                "unsigned": {
-                  "age": 1234,
-                  "invite_room_state": [
-                    {
-                      "content": {
-                        "name": "Example Room"
-                      },
-                      "sender": "@bob:example.org",
-                      "state_key": "",
-                      "type": "m.room.name"
+                    "content": {
+                        "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+                        "displayname": "Alice",
+                        "membership": "invite",
                     },
-                    {
-                      "content": {
-                        "join_rule": "invite"
-                      },
-                      "sender": "@bob:example.org",
-                      "state_key": "",
-                      "type": "m.room.join_rules"
+                    "event_id": "$143273582443PhrSn:example.org",
+                    "origin_server_ts": 1432735824653u64,
+                    "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                    "sender": "@example:example.org",
+                    "state_key": "@alice:example.org",
+                    "type": "m.room.member",
+                    "unsigned": {
+                        "age": 1234,
+                        "invite_room_state": [
+                            {
+                                "content": {
+                                    "name": "Example Room"
+                                },
+                                "sender": "@bob:example.org",
+                                "state_key": "",
+                                "type": "m.room.name"
+                            },
+                            {
+                                "content": {
+                                    "join_rule": "invite"
+                                },
+                                "sender": "@bob:example.org",
+                                "state_key": "",
+                                "type": "m.room.join_rules"
+                            }
+                        ]
                     }
-                  ]
-                }
-                          }),
+                }),
             )
             .build_sync_response();
         client.process_sync(response).await?;

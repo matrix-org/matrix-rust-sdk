@@ -1,22 +1,61 @@
-#[allow(unused_macros)]
+//! Macro of integration tests for StateStore implementions.
 
+/// Macro building to allow your StateStore implementation to run the entire
+/// tests suite locally.
+///
+/// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
+/// providing a fresh store on the same level you invoke the macro.
+///
+/// ## Usage Example:
+/// ```no_run
+/// # use matrix_sdk_base::store::{
+/// #    StateStore,
+/// #    MemoryStore as MyStore,
+/// #    Result as StoreResult,
+/// # };
+///
+/// #[cfg(test)]
+/// mod tests {
+///
+///    use super::{MyStore, StoreResult, StateStore};
+///
+///    async fn get_store() -> StoreResult<impl StateStore> {
+///        Ok(MyStore::new())
+///    }
+///
+///    statestore_integration_tests! { integration }
+/// }
+/// ```
+#[allow(unused_macros, unused_extern_crates)]
+#[macro_export]
 macro_rules! statestore_integration_tests {
     ($($name:ident)*) => {
         $(
             mod $name {
+
+                use futures_util::StreamExt;
                 use matrix_sdk_test::{async_test, test_json};
-                use ruma::{
-                    api::client::r0::media::get_content_thumbnail::Method,
+                use matrix_sdk_common::ruma::{
+                    api::{
+                        client::{
+                            media::get_content_thumbnail::v3::Method,
+                            message::get_message_events::v3::Response as MessageResponse,
+                            sync::sync_events::v3::Response as SyncResponse,
+                        },
+                        IncomingResponse,
+                    },
                     device_id, event_id,
                     events::{
-                        presence::PresenceEvent, EventContent,
+                        presence::PresenceEvent,
                         room::{
                             member::{MembershipState, RoomMemberEventContent},
                             power_levels::RoomPowerLevelsEventContent,
+                            MediaSource,
                         },
-                        AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent, AnyStrippedStateEvent,
-                        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-                        AnySyncStateEvent, EventType, Unsigned,
+                        AnyEphemeralRoomEventContent, AnySyncEphemeralRoomEvent,
+                        AnyStrippedStateEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
+                        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
+                        StateEventType, StateUnsigned,
                     },
                     mxc_uri,
                     receipt::ReceiptType,
@@ -28,14 +67,15 @@ macro_rules! statestore_integration_tests {
 
                 use std::collections::{BTreeMap, BTreeSet};
 
-                use crate::{
+                use $crate::{
+                    http::Response,
                     RoomType, Session,
-                    deserialized_responses::{MemberEvent, StrippedMemberEvent},
-                    media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+                    deserialized_responses::{MemberEvent, StrippedMemberEvent, RoomEvent, SyncRoomEvent, TimelineSlice},
+                    media::{MediaFormat, MediaRequest, MediaThumbnailSize},
                     store::{
                         Store,
                         StateStore,
-                        Result,
+                        Result as StoreResult,
                         StateChanges
                     }
                 };
@@ -63,7 +103,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 /// Populate the given `StateStore`.
-                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> Result<Store> {
+                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> StoreResult<Store> {
                     let mut changes = StateChanges::default();
                     let store = Store::new(inner);
 
@@ -74,13 +114,13 @@ macro_rules! statestore_integration_tests {
                     let device_id = device_id!("device");
 
                     let session = Session {
-                        access_token: "token".to_string(),
+                        access_token: "token".to_owned(),
                         user_id: user_id.to_owned(),
                         device_id: device_id.to_owned(),
                     };
                     store.restore_session(session).await.unwrap();
 
-                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_string());
+                    changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned());
 
                     let presence_json: &JsonValue = &test_json::PRESENCE;
                     let presence_raw =
@@ -107,14 +147,14 @@ macro_rules! statestore_integration_tests {
                     let name_json: &JsonValue = &test_json::NAME;
                     let name_raw = serde_json::from_value::<Raw<AnySyncStateEvent>>(name_json.clone()).unwrap();
                     let name_event = name_raw.deserialize().unwrap();
-                    room.handle_state_event(&name_event.content());
+                    room.handle_state_event(&name_event);
                     changes.add_state_event(room_id, name_event, name_raw);
 
                     let topic_json: &JsonValue = &test_json::TOPIC;
                     let topic_raw =
                         serde_json::from_value::<Raw<AnySyncStateEvent>>(topic_json.clone()).unwrap();
                     let topic_event = topic_raw.deserialize().unwrap();
-                    room.handle_state_event(&topic_event.content());
+                    room.handle_state_event(&topic_event);
                     changes.add_state_event(room_id, topic_event, topic_raw);
 
                     let mut room_ambiguity_map = BTreeMap::new();
@@ -173,11 +213,11 @@ macro_rules! statestore_integration_tests {
                         serde_json::from_value::<Raw<AnyStrippedStateEvent>>(stripped_name_json.clone())
                             .unwrap();
                     let stripped_name_event = stripped_name_raw.deserialize().unwrap();
-                    stripped_room.handle_state_event(&stripped_name_event.content());
+                    stripped_room.handle_stripped_state_event(&stripped_name_event);
                     changes.stripped_state.insert(
                         stripped_room_id.to_owned(),
                         BTreeMap::from([(
-                            stripped_name_event.content().event_type().to_owned(),
+                            stripped_name_event.event_type(),
                             BTreeMap::from([(
                                 stripped_name_event.state_key().to_owned(),
                                 stripped_name_raw.clone(),
@@ -206,7 +246,6 @@ macro_rules! statestore_integration_tests {
                         "type": "m.room.power_levels",
                         "origin_server_ts": 0u64,
                         "state_key": "",
-                        "unsigned": Unsigned::default(),
                     });
 
                     serde_json::from_value(event).unwrap()
@@ -223,14 +262,13 @@ macro_rules! statestore_integration_tests {
                         sender: user_id.to_owned(),
                         origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
                         state_key: user_id.to_owned(),
-                        prev_content: None,
-                        unsigned: Unsigned::default(),
+                        unsigned: StateUnsigned::default(),
                     }
 
                 }
 
                 #[async_test]
-                async fn test_populate_store() -> Result<()> {
+                async fn test_populate_store() -> StoreResult<()> {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
@@ -239,20 +277,20 @@ macro_rules! statestore_integration_tests {
 
                     assert!(store.get_sync_token().await?.is_some());
                     assert!(store.get_presence_event(user_id).await?.is_some());
-                    assert_eq!(store.get_room_infos().await?.len(), 1);
-                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
-                    assert!(store.get_account_data_event(EventType::PushRules).await?.is_some());
+                    assert_eq!(store.get_room_infos().await?.len(), 1, "Expected to find 1 room info ");
+                    assert_eq!(store.get_stripped_room_infos().await?.len(), 1, "Expected to find 1 stripped room info");
+                    assert!(store.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some());
 
-                    assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_some());
-                    assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await?.len(), 1);
+                    assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
+                    assert_eq!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.len(), 1, "Expected to find 1 room topic");
                     assert!(store.get_profile(room_id, user_id).await?.is_some());
                     assert!(store.get_member_event(room_id, user_id).await?.is_some());
-                    assert_eq!(store.get_user_ids(room_id).await?.len(), 2);
-                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 1);
-                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1);
-                    assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2);
+                    assert_eq!(store.get_user_ids(room_id).await?.len(), 2, "Expected to find 2 members for room");
+                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 1, "Expected to find 1 invited user ids");
+                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 1, "Expected to find 1 joined user ids");
+                    assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 2, "Expected to find 2 display names for room");
                     assert!(store
-                        .get_room_account_data_event(room_id, EventType::Tag)
+                        .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
                         .is_some());
                     assert!(store
@@ -264,8 +302,7 @@ macro_rules! statestore_integration_tests {
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
                             .await?
                             .len(),
-                        1
-                    );
+                        1, "Expected to find 1 read receipt");
                     Ok(())
                 }
 
@@ -287,7 +324,7 @@ macro_rules! statestore_integration_tests {
                     assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
 
                     let members = store.get_user_ids(room_id).await.unwrap();
-                    assert!(!members.is_empty())
+                    assert!(!members.is_empty(), "We expected to find members for the room")
                 }
 
                 #[async_test]
@@ -299,7 +336,7 @@ macro_rules! statestore_integration_tests {
                     let event = raw_event.deserialize().unwrap();
 
                     assert!(store
-                        .get_state_event(room_id, EventType::RoomPowerLevels, "")
+                        .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
                         .await
                         .unwrap()
                         .is_none());
@@ -308,7 +345,7 @@ macro_rules! statestore_integration_tests {
 
                     store.save_changes(&changes).await.unwrap();
                     assert!(store
-                        .get_state_event(room_id, EventType::RoomPowerLevels, "")
+                        .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
                         .await
                         .unwrap()
                         .is_some());
@@ -316,7 +353,7 @@ macro_rules! statestore_integration_tests {
 
                 #[async_test]
                 async fn test_receipts_saving() {
-                    let store = get_store().await.unwrap();
+                    let store = get_store().await.expect("creating store failed");
 
                     let room_id = room_id!("!test_receipts_saving:localhost");
 
@@ -332,7 +369,7 @@ macro_rules! statestore_integration_tests {
                             }
                         }
                     }))
-                    .unwrap();
+                    .expect("json creation failed");
 
                     let second_receipt_event = serde_json::from_value(json!({
                         second_event_id.clone(): {
@@ -343,68 +380,70 @@ macro_rules! statestore_integration_tests {
                             }
                         }
                     }))
-                    .unwrap();
+                    .expect("json creation failed");
 
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt")
                         .is_none());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 1")
                         .is_empty());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 2")
                         .is_empty());
 
                     let mut changes = StateChanges::default();
                     changes.add_receipts(room_id, first_receipt_event);
 
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("writing changes fauked");
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
-                        .is_some(),);
+                        .expect("failed to read user room receipt after save")
+                        .is_some());
                     assert_eq!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                             .await
-                            .unwrap()
+                            .expect("failed to read user room receipt for 1 after save")
                             .len(),
-                        1
+                        1,
+                        "Found a wrong number of receipts for 1 after save"
                     );
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                         .await
-                        .unwrap()
+                        .expect("failed to read user room receipt for 2 after save")
                         .is_empty());
 
                     let mut changes = StateChanges::default();
                     changes.add_receipts(room_id, second_receipt_event);
 
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("Saving works");
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id())
                         .await
-                        .unwrap()
+                        .expect("Getting user room receipts failed")
                         .is_some());
                     assert!(store
                         .get_event_room_receipt_events(room_id, ReceiptType::Read, &first_event_id)
                         .await
-                        .unwrap()
+                        .expect("Getting event room receipt events for first event failed")
                         .is_empty());
                     assert_eq!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, &second_event_id)
                             .await
-                            .unwrap()
+                            .expect("Getting event room receipt events for second event failed")
                             .len(),
-                        1
+                        1,
+                        "Found a wrong number of receipts for second event after save"
                     );
                 }
 
@@ -415,11 +454,13 @@ macro_rules! statestore_integration_tests {
                     let uri = mxc_uri!("mxc://localhost/media");
                     let content: Vec<u8> = "somebinarydata".into();
 
-                    let request_file =
-                        MediaRequest { media_type: MediaType::Uri(uri.to_owned()), format: MediaFormat::File };
+                    let request_file = MediaRequest {
+                        source: MediaSource::Plain(uri.to_owned()),
+                        format: MediaFormat::File,
+                    };
 
                     let request_thumbnail = MediaRequest {
-                        media_type: MediaType::Uri(uri.to_owned()),
+                        source: MediaSource::Plain(uri.to_owned()),
                         format: MediaFormat::Thumbnail(MediaThumbnailSize {
                             method: Method::Crop,
                             width: uint!(100),
@@ -427,28 +468,28 @@ macro_rules! statestore_integration_tests {
                         }),
                     };
 
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "unexpected media found");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none(), "media not found");
 
-                    store.add_media_content(&request_file, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+                    store.add_media_content(&request_file, content.clone()).await.expect("adding media failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_some(), "media not found though added");
 
-                    store.remove_media_content(&request_file).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+                    store.remove_media_content(&request_file).await.expect("removing media failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "media still there after removing");
 
-                    store.add_media_content(&request_file, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+                    store.add_media_content(&request_file, content.clone()).await.expect("adding media again failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_some(), "media not found after adding again");
 
-                    store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+                    store.add_media_content(&request_thumbnail, content.clone()).await.expect("adding thumbnail failed");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some(), "thumbnail not found");
 
-                    store.remove_media_content_for_uri(uri).await.unwrap();
-                    assert!(store.get_media_content(&request_file).await.unwrap().is_none());
-                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+                    store.remove_media_content_for_uri(uri).await.expect("removing all media for uri failed");
+                    assert!(store.get_media_content(&request_file).await.unwrap().is_none(), "media wasn't removed");
+                    assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none(), "thumbnail wasn't removed");
                 }
 
                 #[async_test]
-                async fn test_custom_storage() -> Result<()> {
+                async fn test_custom_storage() -> StoreResult<()> {
                     let key = "my_key";
                     let value = &[0, 1, 2, 3];
                     let store = get_store().await?;
@@ -463,7 +504,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_persist_invited_room() -> Result<()> {
+                async fn test_persist_invited_room() -> StoreResult<()> {
                     let stripped_room_id = stripped_room_id();
                     let inner_store = get_store().await?;
                     let store = populated_store(Box::new(inner_store)).await?;
@@ -476,7 +517,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
-                async fn test_room_removal() -> Result<()>  {
+                async fn test_room_removal() -> StoreResult<()>  {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
@@ -486,40 +527,195 @@ macro_rules! statestore_integration_tests {
 
                     store.remove_room(room_id).await?;
 
-                    assert_eq!(store.get_room_infos().await?.len(), 0);
+                    assert!(store.get_room_infos().await?.is_empty(), "room is still there");
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
 
-                    assert!(store.get_state_event(room_id, EventType::RoomName, "").await?.is_none());
-                    assert_eq!(store.get_state_events(room_id, EventType::RoomTopic).await?.len(), 0);
+                    assert!(store.get_state_event(room_id, StateEventType::RoomName, "").await?.is_none());
+                    assert!(store.get_state_events(room_id, StateEventType::RoomTopic).await?.is_empty(), "still state events found");
                     assert!(store.get_profile(room_id, user_id).await?.is_none());
                     assert!(store.get_member_event(room_id, user_id).await?.is_none());
-                    assert_eq!(store.get_user_ids(room_id).await?.len(), 0);
-                    assert_eq!(store.get_invited_user_ids(room_id).await?.len(), 0);
-                    assert_eq!(store.get_joined_user_ids(room_id).await?.len(), 0);
-                    assert_eq!(store.get_users_with_display_name(room_id, "example").await?.len(), 0);
+                    assert!(store.get_user_ids(room_id).await?.is_empty(), "still user ids found");
+                    assert!(store.get_invited_user_ids(room_id).await?.is_empty(), "still invited user ids found");
+                    assert!(store.get_joined_user_ids(room_id).await?.is_empty(), "still joined users found");
+                    assert!(store.get_users_with_display_name(room_id, "example").await?.is_empty(), "still display names found");
                     assert!(store
-                        .get_room_account_data_event(room_id, EventType::Tag)
+                        .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
                         .await?
                         .is_none());
                     assert!(store
                         .get_user_room_receipt_event(room_id, ReceiptType::Read, user_id)
                         .await?
                         .is_none());
-                    assert_eq!(
+                    assert!(
                         store
                             .get_event_room_receipt_events(room_id, ReceiptType::Read, first_receipt_event_id())
                             .await?
-                            .len(),
-                        0
+                            .is_empty(),
+                        "still event recepts in the store"
                     );
 
                     store.remove_room(stripped_room_id).await?;
 
-                    assert_eq!(store.get_room_infos().await?.len(), 0);
-                    assert_eq!(store.get_stripped_room_infos().await?.len(), 0);
+                    assert!(store.get_room_infos().await?.is_empty(), "still room info found");
+                    assert!(store.get_stripped_room_infos().await?.is_empty(), "still stripped room info found");
                     Ok(())
                 }
+
+                #[async_test]
+                async fn test_room_timeline() {
+                    let store = get_store().await.unwrap();
+                    let mut stored_events = Vec::new();
+                    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+                    // Before the first sync the timeline should be empty
+                    assert!(store.room_timeline(room_id).await.expect("failed to read timeline").is_none(), "TL wasn't empty");
+
+                    // Add sync response
+                    let sync = SyncResponse::try_from_http_response(
+                        Response::builder().body(serde_json::to_vec(&*test_json::MORE_SYNC).unwrap()).unwrap(),
+                        )
+                        .unwrap();
+
+                    let timeline = &sync.rooms.join[room_id].timeline;
+                    let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
+
+                    stored_events.extend(events.iter().rev().cloned());
+
+                    let timeline_slice = TimelineSlice::new(
+                        events,
+                        sync.next_batch.clone(),
+                        timeline.prev_batch.clone(),
+                        false,
+                        true,
+                        );
+                    let mut changes = StateChanges::new(sync.next_batch.clone());
+                    changes.add_timeline(room_id, timeline_slice);
+                    store.save_changes(&changes).await.unwrap();
+
+                    check_timeline_events(room_id, &store, &stored_events, timeline.prev_batch.as_deref())
+                        .await;
+
+                    // Add message response
+                    let messages = MessageResponse::try_from_http_response(
+                        Response::builder()
+                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1).unwrap())
+                        .unwrap(),
+                        )
+                        .unwrap();
+
+                    let events: Vec<SyncRoomEvent> = messages
+                        .chunk
+                        .iter()
+                        .cloned()
+                        .map(|event| RoomEvent { event, encryption_info: None }.into())
+                        .collect();
+
+                    stored_events.append(&mut events.clone());
+
+                    let timeline_slice =
+                        TimelineSlice::new(events, messages.start.clone(), messages.end.clone(), false, false);
+                    let mut changes = StateChanges::default();
+                    changes.add_timeline(room_id, timeline_slice);
+                    store.save_changes(&changes).await.unwrap();
+
+                    check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
+
+                    // Add second message response
+                    let messages = MessageResponse::try_from_http_response(
+                        Response::builder()
+                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2).unwrap())
+                        .unwrap(),
+                        )
+                        .unwrap();
+
+                    let events: Vec<SyncRoomEvent> = messages
+                        .chunk
+                        .iter()
+                        .cloned()
+                        .map(|event| RoomEvent { event, encryption_info: None }.into())
+                        .collect();
+
+                    stored_events.append(&mut events.clone());
+
+                    let timeline_slice =
+                        TimelineSlice::new(events, messages.start.clone(), messages.end.clone(), false, false);
+                    let mut changes = StateChanges::default();
+                    changes.add_timeline(room_id, timeline_slice);
+                    store.save_changes(&changes).await.unwrap();
+
+                    check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
+
+                    // Add second sync response
+                    let sync = SyncResponse::try_from_http_response(
+                        Response::builder()
+                        .body(serde_json::to_vec(&*test_json::MORE_SYNC_2).unwrap())
+                        .unwrap(),
+                        )
+                        .unwrap();
+
+                    let timeline = &sync.rooms.join[room_id].timeline;
+                    let events: Vec<SyncRoomEvent> = timeline.events.iter().cloned().map(Into::into).collect();
+
+                    let prev_stored_events = stored_events;
+                    stored_events = events.iter().rev().cloned().collect();
+                    stored_events.extend(prev_stored_events);
+
+                    let timeline_slice = TimelineSlice::new(
+                        events,
+                        sync.next_batch.clone(),
+                        timeline.prev_batch.clone(),
+                        false,
+                        true,
+                        );
+                    let mut changes = StateChanges::new(sync.next_batch.clone());
+                    changes.add_timeline(room_id, timeline_slice);
+                    store.save_changes(&changes).await.unwrap();
+
+                    check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
+
+                    // Check if limited sync removes the stored timeline
+                    let end_token = Some("end token".to_owned());
+                    let timeline_slice = TimelineSlice::new(
+                        Vec::new(),
+                        "start token".to_owned(),
+                        end_token.clone(),
+                        true,
+                        true,
+                        );
+                    let mut changes = StateChanges::default();
+                    changes.add_timeline(room_id, timeline_slice);
+                    store.save_changes(&changes).await.unwrap();
+
+                    check_timeline_events(room_id, &store, &Vec::new(), end_token.as_deref()).await;
+                }
+
+                async fn check_timeline_events(
+                    room_id: &RoomId,
+                    store: &dyn StateStore,
+                    stored_events: &[SyncRoomEvent],
+                    expected_end_token: Option<&str>,
+                    ) {
+                    let (timeline_iter, end_token) = store.room_timeline(room_id).await.unwrap().unwrap();
+
+                    assert_eq!(end_token.as_deref(), expected_end_token);
+
+                    let timeline = timeline_iter.collect::<Vec<StoreResult<SyncRoomEvent>>>().await;
+
+                    let expected: Vec<Box<EventId>> = stored_events.iter().map(|a| a.event_id().expect("event id doesn't exist")).collect();
+                    let found: Vec<Box<EventId>> = timeline.iter().map(|a| a.as_ref().expect("object missing").event_id().clone().expect("event id missing")).collect();
+
+                    for (idx, (a, b)) in timeline
+                        .into_iter()
+                        .zip(stored_events.iter())
+                        .enumerate()
+                    {
+                        assert_eq!(a.expect("not a value").event_id(), b.event_id(), "pos {} not equal - expected: {:#?}, but found {:#?}", idx, expected, found);
+
+                    }
+                }
+
             }
+
         )*
     }
 }

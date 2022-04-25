@@ -17,12 +17,8 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
 async-trait = "0.1.50"
+ruma = { git = "https://github.com/ruma/ruma", rev = "548232ef5", features = ["client-api-c"] }
 serde = "1.0.126"
-
-[dependencies.ruma]
-git = "https://github.com/ruma/ruma/"
-rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
-features = ["client-api-c"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.2", default-features = false, features = [
@@ -38,8 +34,6 @@ async-lock = "2.4.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen", "inaccurate"] }
 futures-util = { version = "0.3.15", default-features = false, features = ["channel"] }
 wasm-bindgen-futures = "0.4.24"
-web-sys = { version = "0.3.35", features = ["IdbKeyRange"] }
-wasm-bindgen = "0.2"
 uuid = { version = "0.8.2", default-features = false, features = [
     "v4",
     "wasm-bindgen",

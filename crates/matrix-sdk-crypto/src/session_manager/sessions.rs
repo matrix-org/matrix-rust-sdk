@@ -19,8 +19,9 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
+use matrix_sdk_common::util::seconds_since_unix_epoch;
 use ruma::{
-    api::client::r0::keys::claim_keys::{
+    api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
@@ -83,7 +84,7 @@ impl SessionManager {
 
             if let Some(sessions) = sessions {
                 let mut sessions = sessions.lock().await;
-                sessions.sort_by_key(|s| s.creation_time.clone());
+                sessions.sort_by_key(|s| s.creation_time);
 
                 let session = sessions.get(0);
 
@@ -94,7 +95,15 @@ impl SessionManager {
                         "Marking session to be unwedged"
                     );
 
-                    if session.creation_time.elapsed() > Self::UNWEDGING_INTERVAL {
+                    let creation_time = Duration::from_secs(session.creation_time.get().into());
+                    let now = Duration::from_secs(seconds_since_unix_epoch().get().into());
+
+                    let should_unwedge = now
+                        .checked_sub(creation_time)
+                        .map(|elapsed| elapsed > Self::UNWEDGING_INTERVAL)
+                        .unwrap_or(true);
+
+                    if should_unwedge {
                         self.users_for_key_claim
                             .entry(device.user_id().to_owned())
                             .or_insert_with(DashSet::new)
@@ -190,12 +199,12 @@ impl SessionManager {
                     warn!(
                         user_id = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
-                        algorithms =? device.algorithms(),
+                        algorithms = ?device.algorithms(),
                         "Device doesn't support any of our 1-to-1 E2EE \
                         algorithms, can't establish an Olm session"
                     );
-                } else if let Some(sender_key) = device.get_key(DeviceKeyAlgorithm::Curve25519) {
-                    let sessions = self.store.get_sessions(sender_key).await?;
+                } else if let Some(sender_key) = device.curve25519_key() {
+                    let sessions = self.store.get_sessions(&sender_key.to_base64()).await?;
 
                     let is_missing = if let Some(sessions) = sessions {
                         sessions.lock().await.is_empty()
@@ -254,7 +263,7 @@ impl SessionManager {
     ///
     /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
-        debug!(failures =? response.failures, "Received a /keys/claim response");
+        debug!(failures = ?response.failures, "Received a /keys/claim response");
 
         let mut changes = Changes::default();
         let mut new_sessions: BTreeMap<&UserId, BTreeSet<&DeviceId>> = BTreeMap::new();
@@ -276,7 +285,7 @@ impl SessionManager {
                         warn!(
                             user_id = user_id.as_str(),
                             device_id = device_id.as_str(),
-                            error =? e,
+                            error = ?e,
                             "Tried to create an Olm session, but we can't \
                             fetch the device from the store",
                         );
@@ -290,7 +299,7 @@ impl SessionManager {
                         warn!(
                             user_id = user_id.as_str(),
                             device_id = device_id.as_str(),
-                            error =? e,
+                            error = ?e,
                             "Error creating outbound session"
                         );
                         continue;
@@ -312,7 +321,7 @@ impl SessionManager {
         }
 
         self.store.save_changes(changes).await?;
-        info!(sessions =? new_sessions, "Established new Olm sessions");
+        info!(sessions = ?new_sessions, "Established new Olm sessions");
 
         match self.key_request_machine.collect_incoming_key_requests().await {
             Ok(sessions) => {
@@ -322,7 +331,7 @@ impl SessionManager {
             // We don't propagate the error here since the next sync will retry
             // this.
             Err(e) => {
-                warn!(error =? e, "Error while trying to collect the incoming secret requests")
+                warn!(error = ?e, "Error while trying to collect the incoming secret requests")
             }
         }
 
@@ -331,14 +340,14 @@ impl SessionManager {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{collections::BTreeMap, iter, sync::Arc};
 
     use dashmap::DashMap;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::r0::keys::claim_keys::Response as KeyClaimResponse, device_id, user_id,
+        api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id, user_id,
         DeviceId, UserId,
     };
 
@@ -411,7 +420,8 @@ mod test {
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
         bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys_helper().await;
+        let one_time = bob.signed_one_time_keys().await;
+        assert!(!one_time.is_empty());
         bob.mark_keys_as_published().await;
 
         let mut one_time_keys = BTreeMap::new();
@@ -432,15 +442,16 @@ mod test {
     #[async_test]
     #[cfg(target_os = "linux")]
     async fn session_unwedging() {
-        use matrix_sdk_common::instant::{Duration, Instant};
-        use ruma::DeviceKeyAlgorithm;
+        use matrix_sdk_common::instant::{Duration, SystemTime};
+        use ruma::{DeviceKeyAlgorithm, SecondsSinceUnixEpoch};
 
         let manager = session_manager().await;
         let bob = bob_account();
         let (_, mut session) = bob.create_session_for(&manager.account).await;
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
-        session.creation_time = Arc::new(Instant::now() - Duration::from_secs(3601));
+        let time = SystemTime::now() - Duration::from_secs(3601);
+        session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
         manager.store.save_devices(&[bob_device.clone()]).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();
@@ -451,7 +462,7 @@ mod test {
 
         assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
-        manager.mark_device_as_wedged(bob_device.user_id(), curve_key).await.unwrap();
+        manager.mark_device_as_wedged(bob_device.user_id(), &curve_key.to_base64()).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
 
@@ -461,7 +472,8 @@ mod test {
         assert!(request.one_time_keys.contains_key(bob.user_id()));
 
         bob.generate_one_time_keys_helper(1).await;
-        let one_time = bob.signed_one_time_keys_helper().await;
+        let one_time = bob.signed_one_time_keys().await;
+        assert!(!one_time.is_empty());
         bob.mark_keys_as_published().await;
 
         let mut one_time_keys = BTreeMap::new();

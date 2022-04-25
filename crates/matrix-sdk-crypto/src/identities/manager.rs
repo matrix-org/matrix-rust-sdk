@@ -22,8 +22,7 @@ use std::{
 use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
-    serde::Raw, DeviceId, UserId,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -36,6 +35,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
+    types::{CrossSigningKey, DeviceKeys},
     LocalTrust,
 };
 
@@ -77,8 +77,8 @@ impl IdentityManager {
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
         debug!(
-            users =? response.device_keys.keys().collect::<BTreeSet<_>>(),
-            failures =? response.failures,
+            users = ?response.device_keys.keys().collect::<BTreeSet<_>>(),
+            failures = ?response.failures,
             "Handling a keys query response"
         );
 
@@ -143,7 +143,7 @@ impl IdentityManager {
                 warn!(
                     user_id = device.user_id().as_str(),
                     device_id = device.device_id().as_str(),
-                    error =? e,
+                    error = ?e,
                     "Failed to update device keys",
                 );
 
@@ -166,7 +166,7 @@ impl IdentityManager {
                             trace!(
                                 user_id = d.user_id().as_str(),
                                 device_id = d.device_id().as_str(),
-                                keys =? d.keys(),
+                                keys = ?d.keys(),
                                 "Adding our own device to the device store, \
                                 marking it as locally verified",
                             );
@@ -179,7 +179,7 @@ impl IdentityManager {
                         trace!(
                             user_id = d.user_id().as_str(),
                             device_id = d.device_id().as_str(),
-                            keys =? d.keys(),
+                            keys = ?d.keys(),
                             "Adding a new device to the device store",
                         );
 
@@ -190,7 +190,7 @@ impl IdentityManager {
                     warn!(
                         user_id = device_keys.user_id.as_str(),
                         device_id = device_keys.device_id.as_str(),
-                        error =? e,
+                        error = ?e,
                         "Failed to create a new device",
                     );
 
@@ -205,7 +205,7 @@ impl IdentityManager {
         own_user_id: Arc<UserId>,
         own_device_id: Arc<DeviceId>,
         user_id: Box<UserId>,
-        device_map: BTreeMap<Box<DeviceId>, Raw<DeviceKeys>>,
+        device_map: BTreeMap<Box<DeviceId>, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = (*own_device_id).to_owned();
 
@@ -214,8 +214,8 @@ impl IdentityManager {
         let current_devices: HashSet<Box<DeviceId>> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
-            .deserialize()
-        {
+            .deserialize_as::<DeviceKeys>(
+        ) {
             Ok(device_keys) => {
                 if user_id != device_keys.user_id || device_id != device_keys.device_id {
                     warn!(
@@ -234,7 +234,7 @@ impl IdentityManager {
                 warn!(
                     user_id = user_id.as_str(),
                     device_id = device_id.as_str(),
-                    error =? e,
+                    error = ?e,
                     "Device keys failed to deserialize",
                 );
                 None
@@ -285,7 +285,10 @@ impl IdentityManager {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
-        device_keys_map: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, Raw<DeviceKeys>>>,
+        device_keys_map: BTreeMap<
+            Box<UserId>,
+            BTreeMap<Box<DeviceId>, Raw<ruma::encryption::DeviceKeys>>,
+        >,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 
@@ -328,12 +331,14 @@ impl IdentityManager {
         // TODO this is a bit chunky, refactor this into smaller methods.
 
         for (user_id, master_key) in &response.master_keys {
-            match master_key.deserialize() {
+            match master_key.deserialize_as::<CrossSigningKey>() {
                 Ok(master_key) => {
                     let master_key = MasterPubkey::from(master_key);
 
-                    let self_signing = if let Some(s) =
-                        response.self_signing_keys.get(user_id).and_then(|k| k.deserialize().ok())
+                    let self_signing = if let Some(s) = response
+                        .self_signing_keys
+                        .get(user_id)
+                        .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
                     {
                         SelfSigningPubkey::from(s)
                     } else {
@@ -351,7 +356,7 @@ impl IdentityManager {
                                 let user_signing = if let Some(s) = response
                                     .user_signing_keys
                                     .get(user_id)
-                                    .and_then(|k| k.deserialize().ok())
+                                    .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
                                 {
                                     UserSigningPubkey::from(s)
                                 } else {
@@ -375,7 +380,7 @@ impl IdentityManager {
                         if let Some(s) = response
                             .user_signing_keys
                             .get(user_id)
-                            .and_then(|k| k.deserialize().ok())
+                            .and_then(|k| k.deserialize_as::<CrossSigningKey>().ok())
                         {
                             let user_signing = UserSigningPubkey::from(s);
 
@@ -421,22 +426,22 @@ impl IdentityManager {
 
                                 if result.any_cleared() {
                                     changed_identity = Some((*private_identity).clone());
-                                    info!(cleared =? result, "Removed some or all of our private cross signing keys");
+                                    info!(cleared = ?result, "Removed some or all of our private cross signing keys");
                                 }
                             }
 
                             if new {
-                                trace!(user_id = user_id.as_str(), identity =? i, "Created new user identity");
+                                trace!(user_id = user_id.as_str(), identity = ?i, "Created new user identity");
                                 changes.new.push(i);
                             } else {
-                                trace!(user_id = user_id.as_str(), identity =? i, "Updated a user identity");
+                                trace!(user_id = user_id.as_str(), identity = ?i, "Updated a user identity");
                                 changes.changed.push(i);
                             }
                         }
                         Err(e) => {
                             warn!(
                                 user_id = user_id.as_str(),
-                                error =? e,
+                                error = ?e,
                                 "Couldn't update or create new user identity"
                             );
                             continue;
@@ -446,7 +451,7 @@ impl IdentityManager {
                 Err(e) => {
                     warn!(
                         user_id = user_id.as_str(),
-                        error =? e,
+                        error = ?e,
                         "Couldn't update or create new user identity"
                     );
                     continue;
@@ -537,39 +542,39 @@ impl IdentityManager {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test {
+#[cfg(any(test, feature = "testing"))]
+pub(crate) mod testing {
+    #![allow(dead_code)]
     use std::sync::Arc;
 
     use matrix_sdk_common::locks::Mutex;
-    use matrix_sdk_test::async_test;
     use ruma::{
-        api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
+        api::{client::keys::get_keys::v3::Response as KeyQueryResponse, IncomingResponse},
         device_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
 
     use crate::{
         identities::IdentityManager,
-        machine::test::response_from_file,
+        machine::testing::response_from_file,
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
 
-    fn user_id() -> &'static UserId {
+    pub fn user_id() -> &'static UserId {
         user_id!("@example:localhost")
     }
 
-    fn other_user_id() -> &'static UserId {
+    pub fn other_user_id() -> &'static UserId {
         user_id!("@example2:localhost")
     }
 
-    fn device_id() -> &'static DeviceId {
+    pub fn device_id() -> &'static DeviceId {
         device_id!("WSKKLTJZCL")
     }
 
-    fn manager() -> IdentityManager {
+    pub(crate) fn manager() -> IdentityManager {
         let identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id().to_owned())));
         let user_id = Arc::from(user_id());
@@ -581,7 +586,7 @@ pub(crate) mod test {
         IdentityManager::new(user_id, device_id().into(), store)
     }
 
-    pub(crate) fn other_key_query() -> KeyQueryResponse {
+    pub fn other_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
             "device_keys": {
                 "@example2:localhost": {
@@ -640,7 +645,7 @@ pub(crate) mod test {
             .expect("Can't parse the keys upload response")
     }
 
-    pub(crate) fn own_key_query() -> KeyQueryResponse {
+    pub fn own_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
           "device_keys": {
             "@example:localhost": {
@@ -740,6 +745,14 @@ pub(crate) mod test {
         KeyQueryResponse::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use matrix_sdk_test::async_test;
+    use ruma::device_id;
+
+    use super::testing::{manager, other_key_query, other_user_id};
 
     #[async_test]
     async fn test_manager_creation() {

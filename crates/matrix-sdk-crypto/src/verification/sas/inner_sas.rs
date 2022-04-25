@@ -23,8 +23,8 @@ use ruma::{
 
 use super::{
     sas_state::{
-        Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
-        WeAccepted,
+        Accepted, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
+        WaitingForDone, WeAccepted,
     },
     FlowId,
 };
@@ -32,7 +32,7 @@ use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
-        Cancelled, Done,
+        Cancelled,
     },
     Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
@@ -157,7 +157,7 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         flow_id: FlowId,
-        content: &StartContent,
+        content: &StartContent<'_>,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
@@ -255,7 +255,7 @@ impl InnerSas {
     pub fn receive_any_event(
         self,
         sender: &UserId,
-        content: &AnyVerificationContent,
+        content: &AnyVerificationContent<'_>,
     ) -> (Self, Option<OutgoingContent>) {
         match content {
             AnyVerificationContent::Accept(c) => match self {

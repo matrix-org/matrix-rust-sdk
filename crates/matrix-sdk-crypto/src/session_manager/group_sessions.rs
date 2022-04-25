@@ -24,7 +24,7 @@ use matrix_sdk_common::executor::spawn;
 use ruma::{
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyToDeviceEventContent, EventType,
+        AnyToDeviceEventContent, ToDeviceEventType,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -300,7 +300,7 @@ impl GroupSessionManager {
 
         let txn_id = TransactionId::new();
         let request = ToDeviceRequest {
-            event_type: EventType::RoomEncrypted,
+            event_type: ToDeviceEventType::RoomEncrypted,
             txn_id: txn_id.clone(),
             messages,
         };
@@ -329,8 +329,8 @@ impl GroupSessionManager {
         let mut devices: HashMap<Box<UserId>, Vec<Device>> = HashMap::new();
 
         trace!(
-            users = ?users,
-            history_visibility = ?history_visibility,
+            ?users,
+            ?history_visibility,
             session_id = outbound.session_id(),
             room_id = outbound.room_id().as_str(),
             "Calculating group session recipients"
@@ -505,7 +505,7 @@ impl GroupSessionManager {
 
             info!(
                 index = message_index,
-                recipients = ?recipients,
+                ?recipients,
                 room_id = room_id.as_str(),
                 session_id = outbound.session_id(),
                 "Trying to encrypt a room key",
@@ -586,13 +586,13 @@ impl GroupSessionManager {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::ops::Deref;
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
-            client::r0::keys::{claim_keys, get_keys},
+            client::keys::{claim_keys, get_keys},
             IncomingResponse,
         },
         device_id, room_id, user_id, DeviceId, TransactionId, UserId,
@@ -609,19 +609,19 @@ mod test {
         device_id!("JLAFKJWSCS")
     }
 
-    fn keys_query_response() -> get_keys::Response {
-        let data = include_bytes!("../../benches/keys_query.json");
+    fn keys_query_response() -> get_keys::v3::Response {
+        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
-        get_keys::Response::try_from_http_response(data)
+        get_keys::v3::Response::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
 
-    fn keys_claim_response() -> claim_keys::Response {
-        let data = include_bytes!("../../benches/keys_claim.json");
+    fn keys_claim_response() -> claim_keys::v3::Response {
+        let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
-        claim_keys::Response::try_from_http_response(data)
+        claim_keys::v3::Response::try_from_http_response(data)
             .expect("Can't parse the keys upload response")
     }
 

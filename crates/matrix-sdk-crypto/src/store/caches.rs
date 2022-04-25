@@ -47,7 +47,7 @@ impl SessionStore {
     pub async fn add(&self, session: Session) -> bool {
         let sessions_lock = self
             .entries
-            .entry(session.sender_key.to_string())
+            .entry(session.sender_key.to_base64())
             .or_insert_with(|| Arc::new(Mutex::new(Vec::new())));
 
         let mut sessions = sessions_lock.lock().await;
@@ -186,13 +186,13 @@ impl DeviceStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
-        identities::device::test::get_device,
-        olm::{test::get_account_and_session, InboundGroupSession},
+        identities::device::testing::get_device,
+        olm::{tests::get_account_and_session, InboundGroupSession},
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
 
@@ -205,7 +205,7 @@ mod test {
         assert!(store.add(session.clone()).await);
         assert!(!store.add(session.clone()).await);
 
-        let sessions = store.get(&session.sender_key).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -218,9 +218,9 @@ mod test {
         let (_, session) = get_account_and_session().await;
 
         let store = SessionStore::new();
-        store.set_for_sender(&session.sender_key, vec![session.clone()]);
+        store.set_for_sender(&session.sender_key.to_base64(), vec![session.clone()]);
 
-        let sessions = store.get(&session.sender_key).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -233,7 +233,7 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await.unwrap();
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
@@ -246,8 +246,7 @@ mod test {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = GroupSessionStore::new();
         store.add(inbound.clone());

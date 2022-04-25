@@ -12,35 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
+use std::{collections::BTreeMap, convert::TryInto};
 
-use aes_gcm::{
-    aead::{generic_array::GenericArray, Aead, NewAead},
-    Aes256Gcm,
-};
-use getrandom::getrandom;
-use matrix_sdk_common::locks::Mutex;
-use olm_rs::pk::OlmPkSigning;
-#[cfg(test)]
-use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
 use ruma::{
-    encryption::{CrossSigningKey, CrossSigningKeySignatures, DeviceKeys, KeyUsage},
-    serde::CanonicalJsonValue,
-    DeviceKeyAlgorithm, DeviceKeyId, UserId,
+    encryption::KeyUsage, serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Error as JsonError, Value};
+use serde_json::{Error as JsonError, Value};
 use thiserror::Error;
-use zeroize::Zeroizing;
+use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
 
 use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    utilities::{decode_url_safe, encode, encode_url_safe, DecodeError},
+    types::{CrossSigningKey, CrossSigningKeySignatures, DeviceKeys},
+    utilities::{encode, DecodeError},
     ReadOnlyUserIdentity,
 };
-
-const NONCE_SIZE: usize = 12;
 
 /// Error type reporting failures in the Signign operations.
 #[derive(Debug, Error)]
@@ -58,117 +46,82 @@ pub enum SigningError {
     Json(#[from] JsonError),
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Signing {
-    inner: Arc<Mutex<OlmPkSigning>>,
-    seed: Arc<Zeroizing<Vec<u8>>>,
-    public_key: PublicSigningKey,
+    inner: Ed25519SecretKey,
+    public_key: Ed25519PublicKey,
 }
 
 impl std::fmt::Debug for Signing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Signing").field("public_key", &self.public_key.as_str()).finish()
+        f.debug_struct("Signing").field("public_key", &self.public_key.to_base64()).finish()
     }
 }
 
 impl PartialEq for Signing {
     fn eq(&self, other: &Signing) -> bool {
-        self.seed == other.seed
+        self.public_key == other.public_key
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct InnerPickle {
-    version: u8,
-    nonce: String,
-    ciphertext: String,
-}
-
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct MasterSigning {
     pub inner: Signing,
     pub public_key: MasterPubkey,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledMasterSigning {
     pickle: PickledSigning,
     public_key: CrossSigningKey,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledUserSigning {
     pickle: PickledSigning,
     public_key: CrossSigningKey,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledSelfSigning {
     pickle: PickledSigning,
     public_key: CrossSigningKey,
 }
 
-impl PickledSigning {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublicSigningKey(Arc<str>);
-
-impl PublicSigningKey {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    #[allow(clippy::inherent_to_string)]
-    fn to_string(&self) -> String {
-        self.0.to_string()
-    }
-}
-
 impl MasterSigning {
-    pub async fn pickle(&self, pickle_key: &[u8]) -> PickledMasterSigning {
-        let pickle = self.inner.pickle(pickle_key).await;
-        let public_key = self.public_key.clone().into();
+    pub fn pickle(&self) -> PickledMasterSigning {
+        let pickle = self.inner.pickle();
+        let public_key = self.public_key.as_ref().clone();
         PickledMasterSigning { pickle, public_key }
     }
 
     pub fn export_seed(&self) -> String {
-        encode(self.inner.seed.as_slice())
+        encode(self.inner.as_bytes())
     }
 
-    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
-        let inner = Signing::from_seed(seed);
+    pub fn from_base64(user_id: Box<UserId>, key: &str) -> Result<Self, KeyError> {
+        let inner = Signing::from_base64(key)?;
         let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
 
-        Self { inner, public_key }
+        Ok(Self { inner, public_key })
     }
 
-    pub fn from_pickle(
-        pickle: PickledMasterSigning,
-        pickle_key: &[u8],
-    ) -> Result<Self, SigningError> {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
+    pub fn from_pickle(pickle: PickledMasterSigning) -> Result<Self, SigningError> {
+        let inner = Signing::from_pickle(pickle.pickle)?;
 
         Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 
-    pub async fn sign(&self, message: &str) -> String {
-        self.inner.sign(message).await.0
+    pub fn sign(&self, message: &str) -> Ed25519Signature {
+        self.inner.sign(message)
     }
 
-    pub async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
-        let subkey_without_signatures = json!({
-            "user_id": subkey.user_id.clone(),
-            "keys": subkey.keys.clone(),
-            "usage": subkey.usage.clone(),
-        });
-
-        let message = serde_json::to_string(&subkey_without_signatures)
-            .expect("Can't serialize cross signing subkey");
-        let signature = self.sign(&message).await;
+    pub fn sign_subkey(&self, subkey: &mut CrossSigningKey) {
+        let json_subkey = serde_json::to_value(&subkey).expect("Can't serialize cross signing key");
+        let signature = self.inner.sign_json(json_subkey).expect("Can't sign cross signing keys");
 
         subkey
             .signatures
@@ -177,50 +130,49 @@ impl MasterSigning {
             .insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key().as_str().into(),
-                )
-                .to_string(),
-                signature,
+                    self.inner.public_key.to_base64().as_str().into(),
+                ),
+                signature.to_base64(),
             );
     }
 }
 
 impl UserSigning {
-    pub async fn pickle(&self, pickle_key: &[u8]) -> PickledUserSigning {
-        let pickle = self.inner.pickle(pickle_key).await;
-        let public_key = self.public_key.clone().into();
+    pub fn pickle(&self) -> PickledUserSigning {
+        let pickle = self.inner.pickle();
+        let public_key = self.public_key.as_ref().clone();
         PickledUserSigning { pickle, public_key }
     }
 
     pub fn export_seed(&self) -> String {
-        encode(self.inner.seed.as_slice())
+        encode(self.inner.as_bytes())
     }
 
-    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
-        let inner = Signing::from_seed(seed);
+    pub fn from_base64(user_id: Box<UserId>, key: &str) -> Result<Self, KeyError> {
+        let inner = Signing::from_base64(key)?;
         let public_key = inner.cross_signing_key(user_id, KeyUsage::UserSigning).into();
 
-        Self { inner, public_key }
+        Ok(Self { inner, public_key })
     }
 
-    pub async fn sign_user(
+    pub fn sign_user(
         &self,
         user: &ReadOnlyUserIdentity,
     ) -> Result<CrossSigningKey, SignatureError> {
-        let signatures = self.sign_user_helper(user).await?;
-        let mut master_key: CrossSigningKey = user.master_key().to_owned().into();
+        let signatures = self.sign_user_helper(user)?;
+        let mut master_key = user.master_key().as_ref().clone();
 
         master_key.signatures = signatures;
 
         Ok(master_key)
     }
 
-    pub async fn sign_user_helper(
+    pub fn sign_user_helper(
         &self,
         user: &ReadOnlyUserIdentity,
     ) -> Result<CrossSigningKeySignatures, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
-        let signature = self.inner.sign_json(serde_json::to_value(user_master)?).await?;
+        let signature = self.inner.sign_json(serde_json::to_value(user_master)?)?;
 
         let mut signatures = BTreeMap::new();
 
@@ -230,49 +182,45 @@ impl UserSigning {
             .insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key.as_str().into(),
-                )
-                .to_string(),
-                signature.0,
+                    self.inner.public_key.to_base64().as_str().into(),
+                ),
+                signature.to_base64(),
             );
 
         Ok(signatures)
     }
 
-    pub fn from_pickle(
-        pickle: PickledUserSigning,
-        pickle_key: &[u8],
-    ) -> Result<Self, SigningError> {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
+    pub fn from_pickle(pickle: PickledUserSigning) -> Result<Self, SigningError> {
+        let inner = Signing::from_pickle(pickle.pickle)?;
 
         Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 }
 
 impl SelfSigning {
-    pub async fn pickle(&self, pickle_key: &[u8]) -> PickledSelfSigning {
-        let pickle = self.inner.pickle(pickle_key).await;
-        let public_key = self.public_key.clone().into();
+    pub fn pickle(&self) -> PickledSelfSigning {
+        let pickle = self.inner.pickle();
+        let public_key = self.public_key.as_ref().clone();
         PickledSelfSigning { pickle, public_key }
     }
 
     pub fn export_seed(&self) -> String {
-        encode(self.inner.seed.as_slice())
+        encode(self.inner.as_bytes())
     }
 
-    pub fn from_seed(user_id: Box<UserId>, seed: Vec<u8>) -> Self {
-        let inner = Signing::from_seed(seed);
+    pub fn from_base64(user_id: Box<UserId>, key: &str) -> Result<Self, KeyError> {
+        let inner = Signing::from_base64(key)?;
         let public_key = inner.cross_signing_key(user_id, KeyUsage::SelfSigning).into();
 
-        Self { inner, public_key }
+        Ok(Self { inner, public_key })
     }
 
-    pub async fn sign_device_helper(&self, value: Value) -> Result<Signature, SignatureError> {
-        self.inner.sign_json(value).await
+    pub fn sign_device_helper(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+        self.inner.sign_json(value)
     }
 
-    pub async fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
-        let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?).await?;
+    pub fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
+        let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?)?;
 
         device_keys
             .signatures
@@ -281,133 +229,102 @@ impl SelfSigning {
             .insert(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key.as_str().into(),
+                    self.inner.public_key.to_base64().as_str().into(),
                 ),
-                signature.0,
+                signature.to_base64(),
             );
 
         Ok(())
     }
 
-    pub fn from_pickle(
-        pickle: PickledSelfSigning,
-        pickle_key: &[u8],
-    ) -> Result<Self, SigningError> {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
+    pub fn from_pickle(pickle: PickledSelfSigning) -> Result<Self, SigningError> {
+        let inner = Signing::from_pickle(pickle.pickle)?;
 
         Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct SelfSigning {
     pub inner: Signing,
     pub public_key: SelfSigningPubkey,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct UserSigning {
     pub inner: Signing,
     pub public_key: UserSigningPubkey,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledSignings {
     pub master_key: Option<PickledMasterSigning>,
     pub user_signing_key: Option<PickledUserSigning>,
     pub self_signing_key: Option<PickledSelfSigning>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Signature(String);
-
-impl std::fmt::Display for Signature {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PickledSigning(String);
+#[derive(Serialize, Deserialize)]
+pub struct PickledSigning(Ed25519SecretKey);
 
 impl Signing {
     pub fn new() -> Self {
-        let seed = OlmPkSigning::generate_seed();
-        Self::from_seed(seed)
+        let secret_key = Ed25519SecretKey::new();
+        Self::new_helper(secret_key)
     }
 
-    pub fn from_seed(seed: Vec<u8>) -> Self {
-        let inner = OlmPkSigning::new(&seed).expect("Unable to create pk signing object");
-        let public_key = PublicSigningKey(inner.public_key().into());
+    fn new_helper(secret_key: Ed25519SecretKey) -> Self {
+        let public_key = secret_key.public_key();
 
-        Signing {
-            inner: Arc::new(Mutex::new(inner)),
-            seed: Arc::new(Zeroizing::from(seed)),
-            public_key,
-        }
+        Signing { inner: secret_key, public_key }
     }
 
-    pub fn from_pickle(pickle: PickledSigning, pickle_key: &[u8]) -> Result<Self, SigningError> {
-        let pickled: InnerPickle = serde_json::from_str(pickle.as_str())?;
-
-        let key = GenericArray::from_slice(pickle_key);
-        let cipher = Aes256Gcm::new(key);
-
-        let nonce = decode_url_safe(pickled.nonce)?;
-        let nonce = GenericArray::from_slice(&nonce);
-        let ciphertext = &decode_url_safe(pickled.ciphertext)?;
-
-        let seed = cipher
-            .decrypt(nonce, ciphertext.as_slice())
-            .map_err(|e| SigningError::Decryption(e.to_string()))?;
-
-        Ok(Self::from_seed(seed))
+    pub fn from_base64(key: &str) -> Result<Self, KeyError> {
+        let key = Ed25519SecretKey::from_base64(key)?;
+        Ok(Self::new_helper(key))
     }
 
-    pub async fn pickle(&self, pickle_key: &[u8]) -> PickledSigning {
-        let key = GenericArray::from_slice(pickle_key);
-        let cipher = Aes256Gcm::new(key);
-
-        let mut nonce = vec![0u8; NONCE_SIZE];
-        getrandom(&mut nonce).expect("Can't generate nonce to pickle the signing object");
-        let nonce = GenericArray::from_slice(nonce.as_slice());
-
-        let ciphertext =
-            cipher.encrypt(nonce, self.seed.as_slice()).expect("Can't encrypt signing pickle");
-
-        let ciphertext = encode_url_safe(ciphertext);
-
-        let pickle =
-            InnerPickle { version: 1, nonce: encode_url_safe(nonce.as_slice()), ciphertext };
-
-        PickledSigning(serde_json::to_string(&pickle).expect("Can't encode pickled signing"))
+    pub fn as_bytes(&self) -> &[u8] {
+        self.inner.as_bytes()
     }
 
-    pub fn public_key(&self) -> &PublicSigningKey {
-        &self.public_key
+    pub fn from_pickle(pickle: PickledSigning) -> Result<Self, SigningError> {
+        Ok(Self::new_helper(pickle.0))
+    }
+
+    pub fn pickle(&self) -> PickledSigning {
+        PickledSigning(
+            Ed25519SecretKey::from_slice(self.inner.as_bytes())
+                .expect("Copying the private key should work"),
+        )
+    }
+
+    pub fn public_key(&self) -> Ed25519PublicKey {
+        self.public_key
     }
 
     pub fn cross_signing_key(&self, user_id: Box<UserId>, usage: KeyUsage) -> CrossSigningKey {
         let keys = BTreeMap::from([(
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.public_key().as_str().into())
-                .to_string(),
-            self.public_key().to_string(),
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                self.public_key().to_base64().as_str().into(),
+            ),
+            self.inner.public_key().into(),
         )]);
 
         CrossSigningKey::new(user_id, vec![usage], keys, BTreeMap::new())
     }
 
     #[cfg(test)]
-    pub async fn verify(
+    pub fn verify(
         &self,
         message: &str,
-        signature: &Signature,
-    ) -> Result<bool, OlmUtilityError> {
-        let utility = OlmUtility::new();
-        utility.ed25519_verify(self.public_key.as_str(), message, signature.to_string())
+        signature: &Ed25519Signature,
+    ) -> Result<(), SignatureError> {
+        Ok(self.public_key.verify(message.as_bytes(), signature)?)
     }
 
-    pub async fn sign_json(&self, mut json: Value) -> Result<Signature, SignatureError> {
+    pub fn sign_json(&self, mut json: Value) -> Result<Ed25519Signature, SignatureError> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let _ = json_object.remove("signatures");
         let _ = json_object.remove("unsigned");
@@ -415,10 +332,10 @@ impl Signing {
         let canonical_json: CanonicalJsonValue =
             json.try_into().expect("Can't canonicalize the json value");
 
-        Ok(self.sign(&canonical_json.to_string()).await)
+        Ok(self.sign(&canonical_json.to_string()))
     }
 
-    pub async fn sign(&self, message: &str) -> Signature {
-        Signature(self.inner.lock().await.sign(message))
+    pub fn sign(&self, message: &str) -> Ed25519Signature {
+        self.inner.sign(message.as_bytes())
     }
 }

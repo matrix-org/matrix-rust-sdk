@@ -1,11 +1,10 @@
 use std::time::Duration;
 
-use futures_timer::Delay as sleep;
 use matrix_sdk_base::{
     deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
     instant::Instant,
 };
-use ruma::api::client::r0::sync::sync_events;
+use ruma::api::client::sync::sync_events;
 use tracing::{error, warn};
 
 use crate::{event_handler::EventKind, Client, Result};
@@ -15,7 +14,7 @@ use crate::{event_handler::EventKind, Client, Result};
 impl Client {
     pub(crate) async fn process_sync(
         &self,
-        response: sync_events::Response,
+        response: sync_events::v3::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().receive_sync_response(response).await?;
         let SyncResponse {
@@ -108,6 +107,14 @@ impl Client {
         Ok(response)
     }
 
+    async fn sleep() {
+        #[cfg(target_arch = "wasm32")]
+        let _ = wasm_timer::Delay::new(Duration::from_secs(1)).await;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
     pub(crate) async fn sync_loop_helper(
         &self,
         sync_settings: &mut crate::config::SyncSettings<'_>,
@@ -121,7 +128,8 @@ impl Client {
             }
             Err(e) => {
                 error!("Received an invalid response: {}", e);
-                sleep::new(Duration::from_secs(1)).await;
+                Self::sleep().await;
+
                 Err(e)
             }
         }
@@ -135,7 +143,7 @@ impl Client {
         // the sync timeout.
         if let Some(t) = last_sync_time {
             if now - *t <= Duration::from_secs(1) {
-                sleep::new(Duration::from_secs(1)).await;
+                Self::sleep().await;
             }
         }
 

@@ -307,13 +307,13 @@ impl CryptoStore for MemoryStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
-        identities::device::test::get_device,
-        olm::{test::get_account_and_session, InboundGroupSession, OlmMessageHash},
+        identities::device::testing::get_device,
+        olm::{tests::get_account_and_session, InboundGroupSession, OlmMessageHash},
         store::{memorystore::MemoryStore, Changes, CryptoStore},
     };
 
@@ -327,7 +327,7 @@ mod test {
 
         store.save_sessions(vec![session.clone()]).await;
 
-        let sessions = store.get_sessions(&session.sender_key).await.unwrap().unwrap();
+        let sessions = store.get_sessions(&session.sender_key.to_base64()).await.unwrap().unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -340,15 +340,14 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await.unwrap();
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
         let inbound = InboundGroupSession::new(
             "test_key",
             "test_key",
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = MemoryStore::new();
         let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;

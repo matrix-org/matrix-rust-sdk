@@ -18,38 +18,41 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = [
     "encryption",
-    "qrcode",
-    "sled_cryptostore",
-    "sled_state_store",
+    "sled-crypto-store",
+    "sled-state-store",
     "native-tls"
 ]
 
-indexeddb_stores = ["matrix-sdk-base/indexeddb_state_store", "matrix-sdk-base/indexeddb_cryptostore"]
+indexeddb-state-store = ["matrix-sdk-indexeddb"]
+indexeddb-crypto-store = ["matrix-sdk-indexeddb/encryption", "encryption"]
 encryption = ["matrix-sdk-base/encryption"]
 qrcode = ["encryption", "matrix-sdk-base/qrcode"]
 # TODO merge those two sled features
-sled_state_store = ["matrix-sdk-base/sled_state_store"]
-sled_cryptostore = ["matrix-sdk-base/sled_cryptostore"]
+sled-state-store = ["matrix-sdk-sled/state-store"]
+sled-crypto-store = ["matrix-sdk-sled/crypto-store", "encryption"]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
-sso_login = ["warp", "rand", "tokio-stream"]
+sso-login = ["warp", "rand", "tokio-stream"]
 appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper"]
+image-proc = ["image"]
+image-rayon = ["image-proc", "image/jpeg_rayon"]
 
 docsrs = [
     "encryption",
-    "sled_cryptostore",
-    "sled_state_store",
-    "sso_login",
-    "qrcode"
+    "sled-crypto-store",
+    "sled-state-store",
+    "sso-login",
+    "qrcode",
+    "image-proc",
 ]
 
 [dependencies]
 anyhow = { version = "1.0.42", optional = true }
 anymap2 = "0.13.0"
 bytes = "1.0.1"
-dashmap = "4.0.2"
+dashmap = "5.1.0"
 event-listener = "2.5.1"
 eyre = { version = "0.6.5", optional = true }
 futures-core = "0.3.15"
@@ -66,6 +69,29 @@ url = "2.2.2"
 zeroize = "1.3.0"
 async-stream = "0.3.2"
 
+matrix-sdk-sled = { path = "../matrix-sdk-sled", default-features = false, optional = true }
+matrix-sdk-indexeddb = { path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
+
+[dependencies.image]
+version = "0.24.0"
+default-features = false
+features = [
+    "gif",
+    "jpeg",
+    "ico",
+    "png",
+    "pnm",
+    "tga",
+    "tiff",
+    "webp",
+    "bmp",
+    "hdr",
+    "dxt",
+    "dds",
+    "farbfeld",
+]
+optional = true
+
 [dependencies.matrix-sdk-base]
 version = "0.4.0"
 path = "../matrix-sdk-base"
@@ -76,9 +102,9 @@ version = "0.11.3"
 default_features = false
 
 [dependencies.ruma]
-git = "https://github.com/ruma/ruma/"
-rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
-features = ["client-api-c", "compat", "rand", "unstable-pre-spec"]
+git = "https://github.com/ruma/ruma"
+rev = "548232ef5"
+features = ["client-api-c", "compat", "rand", "unstable-msc2448"]
 
 [dependencies.tokio-stream]
 version = "0.1.6"
@@ -90,21 +116,17 @@ version = "0.3.1"
 default-features = false
 optional = true
 
+[target.'cfg(target_arch = "wasm32")'.dependencies.wasm-timer]
+version = "0.2.5"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.backoff]
 version = "0.4.0"
 features = ["tokio"]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-futures-timer = "3.0.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "1.7.1"
 default-features = false
 features = ["fs", "rt"]
-
-[target.'cfg(target_arch = "wasm32")'.dependencies.futures-timer]
-version = "3.0.2"
-features = ["wasm-bindgen"]
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -116,7 +138,7 @@ matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
 mockito = "0.30.0"
 serde_json = "1.0.64"
 tempfile = "3.2.0"
-tracing-subscriber = "0.3.7"
+tracing-subscriber = { version = "0.3.7", features = ["env-filter"] }
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.tokio]
@@ -134,3 +156,7 @@ required-features = ["encryption"]
 [[example]]
 name = "emoji_verification"
 required-features = ["encryption"]
+
+[[example]]
+name = "timeline"
+required-features = ["sled-state-store"]

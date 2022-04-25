@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use ruma::{events::AnyRoomEvent, room_id};
+use ruma::{events::AnyRoomEvent, room_id, serde::Raw};
 use serde_json::Value;
 
 use crate::{test_json, EventsJson};
@@ -25,7 +25,7 @@ pub fn value_with_room_id(value: &Value) -> Value {
 /// Usage is similar to [`super::EventBuilder`]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    events: Vec<AnyRoomEvent>,
+    events: Vec<Raw<AnyRoomEvent>>,
 }
 
 impl TransactionBuilder {
@@ -44,7 +44,7 @@ impl TransactionBuilder {
 
         let val = value_with_room_id(val);
 
-        let event = serde_json::from_value::<AnyRoomEvent>(val).unwrap();
+        let event = serde_json::from_value(val).unwrap();
 
         self.events.push(event);
         self

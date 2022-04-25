@@ -4,9 +4,11 @@ use matrix_sdk::{
     ruma::{
         events::{
             room::message::{
-                MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
+                MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+                TextMessageEventContent,
             },
-            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
+            AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            SyncMessageLikeEvent,
         },
         RoomId,
     },
@@ -19,8 +21,8 @@ use web_sys::console;
 struct WasmBot(Client);
 
 impl WasmBot {
-    async fn on_room_message(&self, room_id: &RoomId, event: &SyncRoomMessageEvent) {
-        let msg_body = if let SyncRoomMessageEvent {
+    async fn on_room_message(&self, room_id: &RoomId, event: &OriginalSyncRoomMessageEvent) {
+        let msg_body = if let OriginalSyncRoomMessageEvent {
             content:
                 RoomMessageEventContent {
                     msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
@@ -37,13 +39,13 @@ impl WasmBot {
         console::log_1(&format!("Received message event {:?}", &msg_body).into());
 
         if msg_body.contains("!party") {
-            let content = AnyMessageEventContent::RoomMessage(RoomMessageEventContent::text_plain(
-                "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
-            ));
+            let content = AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉"),
+            );
 
             println!("sending");
 
-            if let Some(room) = self.0.get_joined_room(&room_id) {
+            if let Some(room) = self.0.get_joined_room(room_id) {
                 // send our message to the room we found the "!party" command in
                 // the last parameter is an optional transaction id which we
                 // don't care about.
@@ -55,12 +57,13 @@ impl WasmBot {
     }
 
     async fn on_sync_response(&self, response: SyncResponse) -> LoopCtrl {
-        console::log_1(&"Synced".to_string().into());
+        console::log_1(&"Synced".to_owned().into());
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
-                if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(ev))) =
-                    event.event.deserialize()
+                if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+                    SyncMessageLikeEvent::Original(ev),
+                ))) = event.event.deserialize()
                 {
                     self.on_room_message(&room_id, &ev).await
                 }
@@ -79,7 +82,7 @@ pub async fn run() -> Result<JsValue, JsValue> {
     let username = "example";
     let password = "wordpass";
 
-    let homeserver_url = Url::parse(&homeserver_url).unwrap();
+    let homeserver_url = Url::parse(homeserver_url).unwrap();
     let client = Client::new(homeserver_url).await.unwrap();
 
     client.login(username, password, None, Some("rust-sdk-wasm")).await.unwrap();

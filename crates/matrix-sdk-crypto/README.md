@@ -21,13 +21,13 @@ use std::{collections::BTreeMap, convert::TryFrom};
 
 use matrix_sdk_crypto::{OlmMachine, OlmError};
 use ruma::{
-    api::client::r0::sync::sync_events::{ToDevice, DeviceLists},
-    device_id, UserId,
+    api::client::sync::sync_events::v3::{ToDevice, DeviceLists},
+    device_id, user_id,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), OlmError> {
-    let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    let alice = user_id!("@alice:example.org");
     let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 
     let to_device_events = ToDevice::default();
@@ -61,3 +61,12 @@ The decision tree below visualizes the way this crate decides whether a room
 key will be shared with a requester upon a key request.
 
 ![](https://raw.githubusercontent.com/matrix-org/matrix-rust-sdk/main/contrib/key-sharing-algorithm/model.png)
+
+
+# Crate Feature Flags
+
+The following crate feature flags are available:
+
+* `qrcode`: Enbles QRcode generation and reading code
+
+* `testing`: provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider.

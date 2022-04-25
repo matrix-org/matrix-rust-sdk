@@ -35,8 +35,8 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 ///
 /// The identity is backed by public [cross signing] keys that users upload. If
 /// our own user doesn't yet have such an identity, a new one can be created and
-/// uploaded to the server using [`Client::bootstrap_cross_signing()`]. The user
-/// identity can be also reset using the same method.
+/// uploaded to the server using [`Encryption::bootstrap_cross_signing()`]. The
+/// user identity can be also reset using the same method.
 ///
 /// The user identity consists of three separate `Ed25519` keypairs:
 ///
@@ -63,6 +63,7 @@ use crate::{encryption::verification::VerificationRequest, room::Joined, Client}
 /// let us know whom the user verified.
 ///
 /// [cross signing]: https://spec.matrix.org/unstable/client-server-api/#cross-signing
+/// [`Encryption::bootstrap_cross_signing()`]: crate::encryption::Encryption::bootstrap_cross_signing
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     inner: UserIdentities,
@@ -91,13 +92,13 @@ impl UserIdentity {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # futures::executor::block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     println!("This user identity belongs to {}", user.user_id().as_str());
@@ -143,13 +144,13 @@ impl UserIdentity {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # futures::executor::block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     let verification = user.request_verification().await?;
@@ -198,17 +199,17 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
     /// // verification
@@ -252,7 +253,7 @@ impl UserIdentity {
     /// course fail if the private part of the User-signing key isn't available.
     ///
     /// The availability of the User-signing key can be checked using the
-    /// [`Client::cross_signing_status()`] method.
+    /// [`Encryption::cross_signing_status()`] method.
     ///
     /// ### Manually verifying our own user
     ///
@@ -277,23 +278,24 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     user.verify().await?;
     /// }
     /// # anyhow::Result::<()>::Ok(()) });
     /// ```
+    /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         match &self.inner {
             UserIdentities::Own(i) => i.verify().await,
@@ -320,17 +322,17 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     if user.verified() {
@@ -360,24 +362,24 @@ impl UserIdentity {
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
-    /// #        UserId,
+    /// #        user_id,
     /// #        events::key::verification::VerificationMethod,
     /// #    }
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = Box::<UserId>::try_from("@alice:example.org").unwrap();
+    /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// # let client = Client::new(homeserver).await.unwrap();
-    /// let user = client.get_user_identity(&alice).await?;
+    /// let user = client.encryption().get_user_identity(alice).await?;
     ///
     /// if let Some(user) = user {
     ///     // Let's verify the user after we confirm that the master key
     ///     // matches what we expect, for this we fetch the first public key we
     ///     // can find, there's currently only a single key allowed so this is
     ///     // fine.
-    ///     if user.master_key().get_first_key() == Some("MyMasterKey") {
+    ///     if user.master_key().get_first_key().map(|k| k.to_base64()) == Some("MyMasterKey".to_string()) {
     ///         println!(
     ///             "Master keys match for user {}, marking the user as verified",
     ///             user.user_id().as_str(),

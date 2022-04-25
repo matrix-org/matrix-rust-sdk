@@ -9,19 +9,20 @@ use std::{
 
 use matrix_sdk::{
     self,
+    attachment::AttachmentConfig,
     config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
-        MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
+        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent,
     },
     Client,
 };
 use tokio::sync::Mutex;
 use url::Url;
 
-async fn on_room_message(event: SyncRoomMessageEvent, room: Room, image: Arc<Mutex<File>>) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room, image: Arc<Mutex<File>>) {
     if let Room::Joined(room) = room {
-        let msg_body = if let SyncRoomMessageEvent {
+        let msg_body = if let OriginalSyncRoomMessageEvent {
             content:
                 RoomMessageEventContent {
                     msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
@@ -39,7 +40,9 @@ async fn on_room_message(event: SyncRoomMessageEvent, room: Room, image: Arc<Mut
             println!("sending image");
             let mut image = image.lock().await;
 
-            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, None).await.unwrap();
+            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, AttachmentConfig::new())
+                .await
+                .unwrap();
 
             image.seek(SeekFrom::Start(0)).unwrap();
 

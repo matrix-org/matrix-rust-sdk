@@ -1,18 +1,19 @@
 use std::{collections::BTreeMap, convert::TryFrom};
 
 use ruma::{
-    api::client::r0::{
-        push::get_notifications::Notification,
-        sync::sync_events::{
+    api::client::{
+        push::get_notifications::v3::Notification,
+        sync::sync_events::v3::{
             DeviceLists, Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
             State, ToDevice, UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
     },
     events::{
         room::member::{
-            RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
+            OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+            StrippedRoomMemberEvent,
         },
-        AnyRoomEvent, AnySyncRoomEvent, Unsigned,
+        AnyRoomEvent, AnySyncRoomEvent, StateUnsigned,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
@@ -97,6 +98,13 @@ pub struct SyncRoomEvent {
     pub encryption_info: Option<EncryptionInfo>,
 }
 
+impl SyncRoomEvent {
+    /// Get the event id of this `SyncRoomEvent` if the event has any valid id.
+    pub fn event_id(&self) -> Option<Box<EventId>> {
+        self.event.get_field::<Box<EventId>>("event_id").ok().flatten()
+    }
+}
+
 impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
     fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
         Self { encryption_info: None, event: inner }
@@ -109,7 +117,7 @@ impl From<RoomEvent> for SyncRoomEvent {
         // RoomEvent without the room_id. By converting the raw value in this
         // way, we simply cause the `room_id` field in the json to be ignored by
         // a subsequent deserialization.
-        Self { encryption_info: o.encryption_info, event: Raw::from_json(o.event.into_json()) }
+        Self { encryption_info: o.encryption_info, event: o.event.cast() }
     }
 }
 
@@ -255,27 +263,58 @@ impl Timeline {
     }
 }
 
+/// A slice of the timeline in the room.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct TimelineSlice {
+    /// The `next_batch` or `from` token used to obtain this slice
+    pub start: String,
+
+    /// The `prev_batch` or `to` token used to obtain this slice
+    /// If `None` this `TimelineSlice` is the beginning of the room
+    pub end: Option<String>,
+
+    /// Whether the number of events returned for this slice was limited
+    /// by a `limit`-filter when requesting
+    pub limited: bool,
+
+    /// A list of events.
+    pub events: Vec<SyncRoomEvent>,
+
+    /// Whether this is a timeline slice obtained from a `SyncResponse`
+    pub sync: bool,
+}
+
+impl TimelineSlice {
+    pub fn new(
+        events: Vec<SyncRoomEvent>,
+        start: String,
+        end: Option<String>,
+        limited: bool,
+        sync: bool,
+    ) -> Self {
+        Self { start, end, events, limited, sync }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(try_from = "SyncRoomMemberEvent", into = "SyncRoomMemberEvent")]
+#[serde(try_from = "OriginalSyncRoomMemberEvent", into = "OriginalSyncRoomMemberEvent")]
 pub struct MemberEvent {
     pub content: RoomMemberEventContent,
     pub event_id: Box<EventId>,
     pub origin_server_ts: MilliSecondsSinceUnixEpoch,
-    pub prev_content: Option<RoomMemberEventContent>,
     pub sender: Box<UserId>,
     pub state_key: Box<UserId>,
-    pub unsigned: Unsigned,
+    pub unsigned: StateUnsigned<RoomMemberEventContent>,
 }
 
-impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
-    type Error = ruma::identifiers::Error;
+impl TryFrom<OriginalSyncRoomMemberEvent> for MemberEvent {
+    type Error = ruma::IdParseError;
 
-    fn try_from(event: SyncRoomMemberEvent) -> Result<Self, Self::Error> {
+    fn try_from(event: OriginalSyncRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
             origin_server_ts: event.origin_server_ts,
-            prev_content: event.prev_content,
             sender: event.sender,
             state_key: event.state_key.try_into()?,
             unsigned: event.unsigned,
@@ -283,15 +322,14 @@ impl TryFrom<SyncRoomMemberEvent> for MemberEvent {
     }
 }
 
-impl TryFrom<RoomMemberEvent> for MemberEvent {
-    type Error = ruma::identifiers::Error;
+impl TryFrom<OriginalRoomMemberEvent> for MemberEvent {
+    type Error = ruma::IdParseError;
 
-    fn try_from(event: RoomMemberEvent) -> Result<Self, Self::Error> {
+    fn try_from(event: OriginalRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
             content: event.content,
             event_id: event.event_id,
             origin_server_ts: event.origin_server_ts,
-            prev_content: event.prev_content,
             sender: event.sender,
             state_key: event.state_key.try_into()?,
             unsigned: event.unsigned,
@@ -299,7 +337,7 @@ impl TryFrom<RoomMemberEvent> for MemberEvent {
     }
 }
 
-impl From<MemberEvent> for SyncRoomMemberEvent {
+impl From<MemberEvent> for OriginalSyncRoomMemberEvent {
     fn from(other: MemberEvent) -> Self {
         Self {
             content: other.content,
@@ -307,7 +345,6 @@ impl From<MemberEvent> for SyncRoomMemberEvent {
             sender: other.sender,
             origin_server_ts: other.origin_server_ts,
             state_key: other.state_key.to_string(),
-            prev_content: other.prev_content,
             unsigned: other.unsigned,
         }
     }
@@ -322,7 +359,7 @@ pub struct StrippedMemberEvent {
 }
 
 impl TryFrom<StrippedRoomMemberEvent> for StrippedMemberEvent {
-    type Error = ruma::identifiers::Error;
+    type Error = ruma::IdParseError;
 
     fn try_from(event: StrippedRoomMemberEvent) -> Result<Self, Self::Error> {
         Ok(StrippedMemberEvent {
@@ -355,41 +392,43 @@ pub struct MembersResponse {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use ruma::{
         event_id,
         events::{
-            room::message::RoomMessageEventContent, AnyMessageEvent, AnySyncMessageEvent,
-            AnySyncRoomEvent, MessageEvent,
+            room::message::RoomMessageEventContent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            MessageLikeUnsigned, OriginalMessageLikeEvent, SyncMessageLikeEvent,
         },
-        room_id, user_id, MilliSecondsSinceUnixEpoch,
+        room_id,
+        serde::Raw,
+        user_id, MilliSecondsSinceUnixEpoch,
     };
 
-    use super::{Raw, RoomEvent, SyncRoomEvent, Unsigned};
+    use super::{RoomEvent, SyncRoomEvent};
 
     #[test]
     fn room_event_to_sync_room_event() {
         let content = RoomMessageEventContent::text_plain("foobar");
 
-        let event: AnyMessageEvent = MessageEvent {
+        let event = OriginalMessageLikeEvent {
             content,
             event_id: event_id!("$xxxxx:example.org").to_owned(),
             room_id: room_id!("!someroom:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             sender: user_id!("@carl:example.com").to_owned(),
-            unsigned: Unsigned::default(),
-        }
-        .into();
+            unsigned: MessageLikeUnsigned::default(),
+        };
 
         let room_event =
-            RoomEvent { event: Raw::new(&event.clone().into()).unwrap(), encryption_info: None };
+            RoomEvent { event: Raw::new(&event).unwrap().cast(), encryption_info: None };
 
         let converted_room_event: SyncRoomEvent = room_event.into();
 
         let converted_event: AnySyncRoomEvent = converted_room_event.event.deserialize().unwrap();
 
-        let sync_event: AnySyncMessageEvent = event.into();
-        let sync_event: AnySyncRoomEvent = sync_event.into();
+        let sync_event = AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncMessageLikeEvent::Original(event.into()),
+        ));
 
         // There is no PartialEq implementation for AnySyncRoomEvent, so we
         // just compare a couple of fields here. The important thing is that
