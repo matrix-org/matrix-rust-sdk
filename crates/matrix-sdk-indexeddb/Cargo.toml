@@ -17,7 +17,6 @@ dashmap = "5.1.0"
 futures-util = { version = "0.3.15", default-features = false }
 indexed_db_futures = { version = "0.2.0" }
 matrix-sdk-base = { path = "../matrix-sdk-base" }
-matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }
 serde = { version = "1.0.126" }
 serde_json = "1.0.64"
