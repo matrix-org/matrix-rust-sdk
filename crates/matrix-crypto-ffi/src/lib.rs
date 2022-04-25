@@ -147,7 +147,7 @@ impl From<anyhow::Error> for MigrationError {
 ///
 /// * `passphrase` - The passphrase that should be used to encrypt the data at
 /// rest in the Sled store. **Warning**, if no passphrase is given, the store
-/// and all its data will remain unencyrpted.
+/// and all its data will remain unencrypted.
 ///
 /// * `progress_listener` - A callback that can be used to introspect the
 /// progress of the migration.
@@ -172,11 +172,12 @@ pub fn migrate(
 
     // The total steps here include all the sessions/inbound group sessions and
     // additionally some static number of steps:
-    //     * opening the store
-    //     * the Account
-    //     * the cross signing keys
-    //     * the tracked users
-    //     * the final save operation
+    //
+    // 1. opening the store
+    // 2. the Account
+    // 3. the cross signing keys
+    // 4. the tracked users
+    // 5. the final save operation
     let total_steps = 5 + data.sessions.len() + data.inbound_group_sessions.len();
     let mut processed_steps = 0;
     let listener = |progress: usize, total: usize| {

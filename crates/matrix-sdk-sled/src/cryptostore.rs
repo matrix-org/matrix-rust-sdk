@@ -649,7 +649,7 @@ impl SledStore {
     ///
     /// # Arguments
     ///
-    /// * `tracked_users` - A list of tuples, the first element of the tuple is
+    /// * `tracked_users` - A list of tuples. The first element of the tuple is
     /// the user ID, the second element is if the user should be considered to
     /// be dirty.
     pub async fn save_tracked_users(
