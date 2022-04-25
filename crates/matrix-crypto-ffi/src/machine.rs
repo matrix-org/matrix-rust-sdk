@@ -81,7 +81,7 @@ impl OlmMachine {
     ///
     /// * `passphrase` - The passphrase that should be used to encrypt the data
     ///   at rest in the Sled store. **Warning**, if no passphrase is given, the
-    ///   store and all its data will remain unencyrpted.
+    ///   store and all its data will remain unencrypted.
     pub fn new(
         user_id: &str,
         device_id: &str,
