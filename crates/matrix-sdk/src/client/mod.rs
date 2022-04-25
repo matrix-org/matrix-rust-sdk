@@ -2291,6 +2291,7 @@ pub(crate) mod tests {
             Thumbnail,
         },
         config::{RequestConfig, SyncSettings},
+        error::RumaApiError,
         HttpError, RoomMember,
     };
 
@@ -2608,8 +2609,12 @@ pub(crate) mod tests {
             .create();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::Http(HttpError::ClientApi(FromHttpResponseError::Server(
-                ServerError::Known(client_api::Error { kind, message, status_code }),
+            if let crate::Error::Http(HttpError::Api(FromHttpResponseError::Server(
+                ServerError::Known(RumaApiError::ClientApi(client_api::Error {
+                    kind,
+                    message,
+                    status_code,
+                })),
             ))) = err
             {
                 if let client_api::error::ErrorKind::Forbidden = kind {
