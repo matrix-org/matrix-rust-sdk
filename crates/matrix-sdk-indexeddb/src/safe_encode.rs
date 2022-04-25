@@ -1,11 +1,10 @@
 #![allow(dead_code)]
 use base64::{encode_config as base64_encode, STANDARD_NO_PAD};
-use matrix_sdk_base::ruma::events::{
-    GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
-};
-use matrix_sdk_common::ruma::{
-    receipt::ReceiptType, DeviceId, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId,
-    RoomId, TransactionId, UserId,
+use matrix_sdk_base::ruma::{
+    events::{GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType},
+    receipt::ReceiptType,
+    DeviceId, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use wasm_bindgen::JsValue;
@@ -234,12 +233,6 @@ impl<T: SafeEncode + ?Sized> SafeEncode for &T {
         (*self).as_encoded_string()
     }
 }
-
-/* impl<T: SafeEncode + ?Sized> SafeEncode for Box<T> {
-    fn as_encoded_string(&self) -> String {
-        (&**self).as_encoded_string()
-    }
-} */
 
 impl SafeEncode for TransactionId {
     fn as_encoded_string(&self) -> String {

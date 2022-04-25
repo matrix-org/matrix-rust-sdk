@@ -814,6 +814,8 @@ impl BaseClient {
             .filter_map(|e| e.deserialize().ok())
             .filter_map(|ev| match ev {
                 RoomMemberEvent::Original(ev) => Some(ev),
+                // FIXME: don't filter these out
+                // https://github.com/matrix-org/matrix-rust-sdk/issues/607
                 RoomMemberEvent::Redacted(_) => None,
             })
             .collect();

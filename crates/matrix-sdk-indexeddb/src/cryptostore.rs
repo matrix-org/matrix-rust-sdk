@@ -20,7 +20,7 @@ use std::{
 use anyhow::anyhow;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{
+use matrix_sdk_base::{
     async_trait,
     locks::Mutex,
     ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId},
