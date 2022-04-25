@@ -3,11 +3,7 @@ use std::sync::Arc;
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::{
-        client::{discovery::discover_homeserver, Error},
-        error::FromHttpResponseError,
-        MatrixVersion,
-    },
+    api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     ServerName, UserId,
 };
 use thiserror::Error;
@@ -16,6 +12,7 @@ use url::Url;
 use super::{Client, ClientInner};
 use crate::{
     config::RequestConfig,
+    error::RumaApiError,
     http_client::{HttpClient, HttpSend, HttpSettings},
     HttpError,
 };
@@ -316,7 +313,7 @@ impl ClientBuilder {
                     )
                     .await
                     .map_err(|e| match e {
-                        HttpError::ClientApi(err) => ClientBuildError::AutoDiscovery(err),
+                        HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
                         err => ClientBuildError::Http(err),
                     })?;
 
@@ -410,7 +407,7 @@ pub enum ClientBuildError {
 
     /// Error looking up the .well-known endpoint on auto-discovery
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
-    AutoDiscovery(FromHttpResponseError<Error>),
+    AutoDiscovery(FromHttpResponseError<RumaApiError>),
 
     /// An error encountered when trying to parse the homeserver url.
     #[error(transparent)]
