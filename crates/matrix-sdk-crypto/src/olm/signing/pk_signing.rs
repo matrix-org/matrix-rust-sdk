@@ -30,7 +30,7 @@ use crate::{
     ReadOnlyUserIdentity,
 };
 
-/// Error type reporting failures in the Signign operations.
+/// Error type reporting failures in the signing operations.
 #[derive(Debug, Error)]
 pub enum SigningError {
     /// Error decoding the base64 encoded pickle data.
@@ -38,7 +38,7 @@ pub enum SigningError {
     Decode(#[from] DecodeError),
 
     /// Error decrypting the pickled signing seed
-    #[error("Error decrypting the pickled signign seed")]
+    #[error("Error decrypting the pickled signing seed")]
     Decryption(String),
 
     /// Error deserializing the pickle data.

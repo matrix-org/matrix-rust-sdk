@@ -521,7 +521,7 @@ impl PrivateCrossSigningIdentity {
         let signature_request = identity
             .sign_account(account)
             .await
-            .expect("Can't sign own device with new cross signign keys");
+            .expect("Can't sign own device with new cross signing keys");
 
         let request = identity.as_upload_request().await;
 
