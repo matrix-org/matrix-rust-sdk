@@ -1278,12 +1278,16 @@ impl Default for BaseClient {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_test::{async_test, EventBuilder};
-    use ruma::{room_id, user_id};
+    use matrix_sdk_test::{async_test, EventBuilder, response_from_file};
+    use ruma::{
+        api::IncomingResponse,
+        api::client as api,
+        room_id, user_id
+    };
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{RoomType, Session};
+    use crate::{RoomType, Session, DisplayName};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1339,5 +1343,100 @@ mod tests {
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Invited);
+    }
+
+    #[async_test]
+    async fn invite_displayname_intergration_test() {
+
+        let user_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = BaseClient::new();
+        client
+            .restore_login(Session {
+                access_token: "token".to_owned(),
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
+            .await
+            .unwrap();
+
+            
+        let response = api::sync::sync_events::v3::Response::try_from_http_response(response_from_file(&json!({
+            "next_batch": "asdkl;fjasdkl;fj;asdkl;f",
+            "device_one_time_keys_count": {
+                "signed_curve25519": 50u64
+            },
+            "device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ],
+            "rooms": {
+                "invite": {
+                    "!ithpyNKDtmhneaTQja:example.org": {
+                        "invite_state": {
+                            "events": [
+                                {
+                                    "content": {
+                                        "creator": "@test:example.org",
+                                        "room_version": "9"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "",
+                                    "type": "m.room.create"
+                                },
+                                {
+                                    "content": {
+                                        "join_rule": "invite"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "",
+                                    "type": "m.room.join_rules"
+                                },
+                                {
+                                    "content": {
+                                        "algorithm": "m.megolm.v1.aes-sha2"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "",
+                                    "type": "m.room.encryption"
+                                },
+                                {
+                                    "content": {
+                                        "avatar_url": "mxc://example.org/dcBBDwuWEUrjfrOchvkirUST",
+                                        "displayname": "Kyra",
+                                        "membership": "join"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "@test:example.org",
+                                    "type": "m.room.member"
+                                },
+                                {
+                                    "content": {
+                                        "avatar_url": "mxc://example.org/ABFEXSDrESxovWwEnCYdNcHT",
+                                        "displayname": "alice",
+                                        "is_direct": true,
+                                        "membership": "invite"
+                                    },
+                                    "origin_server_ts": 1650878657984u64,
+                                    "sender": "@test:example.org",
+                                    "state_key": "@alice:example.org",
+                                    "type": "m.room.member",
+                                    "unsigned": {
+                                        "age": 14u64
+                                    },
+                                    "event_id": "$fLDqltg9Puj-kWItLSFVHPGN4YkgpYQf2qImPzdmgrE"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }))).expect("static json doesn't fail to parse");
+
+        client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_room(room_id).expect("Room not found");
+        assert_eq!(room.room_type(), RoomType::Invited);
+        assert_eq!(room.display_name().await.expect("fetching display name failed"), DisplayName::Calculated("Kyra".to_string()));
     }
 }
