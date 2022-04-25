@@ -825,7 +825,7 @@ mod test {
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Calculated("Matthew".to_string()));
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Computed("Matthew".to_string()));
     }
 
     #[tokio::test]
@@ -850,6 +850,6 @@ mod test {
         store.save_changes(&changes).await.unwrap();
 
         room.inner.write().unwrap().update_summary(&summary);
-        assert_eq!(room.display_name().await.unwrap(), DisplayName::Calculated("Matthew".to_string()));
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Computed("Matthew".to_string()));
     }
 }

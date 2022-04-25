@@ -1361,7 +1361,6 @@ mod tests {
             .await
             .unwrap();
 
-            
         let response = api::sync::sync_events::v3::Response::try_from_http_response(response_from_file(&json!({
             "next_batch": "asdkl;fjasdkl;fj;asdkl;f",
             "device_one_time_keys_count": {
@@ -1437,6 +1436,6 @@ mod tests {
 
         let room = client.get_room(room_id).expect("Room not found");
         assert_eq!(room.room_type(), RoomType::Invited);
-        assert_eq!(room.display_name().await.expect("fetching display name failed"), DisplayName::Calculated("Kyra".to_string()));
+        assert_eq!(room.display_name().await.expect("fetching display name failed"), DisplayName::Computed("Kyra".to_string()));
     }
 }
