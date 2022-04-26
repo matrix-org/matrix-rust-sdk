@@ -295,11 +295,8 @@ impl SledStore {
     ///
     /// The given passphrase will be used to encrypt private data.
     #[cfg(feature = "crypto-store")]
-    pub fn open_crypto_store(
-        &self,
-        passphrase: Option<&str>,
-    ) -> Result<CryptoStore, OpenStoreError> {
-        CryptoStore::open_with_database(self.inner.clone(), passphrase)
+    pub fn open_crypto_store(&self) -> Result<CryptoStore, OpenStoreError> {
+        CryptoStore::open_with_database(self.inner.clone(), self.store_cipher.clone())
     }
 
     fn serialize_event(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
