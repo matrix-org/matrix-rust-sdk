@@ -3368,7 +3368,7 @@ pub(crate) mod tests {
         let _response = client.sync_once(sync_settings).await.unwrap();
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!(DisplayName::Aliased("example2".to_owned()), room.display_name().await.unwrap());
+        assert_eq!(DisplayName::Calculated("example2".to_owned()), room.display_name().await.unwrap());
     }
 
     #[async_test]
@@ -3446,7 +3446,7 @@ pub(crate) mod tests {
         assert_eq!(client.rooms().len(), 1);
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!(DisplayName::Named("tutorial".to_owned()), room.display_name().await.unwrap());
+        assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
