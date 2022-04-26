@@ -92,7 +92,7 @@ pub struct OlmMachine {
     /// A state machine that handles Olm sessions creation.
     session_manager: SessionManager,
     /// A state machine that keeps track of our outbound group sessions.
-    group_session_manager: GroupSessionManager,
+    pub(crate) group_session_manager: GroupSessionManager,
     /// A state machine that is responsible to handle and keep track of SAS
     /// verification flows.
     verification_machine: VerificationMachine,

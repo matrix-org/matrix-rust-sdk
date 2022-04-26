@@ -359,7 +359,7 @@ impl GroupSessionManager {
         let mut should_rotate = user_left || visibility_changed;
 
         for user_id in users {
-            let user_devices = self.store.get_user_devices(user_id).await?;
+            let user_devices = self.store.get_user_devices_filtered(user_id).await?;
             let non_blacklisted_devices: Vec<Device> =
                 user_devices.devices().filter(|d| !d.is_blacklisted()).collect();
 
@@ -596,7 +596,9 @@ mod tests {
             client::keys::{claim_keys, get_keys},
             IncomingResponse,
         },
-        device_id, room_id, user_id, DeviceId, TransactionId, UserId,
+        device_id,
+        events::room::history_visibility::HistoryVisibility,
+        room_id, user_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::Value;
 
@@ -626,17 +628,21 @@ mod tests {
             .expect("Can't parse the keys upload response")
     }
 
-    async fn machine() -> OlmMachine {
+    async fn machine_with_user(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
         let keys_query = keys_query_response();
         let keys_claim = keys_claim_response();
         let txn_id = TransactionId::new();
 
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(user_id, device_id).await;
 
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
         machine.mark_request_as_sent(&txn_id, &keys_claim).await.unwrap();
 
         machine
+    }
+
+    async fn machine() -> OlmMachine {
+        machine_with_user(alice_id(), alice_device_id()).await
     }
 
     #[async_test]
@@ -658,5 +664,38 @@ mod tests {
         // signatures, thus only 148 sessions are actually created, we check
         // that all 148 valid sessions get an room key.
         assert_eq!(event_count, 148);
+    }
+
+    #[async_test]
+    async fn key_recipient_collecting() {
+        // The user id comes from the fact that the keys_query.json file uses
+        // this one.
+        let user_id = user_id!("@example:localhost");
+        let device_id = device_id!("TESTDEVICE");
+        let room_id = room_id!("!test:localhost");
+
+        let machine = machine_with_user(user_id, device_id).await;
+
+        let (outbound, _) = machine
+            .group_session_manager
+            .get_or_create_outbound_session(room_id, EncryptionSettings::default())
+            .await
+            .expect("We should be able to create a new session");
+        let history_visibility = HistoryVisibility::Joined;
+
+        let users = [user_id].into_iter();
+
+        let (_, recipients) = machine
+            .group_session_manager
+            .collect_session_recipients(users, history_visibility, &outbound)
+            .await
+            .expect("We should be able to collect the session recipients");
+
+        assert!(!recipients.is_empty());
+
+        // Make sure that our own device isn't part of the recipients.
+        assert!(!recipients[user_id]
+            .iter()
+            .any(|d| d.user_id() == user_id && d.device_id() == device_id));
     }
 }
