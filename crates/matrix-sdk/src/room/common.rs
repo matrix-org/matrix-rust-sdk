@@ -3,14 +3,18 @@ use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
 use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::{crypto::OlmMachine, deserialized_responses::SyncRoomEvent};
 #[cfg(feature = "experimental-timeline")]
-use matrix_sdk_base::{
-    deserialized_responses::{SyncRoomEvent, TimelineSlice},
-    TimelineStreamError,
-};
+use matrix_sdk_base::{deserialized_responses::TimelineSlice, TimelineStreamError};
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "experimental-timeline")]
 use ruma::api::client::filter::LazyLoadOptions;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::{
+    AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent, MessageLikeEvent,
+    SyncMessageLikeEvent,
+};
 use ruma::{
     api::client::{
         config::set_global_account_data,
@@ -178,24 +182,44 @@ impl Common {
     /// # });
     /// ```
     pub async fn messages(&self, options: MessagesOptions<'_>) -> Result<Messages> {
-        let request = options.into_request(self.inner.room_id());
+        let room_id = self.inner.room_id();
+        let request = options.into_request(room_id);
         let http_response = self.client.send(request, None).await?;
 
+        #[allow(unused_mut)]
         let mut response = Messages {
             start: http_response.start,
             end: http_response.end,
+            #[cfg(not(feature = "e2e-encryption"))]
+            chunk: http_response
+                .chunk
+                .into_iter()
+                .map(|event| RoomEvent { event, encryption_info: None })
+                .collect(),
+            #[cfg(feature = "e2e-encryption")]
             chunk: Vec::with_capacity(http_response.chunk.len()),
             state: http_response.state,
         };
 
-        for event in http_response.chunk {
-            #[cfg(feature = "e2e-encryption")]
-            let event = self.client.decrypt_room_event(event).await;
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(ref machine) = self.client.olm_machine().await {
+            for event in http_response.chunk {
+                let event =
+                    if let Some(event) = EventEnum::from(&event).decrypt(room_id, machine).await {
+                        event
+                    } else {
+                        RoomEvent { event, encryption_info: None }
+                    };
 
-            #[cfg(not(feature = "e2e-encryption"))]
-            let event = RoomEvent { event, encryption_info: None };
-
-            response.chunk.push(event);
+                response.chunk.push(event);
+            }
+        } else {
+            response.chunk.extend(
+                http_response
+                    .chunk
+                    .into_iter()
+                    .map(|event| RoomEvent { event, encryption_info: None }),
+            );
         }
 
         Ok(response)
@@ -450,10 +474,16 @@ impl Common {
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
-        return Ok(self.client.decrypt_room_event(event).await);
+        let decrypted = if let Some(event) = self.decrypt_event(&event).await {
+            Ok(event)
+        } else {
+            Ok(RoomEvent { event, encryption_info: None })
+        };
 
         #[cfg(not(feature = "e2e-encryption"))]
-        return Ok(RoomEvent { event, encryption_info: None });
+        let decrypted = Ok(RoomEvent { event, encryption_info: None });
+
+        decrypted
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
@@ -876,6 +906,19 @@ impl Common {
         self.client.send(request, None).await?;
         Ok(())
     }
+
+    /// Tries to decrypt a room event.
+    ///
+    /// # Arguments
+    /// * `event` - The room event to be decrypted.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn decrypt_event(&self, event: impl Into<EventEnum<'_>>) -> Option<RoomEvent> {
+        if let Some(machine) = self.client.olm_machine().await {
+            event.into().decrypt(self.inner.room_id(), &machine).await
+        } else {
+            None
+        }
+    }
 }
 
 /// Options for [`messages`][Common::messages].
@@ -936,5 +979,120 @@ impl<'a> MessagesOptions<'a> {
             limit: self.limit,
             filter: self.filter,
         })
+    }
+}
+
+/// An enum to abstract over different rust types for events that can be given
+/// to [`decrypt_event`][Common::decrypt_event].
+#[cfg(feature = "e2e-encryption")]
+#[derive(Debug)]
+pub enum EventEnum<'a> {
+    Event(&'a RoomEvent),
+    RawEvent(&'a Raw<AnyRoomEvent>),
+    DeserializedEvent(&'a AnyRoomEvent),
+    SyncEvent(&'a SyncRoomEvent),
+    RawSyncEvent(&'a Raw<AnySyncRoomEvent>),
+    DeserializedSyncEvent(&'a AnySyncRoomEvent),
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> From<&'a RoomEvent> for EventEnum<'a> {
+    fn from(event: &'a RoomEvent) -> Self {
+        Self::Event(event)
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> From<&'a Raw<AnyRoomEvent>> for EventEnum<'a> {
+    fn from(event: &'a Raw<AnyRoomEvent>) -> Self {
+        Self::RawEvent(event)
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> From<&'a AnyRoomEvent> for EventEnum<'a> {
+    fn from(event: &'a AnyRoomEvent) -> Self {
+        Self::DeserializedEvent(event)
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> From<&'a SyncRoomEvent> for EventEnum<'a> {
+    fn from(event: &'a SyncRoomEvent) -> Self {
+        Self::SyncEvent(event)
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> From<&'a Raw<AnySyncRoomEvent>> for EventEnum<'a> {
+    fn from(event: &'a Raw<AnySyncRoomEvent>) -> Self {
+        Self::RawSyncEvent(event)
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> From<&'a AnySyncRoomEvent> for EventEnum<'a> {
+    fn from(event: &'a AnySyncRoomEvent) -> Self {
+        Self::DeserializedSyncEvent(event)
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> EventEnum<'a> {
+    async fn decrypt(&self, room_id: &RoomId, olm_machine: &OlmMachine) -> Option<RoomEvent> {
+        match self {
+            EventEnum::Event(event) => {
+                if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                    SyncMessageLikeEvent::Original(event),
+                ))) = event.event.deserialize_as::<AnySyncRoomEvent>()
+                {
+                    return olm_machine.decrypt_room_event(&event, room_id).await.ok();
+                }
+            }
+            EventEnum::RawEvent(event) => {
+                if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                    SyncMessageLikeEvent::Original(event),
+                ))) = event.deserialize_as::<AnySyncRoomEvent>()
+                {
+                    return olm_machine.decrypt_room_event(&event, room_id).await.ok();
+                }
+            }
+            EventEnum::DeserializedEvent(event) => {
+                if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomEncrypted(
+                    MessageLikeEvent::Original(event),
+                )) = event
+                {
+                    return olm_machine
+                        .decrypt_room_event(&event.clone().into(), room_id)
+                        .await
+                        .ok();
+                }
+            }
+            EventEnum::SyncEvent(event) => {
+                if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                    SyncMessageLikeEvent::Original(event),
+                ))) = event.event.deserialize()
+                {
+                    return olm_machine.decrypt_room_event(&event, room_id).await.ok();
+                }
+            }
+            EventEnum::RawSyncEvent(event) => {
+                if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                    SyncMessageLikeEvent::Original(event),
+                ))) = event.deserialize()
+                {
+                    return olm_machine.decrypt_room_event(&event, room_id).await.ok();
+                }
+            }
+            EventEnum::DeserializedSyncEvent(event) => {
+                if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                    SyncMessageLikeEvent::Original(event),
+                )) = event
+                {
+                    return olm_machine.decrypt_room_event(event, room_id).await.ok();
+                }
+            }
+        }
+        None
     }
 }
