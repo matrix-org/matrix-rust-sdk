@@ -517,10 +517,10 @@ impl ReadOnlyDevice {
             k
         } else {
             warn!(
-                "Trying to encrypt a Megolm session for user {} on device {}, \
-                but the device doesn't have a curve25519 key",
-                self.user_id(),
-                self.device_id()
+                user_id = %self.user_id(),
+                device_id = %self.device_id(),
+                "Trying to encrypt a Megolm session, but the device doesn't \
+                have a curve25519 key",
             );
             return Err(EventError::MissingSenderKey.into());
         };
