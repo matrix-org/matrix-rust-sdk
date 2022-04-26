@@ -323,8 +323,14 @@ impl OutboundGroupSession {
     /// encrypted using it.
     pub fn expired(&self) -> bool {
         let count = self.message_count.load(Ordering::SeqCst);
+        // We clamp the rotation period for message counts to be between 1 and
+        // 10000. The Megolm session should be usable for at least 1 message,
+        // and at most 10000 messages. Realistically Megolm uses u32 for it's
+        // internal counter and one could use the Megolm session for up to
+        // u32::MAX messages, but we're staying on the safe side of things.
+        let rotation_period_msgs = self.settings.rotation_period_msgs.clamp(1, 10_000);
 
-        count >= self.settings.rotation_period_msgs || self.elapsed()
+        count >= rotation_period_msgs || self.elapsed()
     }
 
     /// Has the session been invalidated.
@@ -601,14 +607,20 @@ pub struct PickledOutboundGroupSession {
 mod tests {
     use std::time::Duration;
 
+    use atomic::Ordering;
+    use matrix_sdk_common::instant::SystemTime;
+    use matrix_sdk_test::async_test;
     use ruma::{
+        device_id,
         events::room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+            message::RoomMessageEventContent,
         },
-        uint, EventEncryptionAlgorithm,
+        room_id, uint, user_id, EventEncryptionAlgorithm, SecondsSinceUnixEpoch,
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
+    use crate::{MegolmError, ReadOnlyAccount};
 
     #[test]
     fn encryption_settings_conversion() {
@@ -626,5 +638,76 @@ mod tests {
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);
+    }
+
+    #[async_test]
+    #[cfg(any(target_os = "linux", target_arch = "wasm32"))]
+    async fn expiration() -> Result<(), MegolmError> {
+        let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
+
+        let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        let _ = session
+            .encrypt(
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                "m.room.message",
+            )
+            .await;
+        assert!(session.expired());
+
+        let settings = EncryptionSettings {
+            rotation_period: Duration::from_millis(100),
+            ..Default::default()
+        };
+
+        let (mut session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        // FIXME: this might break on macosx and windows
+        let time = SystemTime::now() - Duration::from_secs(60 * 60);
+        session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
+        assert!(session.expired());
+
+        let settings = EncryptionSettings { rotation_period_msgs: 0, ..Default::default() };
+
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+
+        let _ = session
+            .encrypt(
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                "m.room.message",
+            )
+            .await;
+        assert!(session.expired());
+
+        let settings = EncryptionSettings { rotation_period_msgs: 100_000, ..Default::default() };
+
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        session.message_count.store(1000, Ordering::SeqCst);
+        assert!(!session.expired());
+        session.message_count.store(9999, Ordering::SeqCst);
+        assert!(!session.expired());
+        session.message_count.store(10_000, Ordering::SeqCst);
+        assert!(session.expired());
+
+        Ok(())
     }
 }
