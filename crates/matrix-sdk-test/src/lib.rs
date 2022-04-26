@@ -24,6 +24,7 @@ pub enum EventsJson {
     Alias,
     Aliases,
     Create,
+    Encryption,
     FullyRead,
     HistoryVisibility,
     JoinRules,
@@ -196,6 +197,7 @@ impl EventBuilder {
             EventsJson::Name => &test_json::NAME,
             EventsJson::Member => &test_json::MEMBER,
             EventsJson::PowerLevels => &test_json::POWER_LEVELS,
+            EventsJson::Encryption => &test_json::ENCRYPTION,
             _ => panic!("unknown state event {:?}", json),
         };
 
