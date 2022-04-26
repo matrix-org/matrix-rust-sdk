@@ -24,7 +24,7 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::SyncRoomEvent,
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
@@ -36,7 +36,7 @@ use matrix_sdk_common::{
             presence::PresenceEvent,
             receipt::Receipt,
             room::{
-                member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+                member::{MembershipState, RoomMemberEventContent},
                 redaction::SyncRoomRedactionEvent,
             },
             AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
@@ -509,6 +509,28 @@ impl SledStore {
 
                     for (room, events) in &changes.stripped_members {
                         for event in events.values() {
+                            let key = (room, &event.state_key);
+
+                            match event.content.membership {
+                                MembershipState::Join => {
+                                    joined.insert(
+                                        self.encode_key(JOINED_USER_ID, &key),
+                                        event.state_key.as_str(),
+                                    )?;
+                                    invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
+                                }
+                                MembershipState::Invite => {
+                                    invited.insert(
+                                        self.encode_key(INVITED_USER_ID, &key),
+                                        event.state_key.as_str(),
+                                    )?;
+                                    joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
+                                }
+                                _ => {
+                                    joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
+                                    invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
+                                }
+                            }
                             stripped_members.insert(
                                 self.encode_key(
                                     STRIPPED_ROOM_MEMBER,
@@ -648,10 +670,19 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<OriginalSyncRoomMemberEvent>> {
+    ) -> Result<Option<MemberEvent>> {
         let db = self.clone();
         let key = self.encode_key(MEMBER, (room_id, state_key));
-        spawn_blocking(move || db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose())
+        let stripped_key = self.encode_key(STRIPPED_ROOM_MEMBER, (room_id, state_key));
+        spawn_blocking(move || {
+            if let Some(e) = db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()? {
+                Ok(Some(MemberEvent::Full(e)))
+            } else if let Some(e) = db.stripped_members.get(stripped_key)?.map(|v| db.deserialize_event(&v)).transpose()? {
+                Ok(Some(MemberEvent::Stripped(e)))
+            } else  {
+                Ok(None)
+            }
+        })
             .await?
     }
 
@@ -1278,7 +1309,7 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<OriginalSyncRoomMemberEvent>> {
+    ) -> StoreResult<Option<MemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(Into::into)
     }
 
