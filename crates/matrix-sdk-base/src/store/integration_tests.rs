@@ -258,6 +258,20 @@ macro_rules! statestore_integration_tests {
                     serde_json::from_value(event).unwrap()
                 }
 
+                fn stripped_membership_event() -> StrippedRoomMemberEvent {
+                    custom_stripped_membership_event(user_id())
+                }
+
+                fn custom_stripped_membership_event(
+                    user_id: &UserId,
+                ) -> StrippedRoomMemberEvent {
+                    StrippedRoomMemberEvent {
+                        content: RoomMemberEventContent::new(MembershipState::Join),
+                        sender: user_id.to_owned(),
+                        state_key: user_id.to_owned(),
+                    }
+                }
+
                 fn membership_event() -> OriginalSyncRoomMemberEvent {
                     custom_membership_event(user_id(), event_id!("$h29iv0s8:example.com").to_owned())
                 }
@@ -274,7 +288,6 @@ macro_rules! statestore_integration_tests {
                         state_key: user_id.to_owned(),
                         unsigned: StateUnsigned::default(),
                     }
-
                 }
 
                 #[async_test]
@@ -329,6 +342,27 @@ macro_rules! statestore_integration_tests {
                         .entry(room_id.to_owned())
                         .or_default()
                         .insert(user_id.to_owned(), membership_event());
+
+                    store.save_changes(&changes).await.unwrap();
+                    assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
+
+                    let members = store.get_user_ids(room_id).await.unwrap();
+                    assert!(!members.is_empty(), "We expected to find members for the room")
+                }
+
+                #[async_test]
+                async fn test_stripped_member_saving() {
+                    let store = get_store().await.unwrap();
+                    let room_id = room_id!("!test_member_saving:localhost");
+                    let user_id = user_id();
+
+                    assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
+                    let mut changes = StateChanges::default();
+                    changes
+                        .stripped_members
+                        .entry(room_id.to_owned())
+                        .or_default()
+                        .insert(user_id.to_owned(), stripped_membership_event());
 
                     store.save_changes(&changes).await.unwrap();
                     assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
