@@ -35,6 +35,12 @@ use matrix_sdk_base::{
     deserialized_responses::RoomEvent,
 };
 use matrix_sdk_common::instant::Duration;
+#[cfg(feature = "encryption")]
+use ruma::{
+    api::client::config::set_global_account_data,
+    events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
+    OwnedDeviceId,
+};
 use ruma::{
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -52,14 +58,9 @@ use ruma::{
         AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, GlobalAccountDataEventType,
     },
     serde::Raw,
-    DeviceId, TransactionId, UserId,
+    DeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
-#[cfg(feature = "encryption")]
-use {
-    ruma::api::client::config::set_global_account_data,
-    ruma::events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
-};
 
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -110,7 +111,7 @@ impl Client {
     pub(crate) async fn keys_query(
         &self,
         request_id: &TransactionId,
-        device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>,
+        device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
     ) -> Result<get_keys::v3::Response> {
         let request = assign!(get_keys::v3::Request::new(), { device_keys });
 
@@ -257,7 +258,7 @@ impl Client {
     #[cfg(feature = "encryption")]
     pub(crate) async fn create_dm_room(
         &self,
-        user_id: Box<UserId>,
+        user_id: OwnedUserId,
     ) -> Result<Option<room::Joined>> {
         use ruma::{api::client::room::create_room::v3::RoomPreset, events::direct::DirectEvent};
 
@@ -525,7 +526,7 @@ impl Encryption {
     ///
     /// Tracked users are users for which we keep the device list of E2EE
     /// capable devices up to date.
-    pub async fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    pub async fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.client.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
     }
 
@@ -887,5 +888,59 @@ impl Encryption {
         let import = task.await.expect("Task join error")?;
 
         Ok(olm.import_keys(import, false, |_, _| {}).await?)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
+    use mockito::{mock, Matcher};
+    use ruma::{
+        event_id,
+        events::reaction::{ReactionEventContent, Relation},
+        room_id,
+    };
+    use serde_json::json;
+
+    use crate::client::tests::logged_in_client;
+
+    #[async_test]
+    async fn test_reaction_sending() {
+        let client = logged_in_client().await;
+
+        let event_id = event_id!("$2:example.org");
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()),
+        )
+        .with_status(200)
+        .with_body(
+            json!({
+                "event_id": event_id,
+            })
+            .to_string(),
+        )
+        .create();
+
+        let response = EventBuilder::default()
+            .add_state_event(EventsJson::Member)
+            .add_state_event(EventsJson::PowerLevels)
+            .add_state_event(EventsJson::Encryption)
+            .build_sync_response();
+
+        client.inner.base_client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_joined_room(room_id).expect("Room should exist");
+        assert!(room.is_encrypted());
+
+        let event_id = event_id!("$1:example.org");
+        let reaction = ReactionEventContent::new(Relation::new(event_id.into(), "🐈".to_owned()));
+        room.send(reaction, None).await.expect("Sending the reaction should not fail");
+
+        room.send_raw(json!({}), "m.reaction", None)
+            .await
+            .expect("Sending the reaction should not fail");
     }
 }

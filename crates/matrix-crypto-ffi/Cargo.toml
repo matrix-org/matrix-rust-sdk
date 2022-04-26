@@ -22,7 +22,7 @@ thiserror = "1.0.25"
 tracing = "0.1.26"
 tracing-subscriber = "0.2.18"
 uniffi = "0.17.0"
-zeroize = "1.3.0"
+zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
 [dependencies.js_int]
 version = "0.2.1"
@@ -40,6 +40,10 @@ path = "../matrix-sdk-sled"
 default_features = false
 features = ["crypto-store"]
 
+[dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac"
+rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
+
 [dependencies.tokio]
 version = "1.7.1"
 default_features = false
@@ -47,8 +51,11 @@ features = ["rt-multi-thread"]
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma"
-rev = "548232ef5"
+rev = "4014e6959"
 features = ["client-api-c"]
 
 [build-dependencies]
 uniffi_build = { version = "0.17.0", features = ["builtin-bindgen"] }
+
+[dev-dependencies]
+tempfile = "3.3.0"

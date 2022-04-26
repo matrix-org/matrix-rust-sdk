@@ -14,8 +14,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use matrix_sdk_common::deserialized_responses::{EitherMemberEvent, AmbiguityChange, MemberEvent};
-use ruma::{events::room::member::MembershipState, EventId, RoomId, UserId};
+use matrix_sdk_common::deserialized_responses::{MemberEvent, AmbiguityChange};
+use ruma::{
+    events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
+    OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+};
 use tracing::trace;
 
 use super::{Result, StateChanges};
@@ -24,18 +27,18 @@ use crate::Store;
 #[derive(Clone, Debug)]
 pub struct AmbiguityCache {
     pub store: Store,
-    pub cache: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<Box<UserId>>>>,
-    pub changes: BTreeMap<Box<RoomId>, BTreeMap<Box<EventId>, AmbiguityChange>>,
+    pub cache: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
+    pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
 #[derive(Clone, Debug)]
 struct AmbiguityMap {
     display_name: String,
-    users: BTreeSet<Box<UserId>>,
+    users: BTreeSet<OwnedUserId>,
 }
 
 impl AmbiguityMap {
-    fn remove(&mut self, user_id: &UserId) -> Option<Box<UserId>> {
+    fn remove(&mut self, user_id: &UserId) -> Option<OwnedUserId> {
         self.users.remove(user_id);
 
         if self.user_count() == 1 {
@@ -45,7 +48,7 @@ impl AmbiguityMap {
         }
     }
 
-    fn add(&mut self, user_id: Box<UserId>) -> Option<Box<UserId>> {
+    fn add(&mut self, user_id: OwnedUserId) -> Option<OwnedUserId> {
         let ambiguous_user =
             if self.user_count() == 1 { self.users.iter().next().cloned() } else { None };
 
@@ -72,7 +75,7 @@ impl AmbiguityCache {
         &mut self,
         changes: &StateChanges,
         room_id: &RoomId,
-        member_event: &MemberEvent,
+        member_event: &OriginalSyncRoomMemberEvent,
     ) -> Result<()> {
         // Synapse seems to have a bug where it puts the same event into the
         // state and the timeline sometimes.
@@ -140,7 +143,7 @@ impl AmbiguityCache {
         }
     }
 
-    fn add_change(&mut self, room_id: &RoomId, event_id: Box<EventId>, change: AmbiguityChange) {
+    fn add_change(&mut self, room_id: &RoomId, event_id: OwnedEventId, change: AmbiguityChange) {
         self.changes
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
@@ -151,14 +154,14 @@ impl AmbiguityCache {
         &mut self,
         changes: &StateChanges,
         room_id: &RoomId,
-        member_event: &MemberEvent,
+        member_event: &OriginalSyncRoomMemberEvent,
     ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
         use MembershipState::*;
 
         let old_event = if let Some(m) =
             changes.members.get(room_id).and_then(|m| m.get(&member_event.state_key))
         {
-            Some(EitherMemberEvent::Full(m.clone()))
+            Some(MemberEvent::Full(m.clone()))
         } else {
             self.store.get_member_event(room_id, &member_event.state_key).await?
         };

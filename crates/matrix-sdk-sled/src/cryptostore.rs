@@ -24,7 +24,10 @@ use dashmap::DashSet;
 use matrix_sdk_common::{
     async_trait,
     locks::Mutex,
-    ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, RoomId, TransactionId, UserId},
+    ruma::{
+        events::room_key_request::RequestedKeyInfo, DeviceId, OwnedDeviceId, OwnedUserId, RoomId,
+        TransactionId, UserId,
+    },
 };
 use matrix_sdk_crypto::{
     olm::{
@@ -42,7 +45,7 @@ use serde::{Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, IVec, Transactional, Tree,
+    Batch, Config, Db, IVec, Transactional, Tree,
 };
 use tracing::debug;
 
@@ -158,7 +161,7 @@ pub struct AccountInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TrackedUser {
-    user_id: Box<UserId>,
+    user_id: OwnedUserId,
     dirty: bool,
 }
 
@@ -173,8 +176,8 @@ pub struct SledStore {
     inner: Db,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
-    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
+    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 
     account: Tree,
     private_identity: Tree,
@@ -644,6 +647,34 @@ impl SledStore {
 
         Ok(request)
     }
+
+    /// Save a batch of tracked users.
+    ///
+    /// # Arguments
+    ///
+    /// * `tracked_users` - A list of tuples. The first element of the tuple is
+    /// the user ID, the second element is if the user should be considered to
+    /// be dirty.
+    pub async fn save_tracked_users(
+        &self,
+        tracked_users: &[(&UserId, bool)],
+    ) -> Result<(), CryptoStoreError> {
+        let users: Vec<TrackedUser> = tracked_users
+            .iter()
+            .map(|(u, d)| TrackedUser { user_id: (*u).into(), dirty: *d })
+            .collect();
+
+        let mut batch = Batch::default();
+
+        for user in users {
+            batch.insert(
+                self.encode_key(TRACKED_USERS_TABLE, user.user_id.as_str()),
+                self.serialize_value(&user)?,
+            );
+        }
+
+        self.tracked_users.apply_batch(batch).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
+    }
 }
 
 #[async_trait]
@@ -829,11 +860,11 @@ impl CryptoStore for SledStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
@@ -846,14 +877,7 @@ impl CryptoStore for SledStore {
             self.users_for_key_query_cache.remove(user);
         }
 
-        let user = TrackedUser { user_id: user.to_owned(), dirty };
-
-        self.tracked_users
-            .insert(
-                self.encode_key(TRACKED_USERS_TABLE, user.user_id.as_str()),
-                self.serialize_value(&user)?,
-            )
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.save_tracked_users(&[(user, dirty)]).await?;
 
         Ok(already_added)
     }
@@ -876,7 +900,7 @@ impl CryptoStore for SledStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let key = self.encode_key(DEVICE_TABLE_NAME, user_id);
         self.devices
             .scan_prefix(key)

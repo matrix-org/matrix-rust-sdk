@@ -12,7 +12,7 @@ use ruma::{
         },
         IncomingResponse,
     },
-    device_id, room_id, user_id, DeviceId, TransactionId, UserId,
+    device_id, room_id, user_id, DeviceId, OwnedUserId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tokio::runtime::Builder;
@@ -72,9 +72,8 @@ pub fn keys_query(c: &mut Criterion) {
 
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
-    let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id().into(), alice_device_id().into(), store))
-        .unwrap();
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
 
     group.bench_with_input(BenchmarkId::new("sled store", &name), &response, |b, response| {
         b.to_async(&runtime)
@@ -122,11 +121,7 @@ pub fn keys_claiming(c: &mut Criterion) {
                 let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
                 let machine = runtime
-                    .block_on(OlmMachine::with_store(
-                        alice_id().into(),
-                        alice_device_id().into(),
-                        store,
-                    ))
+                    .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store))
                     .unwrap();
                 runtime
                     .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
@@ -152,7 +147,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let room_id = room_id!("!test:localhost");
 
     let to_device_response = ToDeviceResponse::new();
-    let users: Vec<Box<UserId>> = keys_query_response.device_keys.keys().cloned().collect();
+    let users: Vec<OwnedUserId> = keys_query_response.device_keys.keys().cloned().collect();
 
     let count = response.one_time_keys.values().fold(0, |acc, d| acc + d.len());
 
@@ -187,9 +182,8 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
-    let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id().into(), alice_device_id().into(), store))
-        .unwrap();
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
@@ -223,7 +217,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let machine = OlmMachine::new(alice_id(), alice_device_id());
     let response = huge_keys_query_response();
     let txn_id = TransactionId::new();
-    let users: Vec<Box<UserId>> = response.device_keys.keys().cloned().collect();
+    let users: Vec<OwnedUserId> = response.device_keys.keys().cloned().collect();
 
     let count = response.device_keys.values().fold(0, |acc, d| acc + d.len());
 
@@ -243,9 +237,8 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Box::new(SledCryptoStore::open_with_passphrase(dir, None).unwrap());
 
-    let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id().into(), alice_device_id().into(), store))
-        .unwrap();
+    let machine =
+        runtime.block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store)).unwrap();
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 

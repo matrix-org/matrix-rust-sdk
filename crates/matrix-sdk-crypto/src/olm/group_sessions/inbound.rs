@@ -34,7 +34,7 @@ use ruma::{
         AnyRoomEvent,
     },
     serde::Raw,
-    DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
+    DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -180,7 +180,7 @@ impl InboundGroupSession {
             first_known_index,
             history_visibility: None.into(),
             signing_keys: sender_claimed_key.into(),
-            room_id: content.room_id.clone().into(),
+            room_id: (&*content.room_id).into(),
             forwarding_chains: forwarding_chains.into(),
             imported: true,
             backed_up: AtomicBool::new(false).into(),
@@ -292,7 +292,7 @@ impl InboundGroupSession {
             history_visibility: pickle.history_visibility.into(),
             first_known_index,
             signing_keys: pickle.signing_key.into(),
-            room_id: pickle.room_id.into(),
+            room_id: (&*pickle.room_id).into(),
             forwarding_chains: pickle.forwarding_chains.into(),
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             imported: pickle.imported,
@@ -420,7 +420,7 @@ pub struct PickledInboundGroupSession {
     /// The public ed25519 key of the account that sent us the session.
     pub signing_key: BTreeMap<DeviceKeyAlgorithm, String>,
     /// The id of the room that the session is used in.
-    pub room_id: Box<RoomId>,
+    pub room_id: OwnedRoomId,
     /// The list of claimed ed25519 that forwarded us this key. Will be None if
     /// we directly received this session.
     #[serde(default)]
@@ -447,7 +447,7 @@ impl From<ExportedRoomKey> for InboundGroupSession {
             history_visibility: None.into(),
             first_known_index,
             signing_keys: key.sender_claimed_keys.into(),
-            room_id: key.room_id.into(),
+            room_id: (&*key.room_id).into(),
             forwarding_chains: key.forwarding_curve25519_key_chain.into(),
             imported: true,
             backed_up: AtomicBool::from(false).into(),

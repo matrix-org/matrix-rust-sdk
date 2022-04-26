@@ -15,7 +15,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    convert::TryFrom,
     fmt,
     sync::Arc,
 };
@@ -27,8 +26,8 @@ use std::{ops::Deref, result::Result as StdResult};
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Rooms,
-        StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline, TimelineSlice,
+        AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
+        SyncRoomEvent, Timeline, TimelineSlice,
     },
     instant::Instant,
     locks::RwLock,
@@ -47,19 +46,22 @@ use ruma::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
         AnySyncMessageLikeEvent, MessageLikeEventContent, SyncMessageLikeEvent,
     },
-    DeviceId, TransactionId,
+    DeviceId, OwnedTransactionId, TransactionId,
 };
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
-        push_rules::PushRulesEvent, room::member::MembershipState, AnyGlobalAccountDataEvent,
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, StateEventType,
-        SyncStateEvent,
+        push_rules::PushRulesEvent,
+        room::member::{
+            MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEvent, StrippedRoomMemberEvent,
+        },
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        StateEventType, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    RoomId, UInt, UserId,
+    OwnedUserId, RoomId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -125,8 +127,8 @@ impl CryptoHolder {
         if let CryptoHolder::PreSetupStore(store) = self {
             *self = CryptoHolder::Olm(Box::new(
                 OlmMachine::with_store(
-                    session.user_id.to_owned(),
-                    session.device_id.as_str().into(),
+                    &session.user_id,
+                    &session.device_id,
                     store.take().expect("We always exist"),
                 )
                 .await
@@ -245,7 +247,7 @@ impl BaseClient {
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
-        user_ids: &mut BTreeSet<Box<UserId>>,
+        user_ids: &mut BTreeSet<OwnedUserId>,
     ) -> Result<Timeline> {
         let room_id = room.room_id();
         let user_id = room.own_user_id();
@@ -262,36 +264,34 @@ impl BaseClient {
                     match &e {
                         AnySyncRoomEvent::State(s) => match s {
                             AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) => {
-                                if let Ok(member) = MemberEvent::try_from(member.clone()) {
-                                    ambiguity_cache.handle_event(changes, room_id, &member).await?;
+                                ambiguity_cache.handle_event(changes, room_id, member).await?;
 
-                                    match member.content.membership {
-                                        MembershipState::Join | MembershipState::Invite => {
-                                            user_ids.insert(member.state_key.clone());
-                                        }
-                                        _ => {
-                                            user_ids.remove(&member.state_key);
-                                        }
+                                match member.content.membership {
+                                    MembershipState::Join | MembershipState::Invite => {
+                                        user_ids.insert(member.state_key.clone());
                                     }
-
-                                    // Senders can fake the profile easily so we keep track
-                                    // of profiles that the member set themselves to avoid
-                                    // having confusing profile changes when a member gets
-                                    // kicked/banned.
-                                    if member.state_key == member.sender {
-                                        changes
-                                            .profiles
-                                            .entry(room_id.to_owned())
-                                            .or_insert_with(BTreeMap::new)
-                                            .insert(member.sender.clone(), member.content.clone());
+                                    _ => {
+                                        user_ids.remove(&member.state_key);
                                     }
+                                }
 
+                                // Senders can fake the profile easily so we keep track
+                                // of profiles that the member set themselves to avoid
+                                // having confusing profile changes when a member gets
+                                // kicked/banned.
+                                if member.state_key == member.sender {
                                     changes
-                                        .members
+                                        .profiles
                                         .entry(room_id.to_owned())
                                         .or_insert_with(BTreeMap::new)
-                                        .insert(member.state_key.clone(), member);
+                                        .insert(member.sender.clone(), member.content.clone());
                                 }
+
+                                changes
+                                    .members
+                                    .entry(room_id.to_owned())
+                                    .or_insert_with(BTreeMap::new)
+                                    .insert(member.state_key.clone(), member.to_owned());
                             }
                             _ => {
                                 room_info.handle_state_event(s);
@@ -367,7 +367,7 @@ impl BaseClient {
         events: &[Raw<AnyStrippedStateEvent>],
         room_info: &mut RoomInfo,
     ) -> (
-        BTreeMap<Box<UserId>, StrippedMemberEvent>,
+        BTreeMap<OwnedUserId, StrippedRoomMemberEvent>,
         BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     ) {
         events.iter().fold(
@@ -375,15 +375,7 @@ impl BaseClient {
             |(mut members, mut state_events), raw_event| {
                 match raw_event.deserialize() {
                     Ok(AnyStrippedStateEvent::RoomMember(member)) => {
-                        match StrippedMemberEvent::try_from(member) {
-                            Ok(m) => {
-                                members.insert(m.state_key.clone(), m);
-                            }
-                            Err(e) => warn!(
-                                "Stripped member event in room {} has an invalid state key {:?}",
-                                room_info.room_id, e
-                            ),
-                        }
+                        members.insert(member.state_key.clone(), member);
                     }
                     Ok(e) => {
                         room_info.handle_stripped_state_event(&e);
@@ -410,7 +402,7 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         events: &[Raw<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
-    ) -> StoreResult<BTreeSet<Box<UserId>>> {
+    ) -> StoreResult<BTreeSet<OwnedUserId>> {
         let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
@@ -433,32 +425,24 @@ impl BaseClient {
             room_info.handle_state_event(&event);
 
             if let AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) = event {
-                match MemberEvent::try_from(member) {
-                    Ok(m) => {
-                        ambiguity_cache.handle_event(changes, &room_id, &m).await?;
+                ambiguity_cache.handle_event(changes, &room_id, &member).await?;
 
-                        match m.content.membership {
-                            MembershipState::Join | MembershipState::Invite => {
-                                user_ids.insert(m.state_key.clone());
-                            }
-                            _ => (),
-                        }
-
-                        // Senders can fake the profile easily so we keep track
-                        // of profiles that the member set themselves to avoid
-                        // having confusing profile changes when a member gets
-                        // kicked/banned.
-                        if m.state_key == m.sender {
-                            profiles.insert(m.sender.clone(), m.content.clone());
-                        }
-
-                        members.insert(m.state_key.clone(), m);
+                match member.content.membership {
+                    MembershipState::Join | MembershipState::Invite => {
+                        user_ids.insert(member.state_key.clone());
                     }
-                    Err(e) => warn!(
-                        "Member event in room {} has an invalid state key {:?}",
-                        room_info.room_id, e
-                    ),
+                    _ => (),
                 }
+
+                // Senders can fake the profile easily so we keep track
+                // of profiles that the member set themselves to avoid
+                // having confusing profile changes when a member gets
+                // kicked/banned.
+                if member.state_key == member.sender {
+                    profiles.insert(member.sender.clone(), member.content.clone());
+                }
+
+                members.insert(member.state_key.clone(), member);
             } else {
                 state_events
                     .entry(event.event_type())
@@ -824,11 +808,18 @@ impl BaseClient {
         room_id: &RoomId,
         response: &api::membership::get_member_events::v3::Response,
     ) -> Result<MembersResponse> {
-        let members: Vec<MemberEvent> = response
+        let members: Vec<_> = response
             .chunk
             .iter()
-            .filter_map(|e| e.deserialize().ok().and_then(|e| MemberEvent::try_from(e).ok()))
+            .filter_map(|e| e.deserialize().ok())
+            .filter_map(|ev| match ev {
+                RoomMemberEvent::Original(ev) => Some(ev),
+                // FIXME: don't filter these out
+                // https://github.com/matrix-org/matrix-rust-sdk/issues/607
+                RoomMemberEvent::Redacted(_) => None,
+            })
             .collect();
+
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
@@ -841,6 +832,8 @@ impl BaseClient {
             let mut user_ids = BTreeSet::new();
 
             for member in &members {
+                let member: OriginalSyncRoomMemberEvent = member.clone().into();
+
                 if self.store.get_member_event(room_id, &member.state_key).await?.is_none() {
                     #[cfg(feature = "encryption")]
                     match member.content.membership {
@@ -850,7 +843,7 @@ impl BaseClient {
                         _ => (),
                     }
 
-                    ambiguity_cache.handle_event(&changes, room_id, member).await?;
+                    ambiguity_cache.handle_event(&changes, room_id, &member).await?;
 
                     if member.state_key == member.sender {
                         changes
@@ -864,7 +857,7 @@ impl BaseClient {
                         .members
                         .entry(room_id.to_owned())
                         .or_insert_with(BTreeMap::new)
-                        .insert(member.state_key.clone(), member.clone());
+                        .insert(member.state_key.clone(), member);
                 }
             }
 
@@ -970,7 +963,7 @@ impl BaseClient {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> Result<Option<(Box<TransactionId>, KeysClaimRequest)>> {
+    ) -> Result<Option<(OwnedTransactionId, KeysClaimRequest)>> {
         match self.olm_machine().await {
             Some(o) => Ok(o.get_missing_sessions(users).await?),
             None => Ok(None),

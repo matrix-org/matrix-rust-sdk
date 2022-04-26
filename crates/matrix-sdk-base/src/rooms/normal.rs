@@ -34,7 +34,8 @@ use ruma::{
     },
     receipt::ReceiptType,
     room::RoomType as CreateRoomType,
-    EventId, MxcUri, RoomAliasId, RoomId, RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomId, RoomVersionId,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -163,12 +164,12 @@ impl Room {
     }
 
     /// Get the avatar url of this room.
-    pub fn avatar_url(&self) -> Option<Box<MxcUri>> {
+    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
         self.inner.read().unwrap().base_info.avatar_url.clone()
     }
 
     /// Get the canonical alias of this room.
-    pub fn canonical_alias(&self) -> Option<Box<RoomAliasId>> {
+    pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
         self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
@@ -192,7 +193,7 @@ impl Room {
     /// *Note*: The member list might have been modified in the meantime and
     /// the target might not even be in the room anymore. This setting should
     /// only be considered as guidance.
-    pub fn direct_target(&self) -> Option<Box<UserId>> {
+    pub fn direct_target(&self) -> Option<OwnedUserId> {
         self.inner.read().unwrap().base_info.dm_target.clone()
     }
 
@@ -267,7 +268,7 @@ impl Room {
 
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
-    pub async fn joined_user_ids(&self) -> StoreResult<Vec<Box<UserId>>> {
+    pub async fn joined_user_ids(&self) -> StoreResult<Vec<OwnedUserId>> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
@@ -472,7 +473,7 @@ impl Room {
     pub async fn user_read_receipt(
         &self,
         user_id: &UserId,
-    ) -> StoreResult<Option<(Box<EventId>, Receipt)>> {
+    ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
         self.store.get_user_room_receipt_event(self.room_id(), ReceiptType::Read, user_id).await
     }
 
@@ -481,7 +482,7 @@ impl Room {
     pub async fn event_read_receipts(
         &self,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
+    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.store.get_event_room_receipt_events(self.room_id(), ReceiptType::Read, event_id).await
     }
 
@@ -668,7 +669,7 @@ impl RoomInfo {
         self.base_info.handle_state_event(event)
     }
 
-    /// Handle the given stripped tate event.
+    /// Handle the given stripped state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_stripped_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
@@ -726,19 +727,15 @@ impl RoomInfo {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        store::{MemoryStore, StateChanges},
-        deserialized_responses::{
-            StrippedMemberEvent,
-            MemberEvent,
-        }
-    };
+    use crate::store::{MemoryStore, StateChanges};
     use std::sync::Arc;
     use ruma::{
         user_id, room_id, event_id, RoomAliasId,
         MilliSecondsSinceUnixEpoch,
         events::{
             room::member::{
+                StrippedRoomMemberEvent,
+                OriginalSyncRoomMemberEvent,
                 RoomMemberEventContent, MembershipState
             },
             StateUnsigned,
@@ -760,8 +757,8 @@ mod test {
         ))
     }
 
-    fn make_stripped_member_event(user_id: &UserId, name: &str) -> StrippedMemberEvent {
-        StrippedMemberEvent {
+    fn make_stripped_member_event(user_id: &UserId, name: &str) -> StrippedRoomMemberEvent {
+        StrippedRoomMemberEvent {
             content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
                 displayname: Some(name.to_string())
             }),
@@ -770,8 +767,8 @@ mod test {
         }
     }
 
-    fn make_member_event(user_id: &UserId, name: &str) -> MemberEvent {
-        MemberEvent {
+    fn make_member_event(user_id: &UserId, name: &str) -> OriginalSyncRoomMemberEvent {
+        OriginalSyncRoomMemberEvent {
             content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
                 displayname: Some(name.to_string())
             }),

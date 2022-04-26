@@ -25,12 +25,12 @@ use ruma::{
     MxcUri, UserId,
 };
 
-use crate::deserialized_responses::EitherMemberEvent;
+use crate::deserialized_responses::MemberEvent;
 
 /// A member of a room.
 #[derive(Clone, Debug)]
 pub struct RoomMember {
-    pub(crate) event: Arc<EitherMemberEvent>,
+    pub(crate) event: Arc<MemberEvent>,
     pub(crate) profile: Arc<Option<RoomMemberEventContent>>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,

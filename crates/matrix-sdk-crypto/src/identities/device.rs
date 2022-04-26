@@ -31,7 +31,8 @@ use ruma::{
         key::verification::VerificationMethod, room::encrypted::ToDeviceRoomEncryptedEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
@@ -291,7 +292,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: HashMap<Box<DeviceId>, ReadOnlyDevice>,
+    pub(crate) inner: HashMap<OwnedDeviceId, ReadOnlyDevice>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
@@ -331,8 +332,8 @@ impl UserDevices {
     }
 
     /// Iterator over all the device ids of the user devices.
-    pub fn keys(&self) -> impl Iterator<Item = &Box<DeviceId>> {
-        self.inner.keys()
+    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
+        self.inner.keys().map(Deref::deref)
     }
 
     /// Iterator over all the devices of the user devices.
@@ -426,12 +427,12 @@ impl ReadOnlyDevice {
     }
 
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, DeviceKey> {
+    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, DeviceKey> {
         &self.inner.keys
     }
 
     /// Get a map containing all the device signatures.
-    pub fn signatures(&self) -> &BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
+    pub fn signatures(&self) -> &BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
         &self.inner.signatures
     }
 

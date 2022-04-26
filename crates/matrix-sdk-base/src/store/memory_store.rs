@@ -27,7 +27,10 @@ use ruma::{
         presence::PresenceEvent,
         receipt::Receipt,
         room::{
-            member::{MembershipState, RoomMemberEventContent},
+            member::{
+                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+                StrippedRoomMemberEvent,
+            },
             redaction::SyncRoomRedactionEvent,
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
@@ -37,14 +40,14 @@ use ruma::{
     receipt::ReceiptType,
     serde::Raw,
     signatures::{redact_in_place, CanonicalJsonObject},
-    EventId, MxcUri, RoomId, RoomVersionId, UserId,
+    EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
 #[allow(unused_imports)]
 use tracing::{info, warn};
 
 use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
 use crate::{
-    deserialized_responses::{EitherMemberEvent, MemberEvent, StrippedMemberEvent, SyncRoomEvent},
+    deserialized_responses::{SyncRoomEvent, MemberEvent},
     media::{MediaRequest, UniqueKey},
     StoreError,
 };
@@ -58,30 +61,30 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, MemberEvent>>>,
-    profiles: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, RoomMemberEventContent>>>,
-    display_names: Arc<DashMap<Box<RoomId>, DashMap<String, BTreeSet<Box<UserId>>>>>,
-    joined_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
-    invited_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
-    room_info: Arc<DashMap<Box<RoomId>, RoomInfo>>,
+    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, OriginalSyncRoomMemberEvent>>>,
+    profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, RoomMemberEventContent>>>,
+    display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
+    joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    room_info: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     room_state:
-        Arc<DashMap<Box<RoomId>, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
+        Arc<DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
     room_account_data:
-        Arc<DashMap<Box<RoomId>, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
-    stripped_room_infos: Arc<DashMap<Box<RoomId>, RoomInfo>>,
+        Arc<DashMap<OwnedRoomId, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
+    stripped_room_infos: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     stripped_room_state: Arc<
-        DashMap<Box<RoomId>, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
+        DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
-    stripped_members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, StrippedMemberEvent>>>,
-    presence: Arc<DashMap<Box<UserId>, Raw<PresenceEvent>>>,
+    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, StrippedRoomMemberEvent>>>,
+    presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
     room_user_receipts:
-        Arc<DashMap<Box<RoomId>, DashMap<String, DashMap<Box<UserId>, (Box<EventId>, Receipt)>>>>,
+        Arc<DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedUserId, (OwnedEventId, Receipt)>>>>,
     room_event_receipts: Arc<
-        DashMap<Box<RoomId>, DashMap<String, DashMap<Box<EventId>, DashMap<Box<UserId>, Receipt>>>>,
+        DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>>,
     >,
     media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
     custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
-    room_timeline: Arc<DashMap<Box<RoomId>, TimelineData>>,
+    room_timeline: Arc<DashMap<OwnedRoomId, TimelineData>>,
 }
 
 impl Default for MemoryStore {
@@ -485,7 +488,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<EitherMemberEvent>> {
+    ) -> Result<Option<MemberEvent>> {
         if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())) {
             Ok(Some(e.into()))
         } else if let Some(e) = self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())) {
@@ -495,7 +498,7 @@ impl MemoryStore {
         }
     }
 
-    fn get_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
+    fn get_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
         if let Some(u) = self.members.get(room_id) {
             u.iter().map(|u| u.key().clone()).collect()
         } else  {
@@ -506,14 +509,14 @@ impl MemoryStore {
         }
     }
 
-    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
+    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
         self.invited_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
             .unwrap_or_default()
     }
 
-    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
+    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
         self.joined_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
@@ -548,7 +551,7 @@ impl MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>> {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         Ok(self.room_user_receipts.get(room_id).and_then(|m| {
             m.get(receipt_type.as_ref()).and_then(|m| m.get(user_id).map(|r| r.clone()))
         }))
@@ -559,7 +562,7 @@ impl MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
             .room_event_receipts
             .get(room_id)
@@ -707,19 +710,19 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<EitherMemberEvent>> {
+    ) -> Result<Option<MemberEvent>> {
         self.get_member_event(room_id, state_key).await
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         Ok(self.get_user_ids(room_id))
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         Ok(self.get_invited_user_ids(room_id))
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         Ok(self.get_joined_user_ids(room_id))
     }
 
@@ -735,7 +738,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<Box<UserId>>> {
+    ) -> Result<BTreeSet<OwnedUserId>> {
         Ok(self
             .display_names
             .get(room_id)
@@ -763,7 +766,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>> {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
     }
 
@@ -772,7 +775,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
     }
 
@@ -819,7 +822,7 @@ struct TimelineData {
     pub end: Option<String>,
     pub end_position: isize,
     pub events: BTreeMap<isize, SyncRoomEvent>,
-    pub event_id_to_position: HashMap<Box<EventId>, isize>,
+    pub event_id_to_position: HashMap<OwnedEventId, isize>,
 }
 
 #[cfg(test)]

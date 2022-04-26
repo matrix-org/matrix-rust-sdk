@@ -28,7 +28,8 @@ use ruma::{
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
 use serde_json::Value;
 use tracing::{debug, info, trace};
@@ -43,10 +44,10 @@ use crate::{
 #[derive(Clone, Debug)]
 pub(crate) struct GroupSessionCache {
     store: Store,
-    sessions: Arc<DashMap<Box<RoomId>, OutboundGroupSession>>,
+    sessions: Arc<DashMap<OwnedRoomId, OutboundGroupSession>>,
     /// A map from the request id to the group session that the request belongs
     /// to. Used to mark requests belonging to the session as shared.
-    sessions_being_shared: Arc<DashMap<Box<TransactionId>, OutboundGroupSession>>,
+    sessions_being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
 }
 
 impl GroupSessionCache {
@@ -221,17 +222,17 @@ impl GroupSessionManager {
         devices: Vec<Device>,
         message_index: u32,
     ) -> OlmResult<(
-        Box<TransactionId>,
+        OwnedTransactionId,
         ToDeviceRequest,
-        BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+        BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
         Vec<Session>,
     )> {
         // Use a named type instead of a tuple with rather long type name
         struct EncryptResult {
             used_session: Option<Session>,
-            share_info: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+            share_info: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
             message:
-                BTreeMap<Box<UserId>, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+                BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
         }
 
         let mut messages = BTreeMap::new();
@@ -324,9 +325,9 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         history_visibility: HistoryVisibility,
         outbound: &OutboundGroupSession,
-    ) -> OlmResult<(bool, HashMap<Box<UserId>, Vec<Device>>)> {
+    ) -> OlmResult<(bool, HashMap<OwnedUserId, Vec<Device>>)> {
         let users: HashSet<&UserId> = users.collect();
-        let mut devices: HashMap<Box<UserId>, Vec<Device>> = HashMap::new();
+        let mut devices: HashMap<OwnedUserId, Vec<Device>> = HashMap::new();
 
         trace!(
             ?users,
@@ -336,7 +337,7 @@ impl GroupSessionManager {
             "Calculating group session recipients"
         );
 
-        let users_shared_with: HashSet<Box<UserId>> =
+        let users_shared_with: HashSet<OwnedUserId> =
             outbound.shared_with_set.iter().map(|k| k.key().clone()).collect();
 
         let users_shared_with: HashSet<&UserId> =
@@ -373,7 +374,7 @@ impl GroupSessionManager {
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     // Devices that received this session
-                    let shared: HashSet<Box<DeviceId>> =
+                    let shared: HashSet<OwnedDeviceId> =
                         shared.iter().map(|d| d.key().clone()).collect();
                     let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
@@ -414,7 +415,7 @@ impl GroupSessionManager {
         content: AnyToDeviceEventContent,
         outbound: OutboundGroupSession,
         message_index: u32,
-        being_shared: Arc<DashMap<Box<TransactionId>, OutboundGroupSession>>,
+        being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
     ) -> OlmResult<Vec<Session>> {
         let (id, request, share_infos, used_sessions) =
             Self::encrypt_session_for(content.clone(), chunk, message_index).await?;

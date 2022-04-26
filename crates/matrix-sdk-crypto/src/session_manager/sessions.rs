@@ -26,7 +26,8 @@ use ruma::{
     },
     assign,
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, TransactionId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
+    OwnedUserId, TransactionId, UserId,
 };
 use tracing::{debug, error, info, warn};
 
@@ -47,10 +48,10 @@ pub(crate) struct SessionManager {
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
-    users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
-    wedged_devices: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+    users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
+    wedged_devices: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     key_request_machine: GossipMachine,
-    outgoing_to_device_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
+    outgoing_to_device_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
 }
 
 impl SessionManager {
@@ -59,7 +60,7 @@ impl SessionManager {
 
     pub fn new(
         account: Account,
-        users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+        users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
@@ -185,7 +186,7 @@ impl SessionManager {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(Box<TransactionId>, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
         let mut missing = BTreeMap::new();
 
         // Add the list of devices that the user wishes to establish sessions
@@ -374,14 +375,14 @@ mod tests {
     }
 
     async fn session_manager() -> SessionManager {
-        let user_id = user_id().to_owned();
+        let user_id = user_id();
         let device_id = device_id();
 
         let users_for_key_claim = Arc::new(DashMap::new());
-        let account = ReadOnlyAccount::new(&user_id, device_id);
+        let account = ReadOnlyAccount::new(user_id, device_id);
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         store.save_account(account.clone()).await.unwrap();
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id.clone())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification =
             VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 

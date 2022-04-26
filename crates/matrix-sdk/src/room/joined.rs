@@ -29,7 +29,7 @@ use ruma::{
     events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
     receipt::ReceiptType,
     serde::Raw,
-    EventId, TransactionId, UserId,
+    EventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::debug;
@@ -538,12 +538,12 @@ impl Joined {
         event_type: &str,
         txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::v3::Response> {
-        let txn_id: Box<TransactionId> = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
+        let txn_id: OwnedTransactionId = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
         #[cfg(not(feature = "encryption"))]
         let content = {
             debug!(
-                room_id = self.room_id().as_str(),
+                room_id = %self.room_id(),
                 "Sending plaintext event to room because we don't have encryption support.",
             );
             Raw::new(&content)?.cast()
@@ -551,29 +551,40 @@ impl Joined {
 
         #[cfg(feature = "encryption")]
         let (content, event_type) = if self.is_encrypted() {
-            debug!(
-                room_id = self.room_id().as_str(),
-                "Sending encrypted event because the room is encrypted.",
-            );
+            // Reactions are currently famously not encrypted, skip encrypting
+            // them until they are.
+            if event_type == "m.reaction" {
+                debug!(
+                    room_id = %self.room_id(),
+                    "Sending plaintext event because the event type is {}", event_type
+                );
+                (Raw::new(&content)?.cast(), event_type)
+            } else {
+                debug!(
+                    room_id = self.room_id().as_str(),
+                    "Sending encrypted event because the room is encrypted.",
+                );
 
-            if !self.are_members_synced() {
-                self.request_members().await?;
-                // TODO query keys here?
+                if !self.are_members_synced() {
+                    self.request_members().await?;
+                    // TODO query keys here?
+                }
+
+                self.preshare_group_session().await?;
+
+                let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
+
+                let encrypted_content =
+                    olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
+                let raw_content = Raw::new(&encrypted_content)
+                    .expect("Failed to serialize encrypted event")
+                    .cast();
+
+                (raw_content, "m.room.encrypted")
             }
-
-            self.preshare_group_session().await?;
-
-            let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
-
-            let encrypted_content =
-                olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
-            let raw_content =
-                Raw::new(&encrypted_content).expect("Failed to serialize encrypted event").cast();
-
-            (raw_content, "m.room.encrypted")
         } else {
             debug!(
-                room_id = self.room_id().as_str(),
+                room_id = %self.room_id(),
                 "Sending plaintext event because the room is NOT encrypted.",
             );
 
@@ -795,7 +806,7 @@ impl Joined {
     ///
     /// // Custom event:
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State)]
+    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State, state_key_type = String)]
     /// struct XxxStateEventContent { /* fields... */ }
     /// let content: XxxStateEventContent = todo!();
     ///
@@ -902,7 +913,7 @@ impl Joined {
         &self,
         event_id: &EventId,
         reason: Option<&str>,
-        txn_id: Option<Box<TransactionId>>,
+        txn_id: Option<OwnedTransactionId>,
     ) -> HttpResult<redact_event::v3::Response> {
         let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request =

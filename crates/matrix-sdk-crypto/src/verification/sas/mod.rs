@@ -27,7 +27,7 @@ use ruma::{
         key::verification::{cancel::CancelCode, ShortAuthenticationString},
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
 use tracing::trace;
 
@@ -189,7 +189,7 @@ impl Sas {
         store: VerificationStore,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<Box<TransactionId>>,
+        transaction_id: Option<OwnedTransactionId>,
         we_started: bool,
         request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
@@ -227,8 +227,8 @@ impl Sas {
     /// sent out through the server to the other device.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_in_room(
-        flow_id: Box<EventId>,
-        room_id: Box<RoomId>,
+        flow_id: OwnedEventId,
+        room_id: OwnedRoomId,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: VerificationStore,
@@ -607,7 +607,7 @@ mod tests {
         let bob_store = VerificationStore { account: bob.clone(), inner: Arc::new(bob_store) };
 
         let (alice, content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(alice_id().to_owned()),
+            PrivateCrossSigningIdentity::empty(alice_id()),
             bob_device,
             alice_store,
             None,
@@ -624,7 +624,7 @@ mod tests {
             flow_id,
             &content,
             bob_store,
-            PrivateCrossSigningIdentity::empty(bob_id().to_owned()),
+            PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             None,
             None,

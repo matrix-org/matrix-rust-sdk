@@ -18,19 +18,15 @@ use anyhow::anyhow;
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    deserialized_responses::{MemberEvent, SyncRoomEvent},
-    media::{MediaRequest, UniqueKey},
-    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
-    RoomInfo,
-};
-use matrix_sdk_common::{
     async_trait,
+    deserialized_responses::SyncRoomEvent,
+    media::{MediaRequest, UniqueKey},
     ruma::{
         events::{
             presence::PresenceEvent,
             receipt::Receipt,
             room::{
-                member::{MembershipState, RoomMemberEventContent},
+                member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
                 redaction::SyncRoomRedactionEvent,
             },
             AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
@@ -40,8 +36,10 @@ use matrix_sdk_common::{
         receipt::ReceiptType,
         serde::Raw,
         signatures::{redact_in_place, CanonicalJsonObject},
-        EventId, MxcUri, RoomId, RoomVersionId, UserId,
+        EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
     },
+    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
+    RoomInfo,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use serde::{Deserialize, Serialize};
@@ -559,7 +557,7 @@ impl IndexeddbStore {
 
                             if let Some((old_event, _)) =
                                 room_user_receipts.get(&key)?.await?.and_then(|f| {
-                                    self.deserialize_event::<(Box<EventId>, Receipt)>(f).ok()
+                                    self.deserialize_event::<(OwnedEventId, Receipt)>(f).ok()
                                 })
                             {
                                 room_event_receipts.delete(&self.encode_key(
@@ -847,7 +845,7 @@ impl IndexeddbStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<OriginalSyncRoomMemberEvent>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
@@ -857,12 +855,12 @@ impl IndexeddbStore {
             .transpose()
     }
 
-    pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+    pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         Ok([self.get_invited_user_ids(room_id).await?, self.get_joined_user_ids(room_id).await?]
             .concat())
     }
 
-    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let range = self.encode_to_range(KEYS::INVITED_USER_IDS, room_id)?;
         let entries = self
             .inner
@@ -871,13 +869,13 @@ impl IndexeddbStore {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event::<Box<UserId>>(f).ok())
+            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
             .collect::<Vec<_>>();
 
         Ok(entries)
     }
 
-    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let range = self.encode_to_range(KEYS::JOINED_USER_IDS, room_id)?;
         Ok(self
             .inner
@@ -886,7 +884,7 @@ impl IndexeddbStore {
             .get_all_with_key(&range)?
             .await?
             .iter()
-            .filter_map(|f| self.deserialize_event::<Box<UserId>>(f).ok())
+            .filter_map(|f| self.deserialize_event::<OwnedUserId>(f).ok())
             .collect::<Vec<_>>())
     }
 
@@ -922,14 +920,14 @@ impl IndexeddbStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<Box<UserId>>> {
+    ) -> Result<BTreeSet<OwnedUserId>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::DISPLAY_NAMES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::DISPLAY_NAMES)?
             .get(&self.encode_key(KEYS::DISPLAY_NAMES, (room_id, display_name)))?
             .await?
             .map(|f| {
-                self.deserialize_event::<BTreeSet<Box<UserId>>>(f)
+                self.deserialize_event::<BTreeSet<OwnedUserId>>(f)
                     .map_err::<SerializationError, _>(|e| e)
             })
             .unwrap_or_else(|| Ok(Default::default()))
@@ -967,7 +965,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>> {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::ROOM_USER_RECEIPTS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::ROOM_USER_RECEIPTS)?
@@ -982,7 +980,7 @@ impl IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         let range =
             self.encode_to_range(KEYS::ROOM_EVENT_RECEIPTS, (room_id, &receipt_type, event_id))?;
         let tx = self.inner.transaction_on_one_with_mode(
@@ -1219,19 +1217,19 @@ impl StateStore for IndexeddbStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<MemberEvent>> {
+    ) -> StoreResult<Option<OriginalSyncRoomMemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(|e| e.into())
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+    async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
         self.get_user_ids_stream(room_id).await.map_err(|e| e.into())
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
         self.get_invited_user_ids(room_id).await.map_err(|e| e.into())
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
         self.get_joined_user_ids(room_id).await.map_err(|e| e.into())
     }
 
@@ -1247,7 +1245,7 @@ impl StateStore for IndexeddbStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> StoreResult<BTreeSet<Box<UserId>>> {
+    ) -> StoreResult<BTreeSet<OwnedUserId>> {
         self.get_users_with_display_name(room_id, display_name).await.map_err(|e| e.into())
     }
 
@@ -1271,7 +1269,7 @@ impl StateStore for IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> StoreResult<Option<(Box<EventId>, Receipt)>> {
+    ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
         self.get_user_room_receipt_event(room_id, receipt_type, user_id).await.map_err(|e| e.into())
     }
 
@@ -1280,7 +1278,7 @@ impl StateStore for IndexeddbStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
+    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id)
             .await
             .map_err(|e| e.into())
