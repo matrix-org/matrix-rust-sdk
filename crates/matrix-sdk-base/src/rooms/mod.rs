@@ -19,8 +19,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 /// The name of the room, either from the metadata or calculaetd
-/// according to [matrix specification][spec]
-/// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+/// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DisplayName {
     /// The room has been named explicitly as
