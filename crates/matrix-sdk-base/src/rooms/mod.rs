@@ -29,7 +29,7 @@ pub enum DisplayName {
     Aliased(String),
     /// The room has not given an explicit name but a name could be
     /// calculated
-    Computed(String),
+    Calculated(String),
     /// The room doesn't have a name right now, but used to have one
     /// e.g. because it was a DM and everyone has left the room
     EmptyWas(String),
@@ -42,7 +42,7 @@ impl DisplayName {
     pub fn to_string(&self) -> String {
         match self {
             DisplayName::Named(s)
-                | DisplayName::Computed(s)
+                | DisplayName::Calculated(s)
                 | DisplayName::Aliased(s) => s.clone(),
             DisplayName::EmptyWas(s) => format!("Empty Room (was {})", s),
             DisplayName::Empty => "Empty Room".to_string(),
@@ -262,7 +262,7 @@ fn calculate_room_name(
             DisplayName::EmptyWas(names)
         }
     } else {
-        DisplayName::Computed(names)
+        DisplayName::Calculated(names)
     }
 }
 
@@ -273,16 +273,16 @@ mod tests {
 
     fn test_calculate_room_name() {
         let mut actual = calculate_room_name(2, 0, vec!["a"]);
-        assert_eq!(DisplayName::Computed("a".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a".to_string()), actual);
 
         actual = calculate_room_name(3, 0, vec!["a", "b"]);
-        assert_eq!(DisplayName::Computed("a, b".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a, b".to_string()), actual);
 
         actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Computed("a, b, c".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a, b, c".to_string()), actual);
 
         actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Computed("a, b, c, and 2 others".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_string()), actual);
 
         actual = calculate_room_name(0, 0, vec![]);
         assert_eq!(DisplayName::Empty, actual);
