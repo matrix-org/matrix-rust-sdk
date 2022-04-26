@@ -44,7 +44,7 @@ use tracing::{info, warn};
 
 use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
 use crate::{
-    deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent},
+    deserialized_responses::{EitherMemberEvent, MemberEvent, StrippedMemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     StoreError,
 };
@@ -239,6 +239,39 @@ impl MemoryStore {
 
         for (room, events) in &changes.stripped_members {
             for event in events.values() {
+                match event.content.membership {
+                    MembershipState::Join => {
+                        self.joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .insert(event.state_key.clone());
+                        self.invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                    MembershipState::Invite => {
+                        self.invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .insert(event.state_key.clone());
+                        self.joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                    _ => {
+                        self.joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                        self.invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                }
+
                 self.stripped_members
                     .entry(room.clone())
                     .or_insert_with(DashMap::new)
@@ -452,15 +485,25 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
-        Ok(self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())))
+    ) -> Result<Option<EitherMemberEvent>> {
+        if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())) {
+            Ok(Some(e.into()))
+        } else if let Some(e) = self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())) {
+            Ok(Some(e.into()))
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
-        self.members
-            .get(room_id)
-            .map(|u| u.iter().map(|u| u.key().clone()).collect())
-            .unwrap_or_default()
+        if let Some(u) = self.members.get(room_id) {
+            u.iter().map(|u| u.key().clone()).collect()
+        } else  {
+            self.stripped_members
+                .get(room_id)
+                .map(|u| u.iter().map(|u| u.key().clone()).collect())
+                .unwrap_or_default()
+        }
     }
 
     fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
@@ -664,7 +707,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<EitherMemberEvent>> {
         self.get_member_event(room_id, state_key).await
     }
 

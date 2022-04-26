@@ -380,6 +380,42 @@ impl From<StrippedMemberEvent> for StrippedRoomMemberEvent {
     }
 }
 
+/// Wrapper around both MemberEvent-Types
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum EitherMemberEvent {
+    Stripped(StrippedMemberEvent),
+    Full(MemberEvent),
+}
+
+impl EitherMemberEvent {
+    /// The inner Content of the wrapped Event
+    pub fn content(&self) -> &RoomMemberEventContent {
+        match &*self {
+            EitherMemberEvent::Stripped(e) => &e.content,
+            EitherMemberEvent::Full(e) => &e.content,
+        }
+    }
+
+    /// The user id associated to this member event
+    pub fn user_id(&self) -> &UserId {
+        match &*self {
+            EitherMemberEvent::Stripped(e) => &e.state_key,
+            EitherMemberEvent::Full(e) => &e.state_key,
+        }
+    }
+}
+
+impl From<StrippedMemberEvent> for EitherMemberEvent {
+    fn from(other: StrippedMemberEvent) -> Self {
+        EitherMemberEvent::Stripped(other)
+    }
+}
+impl From<MemberEvent> for EitherMemberEvent {
+    fn from(other: MemberEvent) -> Self {
+        EitherMemberEvent::Full(other)
+    }
+}
+
 /// A deserialized response for the rooms members API call.
 ///
 /// [GET /_matrix/client/r0/rooms/{roomId}/members](https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-rooms-roomid-members)

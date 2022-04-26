@@ -25,12 +25,12 @@ use ruma::{
     MxcUri, UserId,
 };
 
-use crate::deserialized_responses::MemberEvent;
+use crate::deserialized_responses::EitherMemberEvent;
 
 /// A member of a room.
 #[derive(Clone, Debug)]
 pub struct RoomMember {
-    pub(crate) event: Arc<MemberEvent>,
+    pub(crate) event: Arc<EitherMemberEvent>,
     pub(crate) profile: Arc<Option<RoomMemberEventContent>>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,
@@ -43,7 +43,7 @@ pub struct RoomMember {
 impl RoomMember {
     /// Get the unique user id of this member.
     pub fn user_id(&self) -> &UserId {
-        &self.event.state_key
+        self.event.user_id()
     }
 
     /// Get the display name of the member if there is one.
@@ -51,7 +51,7 @@ impl RoomMember {
         if let Some(p) = self.profile.as_ref() {
             p.displayname.as_deref()
         } else {
-            self.event.content.displayname.as_deref()
+            self.event.content().displayname.as_deref()
         }
     }
 
@@ -71,7 +71,7 @@ impl RoomMember {
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         match self.profile.as_ref() {
             Some(p) => p.avatar_url.as_deref(),
-            None => self.event.content.avatar_url.as_deref(),
+            None => self.event.content().avatar_url.as_deref(),
         }
     }
 
@@ -114,7 +114,7 @@ impl RoomMember {
         if let Some(p) = self.profile.as_ref() {
             &p.membership
         } else {
-            &self.event.content.membership
+            &self.event.content().membership
         }
     }
 }
