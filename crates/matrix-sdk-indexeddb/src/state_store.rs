@@ -19,14 +19,14 @@ use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     async_trait,
-    deserialized_responses::SyncRoomEvent,
+    deserialized_responses::{SyncRoomEvent, MemberEvent},
     media::{MediaRequest, UniqueKey},
     ruma::{
         events::{
             presence::PresenceEvent,
             receipt::Receipt,
             room::{
-                member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+                member::{MembershipState, RoomMemberEventContent},
                 redaction::SyncRoomRedactionEvent,
             },
             AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
@@ -357,7 +357,6 @@ impl IndexeddbStore {
             (!changes.room_infos.is_empty() || !changes.timeline.is_empty(), KEYS::ROOM_INFOS),
             (!changes.receipts.is_empty(), KEYS::ROOM_EVENT_RECEIPTS),
             (!changes.stripped_state.is_empty(), KEYS::STRIPPED_ROOM_STATE),
-            (!changes.stripped_members.is_empty(), KEYS::STRIPPED_MEMBERS),
             (!changes.stripped_room_infos.is_empty(), KEYS::STRIPPED_ROOM_INFOS),
         ]
         .iter()
@@ -368,6 +367,14 @@ impl IndexeddbStore {
             stores.extend([
                 KEYS::PROFILES,
                 KEYS::MEMBERS,
+                KEYS::INVITED_USER_IDS,
+                KEYS::JOINED_USER_IDS,
+            ])
+        }
+
+        if !changes.stripped_members.is_empty() {
+            stores.extend([
+                KEYS::STRIPPED_MEMBERS,
                 KEYS::INVITED_USER_IDS,
                 KEYS::JOINED_USER_IDS,
             ])
@@ -473,10 +480,34 @@ impl IndexeddbStore {
 
         if !changes.stripped_members.is_empty() {
             let store = tx.object_store(KEYS::STRIPPED_MEMBERS)?;
+            let joined = tx.object_store(KEYS::JOINED_USER_IDS)?;
+            let invited = tx.object_store(KEYS::INVITED_USER_IDS)?;
             for (room, events) in &changes.stripped_members {
+
                 for event in events.values() {
-                    let key = self.encode_key(KEYS::STRIPPED_MEMBERS, (room, &event.state_key));
-                    store.put_key_val(&key, &self.serialize_event(&event)?)?;
+                    let key = (room, &event.state_key);
+
+                    match event.content.membership {
+                        MembershipState::Join => {
+                            joined.put_key_val_owned(
+                                &self.encode_key(KEYS::JOINED_USER_IDS, key),
+                                &self.serialize_event(&event.state_key)?,
+                            )?;
+                            invited.delete(&self.encode_key(KEYS::INVITED_USER_IDS, key))?;
+                        }
+                        MembershipState::Invite => {
+                            invited.put_key_val_owned(
+                                &self.encode_key(KEYS::INVITED_USER_IDS, key),
+                                &self.serialize_event(&event.state_key)?,
+                            )?;
+                            joined.delete(&self.encode_key(KEYS::JOINED_USER_IDS, key))?;
+                        }
+                        _ => {
+                            joined.delete(&self.encode_key(KEYS::JOINED_USER_IDS, key))?;
+                            invited.delete(&self.encode_key(KEYS::INVITED_USER_IDS, key))?;
+                        }
+                    }
+                    store.put_key_val(&self.encode_key(KEYS::STRIPPED_MEMBERS, key), &self.serialize_event(&event)?)?;
                 }
             }
         }
@@ -495,13 +526,13 @@ impl IndexeddbStore {
         }
 
         if !changes.members.is_empty() {
+            let profiles_store = tx.object_store(KEYS::PROFILES)?;
+            let joined = tx.object_store(KEYS::JOINED_USER_IDS)?;
+            let invited = tx.object_store(KEYS::INVITED_USER_IDS)?;
+            let members = tx.object_store(KEYS::MEMBERS)?;
+
             for (room, events) in &changes.members {
                 let profile_changes = changes.profiles.get(room);
-
-                let profiles_store = tx.object_store(KEYS::PROFILES)?;
-                let joined = tx.object_store(KEYS::JOINED_USER_IDS)?;
-                let invited = tx.object_store(KEYS::INVITED_USER_IDS)?;
-                let members = tx.object_store(KEYS::MEMBERS)?;
 
                 for event in events.values() {
                     let key = (room, &event.state_key);
@@ -845,14 +876,28 @@ impl IndexeddbStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<OriginalSyncRoomMemberEvent>> {
-        self.inner
+    ) -> Result<Option<MemberEvent>> {
+        if let Some(e) = self.inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
             .get(&self.encode_key(KEYS::MEMBERS, (room_id, state_key)))?
             .await?
             .map(|f| self.deserialize_event(f))
-            .transpose()
+            .transpose()?
+        {
+            Ok(Some(MemberEvent::Full(e)))
+        } else if let Some(e) = self.inner
+            .transaction_on_one_with_mode(KEYS::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::STRIPPED_MEMBERS)?
+            .get(&self.encode_key(KEYS::STRIPPED_MEMBERS, (room_id, state_key)))?
+            .await?
+            .map(|f| self.deserialize_event(f))
+            .transpose()?
+        {
+            Ok(Some(MemberEvent::Stripped(e)))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn get_user_ids_stream(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
@@ -1217,7 +1262,7 @@ impl StateStore for IndexeddbStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<OriginalSyncRoomMemberEvent>> {
+    ) -> StoreResult<Option<MemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(|e| e.into())
     }
 

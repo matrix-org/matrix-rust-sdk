@@ -33,6 +33,7 @@ matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
+matrix-sdk-common = {  path = "../matrix-sdk-common" }
 matrix-sdk-base = {  path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../matrix-sdk-test" }
