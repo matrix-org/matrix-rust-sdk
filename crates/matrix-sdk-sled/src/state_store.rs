@@ -143,7 +143,7 @@ type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 pub struct SledStore {
     path: Option<PathBuf>,
     pub(crate) inner: Db,
-    store_cipher: Arc<Option<StoreCipher>>,
+    store_cipher: Option<Arc<StoreCipher>>,
     session: Tree,
     account_data: Tree,
     members: Tree,
@@ -181,7 +181,7 @@ impl SledStore {
     fn open_helper(
         db: Db,
         path: Option<PathBuf>,
-        store_cipher: Option<StoreCipher>,
+        store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self> {
         let session = db.open_tree(SESSION)?;
         let account_data = db.open_tree(ACCOUNT_DATA)?;
@@ -215,7 +215,7 @@ impl SledStore {
         Ok(Self {
             path,
             inner: db,
-            store_cipher: store_cipher.into(),
+            store_cipher,
             session,
             account_data,
             members,
@@ -256,7 +256,7 @@ impl SledStore {
         SledStore::open_helper(
             db,
             None,
-            Some(StoreCipher::new().expect("can't create store cipher")),
+            Some(StoreCipher::new().expect("can't create store cipher").into()),
         )
         .map_err(|e| e.into())
     }
@@ -275,7 +275,8 @@ impl SledStore {
             let cipher = StoreCipher::new()?;
             db.insert("store_cipher".encode(), cipher.export(passphrase)?)?;
             cipher
-        };
+        }
+        .into();
 
         SledStore::open_helper(db, Some(path), Some(store_cipher))
     }
@@ -300,7 +301,7 @@ impl SledStore {
     }
 
     fn serialize_event(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             Ok(key.encrypt_value(event)?)
         } else {
             Ok(serde_json::to_vec(event)?)
@@ -311,7 +312,7 @@ impl SledStore {
         &self,
         event: &[u8],
     ) -> Result<T, SledStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             Ok(key.decrypt_value(event)?)
         } else {
             Ok(serde_json::from_slice(event)?)
@@ -319,7 +320,7 @@ impl SledStore {
     }
 
     fn encode_key<T: EncodeKey>(&self, table_name: &str, key: T) -> Vec<u8> {
-        if let Some(store_cipher) = &*self.store_cipher {
+        if let Some(store_cipher) = &self.store_cipher {
             key.encode_secure(table_name, store_cipher).to_vec()
         } else {
             key.encode()
