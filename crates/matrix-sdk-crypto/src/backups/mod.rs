@@ -459,7 +459,7 @@ mod tests {
 
     #[async_test]
     async fn memory_store_backups() -> Result<(), OlmError> {
-        let machine = OlmMachine::new(alice_id(), alice_device_id());
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
 
         backup_flow(machine).await
     }

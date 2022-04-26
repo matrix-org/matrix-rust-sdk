@@ -51,7 +51,7 @@ fn huge_keys_query_response() -> get_keys::v3::Response {
 
 pub fn keys_query(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
-    let machine = OlmMachine::new(alice_id(), alice_device_id());
+    let machine = runtime.block_on(OlmMachine::new(alice_id(), alice_device_id()));
     let response = keys_query_response();
     let txn_id = TransactionId::new();
 
@@ -101,7 +101,7 @@ pub fn keys_claiming(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
         b.iter_batched(
             || {
-                let machine = OlmMachine::new(alice_id(), alice_device_id());
+                let machine = runtime.block_on(OlmMachine::new(alice_id(), alice_device_id()));
                 runtime
                     .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
                     .unwrap();
@@ -151,7 +151,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
 
     let count = response.one_time_keys.values().fold(0, |acc, d| acc + d.len());
 
-    let machine = OlmMachine::new(alice_id(), alice_device_id());
+    let machine = runtime.block_on(OlmMachine::new(alice_id(), alice_device_id()));
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
@@ -214,7 +214,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
 pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
 
-    let machine = OlmMachine::new(alice_id(), alice_device_id());
+    let machine = runtime.block_on(OlmMachine::new(alice_id(), alice_device_id()));
     let response = huge_keys_query_response();
     let txn_id = TransactionId::new();
     let users: Vec<OwnedUserId> = response.device_keys.keys().cloned().collect();

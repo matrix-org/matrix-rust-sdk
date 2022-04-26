@@ -631,7 +631,7 @@ mod tests {
         let keys_claim = keys_claim_response();
         let txn_id = TransactionId::new();
 
-        let machine = OlmMachine::new(alice_id(), alice_device_id());
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
 
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
         machine.mark_request_as_sent(&txn_id, &keys_claim).await.unwrap();
