@@ -889,3 +889,57 @@ impl Encryption {
         Ok(olm.import_keys(import, false, |_, _| {}).await?)
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
+    use mockito::{mock, Matcher};
+    use ruma::{
+        event_id,
+        events::reaction::{ReactionEventContent, Relation},
+        room_id,
+    };
+    use serde_json::json;
+
+    use crate::client::tests::logged_in_client;
+
+    #[async_test]
+    async fn test_reaction_sending() {
+        let client = logged_in_client().await;
+
+        let event_id = event_id!("$2:example.org");
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()),
+        )
+        .with_status(200)
+        .with_body(
+            json!({
+                "event_id": event_id,
+            })
+            .to_string(),
+        )
+        .create();
+
+        let response = EventBuilder::default()
+            .add_state_event(EventsJson::Member)
+            .add_state_event(EventsJson::PowerLevels)
+            .add_state_event(EventsJson::Encryption)
+            .build_sync_response();
+
+        client.inner.base_client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_joined_room(room_id).expect("Room should exist");
+        assert!(room.is_encrypted());
+
+        let event_id = event_id!("$1:example.org");
+        let reaction = ReactionEventContent::new(Relation::new(event_id.into(), "🐈".to_owned()));
+        room.send(reaction, None).await.expect("Sending the reaction should not fail");
+
+        room.send_raw(json!({}), "m.reaction", None)
+            .await
+            .expect("Sending the reaction should not fail");
+    }
+}

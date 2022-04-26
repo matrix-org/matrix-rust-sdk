@@ -543,7 +543,7 @@ impl Joined {
         #[cfg(not(feature = "encryption"))]
         let content = {
             debug!(
-                room_id = self.room_id().as_str(),
+                room_id = %self.room_id(),
                 "Sending plaintext event to room because we don't have encryption support.",
             );
             Raw::new(&content)?.cast()
@@ -551,29 +551,40 @@ impl Joined {
 
         #[cfg(feature = "encryption")]
         let (content, event_type) = if self.is_encrypted() {
-            debug!(
-                room_id = self.room_id().as_str(),
-                "Sending encrypted event because the room is encrypted.",
-            );
+            // Reactions are currently famously not encrypted, skip encrypting
+            // them until they are.
+            if event_type == "m.reaction" {
+                debug!(
+                    room_id = %self.room_id(),
+                    "Sending plaintext event because the event type is {}", event_type
+                );
+                (Raw::new(&content)?.cast(), event_type)
+            } else {
+                debug!(
+                    room_id = self.room_id().as_str(),
+                    "Sending encrypted event because the room is encrypted.",
+                );
 
-            if !self.are_members_synced() {
-                self.request_members().await?;
-                // TODO query keys here?
+                if !self.are_members_synced() {
+                    self.request_members().await?;
+                    // TODO query keys here?
+                }
+
+                self.preshare_group_session().await?;
+
+                let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
+
+                let encrypted_content =
+                    olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
+                let raw_content = Raw::new(&encrypted_content)
+                    .expect("Failed to serialize encrypted event")
+                    .cast();
+
+                (raw_content, "m.room.encrypted")
             }
-
-            self.preshare_group_session().await?;
-
-            let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
-
-            let encrypted_content =
-                olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
-            let raw_content =
-                Raw::new(&encrypted_content).expect("Failed to serialize encrypted event").cast();
-
-            (raw_content, "m.room.encrypted")
         } else {
             debug!(
-                room_id = self.room_id().as_str(),
+                room_id = %self.room_id(),
                 "Sending plaintext event because the room is NOT encrypted.",
             );
 
