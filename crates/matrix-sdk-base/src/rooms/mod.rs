@@ -1,7 +1,7 @@
 mod members;
 mod normal;
 
-use std::cmp::max;
+use std::{cmp::max, fmt};
 
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomType};
@@ -37,15 +37,14 @@ pub enum DisplayName {
     Empty,
 }
 
-impl DisplayName {
-    /// Generate the caninocal String of the DisplayName in english
-    pub fn to_string(&self) -> String {
+impl fmt::Display for DisplayName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DisplayName::Named(s)
-                | DisplayName::Calculated(s)
-                | DisplayName::Aliased(s) => s.clone(),
-            DisplayName::EmptyWas(s) => format!("Empty Room (was {})", s),
-            DisplayName::Empty => "Empty Room".to_string(),
+            DisplayName::Named(s) | DisplayName::Calculated(s) | DisplayName::Aliased(s) => {
+                write!(f, "{}", s)
+            }
+            DisplayName::EmptyWas(s) => write!(f, "Empty Room (was {})", s),
+            DisplayName::Empty => write!(f, "Empty Room"),
         }
     }
 }
@@ -273,16 +272,16 @@ mod tests {
 
     fn test_calculate_room_name() {
         let mut actual = calculate_room_name(2, 0, vec!["a"]);
-        assert_eq!(DisplayName::Calculated("a".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
 
         actual = calculate_room_name(3, 0, vec!["a", "b"]);
-        assert_eq!(DisplayName::Calculated("a, b".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
 
         actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Calculated("a, b, c".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
 
         actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_string()), actual);
+        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
 
         actual = calculate_room_name(0, 0, vec![]);
         assert_eq!(DisplayName::Empty, actual);
@@ -294,12 +293,12 @@ mod tests {
         assert_eq!(DisplayName::Empty, actual);
 
         actual = calculate_room_name(1, 0, vec!["a"]);
-        assert_eq!(DisplayName::EmptyWas("a".to_string()), actual);
+        assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
 
         actual = calculate_room_name(1, 0, vec!["a", "b"]);
-        assert_eq!(DisplayName::EmptyWas("a, b".to_string()), actual);
+        assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
 
         actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
-        assert_eq!(DisplayName::EmptyWas("a, b, c".to_string()), actual);
+        assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
 }

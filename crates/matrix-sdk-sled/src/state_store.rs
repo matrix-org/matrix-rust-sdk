@@ -677,13 +677,18 @@ impl SledStore {
         spawn_blocking(move || {
             if let Some(e) = db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()? {
                 Ok(Some(MemberEvent::Full(e)))
-            } else if let Some(e) = db.stripped_members.get(stripped_key)?.map(|v| db.deserialize_event(&v)).transpose()? {
+            } else if let Some(e) = db
+                .stripped_members
+                .get(stripped_key)?
+                .map(|v| db.deserialize_event(&v))
+                .transpose()?
+            {
                 Ok(Some(MemberEvent::Stripped(e)))
-            } else  {
+            } else {
                 Ok(None)
             }
         })
-            .await?
+        .await?
     }
 
     pub async fn get_user_ids_stream(

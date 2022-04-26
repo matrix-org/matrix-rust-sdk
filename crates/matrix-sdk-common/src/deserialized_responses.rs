@@ -10,13 +10,13 @@ use ruma::{
     },
     events::{
         room::member::{
-            OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent,
-            RoomMemberEventContent
-        }, 
-        AnyRoomEvent, AnySyncRoomEvent},
+            OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+            StrippedRoomMemberEvent,
+        },
+        AnyRoomEvent, AnySyncRoomEvent,
+    },
     serde::Raw,
-    UserId,
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedUserId,
+    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -296,6 +296,7 @@ impl TimelineSlice {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 /// Wrapper around both MemberEvent-Types
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MemberEvent {

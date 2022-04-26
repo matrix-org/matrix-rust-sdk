@@ -56,7 +56,7 @@ use ruma::{
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    deserialized_responses::{SyncRoomEvent, MemberEvent, TimelineSlice},
+    deserialized_responses::{MemberEvent, SyncRoomEvent, TimelineSlice},
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,
@@ -190,8 +190,8 @@ pub trait StateStore: AsyncTraitDeps {
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>>;
 
-    /// Get all the user ids of members for a given room, for stripped and regular
-    /// rooms alike.
+    /// Get all the user ids of members for a given room, for stripped and
+    /// regular rooms alike.
     async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the user ids of members that are in the invited state for a

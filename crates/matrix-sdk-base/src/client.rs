@@ -1271,16 +1271,15 @@ impl Default for BaseClient {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_test::{async_test, EventBuilder, response_from_file};
+    use matrix_sdk_test::{async_test, response_from_file, EventBuilder};
     use ruma::{
-        api::IncomingResponse,
-        api::client as api,
-        room_id, user_id
+        api::{client as api, IncomingResponse},
+        room_id, user_id,
     };
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{RoomType, Session, DisplayName};
+    use crate::{DisplayName, RoomType, Session};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1339,8 +1338,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn invite_displayname_intergration_test() {
-
+    async fn invite_displayname_integration_test() {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
@@ -1429,6 +1427,9 @@ mod tests {
 
         let room = client.get_room(room_id).expect("Room not found");
         assert_eq!(room.room_type(), RoomType::Invited);
-        assert_eq!(room.display_name().await.expect("fetching display name failed"), DisplayName::Calculated("Kyra".to_string()));
+        assert_eq!(
+            room.display_name().await.expect("fetching display name failed"),
+            DisplayName::Calculated("Kyra".to_owned())
+        );
     }
 }

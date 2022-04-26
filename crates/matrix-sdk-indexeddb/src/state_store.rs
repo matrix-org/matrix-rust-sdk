@@ -19,7 +19,7 @@ use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     async_trait,
-    deserialized_responses::{SyncRoomEvent, MemberEvent},
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     ruma::{
         events::{
@@ -373,11 +373,7 @@ impl IndexeddbStore {
         }
 
         if !changes.stripped_members.is_empty() {
-            stores.extend([
-                KEYS::STRIPPED_MEMBERS,
-                KEYS::INVITED_USER_IDS,
-                KEYS::JOINED_USER_IDS,
-            ])
+            stores.extend([KEYS::STRIPPED_MEMBERS, KEYS::INVITED_USER_IDS, KEYS::JOINED_USER_IDS])
         }
 
         if !changes.receipts.is_empty() {
@@ -483,7 +479,6 @@ impl IndexeddbStore {
             let joined = tx.object_store(KEYS::JOINED_USER_IDS)?;
             let invited = tx.object_store(KEYS::INVITED_USER_IDS)?;
             for (room, events) in &changes.stripped_members {
-
                 for event in events.values() {
                     let key = (room, &event.state_key);
 
@@ -507,7 +502,10 @@ impl IndexeddbStore {
                             invited.delete(&self.encode_key(KEYS::INVITED_USER_IDS, key))?;
                         }
                     }
-                    store.put_key_val(&self.encode_key(KEYS::STRIPPED_MEMBERS, key), &self.serialize_event(&event)?)?;
+                    store.put_key_val(
+                        &self.encode_key(KEYS::STRIPPED_MEMBERS, key),
+                        &self.serialize_event(&event)?,
+                    )?;
                 }
             }
         }
@@ -877,7 +875,8 @@ impl IndexeddbStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        if let Some(e) = self.inner
+        if let Some(e) = self
+            .inner
             .transaction_on_one_with_mode(KEYS::MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::MEMBERS)?
             .get(&self.encode_key(KEYS::MEMBERS, (room_id, state_key)))?
@@ -886,7 +885,8 @@ impl IndexeddbStore {
             .transpose()?
         {
             Ok(Some(MemberEvent::Full(e)))
-        } else if let Some(e) = self.inner
+        } else if let Some(e) = self
+            .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
             .object_store(KEYS::STRIPPED_MEMBERS)?
             .get(&self.encode_key(KEYS::STRIPPED_MEMBERS, (room_id, state_key)))?

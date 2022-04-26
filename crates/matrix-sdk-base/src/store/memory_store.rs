@@ -47,7 +47,7 @@ use tracing::{info, warn};
 
 use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
 use crate::{
-    deserialized_responses::{SyncRoomEvent, MemberEvent},
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     StoreError,
 };
@@ -489,9 +489,12 @@ impl MemoryStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())) {
+        if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
             Ok(Some(e.into()))
-        } else if let Some(e) = self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())) {
+        } else if let Some(e) =
+            self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
             Ok(Some(e.into()))
         } else {
             Ok(None)
@@ -501,7 +504,7 @@ impl MemoryStore {
     fn get_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
         if let Some(u) = self.members.get(room_id) {
             u.iter().map(|u| u.key().clone()).collect()
-        } else  {
+        } else {
             self.stripped_members
                 .get(room_id)
                 .map(|u| u.iter().map(|u| u.key().clone()).collect())

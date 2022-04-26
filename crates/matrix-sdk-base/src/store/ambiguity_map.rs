@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use matrix_sdk_common::deserialized_responses::{MemberEvent, AmbiguityChange};
+use matrix_sdk_common::deserialized_responses::{AmbiguityChange, MemberEvent};
 use ruma::{
     events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
