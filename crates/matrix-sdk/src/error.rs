@@ -51,7 +51,7 @@ pub enum RumaApiError {
     #[error(transparent)]
     ClientApi(ruma::api::client::Error),
 
-    /// Another API reponse error.
+    /// Another API response error.
     #[error(transparent)]
     Other(ruma::api::error::MatrixError),
 }
