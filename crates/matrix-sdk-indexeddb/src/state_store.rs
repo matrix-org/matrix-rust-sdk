@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::anyhow;
 use futures_util::stream;
@@ -140,7 +140,7 @@ mod KEYS {
 pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
-    store_cipher: Option<StoreCipher>,
+    pub(crate) store_cipher: Option<Arc<StoreCipher>>,
 }
 
 impl std::fmt::Debug for IndexeddbStore {
@@ -152,7 +152,7 @@ impl std::fmt::Debug for IndexeddbStore {
 type Result<A, E = SerializationError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
-    async fn open_helper(name: String, store_cipher: Option<StoreCipher>) -> Result<Self> {
+    async fn open_helper(name: String, store_cipher: Option<Arc<StoreCipher>>) -> Result<Self> {
         // Open my_db v1
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
         db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
@@ -245,7 +245,7 @@ impl IndexeddbStore {
 
         tx.await.into_result()?;
 
-        IndexeddbStore::open_helper(name, Some(cipher)).await
+        IndexeddbStore::open_helper(name, Some(cipher.into())).await
     }
 
     pub async fn open_with_name(name: String) -> StoreResult<Self> {
