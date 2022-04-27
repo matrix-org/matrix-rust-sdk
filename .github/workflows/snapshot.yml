@@ -37,6 +37,9 @@ jobs:
         run: |
           ln -s ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.targets.value }}-ar ${{ matrix.targets.value }}-ar
           ln -s ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.targets.value }}30-clang ${{ matrix.targets.value }}-clang
+          
+      - name: Check symlinks
+        run: |
           ls -l ${{ matrix.targets.value }}-ar
           ls -l ${{ matrix.targets.value }}-clang
   
