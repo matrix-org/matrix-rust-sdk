@@ -3368,7 +3368,10 @@ pub(crate) mod tests {
         let _response = client.sync_once(sync_settings).await.unwrap();
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!(DisplayName::Calculated("example2".to_owned()), room.display_name().await.unwrap());
+        assert_eq!(
+            DisplayName::Calculated("example2".to_owned()),
+            room.display_name().await.unwrap()
+        );
     }
 
     #[async_test]
