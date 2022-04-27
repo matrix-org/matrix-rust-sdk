@@ -32,7 +32,7 @@ use ruma::{
     },
     events::{
         key::verification::VerificationMethod, room::encrypted::OriginalSyncRoomEncryptedEvent,
-        AnyMessageLikeEventContent, EventContent,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, EventContent,
     },
     DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
@@ -697,6 +697,28 @@ impl OlmMachine {
         let room_id = RoomId::parse(room_id)?;
 
         self.runtime.block_on(self.inner.invalidate_group_session(&room_id))?;
+
+        Ok(())
+    }
+
+    /// Receive an unencrypted verification event.
+    ///
+    /// This method can be used to pass verification events that are happening
+    /// in unencrypted rooms to the `OlmMachine`.
+    ///
+    /// **Note**: This does not need to be called for encrypted events since
+    /// those will get passed to the `OlmMachine` during decryption.
+    pub fn receive_unencrypted_verification_event(
+        &self,
+        event: &str,
+        room_id: &str,
+    ) -> Result<(), CryptoStoreError> {
+        let room_id = RoomId::parse(room_id)?;
+        let event: AnySyncMessageLikeEvent = serde_json::from_str(event)?;
+
+        let event = event.into_full_event(room_id);
+
+        self.runtime.block_on(self.inner.receive_unencrypted_verification_event(&event))?;
 
         Ok(())
     }
