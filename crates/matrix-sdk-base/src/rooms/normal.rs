@@ -366,7 +366,10 @@ impl Room {
             }
             RoomType::Joined if summary.joined_member_count == 0 => {
                 // joined but the summary is not completed yet
-                (members.len() as u64, summary.invited_member_count)
+                (
+                    (members.len() as u64) + 1, // we've taken ourselfes out of the count
+                    summary.invited_member_count
+                )
             }
             _ => (summary.joined_member_count, summary.invited_member_count),
         };
