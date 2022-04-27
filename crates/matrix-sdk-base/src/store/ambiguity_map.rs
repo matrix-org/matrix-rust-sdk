@@ -161,7 +161,7 @@ impl AmbiguityCache {
         let old_event = if let Some(m) =
             changes.members.get(room_id).and_then(|m| m.get(&member_event.state_key))
         {
-            Some(MemberEvent::Full(m.clone()))
+            Some(MemberEvent::Original(m.clone()))
         } else {
             self.store.get_member_event(room_id, &member_event.state_key).await?
         };

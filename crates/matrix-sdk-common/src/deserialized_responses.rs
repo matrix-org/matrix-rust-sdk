@@ -301,7 +301,7 @@ impl TimelineSlice {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MemberEvent {
     Stripped(StrippedRoomMemberEvent),
-    Full(OriginalSyncRoomMemberEvent),
+    Original(OriginalSyncRoomMemberEvent),
 }
 
 impl MemberEvent {
@@ -309,7 +309,7 @@ impl MemberEvent {
     pub fn content(&self) -> &RoomMemberEventContent {
         match &*self {
             MemberEvent::Stripped(e) => &e.content,
-            MemberEvent::Full(e) => &e.content,
+            MemberEvent::Original(e) => &e.content,
         }
     }
 
@@ -317,7 +317,7 @@ impl MemberEvent {
     pub fn user_id(&self) -> &UserId {
         match &*self {
             MemberEvent::Stripped(e) => &e.state_key,
-            MemberEvent::Full(e) => &e.state_key,
+            MemberEvent::Original(e) => &e.state_key,
         }
     }
 }
@@ -329,7 +329,7 @@ impl From<StrippedRoomMemberEvent> for MemberEvent {
 }
 impl From<OriginalSyncRoomMemberEvent> for MemberEvent {
     fn from(other: OriginalSyncRoomMemberEvent) -> Self {
-        MemberEvent::Full(other)
+        MemberEvent::Original(other)
     }
 }
 
