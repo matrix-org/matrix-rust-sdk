@@ -884,7 +884,7 @@ impl IndexeddbStore {
             .map(|f| self.deserialize_event(f))
             .transpose()?
         {
-            Ok(Some(MemberEvent::Full(e)))
+            Ok(Some(MemberEvent::Original(e)))
         } else if let Some(e) = self
             .inner
             .transaction_on_one_with_mode(KEYS::STRIPPED_MEMBERS, IdbTransactionMode::Readonly)?
