@@ -34,7 +34,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tracing::trace;
@@ -72,11 +72,11 @@ pub enum ScanError {
     /// One of the users that is participating in this verification doesn't have
     /// a valid cross signing identity.
     #[error("The user {0} is missing a valid cross signing identity")]
-    MissingCrossSigningIdentity(Box<UserId>),
+    MissingCrossSigningIdentity(OwnedUserId),
     /// The device of the user that is participating in this verification
     /// doesn't have a valid device key.
     #[error("The user's {0} device {1} is not E2E capable")]
-    MissingDeviceKeys(Box<UserId>, Box<DeviceId>),
+    MissingDeviceKeys(OwnedUserId, OwnedDeviceId),
     /// The ID uniquely identifying this verification flow didn't match to the
     /// one that has been scanned.
     #[error("The unique verification flow id did not match (expected {expected}, found {found})")]
@@ -508,8 +508,8 @@ impl QrVerification {
     pub(crate) async fn from_scan(
         store: VerificationStore,
         private_identity: PrivateCrossSigningIdentity,
-        other_user_id: Box<UserId>,
-        other_device_id: Box<DeviceId>,
+        other_user_id: OwnedUserId,
+        other_device_id: OwnedDeviceId,
         flow_id: FlowId,
         qr_code: QrVerificationData,
         we_started: bool,
@@ -661,7 +661,7 @@ struct Confirmed {}
 
 #[derive(Clone, Debug)]
 struct Reciprocated {
-    own_device_id: Box<DeviceId>,
+    own_device_id: OwnedDeviceId,
     secret: Base64,
 }
 
@@ -913,9 +913,7 @@ mod tests {
             store.save_changes(changes).await.unwrap();
 
             let identities = IdentitiesBeingVerified {
-                private_identity: PrivateCrossSigningIdentity::empty(
-                    alice_account.user_id().to_owned(),
-                ),
+                private_identity: PrivateCrossSigningIdentity::empty(alice_account.user_id()),
                 store: store.clone(),
                 device_being_verified: alice_device.clone(),
                 identity_being_verified: Some(identity.clone().into()),

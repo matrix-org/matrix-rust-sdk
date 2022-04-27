@@ -39,7 +39,8 @@ use ruma::{
         },
         AnyToDeviceEvent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -59,10 +60,10 @@ pub(crate) struct GossipMachine {
     device_id: Arc<DeviceId>,
     store: Store,
     outbound_group_sessions: GroupSessionCache,
-    outgoing_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
+    outgoing_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
     incoming_key_requests: Arc<DashMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
-    users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+    users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
 }
 
 impl GossipMachine {
@@ -71,7 +72,7 @@ impl GossipMachine {
         device_id: Arc<DeviceId>,
         store: Store,
         outbound_group_sessions: GroupSessionCache,
-        users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+        users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     ) -> Self {
         Self {
             user_id,
@@ -1004,8 +1005,7 @@ mod tests {
         let user_id = Arc::from(bob_id());
         let account = ReadOnlyAccount::new(&user_id, alice_device_id());
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.to_owned(), identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
@@ -1027,8 +1027,7 @@ mod tests {
             ReadOnlyDevice::from_account(&ReadOnlyAccount::new(&user_id, alice2_device_id())).await;
 
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
 
         let store = Store::new(user_id.clone(), identity, store, verification);

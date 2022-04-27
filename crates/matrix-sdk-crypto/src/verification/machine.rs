@@ -25,7 +25,8 @@ use ruma::{
         ToDeviceEvent,
     },
     serde::Raw,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    TransactionId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -49,7 +50,7 @@ pub struct VerificationMachine {
     pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
-    requests: Arc<DashMap<Box<UserId>, DashMap<String, VerificationRequest>>>,
+    requests: Arc<DashMap<OwnedUserId, DashMap<String, VerificationRequest>>>,
 }
 
 impl VerificationMachine {
@@ -77,7 +78,7 @@ impl VerificationMachine {
     pub(crate) async fn request_to_device_verification(
         &self,
         user_id: &UserId,
-        recipient_devices: Vec<Box<DeviceId>>,
+        recipient_devices: Vec<OwnedDeviceId>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(TransactionId::new());
@@ -566,11 +567,10 @@ mod tests {
 
         let bob_store = VerificationStore { account: bob, inner: Arc::new(bob_store) };
 
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let machine = VerificationMachine::new(alice, identity, Arc::new(store));
         let (bob_sas, start_content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(bob_id().to_owned()),
+            PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             bob_store,
             None,
@@ -591,8 +591,7 @@ mod tests {
     #[async_test]
     async fn create() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let store = MemoryStore::new();
         let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }

@@ -16,9 +16,6 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
 
-#[cfg(all(feature = "indexeddb_cryptostore", not(target_arch = "wasm32")))]
-compile_error!("indexeddb_cryptostore only works for wasm32 target");
-
 #[cfg(feature = "backups_v1")]
 pub mod backups;
 mod error;
@@ -45,7 +42,7 @@ pub mod testing {
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ruma::RoomId;
+use ruma::OwnedRoomId;
 
 /// Return type for the room key importing.
 #[derive(Debug, Clone, PartialEq)]
@@ -58,14 +55,14 @@ pub struct RoomKeyImportResult {
     ///
     /// It's a map from room id to a map of the sender key to a set of session
     /// ids.
-    pub keys: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
+    pub keys: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
 }
 
 impl RoomKeyImportResult {
     pub(crate) fn new(
         imported_count: usize,
         total_count: usize,
-        keys: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
+        keys: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
     ) -> Self {
         Self { imported_count, total_count, keys }
     }

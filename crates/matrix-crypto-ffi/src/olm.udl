@@ -1,5 +1,17 @@
 namespace olm {
     void set_logger(Logger logger);
+    [Throws=MigrationError]
+    void migrate(
+        MigrationData data,
+        [ByRef] string path,
+        string? passphrase,
+        ProgressListener progress_listener
+    );
+};
+
+[Error]
+interface MigrationError {
+  Generic(string message);
 };
 
 callback interface Logger {
@@ -236,7 +248,12 @@ enum RequestType {
 
 interface OlmMachine {
     [Throws=CryptoStoreError]
-    constructor([ByRef] string user_id, [ByRef] string device_id, [ByRef] string path);
+    constructor(
+        [ByRef] string user_id,
+        [ByRef] string device_id,
+        [ByRef] string path,
+        string? passphrase
+    );
 
     record<DOMString, string> identity_keys();
     string user_id();
@@ -423,4 +440,41 @@ interface BackupRecoveryKey {
     MegolmV1BackupKey megolm_v1_public_key();
     [Throws=PkDecryptionError]
     string decrypt_v1(string ephemeral_key, string mac, string ciphertext);
+};
+
+dictionary MigrationData {
+    PickledAccount account;
+    sequence<PickledSession> sessions;
+    sequence<PickledInboundGroupSession> inbound_group_sessions;
+    string? backup_version;
+    string? backup_recovery_key;
+    string pickle_key;
+    CrossSigningKeyExport cross_signing;
+    sequence<string> tracked_users;
+};
+
+dictionary PickledAccount {
+    string user_id;
+    string device_id;
+    string pickle;
+    boolean shared;
+    i64 uploaded_signed_key_count;
+};
+
+dictionary PickledSession {
+    string pickle;
+    string sender_key;
+    boolean created_using_fallback_key;
+    string creation_time;
+    string last_use_time;
+};
+
+dictionary PickledInboundGroupSession {
+    string pickle;
+    string sender_key;
+    record<DOMString, string> signing_key;
+    string room_id;
+    sequence<string> forwarding_chains;
+    boolean imported;
+    boolean backed_up;
 };

@@ -3,6 +3,8 @@ name: Code coverage
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,4 +41,4 @@ jobs:
         args: --ignore-config --exclude-files "crates/matrix-sdk/examples/*,crates/matrix-sdk-common,crates/matrix-sdk-test" --out Xml
 
     - name: Upload to codecov.io
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v3

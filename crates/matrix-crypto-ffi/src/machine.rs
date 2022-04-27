@@ -34,11 +34,12 @@ use ruma::{
         key::verification::VerificationMethod, room::encrypted::OriginalSyncRoomEncryptedEvent,
         AnyMessageLikeEventContent, EventContent,
     },
-    DeviceKeyAlgorithm, EventId, RoomId, TransactionId, UserId,
+    DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use tokio::runtime::Runtime;
+use zeroize::Zeroize;
 
 use crate::{
     error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
@@ -53,8 +54,8 @@ use crate::{
 
 /// A high level state machine that handles E2EE for Matrix.
 pub struct OlmMachine {
-    inner: InnerMachine,
-    runtime: Runtime,
+    pub(crate) inner: InnerMachine,
+    pub(crate) runtime: Runtime,
 }
 
 /// A pair of outgoing room key requests, both of those are sendToDevice
@@ -77,28 +78,41 @@ impl OlmMachine {
     /// * `device_id` - The unique ID of the device that owns this machine.
     ///
     /// * `path` - The path where the state of the machine should be persisted.
-    pub fn new(user_id: &str, device_id: &str, path: &str) -> Result<Self, CryptoStoreError> {
+    ///
+    /// * `passphrase` - The passphrase that should be used to encrypt the data
+    ///   at rest in the Sled store. **Warning**, if no passphrase is given, the
+    ///   store and all its data will remain unencrypted.
+    pub fn new(
+        user_id: &str,
+        device_id: &str,
+        path: &str,
+        mut passphrase: Option<String>,
+    ) -> Result<Self, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
         let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
-        let store =
-            Box::new(matrix_sdk_sled::CryptoStore::open_with_passphrase(path, None).map_err(
-                |e| match e {
-                    // This is a bit of an error in the sled store, the
-                    // CryptoStore returns an `OpenStoreError` which has a
-                    // variant for the state store. Not sure what to do about
-                    // this.
-                    matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
-                    matrix_sdk_sled::OpenStoreError::Sled(s) => {
-                        CryptoStoreError::CryptoStore(anyhow!(s).into())
+        let store = Box::new(
+            matrix_sdk_sled::CryptoStore::open_with_passphrase(path, passphrase.as_deref())
+                .map_err(|e| {
+                    match e {
+                        // This is a bit of an error in the sled store, the
+                        // CryptoStore returns an `OpenStoreError` which has a
+                        // variant for the state store. Not sure what to do about
+                        // this.
+                        matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
+                        matrix_sdk_sled::OpenStoreError::Sled(s) => {
+                            CryptoStoreError::CryptoStore(anyhow!(s).into())
+                        }
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
-                },
-            )?);
+                })?,
+        );
+
+        passphrase.zeroize();
 
         Ok(OlmMachine {
-            inner: runtime.block_on(InnerMachine::with_store(user_id, device_id, store))?,
+            inner: runtime.block_on(InnerMachine::with_store(&user_id, device_id, store))?,
             runtime,
         })
     }
@@ -293,7 +307,7 @@ impl OlmMachine {
         request_type: RequestType,
         response_body: &str,
     ) -> Result<(), CryptoStoreError> {
-        let id: Box<TransactionId> = request_id.into();
+        let id: OwnedTransactionId = request_id.into();
 
         let response = response_from_string(response_body);
 
@@ -384,7 +398,7 @@ impl OlmMachine {
     ///
     /// `users` - The users that should be queued up for a key query.
     pub fn update_tracked_users(&self, users: Vec<String>) {
-        let users: Vec<Box<UserId>> =
+        let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         self.runtime.block_on(self.inner.update_tracked_users(users.iter().map(Deref::deref)));
@@ -417,7 +431,7 @@ impl OlmMachine {
         &self,
         users: Vec<String>,
     ) -> Result<Option<Request>, CryptoStoreError> {
-        let users: Vec<Box<UserId>> =
+        let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         Ok(self
@@ -448,7 +462,7 @@ impl OlmMachine {
         room_id: &str,
         users: Vec<String>,
     ) -> Result<Vec<Request>, CryptoStoreError> {
-        let users: Vec<Box<UserId>> =
+        let users: Vec<OwnedUserId> =
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         let room_id = RoomId::parse(room_id)?;

@@ -44,7 +44,7 @@ use ruma::{
         MessageLikeEvent,
     },
     serde::{Base64, CanonicalJsonValue},
-    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, UserId,
 };
 
 use super::FlowId;
@@ -571,7 +571,7 @@ impl CancelContent<'_> {
 #[derive(Clone, Debug)]
 pub enum OwnedStartContent {
     ToDevice(ToDeviceKeyVerificationStartEventContent),
-    Room(Box<RoomId>, KeyVerificationStartEventContent),
+    Room(OwnedRoomId, KeyVerificationStartEventContent),
 }
 
 impl OwnedStartContent {
@@ -613,8 +613,8 @@ impl OwnedStartContent {
     }
 }
 
-impl From<(Box<RoomId>, KeyVerificationStartEventContent)> for OwnedStartContent {
-    fn from(tuple: (Box<RoomId>, KeyVerificationStartEventContent)) -> Self {
+impl From<(OwnedRoomId, KeyVerificationStartEventContent)> for OwnedStartContent {
+    fn from(tuple: (OwnedRoomId, KeyVerificationStartEventContent)) -> Self {
         Self::Room(tuple.0, tuple.1)
     }
 }
@@ -628,7 +628,7 @@ impl From<ToDeviceKeyVerificationStartEventContent> for OwnedStartContent {
 #[derive(Clone, Debug)]
 pub enum OwnedAcceptContent {
     ToDevice(ToDeviceKeyVerificationAcceptEventContent),
-    Room(Box<RoomId>, KeyVerificationAcceptEventContent),
+    Room(OwnedRoomId, KeyVerificationAcceptEventContent),
 }
 
 impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
@@ -637,8 +637,8 @@ impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
     }
 }
 
-impl From<(Box<RoomId>, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
-    fn from(content: (Box<RoomId>, KeyVerificationAcceptEventContent)) -> Self {
+impl From<(OwnedRoomId, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
+    fn from(content: (OwnedRoomId, KeyVerificationAcceptEventContent)) -> Self {
         Self::Room(content.0, content.1)
     }
 }
@@ -654,7 +654,7 @@ impl OwnedAcceptContent {
 
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
-    Room(Box<RoomId>, AnyMessageLikeEventContent),
+    Room(OwnedRoomId, AnyMessageLikeEventContent),
     ToDevice(AnyToDeviceEventContent),
 }
 
@@ -677,8 +677,8 @@ impl From<AnyToDeviceEventContent> for OutgoingContent {
     }
 }
 
-impl From<(Box<RoomId>, AnyMessageLikeEventContent)> for OutgoingContent {
-    fn from(content: (Box<RoomId>, AnyMessageLikeEventContent)) -> Self {
+impl From<(OwnedRoomId, AnyMessageLikeEventContent)> for OutgoingContent {
+    fn from(content: (OwnedRoomId, AnyMessageLikeEventContent)) -> Self {
         OutgoingContent::Room(content.0, content.1)
     }
 }
