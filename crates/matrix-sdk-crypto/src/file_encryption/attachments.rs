@@ -18,8 +18,8 @@ use std::{
 };
 
 use aes::{
-    cipher::{generic_array::GenericArray, FromBlockCipher, NewBlockCipher, StreamCipher},
-    Aes256, Aes256Ctr,
+    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
+    Aes256,
 };
 use base64::DecodeError;
 use rand::{thread_rng, RngCore};
@@ -30,11 +30,13 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use zeroize::Zeroizing;
+use zeroize::Zeroize;
 
 const IV_SIZE: usize = 16;
 const KEY_SIZE: usize = 32;
 const VERSION: &str = "v2";
+
+type Aes256Ctr = ctr::Ctr128BE<Aes256>;
 
 /// A wrapper that transparently encrypts anything that implements `Read` as an
 /// Matrix attachment.
@@ -134,13 +136,20 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
 
         let hash =
             info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?.as_bytes().to_owned();
-        let key = Zeroizing::from(info.web_key.k.into_inner());
+        let mut key = info.web_key.k.into_inner();
         let iv = info.iv.into_inner();
+
+        if key.len() != KEY_SIZE {
+            return Err(DecryptorError::KeyNonceLength);
+        }
+
+        let key_array = GenericArray::from_slice(&key);
         let iv = GenericArray::from_exact_iter(iv).ok_or(DecryptorError::KeyNonceLength)?;
 
         let sha = Sha256::default();
-        let aes = Aes256::new_from_slice(&key).map_err(|_| DecryptorError::KeyNonceLength)?;
-        let aes = Aes256Ctr::from_block_cipher(aes, &iv);
+
+        let aes = Aes256Ctr::new(key_array, &iv);
+        key.zeroize();
 
         Ok(AttachmentDecryptor { inner: input, expected_hash: hash, sha, aes })
     }
@@ -215,12 +224,12 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
     /// let key = encryptor.finish();
     /// ```
     pub fn new(reader: &'a mut R) -> Self {
-        let mut key = Zeroizing::new([0u8; KEY_SIZE]);
-        let mut iv = Zeroizing::new([0u8; IV_SIZE]);
+        let mut key = [0u8; KEY_SIZE];
+        let mut iv = [0u8; IV_SIZE];
 
         let mut rng = thread_rng();
 
-        rng.fill_bytes(&mut *key);
+        rng.fill_bytes(&mut key);
         // Only populate the first 8 bytes with randomness, the rest is 0
         // initialized for the counter.
         rng.fill_bytes(&mut iv[0..8]);
@@ -229,15 +238,15 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
             kty: "oct".to_owned(),
             key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
             alg: "A256CTR".to_owned(),
-            k: Base64::new((*key).to_vec()),
+            k: Base64::new(key.to_vec()),
             ext: true,
         });
-        let encoded_iv = Base64::new((*iv).to_vec());
-        let iv = GenericArray::from_slice(&*iv);
-        let key = GenericArray::from_slice(&*key);
+        let encoded_iv = Base64::new((iv).to_vec());
 
-        let aes = Aes256::new(key);
-        let aes = Aes256Ctr::from_block_cipher(aes, iv);
+        let key_array = &key.into();
+
+        let aes = Aes256Ctr::new(key_array, &iv.into());
+        key.zeroize();
 
         AttachmentEncryptor {
             finished: false,

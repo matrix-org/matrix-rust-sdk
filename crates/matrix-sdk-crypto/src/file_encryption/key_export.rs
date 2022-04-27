@@ -15,8 +15,8 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use aes::{
-    cipher::{generic_array::GenericArray, FromBlockCipher, NewBlockCipher, StreamCipher},
-    Aes256, Aes256Ctr,
+    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
+    Aes256,
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use hmac::{Hmac, Mac};
@@ -31,6 +31,8 @@ use crate::{
     olm::ExportedRoomKey,
     utilities::{decode, encode, DecodeError},
 };
+
+type Aes256Ctr = ctr::Ctr128BE<Aes256>;
 
 const SALT_SIZE: usize = 16;
 const IV_SIZE: usize = 16;
@@ -169,24 +171,23 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
 
     let mut iv = u128::from_be_bytes(iv);
     iv &= !(1 << 63);
+    let iv = iv.to_be_bytes();
 
     pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
     let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
 
-    let key = GenericArray::from_slice(key);
-    let iv = iv.to_be_bytes();
-    let iv = GenericArray::from_slice(&iv);
+    // This is fine because the key is guaranteed to be 32 bytes, derive 64
+    // bytes and split at the middle.
+    let key_array = GenericArray::from_slice(key);
 
-    let aes = Aes256::new(key);
-    let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
-
+    let mut aes = Aes256Ctr::new(key_array, &iv.into());
     aes.apply_keystream(plaintext);
 
     let mut payload: Vec<u8> = vec![];
 
     payload.extend(&VERSION.to_be_bytes());
     payload.extend(&salt);
-    payload.extend(&*iv);
+    payload.extend(&iv);
     payload.extend(&rounds.to_be_bytes());
     payload.extend_from_slice(plaintext);
 
@@ -195,6 +196,8 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
     let mac = hmac.finalize();
 
     payload.extend(mac.into_bytes());
+
+    derived_keys.zeroize();
 
     encode(payload)
 }
@@ -234,16 +237,17 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     hmac.update(&decoded[0..ciphertext_end]);
     hmac.verify_slice(&mac).map_err(|_| KeyExportError::InvalidMac)?;
 
-    let key = GenericArray::from_slice(key);
-    let iv = GenericArray::from_slice(&iv);
+    // This is fine because the key is guaranteed to be 32 bytes, derive 64
+    // bytes and split at the middle.
+    let key_array = GenericArray::from_slice(key);
 
     let ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
-    let aes = Aes256::new(key);
-    let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
+    let mut aes = Aes256Ctr::new(key_array, &iv.into());
     aes.apply_keystream(ciphertext);
 
     let ret = String::from_utf8(ciphertext.to_owned());
 
+    derived_keys.zeroize();
     ciphertext.zeroize();
 
     Ok(ret?)
