@@ -238,6 +238,22 @@ impl BaseClient {
         self.sync_token.read().await.clone()
     }
 
+    #[cfg(feature = "encryption")]
+    async fn handle_unenecrypted_verification_event(
+        &self,
+        event: &AnySyncMessageLikeEvent,
+        room_id: &RoomId,
+    ) -> Result<()> {
+        if let Some(olm) = self.olm_machine().await {
+            olm.receive_unencrypted_verification_event(
+                &event.clone().into_full_event(room_id.to_owned()),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn handle_timeline(
         &self,
@@ -301,21 +317,34 @@ impl BaseClient {
                         },
 
                         #[cfg(feature = "encryption")]
-                        AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                            SyncMessageLikeEvent::Original(encrypted),
-                        )) => {
-                            if let Some(olm) = self.olm_machine().await {
-                                if let Ok(decrypted) =
-                                    olm.decrypt_room_event(encrypted, room_id).await
-                                {
-                                    event = decrypted.into();
+                        AnySyncRoomEvent::MessageLike(e) => match e {
+                            AnySyncMessageLikeEvent::RoomEncrypted(
+                                SyncMessageLikeEvent::Original(encrypted),
+                            ) => {
+                                if let Some(olm) = self.olm_machine().await {
+                                    if let Ok(decrypted) =
+                                        olm.decrypt_room_event(encrypted, room_id).await
+                                    {
+                                        event = decrypted.into();
+                                    }
                                 }
                             }
-                        }
-                        // TODO if there is redacted state save the room id,
-                        // event type and state key, add a method to get the
-                        // requests that are needed to be called to heal this
-                        // redacted state.
+                            AnySyncMessageLikeEvent::RoomMessage(
+                                SyncMessageLikeEvent::Original(original_event),
+                            ) => match &original_event.content.msgtype {
+                                ruma::events::room::message::MessageType::VerificationRequest(
+                                    _,
+                                ) => {
+                                    self.handle_unenecrypted_verification_event(e, room_id).await?;
+                                }
+                                _ => (),
+                            },
+                            _ if e.event_type().to_string().starts_with("m.key.verification") => {
+                                self.handle_unenecrypted_verification_event(e, room_id).await?;
+                            }
+                            _ => (),
+                        },
+                        #[cfg(not(feature = "encryption"))]
                         _ => (),
                     }
 
