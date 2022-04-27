@@ -260,7 +260,6 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     Ok(())
 }
 
-
 fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixQrcode, ("matrix-qrcode", "")),
@@ -292,15 +291,11 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
     ]);
 
-    let run = |(folder, arg_set) : (&str, &str)| {
+    let run = |(folder, arg_set): (&str, &str)| {
         let _p = pushd(format!("crates/{}", folder));
         cmd!("pwd").run()?; // print dir so we know what might have failed
-        cmd!("wasm-pack test --node -- ")
-            .args(arg_set.split_whitespace())
-            .run()?;
-        cmd!("wasm-pack test --firefox --headless --")
-            .args(arg_set.split_whitespace())
-            .run()
+        cmd!("wasm-pack test --node -- ").args(arg_set.split_whitespace()).run()?;
+        cmd!("wasm-pack test --firefox --headless --").args(arg_set.split_whitespace()).run()
     };
 
     let test_command_bot = || {
