@@ -1,7 +1,7 @@
 mod members;
 mod normal;
 
-use std::{cmp::max, fmt, collections::HashSet};
+use std::{cmp::max, collections::HashSet, fmt};
 
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomType};
