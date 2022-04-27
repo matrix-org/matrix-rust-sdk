@@ -374,7 +374,8 @@ impl Room {
         debug!(
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
-            heroes = ?summary.heroes,
+            joined, invited,
+            heroes = ?members,
             "Calculating name for a room",
         );
 
@@ -782,6 +783,7 @@ mod test {
 
     #[tokio::test]
     async fn test_display_name_default() {
+        let _ = env_logger::try_init();
         let (_, room) = make_room(RoomType::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
@@ -809,6 +811,7 @@ mod test {
 
     #[tokio::test]
     async fn test_display_name_dm_invited() {
+        let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Invited);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
@@ -831,6 +834,7 @@ mod test {
 
     #[tokio::test]
     async fn test_display_name_dm_invited_no_heroes() {
+        let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Invited);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
@@ -849,6 +853,7 @@ mod test {
 
     #[tokio::test]
     async fn test_display_name_dm_joined() {
+        let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
@@ -880,6 +885,7 @@ mod test {
 
     #[tokio::test]
     async fn test_display_name_dm_joined_no_heroes() {
+        let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
@@ -905,6 +911,7 @@ mod test {
     }
     #[tokio::test]
     async fn test_display_name_dm_alone() {
+        let _ = env_logger::try_init();
         let (store, room) = make_room(RoomType::Joined);
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
