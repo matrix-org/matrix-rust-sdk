@@ -29,7 +29,8 @@ pub struct BaseRoomInfo {
     pub(crate) canonical_alias: Option<OwnedRoomAliasId>,
     /// The `m.room.create` event content of this room.
     pub(crate) create: Option<RoomCreateEventContent>,
-    /// A list of user ids this room is considered as direct message, if this room is a DM.
+    /// A list of user ids this room is considered as direct message, if this
+    /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
