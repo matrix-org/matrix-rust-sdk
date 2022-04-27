@@ -465,6 +465,15 @@ impl OtherUserIdentity {
         let content = self.inner.verification_request_content(methods.clone()).await;
 
         let room = if let Some(room) = self.direct_message_room.read().await.as_ref() {
+            // Make sure that the user, to be verified, is still in the room
+            if !room
+                .active_members()
+                .await?
+                .iter()
+                .any(|member| member.user_id() == self.inner.user_id())
+            {
+                room.invite_user_by_id(self.inner.user_id()).await?;
+            }
             room.clone()
         } else if let Some(room) =
             self.client.create_dm_room(self.inner.user_id().to_owned()).await?

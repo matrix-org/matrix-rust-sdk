@@ -1,7 +1,7 @@
 mod members;
 mod normal;
 
-use std::cmp::max;
+use std::{cmp::max, collections::HashSet};
 
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomType};
@@ -29,9 +29,9 @@ pub struct BaseRoomInfo {
     pub(crate) canonical_alias: Option<OwnedRoomAliasId>,
     /// The `m.room.create` event content of this room.
     pub(crate) create: Option<RoomCreateEventContent>,
-    /// The user id this room is sharing the direct message with, if the room is
-    /// a direct message.
-    pub(crate) dm_target: Option<OwnedUserId>,
+    /// A list of user ids this room is considered as direct message, if this
+    /// room is a DM.
+    pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
@@ -183,7 +183,7 @@ impl Default for BaseRoomInfo {
             avatar_url: None,
             canonical_alias: None,
             create: None,
-            dm_target: None,
+            dm_targets: Default::default(),
             encryption: None,
             guest_access: GuestAccess::Forbidden,
             history_visibility: HistoryVisibility::WorldReadable,

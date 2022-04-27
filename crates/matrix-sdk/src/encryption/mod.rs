@@ -404,11 +404,12 @@ impl Client {
     #[cfg(feature = "encryption")]
     fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
         let rooms = self.joined_rooms();
-        let room_pairs: Vec<_> =
-            rooms.iter().map(|r| (r.room_id().to_owned(), r.direct_target())).collect();
-        trace!(rooms = ?room_pairs, "Finding direct room");
 
-        let room = rooms.into_iter().find(|r| r.direct_target().as_deref() == Some(user_id));
+        // Find the room we share with the `user_id` and only with `user_id`
+        let room = rooms.into_iter().find(|r| {
+            let targets = r.direct_targets();
+            targets.len() == 1 && targets.contains(user_id)
+        });
 
         trace!(?room, "Found room");
         room
