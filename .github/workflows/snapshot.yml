@@ -33,6 +33,13 @@ jobs:
         with:
           ndk-version: r22b
           
+      - name: Create symlinks for buildchain
+        run: |
+          ln -s ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.targets.value }}-ar* ${{ matrix.targets.value }}-ar
+          ln -s ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.targets.value }}30-clang* ${{ matrix.targets.value }}-clang
+          ls -l ${{ matrix.targets.value }}-ar
+          ls -l ${{ matrix.targets.value }}-clang
+  
       - uses: actions/cache@v2
         with:
           path: |
@@ -74,13 +81,6 @@ jobs:
           command: install
           args: uniffi_bindgen    
 
-      - name: Create symlinks for buildchain
-        run: |
-          ln -s ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.targets.value }}-ar* ${{ matrix.targets.value }}-ar
-          ln -s ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.targets.value }}30-clang* ${{ matrix.targets.value }}-clang
-          ls -l ${{ matrix.targets.value }}-ar
-          ls -l ${{ matrix.targets.value }}-clang
-          
       - name: Cargo build    
         uses: actions-rs/cargo@v1
         env: 
