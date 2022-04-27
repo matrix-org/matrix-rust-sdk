@@ -497,11 +497,12 @@ impl BaseClient {
                         );
 
                         if let Some(room) = changes.room_infos.get_mut(room_id) {
-                            room.base_info.dm_target = Some(user_id.clone());
+                            room.base_info.dm_targets.insert(user_id.clone());
                         } else if let Some(room) = self.store.get_room(room_id) {
                             let mut info = room.clone_info();
-                            info.base_info.dm_target = Some(user_id.clone());
-                            changes.add_room(info);
+                            if info.base_info.dm_targets.insert(user_id.clone()) {
+                                changes.add_room(info);
+                            }
                         }
                     }
                 }

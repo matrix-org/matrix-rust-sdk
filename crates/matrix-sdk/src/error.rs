@@ -47,8 +47,11 @@ pub type HttpResult<T> = std::result::Result<T, HttpError>;
 /// representation if the endpoint is from that.
 #[derive(Error, Debug)]
 pub enum RumaApiError {
+    /// A client API response error.
     #[error(transparent)]
     ClientApi(ruma::api::client::Error),
+
+    /// Another API response error.
     #[error(transparent)]
     Other(ruma::api::error::MatrixError),
 }

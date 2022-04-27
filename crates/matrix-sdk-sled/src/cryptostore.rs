@@ -171,7 +171,7 @@ struct TrackedUser {
 #[derive(Clone)]
 pub struct SledStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
-    store_cipher: Arc<Option<StoreCipher>>,
+    store_cipher: Option<Arc<StoreCipher>>,
     path: Option<PathBuf>,
     inner: Db,
 
@@ -221,13 +221,22 @@ impl SledStore {
             .open()
             .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
-        SledStore::open_helper(db, Some(path), passphrase)
+        let store_cipher = if let Some(passphrase) = passphrase {
+            Some(Self::get_or_create_store_cipher(passphrase, &db)?.into())
+        } else {
+            None
+        };
+
+        SledStore::open_helper(db, Some(path), store_cipher)
     }
 
     /// Create a sled based cryptostore using the given sled database.
     /// The given passphrase will be used to encrypt private data.
-    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self, OpenStoreError> {
-        SledStore::open_helper(db, None, passphrase)
+    pub fn open_with_database(
+        db: Db,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) -> Result<Self, OpenStoreError> {
+        SledStore::open_helper(db, None, store_cipher)
     }
 
     fn get_account_info(&self) -> Option<AccountInfo> {
@@ -235,7 +244,7 @@ impl SledStore {
     }
 
     fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             key.encrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
         } else {
             Ok(serde_json::to_vec(event)?)
@@ -246,7 +255,7 @@ impl SledStore {
         &self,
         event: &[u8],
     ) -> Result<T, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             key.decrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
         } else {
             Ok(serde_json::from_slice(event)?)
@@ -254,7 +263,7 @@ impl SledStore {
     }
 
     fn encode_key<T: EncodeKey>(&self, table_name: &str, key: T) -> Vec<u8> {
-        if let Some(store_cipher) = &*self.store_cipher {
+        if let Some(store_cipher) = &self.store_cipher {
             key.encode_secure(table_name, store_cipher).to_vec()
         } else {
             key.encode()
@@ -347,7 +356,7 @@ impl SledStore {
     fn open_helper(
         db: Db,
         path: Option<PathBuf>,
-        passphrase: Option<&str>,
+        store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self, OpenStoreError> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
@@ -368,13 +377,6 @@ impl SledStore {
         let secret_requests_by_info = db.open_tree("secret_requests_by_info")?;
 
         let session_cache = SessionStore::new();
-
-        let store_cipher = if let Some(passphrase) = passphrase {
-            Some(Self::get_or_create_store_cipher(passphrase, &db)?)
-        } else {
-            None
-        }
-        .into();
 
         let database = Self {
             account_info: RwLock::new(None).into(),

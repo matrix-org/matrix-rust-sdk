@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, RwLock as SyncRwLock};
+use std::{
+    collections::HashSet,
+    sync::{Arc, RwLock as SyncRwLock},
+};
 
 use dashmap::DashSet;
 use futures_channel::mpsc;
@@ -184,17 +187,17 @@ impl Room {
 
     /// Is this room considered a direct message.
     pub fn is_direct(&self) -> bool {
-        self.inner.read().unwrap().base_info.dm_target.is_some()
+        !self.inner.read().unwrap().base_info.dm_targets.is_empty()
     }
 
-    /// If this room is a direct message, get the member that we're sharing the
+    /// If this room is a direct message, get the members that we're sharing the
     /// room with.
     ///
     /// *Note*: The member list might have been modified in the meantime and
-    /// the target might not even be in the room anymore. This setting should
+    /// the targets might not even be in the room anymore. This setting should
     /// only be considered as guidance.
-    pub fn direct_target(&self) -> Option<OwnedUserId> {
-        self.inner.read().unwrap().base_info.dm_target.clone()
+    pub fn direct_targets(&self) -> HashSet<OwnedUserId> {
+        self.inner.read().unwrap().base_info.dm_targets.clone()
     }
 
     /// Is the room encrypted.

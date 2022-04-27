@@ -67,7 +67,7 @@ use crate::{
         SecretImportError, Store,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, RoomKeyImportResult, ToDeviceRequest,
+    CrossSigningKeyExport, ReadOnlyDevice, RoomKeyImportResult, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -92,7 +92,7 @@ pub struct OlmMachine {
     /// A state machine that handles Olm sessions creation.
     session_manager: SessionManager,
     /// A state machine that keeps track of our outbound group sessions.
-    group_session_manager: GroupSessionManager,
+    pub(crate) group_session_manager: GroupSessionManager,
     /// A state machine that is responsible to handle and keep track of SAS
     /// verification flows.
     verification_machine: VerificationMachine,
@@ -128,17 +128,12 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
-    pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
+    pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let account = ReadOnlyAccount::new(user_id, device_id);
 
-        OlmMachine::new_helper(
-            user_id,
-            device_id,
-            store,
-            account,
-            PrivateCrossSigningIdentity::empty(user_id),
-        )
+        OlmMachine::with_store(user_id, device_id, store)
+            .await
+            .expect("Reading and writing to the memory store always succeeds")
     }
 
     fn new_helper(
@@ -233,11 +228,18 @@ impl OlmMachine {
             }
             None => {
                 let account = ReadOnlyAccount::new(user_id, device_id);
+                let device = ReadOnlyDevice::from_account(&account).await;
+
                 debug!(
                     ed25519_key = account.identity_keys().ed25519.to_base64().as_str(),
                     "Created a new Olm account"
                 );
-                store.save_account(account.clone()).await?;
+                let changes = Changes {
+                    account: Some(account.clone()),
+                    devices: DeviceChanges { new: vec![device], ..Default::default() },
+                    ..Default::default()
+                };
+                store.save_changes(changes).await?;
                 account
             }
         };
@@ -1178,8 +1180,8 @@ impl OlmMachine {
     /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org").to_owned();
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let device = machine.get_device(&alice, device_id!("DEVICEID")).await;
     ///
     /// println!("{:?}", device);
@@ -1219,8 +1221,8 @@ impl OlmMachine {
     /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org").to_owned();
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let devices = machine.get_user_devices(&alice).await.unwrap();
     ///
     /// for device in devices.devices() {
@@ -1255,8 +1257,8 @@ impl OlmMachine {
     /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
     /// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
@@ -1367,8 +1369,8 @@ impl OlmMachine {
     /// # use ruma::{device_id, user_id, room_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
     /// # block_on(async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
     /// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
     /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
@@ -1598,7 +1600,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         machine.account.inner.update_uploaded_key_count(0);
         let request = machine.keys_for_upload().await.expect("Can't prepare initial key upload");
         let response = keys_upload_response();
@@ -1621,7 +1623,7 @@ pub(crate) mod tests {
 
         let alice_id = alice_id();
         let alice_device = alice_device_id();
-        let alice = OlmMachine::new(alice_id, alice_device);
+        let alice = OlmMachine::new(alice_id, alice_device).await;
 
         let alice_device = ReadOnlyDevice::from_machine(&alice).await;
         let bob_device = ReadOnlyDevice::from_machine(&bob).await;
@@ -1672,13 +1674,13 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn create_olm_machine() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         assert!(!machine.account().shared());
     }
 
     #[async_test]
     async fn generate_one_time_keys() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
         assert!(machine.account.generate_one_time_keys().await.is_some());
 
@@ -1694,7 +1696,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_device_key_signing() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
         let mut device_keys = machine.account.device_keys().await;
         let identity_keys = machine.account.identity_keys();
@@ -1710,7 +1712,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn tests_session_invalidation() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         let room_id = room_id!("!test:example.org");
 
         machine.create_outbound_group_session_with_defaults(room_id).await.unwrap();
@@ -1727,7 +1729,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_invalid_signature() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
         let mut device_keys = machine.account.device_keys().await;
 
@@ -1743,7 +1745,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn one_time_key_signing() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         machine.account.inner.update_uploaded_key_count(49);
 
         let mut one_time_keys = machine.account.signed_one_time_keys().await;
@@ -1763,7 +1765,7 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_keys_for_upload() {
-        let machine = OlmMachine::new(user_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id(), alice_device_id()).await;
         machine.account.inner.update_uploaded_key_count(0);
 
         let ed25519_key = machine.account.identity_keys().ed25519;

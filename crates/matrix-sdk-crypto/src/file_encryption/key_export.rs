@@ -80,8 +80,8 @@ pub enum KeyExportError {
 /// # use ruma::{device_id, user_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 /// # block_on(async {
+/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
 /// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
@@ -137,8 +137,8 @@ pub fn decrypt_key_export(
 /// # use ruma::{device_id, user_id, room_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 /// # block_on(async {
+/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
 /// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
 /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);

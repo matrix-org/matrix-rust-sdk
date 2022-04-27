@@ -60,6 +60,6 @@ pub use account::Account;
 pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
-pub use error::{Error, HttpError, HttpResult, Result};
+pub use error::{Error, HttpError, HttpResult, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;

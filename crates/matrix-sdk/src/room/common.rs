@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 use futures_core::stream::Stream;
 use matrix_sdk_base::{
@@ -8,6 +8,7 @@ use matrix_sdk_base::{
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::{
+        config::set_global_account_data,
         filter::{LazyLoadOptions, RoomEventFilter},
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events::{self, v3::Direction},
@@ -16,10 +17,11 @@ use ruma::{
     },
     assign,
     events::{
+        direct::DirectEvent,
         room::{history_visibility::HistoryVisibility, MediaSource},
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, RedactContent,
-        RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        RedactContent, RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
         RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
@@ -30,7 +32,7 @@ use ruma::{
 use crate::{
     media::{MediaFormat, MediaRequest},
     room::RoomType,
-    BaseRoom, Client, HttpError, HttpResult, Result, RoomMember,
+    BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomMember,
 };
 
 /// A struct containing methods that are common for Joined, Invited and Left
@@ -816,6 +818,56 @@ impl Common {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
         let request = delete_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
         self.client.send(request, None).await
+    }
+
+    /// Sets whether this room is a DM.
+    ///
+    /// When setting this room as DM, it will be marked as DM for all active
+    /// members of the room. When unsetting this room as DM, it will be
+    /// unmarked as DM for all users, not just the members.
+    ///
+    /// # Arguments
+    /// * `is_direct` - Whether to mark this room as direct.
+    pub async fn set_is_direct(&self, is_direct: bool) -> Result<()> {
+        let user_id = self
+            .client
+            .user_id()
+            .await
+            .ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let mut content = self
+            .client
+            .store()
+            .get_account_data_event(GlobalAccountDataEventType::Direct)
+            .await?
+            .map(|e| e.deserialize_as::<DirectEvent>())
+            .transpose()?
+            .map(|e| e.content)
+            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+
+        let this_room_id = self.inner.room_id();
+
+        if is_direct {
+            let room_members = self.active_members().await?;
+            for member in room_members {
+                let entry = content.entry(member.user_id().to_owned()).or_default();
+                if !entry.iter().any(|room_id| room_id == this_room_id) {
+                    entry.push(this_room_id.to_owned());
+                }
+            }
+        } else {
+            for (_, list) in content.iter_mut() {
+                list.retain(|room_id| *room_id != this_room_id);
+            }
+
+            // Remove user ids that don't have any room marked as DM
+            content.retain(|_, list| !list.is_empty());
+        }
+
+        let request = set_global_account_data::v3::Request::new(&content, &user_id)?;
+
+        self.client.send(request, None).await?;
+        Ok(())
     }
 }
 

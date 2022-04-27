@@ -73,7 +73,7 @@ pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
 
-    store_cipher: Arc<Option<StoreCipher>>,
+    store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
     tracked_users_cache: Arc<DashSet<OwnedUserId>>,
@@ -133,7 +133,10 @@ pub struct AccountInfo {
 }
 
 impl IndexeddbStore {
-    async fn open_helper(prefix: String, store_cipher: Option<StoreCipher>) -> Result<Self> {
+    pub(crate) async fn open_with_store_cipher(
+        prefix: String,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto", prefix);
 
         // Open my_db v1
@@ -167,7 +170,7 @@ impl IndexeddbStore {
             name,
             session_cache,
             inner: db,
-            store_cipher: store_cipher.into(),
+            store_cipher,
             account_info: RwLock::new(None).into(),
             tracked_users_cache: DashSet::new().into(),
             users_for_key_query_cache: DashSet::new().into(),
@@ -176,7 +179,7 @@ impl IndexeddbStore {
 
     /// Open a new IndexeddbStore with default name and no passphrase
     pub async fn open() -> Result<Self> {
-        IndexeddbStore::open_helper("crypto".to_owned(), None).await
+        IndexeddbStore::open_with_store_cipher("crypto".to_owned(), None).await
     }
 
     /// Open a new IndexeddbStore with given name and passphrase
@@ -229,16 +232,16 @@ impl IndexeddbStore {
             }
         };
 
-        IndexeddbStore::open_helper(prefix, Some(store_cipher)).await
+        IndexeddbStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
     }
 
     /// Open a new IndexeddbStore with given name and no passphrase
     pub async fn open_with_name(name: String) -> Result<Self> {
-        IndexeddbStore::open_helper(name, None).await
+        IndexeddbStore::open_with_store_cipher(name, None).await
     }
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             let value =
                 key.encrypt_value(value).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
@@ -252,7 +255,7 @@ impl IndexeddbStore {
         &self,
         value: JsValue,
     ) -> Result<T, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             let value: Vec<u8> = value.into_serde()?;
             key.decrypt_value(&value).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
         } else {

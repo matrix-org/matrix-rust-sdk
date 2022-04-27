@@ -40,6 +40,8 @@ use tracing::warn;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
+#[cfg(any(test, feature = "testing"))]
+use crate::OlmMachine;
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
@@ -47,10 +49,8 @@ use crate::{
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     types::{DeviceKey, DeviceKeys, SignedKey},
     verification::VerificationMachine,
-    OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
+    OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
 };
-#[cfg(any(test, feature = "testing"))]
-use crate::{OlmMachine, ReadOnlyAccount};
 
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -517,10 +517,10 @@ impl ReadOnlyDevice {
             k
         } else {
             warn!(
-                "Trying to encrypt a Megolm session for user {} on device {}, \
-                but the device doesn't have a curve25519 key",
-                self.user_id(),
-                self.device_id()
+                user_id = %self.user_id(),
+                device_id = %self.device_id(),
+                "Trying to encrypt a Megolm session, but the device doesn't \
+                have a curve25519 key",
             );
             return Err(EventError::MissingSenderKey.into());
         };
@@ -601,14 +601,22 @@ impl ReadOnlyDevice {
         ReadOnlyDevice::from_account(machine.account()).await
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    #[allow(dead_code)]
-    /// Generate the Device from the reference of an Account.
+    /// Create a `ReadOnlyDevice` from an `Account`
     ///
-    /// TESTING FACILITY ONLY, DO NOT USE OUTSIDE OF TESTS
+    /// We will have our own device in the store once we receive a keys/query
+    /// response, but this is useful to create it before we receive such a
+    /// response.
+    ///
+    /// It also makes it easier to check that the server doesn't lie about our
+    /// own device.
+    ///
+    /// *Don't* use this after we received a keys/query response, other
+    /// users/devices might add signatures to our own device, which can't be
+    /// replicated locally.
     pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
-        ReadOnlyDevice::try_from(&device_keys).unwrap()
+        ReadOnlyDevice::try_from(&device_keys)
+            .expect("Creating a device from our own account should always succeed")
     }
 }
 
