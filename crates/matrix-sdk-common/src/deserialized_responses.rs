@@ -296,8 +296,8 @@ impl TimelineSlice {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
 /// Wrapper around both MemberEvent-Types
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MemberEvent {
     Stripped(StrippedRoomMemberEvent),
