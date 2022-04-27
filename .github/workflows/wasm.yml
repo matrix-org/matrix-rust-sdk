@@ -53,8 +53,14 @@ jobs:
     - name: Load cache
       uses: Swatinem/rust-cache@v1
 
-    - name: check
+    - name: Rust Check
       uses: actions-rs/cargo@v1
       with:
         command: run
         args: -p xtask -- ci wasm ${{ matrix.cmd || matrix.name }}
+
+    - name: Wasm-Pack test
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci wasm-pack ${{ matrix.cmd || matrix.name }}
