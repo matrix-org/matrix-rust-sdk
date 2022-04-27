@@ -123,16 +123,16 @@ pub struct PickledInboundGroupSession {
 #[derive(thiserror::Error, Debug)]
 pub enum MigrationError {
     /// Generic catch all error variant.
-    #[error("error migrating database: {message}")]
+    #[error("error migrating database: {error_message}")]
     Generic {
         /// The error message
-        message: String,
+        error_message: String,
     },
 }
 
 impl From<anyhow::Error> for MigrationError {
     fn from(e: anyhow::Error) -> MigrationError {
-        MigrationError::Generic { message: e.to_string() }
+        MigrationError::Generic { error_message: e.to_string() }
     }
 }
 

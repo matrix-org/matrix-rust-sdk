@@ -11,7 +11,7 @@ namespace olm {
 
 [Error]
 interface MigrationError {
-  Generic(string message);
+  Generic(string error_message);
 };
 
 callback interface Logger {
