@@ -299,6 +299,8 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     sequence<Request> share_room_key([ByRef] string room_id, sequence<string> users);
 
+    [Throws=CryptoStoreError]
+    void receive_unencrypted_verification_event([ByRef] string event, [ByRef] string room_id);
     sequence<VerificationRequest> get_verification_requests([ByRef] string user_id);
     VerificationRequest? get_verification_request([ByRef] string user_id, [ByRef] string flow_id);
     Verification? get_verification([ByRef] string user_id, [ByRef] string flow_id);
