@@ -36,6 +36,7 @@ jobs:
       - name: Create symlinks for buildchain
         run: |
           export PATH="${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          echo $PATH
     
       - uses: actions/cache@v2
         with:
