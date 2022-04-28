@@ -324,6 +324,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
 
     Ok(())
 }
+
 fn workspace_root() -> Result<PathBuf> {
     #[derive(Deserialize)]
     struct Metadata {

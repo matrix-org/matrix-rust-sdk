@@ -49,10 +49,12 @@ jobs:
         components: clippy
         profile: minimal
         override: true
+
     - name: Install WasmPack
       uses: jetli/wasm-pack-action@v0.3.0
       with:
         version: 'latest'
+
     - name: Load cache
       uses: Swatinem/rust-cache@v1
 
