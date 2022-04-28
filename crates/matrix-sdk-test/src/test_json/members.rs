@@ -1,8 +1,8 @@
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
-lazy_static! {
-    pub static ref MEMBERS: JsonValue = json!({
+pub static MEMBERS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "chunk": [
         {
             "content": {
@@ -21,5 +21,5 @@ lazy_static! {
             }
         }
         ]
-    });
-}
+    })
+});

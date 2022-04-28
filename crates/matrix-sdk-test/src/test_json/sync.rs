@@ -1,8 +1,8 @@
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
-lazy_static! {
-    pub static ref SYNC: JsonValue = json!({
+pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -283,11 +283,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref DEFAULT_SYNC_SUMMARY: JsonValue = json!({
+pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -541,11 +541,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MORE_SYNC: JsonValue = json!({
+pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_2",
         "device_lists": {
@@ -714,11 +714,11 @@ lazy_static! {
         "presence": {
             "events": []
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MORE_SYNC_2: JsonValue = json!({
+pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "next_batch": "s526_47314_0_7_1_1_1_11444_3",
         "rooms": {
             "join": {
@@ -838,11 +838,11 @@ lazy_static! {
                 }
             },
         },
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref INVITE_SYNC: JsonValue = json!({
+pub static INVITE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_2",
         "device_lists": {
@@ -897,11 +897,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LEAVE_SYNC: JsonValue = json!({
+pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -1180,11 +1180,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LEAVE_SYNC_EVENT: JsonValue = json!({
+pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "account_data": {
             "events": []
         },
@@ -1247,11 +1247,11 @@ lazy_static! {
             "signed_curve25519": 50
         },
         "next_batch": "s1380317562_757269739_1655566_503953763_334052043_1209862_55290918_65705002_101146"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref VOIP_SYNC: JsonValue = json!({
+pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -1367,5 +1367,5 @@ lazy_static! {
         "presence": {
             "events": []
         }
-    });
-}
+    })
+});
