@@ -741,11 +741,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `sender_key` - The sender (curve25519) key of the event sender.
-    ///
-    /// * `signing_key` - The signing (ed25519) key of the event sender.
-    ///
-    /// * `event` - The decrypted to-device event.
+    /// * `decrypted` - The decrypted event and some associated metadata.
     async fn handle_decrypted_to_device_event(
         &self,
         decrypted: &OlmDecryptionInfo,

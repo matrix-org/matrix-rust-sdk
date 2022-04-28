@@ -90,8 +90,13 @@ impl SessionType {
     }
 }
 
+/// A struct witnessing a successful decryption of an Olm-encrypted to-device
+/// event.
+///
+/// Contains the decrypted event plaintext along with some associated metadata,
+/// such as the identity (Curve25519) key of the to-device event sender.
 #[derive(Debug, Clone)]
-pub struct OlmDecryptionInfo {
+pub(crate) struct OlmDecryptionInfo {
     pub sender: OwnedUserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
@@ -213,7 +218,7 @@ impl Account {
         }
     }
 
-    pub async fn decrypt_to_device_event(
+    pub(crate) async fn decrypt_to_device_event(
         &self,
         event: &ToDeviceRoomEncryptedEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
@@ -1005,7 +1010,7 @@ impl ReadOnlyAccount {
     /// session failed.
     ///
     /// # Arguments
-    /// * `their_identity_key` - The other account's identitiy/curve25519 key.
+    /// * `their_identity_key` - The other account's identity/curve25519 key.
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
