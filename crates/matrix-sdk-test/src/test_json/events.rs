@@ -3,7 +3,7 @@ use serde_json::{json, Value as JsonValue};
 
 pub static ALIAS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-            "content": {
+        "content": {
             "alias": "#tutorial:localhost"
         },
         "event_id": "$15139375513VdeRF:localhost",
@@ -19,18 +19,18 @@ pub static ALIAS: Lazy<JsonValue> = Lazy::new(|| {
 
 pub static ALIASES: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-            "content": {
-                "aliases": [
-                    "#tutorial:localhost"
-                ]
-            },
-            "event_id": "$15139375516NUgtD:localhost",
-            "origin_server_ts": 151393755,
-            "sender": "@example:localhost",
-            "state_key": "localhost",
-            "type": "m.room.aliases",
-            "unsigned": {
-                "age": 703422
+        "content": {
+            "aliases": [
+                "#tutorial:localhost"
+            ]
+        },
+        "event_id": "$15139375516NUgtD:localhost",
+        "origin_server_ts": 151393755,
+        "sender": "@example:localhost",
+        "state_key": "localhost",
+        "type": "m.room.aliases",
+        "unsigned": {
+            "age": 703422
         }
     })
 });
