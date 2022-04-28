@@ -31,7 +31,7 @@ use ruma::{
         AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -66,9 +66,9 @@ pub enum KeyForwardDecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GossipRequest {
     /// The user we requested the secret from
-    pub request_recipient: Box<UserId>,
+    pub request_recipient: OwnedUserId,
     /// The unique id of the secret request.
-    pub request_id: Box<TransactionId>,
+    pub request_id: OwnedTransactionId,
     /// The info of the requested secret.
     pub info: SecretInfo,
     /// Has the request been sent out.
@@ -115,7 +115,7 @@ impl From<SecretName> for SecretInfo {
 
 impl GossipRequest {
     /// Create an ougoing secret request for the given secret.
-    pub(crate) fn from_secret_name(own_user_id: Box<UserId>, secret_name: SecretName) -> Self {
+    pub(crate) fn from_secret_name(own_user_id: OwnedUserId, secret_name: SecretName) -> Self {
         Self {
             request_recipient: own_user_id,
             request_id: TransactionId::new(),
@@ -259,16 +259,16 @@ impl RequestEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct RequestInfo {
-    sender: Box<UserId>,
-    requesting_device_id: Box<DeviceId>,
-    request_id: Box<TransactionId>,
+    sender: OwnedUserId,
+    requesting_device_id: OwnedDeviceId,
+    request_id: OwnedTransactionId,
 }
 
 impl RequestInfo {
     fn new(
-        sender: Box<UserId>,
-        requesting_device_id: Box<DeviceId>,
-        request_id: Box<TransactionId>,
+        sender: OwnedUserId,
+        requesting_device_id: OwnedDeviceId,
+        request_id: OwnedTransactionId,
     ) -> Self {
         Self { sender, requesting_device_id, request_id }
     }
@@ -280,7 +280,7 @@ impl RequestInfo {
 struct WaitQueue {
     requests_waiting_for_session: Arc<DashMap<RequestInfo, RequestEvent>>,
     #[allow(clippy::type_complexity)]
-    requests_ids_waiting: Arc<DashMap<(Box<UserId>, Box<DeviceId>), DashSet<Box<TransactionId>>>>,
+    requests_ids_waiting: Arc<DashMap<(OwnedUserId, OwnedDeviceId), DashSet<OwnedTransactionId>>>,
 }
 
 impl WaitQueue {

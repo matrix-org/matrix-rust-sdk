@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{DeviceId, IdParseError, RoomId, UserId};
+use ruma::{IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
@@ -49,12 +49,12 @@ pub enum OlmError {
     #[error(
         "decryption failed likely because an Olm session from {0} with sender key {1} was wedged"
     )]
-    SessionWedged(Box<UserId>, String),
+    SessionWedged(OwnedUserId, String),
 
     /// An Olm message got replayed while the Olm ratchet has already moved
     /// forward.
     #[error("decryption failed because an Olm message from {0} with sender key {1} was replayed")]
-    ReplayedMessage(Box<UserId>, String),
+    ReplayedMessage(OwnedUserId, String),
 
     /// Encryption failed because the device does not have a valid Olm session
     /// with us.
@@ -125,7 +125,7 @@ pub enum EventError {
         "the sender of the plaintext doesn't match the sender of the encrypted \
         message, got {0}, expected {0}"
     )]
-    MismatchedSender(Box<UserId>, Box<UserId>),
+    MismatchedSender(OwnedUserId, OwnedUserId),
 
     #[error(
         "the public that was part of the message doesn't match to the key we \
@@ -137,7 +137,7 @@ pub enum EventError {
         "the room id of the room key doesn't match the room id of the \
         decrypted event: expected {0}, got {:1}"
     )]
-    MismatchedRoom(Box<RoomId>, Option<Box<RoomId>>),
+    MismatchedRoom(OwnedRoomId, Option<OwnedRoomId>),
 }
 
 /// Error type describin different errors that happen when we check or create
@@ -190,24 +190,24 @@ pub enum SessionCreationError {
         "Failed to create a new Olm session for {0} {1}, the requested \
         one-time key isn't a signed curve key"
     )]
-    OneTimeKeyNotSigned(Box<UserId>, Box<DeviceId>),
+    OneTimeKeyNotSigned(OwnedUserId, OwnedDeviceId),
     #[error(
         "Tried to create a new Olm session for {0} {1}, but the signed \
         one-time key is missing"
     )]
-    OneTimeKeyMissing(Box<UserId>, Box<DeviceId>),
+    OneTimeKeyMissing(OwnedUserId, OwnedDeviceId),
     #[error(
         "Tried to create a new Olm session for {0} {1}, but the one-time \
         key algorithm is unsupported"
     )]
-    OneTimeKeyUnknown(Box<UserId>, Box<DeviceId>),
+    OneTimeKeyUnknown(OwnedUserId, OwnedDeviceId),
     #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
-    InvalidSignature(Box<UserId>, Box<DeviceId>, SignatureError),
+    InvalidSignature(OwnedUserId, OwnedDeviceId, SignatureError),
     #[error(
         "Tried to create an Olm session for {0} {1}, but the device is missing \
         a curve25519 key"
     )]
-    DeviceMissingCurveKey(Box<UserId>, Box<DeviceId>),
+    DeviceMissingCurveKey(OwnedUserId, OwnedDeviceId),
     #[error("Error deserializing the one-time key: {0}")]
     InvalidJson(#[from] serde_json::Error),
     #[error("The given curve25519 key is not a valid key")]

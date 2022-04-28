@@ -28,7 +28,7 @@ use ruma::{
 #[tokio::main]
 async fn main() -> Result<(), OlmError> {
     let alice = user_id!("@alice:example.org");
-    let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
+    let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 
     let to_device_events = ToDevice::default();
     let changed_devices = DeviceLists::default();

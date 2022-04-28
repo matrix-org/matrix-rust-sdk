@@ -37,7 +37,8 @@ use ruma::{
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, EventEncryptionAlgorithm, RoomId, SecondsSinceUnixEpoch, TransactionId, UserId,
+    DeviceId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -123,16 +124,16 @@ pub struct OutboundGroupSession {
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
     #[allow(clippy::type_complexity)]
-    pub(crate) shared_with_set: Arc<DashMap<Box<UserId>, DashMap<Box<DeviceId>, ShareInfo>>>,
+    pub(crate) shared_with_set: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ShareInfo>>>,
     #[allow(clippy::type_complexity)]
-    to_share_with_set: Arc<DashMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
+    to_share_with_set: Arc<DashMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
 }
 
 /// A a map of userid/device it to a `ShareInfo`.
 ///
 /// Holds the `ShareInfo` for all the user/device pairs that will receive the
 /// room key.
-pub type ShareInfoSet = BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>;
+pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>;
 
 /// Struct holding info about the share state of a outbound group session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -186,7 +187,7 @@ impl OutboundGroupSession {
 
     pub(crate) fn add_request(
         &self,
-        request_id: Box<TransactionId>,
+        request_id: OwnedTransactionId,
         request: Arc<ToDeviceRequest>,
         share_infos: ShareInfoSet,
     ) {
@@ -322,8 +323,14 @@ impl OutboundGroupSession {
     /// encrypted using it.
     pub fn expired(&self) -> bool {
         let count = self.message_count.load(Ordering::SeqCst);
+        // We clamp the rotation period for message counts to be between 1 and
+        // 10000. The Megolm session should be usable for at least 1 message,
+        // and at most 10000 messages. Realistically Megolm uses u32 for it's
+        // internal counter and one could use the Megolm session for up to
+        // u32::MAX messages, but we're staying on the safe side of things.
+        let rotation_period_msgs = self.settings.rotation_period_msgs.clamp(1, 10_000);
 
-        count >= self.settings.rotation_period_msgs || self.elapsed()
+        count >= rotation_period_msgs || self.elapsed()
     }
 
     /// Has the session been invalidated.
@@ -459,7 +466,7 @@ impl OutboundGroupSession {
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
-    pub(crate) fn pending_request_ids(&self) -> Vec<Box<TransactionId>> {
+    pub(crate) fn pending_request_ids(&self) -> Vec<OwnedTransactionId> {
         self.to_share_with_set.iter().map(|e| e.key().clone()).collect()
     }
 
@@ -591,23 +598,29 @@ pub struct PickledOutboundGroupSession {
     /// Has the session been invalidated.
     pub invalidated: bool,
     /// The set of users the session has been already shared with.
-    pub shared_with_set: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+    pub shared_with_set: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
-    pub requests: BTreeMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>,
+    pub requests: BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+    use matrix_sdk_common::util::modified_seconds_since_unix_epoch;
 
+    use atomic::Ordering;
+    use matrix_sdk_test::async_test;
     use ruma::{
+        device_id,
         events::room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+            message::RoomMessageEventContent,
         },
-        uint, EventEncryptionAlgorithm,
+        room_id, uint, user_id, EventEncryptionAlgorithm,
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
+    use crate::{MegolmError, ReadOnlyAccount};
 
     #[test]
     fn encryption_settings_conversion() {
@@ -625,5 +638,75 @@ mod tests {
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);
+    }
+
+    #[async_test]
+    #[cfg(any(target_os = "linux", target_arch = "wasm32"))]
+    async fn expiration() -> Result<(), MegolmError> {
+        let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
+
+        let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        let _ = session
+            .encrypt(
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                "m.room.message",
+            )
+            .await;
+        assert!(session.expired());
+
+        let settings = EncryptionSettings {
+            rotation_period: Duration::from_millis(100),
+            ..Default::default()
+        };
+
+        let (mut session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        // FIXME: this might break on macosx and windows
+        session.creation_time = modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60));
+        assert!(session.expired());
+
+        let settings = EncryptionSettings { rotation_period_msgs: 0, ..Default::default() };
+
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+
+        let _ = session
+            .encrypt(
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                "m.room.message",
+            )
+            .await;
+        assert!(session.expired());
+
+        let settings = EncryptionSettings { rotation_period_msgs: 100_000, ..Default::default() };
+
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        session.message_count.store(1000, Ordering::SeqCst);
+        assert!(!session.expired());
+        session.message_count.store(9999, Ordering::SeqCst);
+        assert!(!session.expired());
+        session.message_count.store(10_000, Ordering::SeqCst);
+        assert!(session.expired());
+
+        Ok(())
     }
 }

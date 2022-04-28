@@ -24,7 +24,10 @@ use dashmap::DashSet;
 use matrix_sdk_common::{
     async_trait,
     locks::Mutex,
-    ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, RoomId, TransactionId, UserId},
+    ruma::{
+        events::room_key_request::RequestedKeyInfo, DeviceId, OwnedDeviceId, OwnedUserId, RoomId,
+        TransactionId, UserId,
+    },
 };
 use matrix_sdk_crypto::{
     olm::{
@@ -42,7 +45,7 @@ use serde::{Deserialize, Serialize};
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, IVec, Transactional, Tree,
+    Batch, Config, Db, IVec, Transactional, Tree,
 };
 use tracing::debug;
 
@@ -158,7 +161,7 @@ pub struct AccountInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TrackedUser {
-    user_id: Box<UserId>,
+    user_id: OwnedUserId,
     dirty: bool,
 }
 
@@ -168,13 +171,13 @@ struct TrackedUser {
 #[derive(Clone)]
 pub struct SledStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
-    store_cipher: Arc<Option<StoreCipher>>,
+    store_cipher: Option<Arc<StoreCipher>>,
     path: Option<PathBuf>,
     inner: Db,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
-    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
+    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 
     account: Tree,
     private_identity: Tree,
@@ -218,13 +221,22 @@ impl SledStore {
             .open()
             .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
-        SledStore::open_helper(db, Some(path), passphrase)
+        let store_cipher = if let Some(passphrase) = passphrase {
+            Some(Self::get_or_create_store_cipher(passphrase, &db)?.into())
+        } else {
+            None
+        };
+
+        SledStore::open_helper(db, Some(path), store_cipher)
     }
 
     /// Create a sled based cryptostore using the given sled database.
     /// The given passphrase will be used to encrypt private data.
-    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self, OpenStoreError> {
-        SledStore::open_helper(db, None, passphrase)
+    pub fn open_with_database(
+        db: Db,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) -> Result<Self, OpenStoreError> {
+        SledStore::open_helper(db, None, store_cipher)
     }
 
     fn get_account_info(&self) -> Option<AccountInfo> {
@@ -232,7 +244,7 @@ impl SledStore {
     }
 
     fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             key.encrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
         } else {
             Ok(serde_json::to_vec(event)?)
@@ -243,7 +255,7 @@ impl SledStore {
         &self,
         event: &[u8],
     ) -> Result<T, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             key.decrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
         } else {
             Ok(serde_json::from_slice(event)?)
@@ -251,7 +263,7 @@ impl SledStore {
     }
 
     fn encode_key<T: EncodeKey>(&self, table_name: &str, key: T) -> Vec<u8> {
-        if let Some(store_cipher) = &*self.store_cipher {
+        if let Some(store_cipher) = &self.store_cipher {
             key.encode_secure(table_name, store_cipher).to_vec()
         } else {
             key.encode()
@@ -344,7 +356,7 @@ impl SledStore {
     fn open_helper(
         db: Db,
         path: Option<PathBuf>,
-        passphrase: Option<&str>,
+        store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self, OpenStoreError> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
@@ -365,13 +377,6 @@ impl SledStore {
         let secret_requests_by_info = db.open_tree("secret_requests_by_info")?;
 
         let session_cache = SessionStore::new();
-
-        let store_cipher = if let Some(passphrase) = passphrase {
-            Some(Self::get_or_create_store_cipher(passphrase, &db)?)
-        } else {
-            None
-        }
-        .into();
 
         let database = Self {
             account_info: RwLock::new(None).into(),
@@ -644,6 +649,34 @@ impl SledStore {
 
         Ok(request)
     }
+
+    /// Save a batch of tracked users.
+    ///
+    /// # Arguments
+    ///
+    /// * `tracked_users` - A list of tuples. The first element of the tuple is
+    /// the user ID, the second element is if the user should be considered to
+    /// be dirty.
+    pub async fn save_tracked_users(
+        &self,
+        tracked_users: &[(&UserId, bool)],
+    ) -> Result<(), CryptoStoreError> {
+        let users: Vec<TrackedUser> = tracked_users
+            .iter()
+            .map(|(u, d)| TrackedUser { user_id: (*u).into(), dirty: *d })
+            .collect();
+
+        let mut batch = Batch::default();
+
+        for user in users {
+            batch.insert(
+                self.encode_key(TRACKED_USERS_TABLE, user.user_id.as_str()),
+                self.serialize_value(&user)?,
+            );
+        }
+
+        self.tracked_users.apply_batch(batch).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
+    }
 }
 
 #[async_trait]
@@ -829,11 +862,11 @@ impl CryptoStore for SledStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
@@ -846,14 +879,7 @@ impl CryptoStore for SledStore {
             self.users_for_key_query_cache.remove(user);
         }
 
-        let user = TrackedUser { user_id: user.to_owned(), dirty };
-
-        self.tracked_users
-            .insert(
-                self.encode_key(TRACKED_USERS_TABLE, user.user_id.as_str()),
-                self.serialize_value(&user)?,
-            )
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.save_tracked_users(&[(user, dirty)]).await?;
 
         Ok(already_added)
     }
@@ -876,7 +902,7 @@ impl CryptoStore for SledStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let key = self.encode_key(DEVICE_TABLE_NAME, user_id);
         self.devices
             .scan_prefix(key)

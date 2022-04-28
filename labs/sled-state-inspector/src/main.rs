@@ -4,7 +4,7 @@ use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
 use matrix_sdk_base::{
-    ruma::{events::StateEventType, RoomId, UserId},
+    ruma::{events::StateEventType, OwnedRoomId, OwnedUserId, RoomId},
     RoomInfo, Store,
 };
 use matrix_sdk_sled::StateStore;
@@ -243,13 +243,13 @@ impl Inspector {
         self.printer.pretty_print_struct(&rooms);
     }
 
-    async fn get_display_name_owners(&self, room_id: Box<RoomId>, display_name: String) {
+    async fn get_display_name_owners(&self, room_id: OwnedRoomId, display_name: String) {
         let users = self.store.get_users_with_display_name(&room_id, &display_name).await.unwrap();
         self.printer.pretty_print_struct(&users);
     }
 
-    async fn get_profiles(&self, room_id: Box<RoomId>) {
-        let joined: Vec<Box<UserId>> = self.store.get_joined_user_ids(&room_id).await.unwrap();
+    async fn get_profiles(&self, room_id: OwnedRoomId) {
+        let joined: Vec<OwnedUserId> = self.store.get_joined_user_ids(&room_id).await.unwrap();
 
         for member in joined {
             let event = self.store.get_profile(&room_id, &member).await.unwrap();
@@ -257,8 +257,8 @@ impl Inspector {
         }
     }
 
-    async fn get_members(&self, room_id: Box<RoomId>) {
-        let joined: Vec<Box<UserId>> = self.store.get_joined_user_ids(&room_id).await.unwrap();
+    async fn get_members(&self, room_id: OwnedRoomId) {
+        let joined: Vec<OwnedUserId> = self.store.get_joined_user_ids(&room_id).await.unwrap();
 
         for member in joined {
             let event = self.store.get_member_event(&room_id, &member).await.unwrap();
@@ -266,7 +266,7 @@ impl Inspector {
         }
     }
 
-    async fn get_state(&self, room_id: Box<RoomId>, event_type: StateEventType) {
+    async fn get_state(&self, room_id: OwnedRoomId, event_type: StateEventType) {
         self.printer.pretty_print_struct(
             &self.store.get_state_event(&room_id, event_type, "").await.unwrap(),
         );

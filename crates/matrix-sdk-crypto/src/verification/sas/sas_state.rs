@@ -40,7 +40,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceId, EventId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId, UserId,
 };
 use tracing::info;
 use vodozemac::{
@@ -397,7 +397,7 @@ impl SasState<Created> {
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<Box<TransactionId>>,
+        transaction_id: Option<OwnedTransactionId>,
     ) -> SasState<Created> {
         let started_from_request = transaction_id.is_some();
         let flow_id = FlowId::ToDevice(transaction_id.unwrap_or_else(TransactionId::new));
@@ -424,8 +424,8 @@ impl SasState<Created> {
     ///
     /// * `other_identity` - The identity of the other user if one exists.
     pub fn new_in_room(
-        room_id: Box<RoomId>,
-        event_id: Box<EventId>,
+        room_id: OwnedRoomId,
+        event_id: OwnedEventId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,

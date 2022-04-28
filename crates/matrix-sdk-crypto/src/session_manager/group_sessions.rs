@@ -28,7 +28,8 @@ use ruma::{
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId,
 };
 use serde_json::Value;
 use tracing::{debug, info, trace};
@@ -43,10 +44,10 @@ use crate::{
 #[derive(Clone, Debug)]
 pub(crate) struct GroupSessionCache {
     store: Store,
-    sessions: Arc<DashMap<Box<RoomId>, OutboundGroupSession>>,
+    sessions: Arc<DashMap<OwnedRoomId, OutboundGroupSession>>,
     /// A map from the request id to the group session that the request belongs
     /// to. Used to mark requests belonging to the session as shared.
-    sessions_being_shared: Arc<DashMap<Box<TransactionId>, OutboundGroupSession>>,
+    sessions_being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
 }
 
 impl GroupSessionCache {
@@ -221,17 +222,17 @@ impl GroupSessionManager {
         devices: Vec<Device>,
         message_index: u32,
     ) -> OlmResult<(
-        Box<TransactionId>,
+        OwnedTransactionId,
         ToDeviceRequest,
-        BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+        BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
         Vec<Session>,
     )> {
         // Use a named type instead of a tuple with rather long type name
         struct EncryptResult {
             used_session: Option<Session>,
-            share_info: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+            share_info: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
             message:
-                BTreeMap<Box<UserId>, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+                BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
         }
 
         let mut messages = BTreeMap::new();
@@ -324,9 +325,9 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         history_visibility: HistoryVisibility,
         outbound: &OutboundGroupSession,
-    ) -> OlmResult<(bool, HashMap<Box<UserId>, Vec<Device>>)> {
+    ) -> OlmResult<(bool, HashMap<OwnedUserId, Vec<Device>>)> {
         let users: HashSet<&UserId> = users.collect();
-        let mut devices: HashMap<Box<UserId>, Vec<Device>> = HashMap::new();
+        let mut devices: HashMap<OwnedUserId, Vec<Device>> = HashMap::new();
 
         trace!(
             ?users,
@@ -336,7 +337,7 @@ impl GroupSessionManager {
             "Calculating group session recipients"
         );
 
-        let users_shared_with: HashSet<Box<UserId>> =
+        let users_shared_with: HashSet<OwnedUserId> =
             outbound.shared_with_set.iter().map(|k| k.key().clone()).collect();
 
         let users_shared_with: HashSet<&UserId> =
@@ -358,7 +359,7 @@ impl GroupSessionManager {
         let mut should_rotate = user_left || visibility_changed;
 
         for user_id in users {
-            let user_devices = self.store.get_user_devices(user_id).await?;
+            let user_devices = self.store.get_user_devices_filtered(user_id).await?;
             let non_blacklisted_devices: Vec<Device> =
                 user_devices.devices().filter(|d| !d.is_blacklisted()).collect();
 
@@ -373,7 +374,7 @@ impl GroupSessionManager {
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     // Devices that received this session
-                    let shared: HashSet<Box<DeviceId>> =
+                    let shared: HashSet<OwnedDeviceId> =
                         shared.iter().map(|d| d.key().clone()).collect();
                     let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
@@ -414,7 +415,7 @@ impl GroupSessionManager {
         content: AnyToDeviceEventContent,
         outbound: OutboundGroupSession,
         message_index: u32,
-        being_shared: Arc<DashMap<Box<TransactionId>, OutboundGroupSession>>,
+        being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
     ) -> OlmResult<Vec<Session>> {
         let (id, request, share_infos, used_sessions) =
             Self::encrypt_session_for(content.clone(), chunk, message_index).await?;
@@ -595,7 +596,9 @@ mod tests {
             client::keys::{claim_keys, get_keys},
             IncomingResponse,
         },
-        device_id, room_id, user_id, DeviceId, TransactionId, UserId,
+        device_id,
+        events::room::history_visibility::HistoryVisibility,
+        room_id, user_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::Value;
 
@@ -625,17 +628,21 @@ mod tests {
             .expect("Can't parse the keys upload response")
     }
 
-    async fn machine() -> OlmMachine {
+    async fn machine_with_user(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
         let keys_query = keys_query_response();
         let keys_claim = keys_claim_response();
         let txn_id = TransactionId::new();
 
-        let machine = OlmMachine::new(alice_id(), alice_device_id());
+        let machine = OlmMachine::new(user_id, device_id).await;
 
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
         machine.mark_request_as_sent(&txn_id, &keys_claim).await.unwrap();
 
         machine
+    }
+
+    async fn machine() -> OlmMachine {
+        machine_with_user(alice_id(), alice_device_id()).await
     }
 
     #[async_test]
@@ -657,5 +664,38 @@ mod tests {
         // signatures, thus only 148 sessions are actually created, we check
         // that all 148 valid sessions get an room key.
         assert_eq!(event_count, 148);
+    }
+
+    #[async_test]
+    async fn key_recipient_collecting() {
+        // The user id comes from the fact that the keys_query.json file uses
+        // this one.
+        let user_id = user_id!("@example:localhost");
+        let device_id = device_id!("TESTDEVICE");
+        let room_id = room_id!("!test:localhost");
+
+        let machine = machine_with_user(user_id, device_id).await;
+
+        let (outbound, _) = machine
+            .group_session_manager
+            .get_or_create_outbound_session(room_id, EncryptionSettings::default())
+            .await
+            .expect("We should be able to create a new session");
+        let history_visibility = HistoryVisibility::Joined;
+
+        let users = [user_id].into_iter();
+
+        let (_, recipients) = machine
+            .group_session_manager
+            .collect_session_recipients(users, history_visibility, &outbound)
+            .await
+            .expect("We should be able to collect the session recipients");
+
+        assert!(!recipients.is_empty());
+
+        // Make sure that our own device isn't part of the recipients.
+        assert!(!recipients[user_id]
+            .iter()
+            .any(|d| d.user_id() == user_id && d.device_id() == device_id));
     }
 }

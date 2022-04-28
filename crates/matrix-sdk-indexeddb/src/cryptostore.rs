@@ -20,10 +20,10 @@ use std::{
 use anyhow::anyhow;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{
+use matrix_sdk_base::{
     async_trait,
     locks::Mutex,
-    ruma::{DeviceId, RoomId, TransactionId, UserId},
+    ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId},
 };
 use matrix_sdk_crypto::{
     olm::{
@@ -73,11 +73,11 @@ pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
 
-    store_cipher: Arc<Option<StoreCipher>>,
+    store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
-    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
+    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
 impl std::fmt::Debug for IndexeddbStore {
@@ -133,7 +133,10 @@ pub struct AccountInfo {
 }
 
 impl IndexeddbStore {
-    async fn open_helper(prefix: String, store_cipher: Option<StoreCipher>) -> Result<Self> {
+    pub(crate) async fn open_with_store_cipher(
+        prefix: String,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto", prefix);
 
         // Open my_db v1
@@ -167,7 +170,7 @@ impl IndexeddbStore {
             name,
             session_cache,
             inner: db,
-            store_cipher: store_cipher.into(),
+            store_cipher,
             account_info: RwLock::new(None).into(),
             tracked_users_cache: DashSet::new().into(),
             users_for_key_query_cache: DashSet::new().into(),
@@ -176,7 +179,7 @@ impl IndexeddbStore {
 
     /// Open a new IndexeddbStore with default name and no passphrase
     pub async fn open() -> Result<Self> {
-        IndexeddbStore::open_helper("crypto".to_owned(), None).await
+        IndexeddbStore::open_with_store_cipher("crypto".to_owned(), None).await
     }
 
     /// Open a new IndexeddbStore with given name and passphrase
@@ -229,16 +232,16 @@ impl IndexeddbStore {
             }
         };
 
-        IndexeddbStore::open_helper(prefix, Some(store_cipher)).await
+        IndexeddbStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
     }
 
     /// Open a new IndexeddbStore with given name and no passphrase
     pub async fn open_with_name(name: String) -> Result<Self> {
-        IndexeddbStore::open_helper(name, None).await
+        IndexeddbStore::open_with_store_cipher(name, None).await
     }
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             let value =
                 key.encrypt_value(value).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
@@ -252,7 +255,7 @@ impl IndexeddbStore {
         &self,
         value: JsValue,
     ) -> Result<T, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             let value: Vec<u8> = value.into_serde()?;
             key.decrypt_value(&value).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
         } else {
@@ -665,11 +668,11 @@ impl IndexeddbStore {
         Ok(())
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
@@ -718,7 +721,7 @@ impl IndexeddbStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let range = user_id.encode_to_range().map_err(|e| IndexeddbStoreError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
@@ -913,11 +916,11 @@ impl CryptoStore for IndexeddbStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query()
     }
 
@@ -945,7 +948,7 @@ impl CryptoStore for IndexeddbStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, CryptoStoreError> {
         self.get_user_devices(user_id).await.map_err(|e| e.into())
     }
 

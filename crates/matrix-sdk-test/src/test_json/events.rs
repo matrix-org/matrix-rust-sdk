@@ -337,6 +337,25 @@ lazy_static! {
     });
 }
 
+lazy_static! {
+    pub static ref ENCRYPTION: JsonValue = json!({
+        "content": {
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "rotation_period_ms": 604800000,
+            "rotation_period_msgs": 100
+        },
+        "event_id": "$143273582443PhrSn:example.org",
+        "origin_server_ts": 1432735824653u64,
+        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+        "sender": "@example:example.org",
+        "state_key": "",
+        "type": "m.room.encryption",
+        "unsigned": {
+            "age": 1234
+        }
+    });
+}
+
 // TODO: Move `prev_content` into `unsigned` once ruma supports it
 lazy_static! {
     pub static ref MEMBER: JsonValue = json!({

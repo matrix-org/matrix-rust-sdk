@@ -27,11 +27,8 @@ use matrix_sdk_base::{Error as SdkBaseError, StoreError};
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
-        client::{
-            uiaa::{UiaaInfo, UiaaResponse as UiaaError},
-            Error as RumaClientApiError,
-        },
-        error::{FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError},
+        client::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
+        error::{FromHttpResponseError, IntoHttpError, ServerError},
     },
     events::tag::InvalidUserTagName,
     IdParseError,
@@ -45,6 +42,19 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Result type of a pure HTTP request.
 pub type HttpResult<T> = std::result::Result<T, HttpError>;
+
+/// An error response from a Matrix API call, using a client API specific
+/// representation if the endpoint is from that.
+#[derive(Error, Debug)]
+pub enum RumaApiError {
+    /// A client API response error.
+    #[error(transparent)]
+    ClientApi(ruma::api::client::Error),
+
+    /// Another API response error.
+    #[error(transparent)]
+    Other(ruma::api::error::MatrixError),
+}
 
 /// An HTTP error, representing either a connection error or an error while
 /// converting the raw HTTP response into a Matrix response.
@@ -65,11 +75,7 @@ pub enum HttpError {
 
     /// An error converting between ruma_*_api types and Hyper types.
     #[error(transparent)]
-    Api(#[from] FromHttpResponseError<RumaApiError>),
-
-    /// An error converting between ruma_client_api types and Hyper types.
-    #[error(transparent)]
-    ClientApi(#[from] FromHttpResponseError<RumaClientApiError>),
+    Api(FromHttpResponseError<RumaApiError>),
 
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]
@@ -243,6 +249,18 @@ impl Error {
         } else {
             None
         }
+    }
+}
+
+impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
+    fn from(err: FromHttpResponseError<ruma::api::client::Error>) -> Self {
+        Self::Api(err.map(|e| e.map(RumaApiError::ClientApi)))
+    }
+}
+
+impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
+    fn from(err: FromHttpResponseError<ruma::api::error::MatrixError>) -> Self {
+        Self::Api(err.map(|e| e.map(RumaApiError::Other)))
     }
 }
 
