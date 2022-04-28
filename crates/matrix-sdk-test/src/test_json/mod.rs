@@ -4,7 +4,7 @@
 //! truth. When running `cargo publish` no external folders are allowed so all
 //! the test data needs to be contained within this crate.
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
 pub mod events;
@@ -25,8 +25,8 @@ pub use sync::{
     VOIP_SYNC,
 };
 
-lazy_static! {
-    pub static ref DEVICES: JsonValue = json!({
+pub static DEVICES: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "devices": [
             {
                 "device_id": "BNYQQWUMXO",
@@ -43,19 +43,19 @@ lazy_static! {
                 "user_id": "@example:localhost"
             }
         ]
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref WELL_KNOWN: JsonValue = json!({
+pub static WELL_KNOWN: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "m.homeserver": {
             "base_url": "HOMESERVER_URL"
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref VERSIONS: JsonValue = json!({
+pub static VERSIONS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "versions": [
             "r0.0.1",
             "r0.1.0",
@@ -69,11 +69,11 @@ lazy_static! {
             "org.matrix.label_based_filtering":true,
             "org.matrix.e2e_cross_signing":true
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref WHOAMI: JsonValue = json!({
+pub static WHOAMI: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "user_id": "@joe:example.org"
-    });
-}
+    })
+});
