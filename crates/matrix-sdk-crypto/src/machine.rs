@@ -40,7 +40,7 @@ use ruma::{
         },
         room_key::ToDeviceRoomKeyEvent,
         secret::request::SecretName,
-        AnyRoomEvent, AnyToDeviceEvent, MessageLikeEventContent,
+        AnyMessageLikeEvent, AnyRoomEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
     OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
@@ -721,6 +721,20 @@ impl OlmMachine {
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         self.group_session_manager.share_group_session(room_id, users, encryption_settings).await
+    }
+
+    /// Receive an unencrypted verification event.
+    ///
+    /// This method can be used to pass verification events that are happening
+    /// in unencrypted rooms to the `OlmMachine`.
+    ///
+    /// **Note**: This does not need to be called for encrypted events since
+    /// those will get passed to the `OlmMachine` during decryption.
+    pub async fn receive_unencrypted_verification_event(
+        &self,
+        event: &AnyMessageLikeEvent,
+    ) -> StoreResult<()> {
+        self.verification_machine.receive_any_event(event).await
     }
 
     /// Receive and properly handle a decrypted to-device event.
