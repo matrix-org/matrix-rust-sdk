@@ -147,7 +147,7 @@ default-features = false
 features = ["rt-multi-thread", "macros"]
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-getrandom = {version = "0.2.6", default-features = false, features = ["js"] }
+getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
 wasm-bindgen-test = "0.3.30"
 
 [[example]]

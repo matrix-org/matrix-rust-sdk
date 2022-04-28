@@ -28,12 +28,17 @@ jobs:
           - matrix-sdk-base
           - matrix-sdk-common
           - matrix-sdk-crypto
+          - matrix-sdk-indexeddb
+          - indexeddb-no-crypto
+          - indexeddb-with-crypto
 
         include:
           - name: matrix-sdk (no-default, wasm-flags)
             cmd: matrix-sdk-no-default
           - name: matrix-sdk / indexeddb_stores
             cmd: matrix-sdk-indexeddb-stores
+          - name: matrix-sdk / indexeddb_stores / no crypto
+            cmd: matrix-sdk-indexeddb-stores-no-crypto
           - name: matrix-sdk / wasm-example
             cmd: matrix-sdk-command-bot
 

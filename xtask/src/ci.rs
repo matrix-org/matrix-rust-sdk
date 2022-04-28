@@ -216,11 +216,11 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
         (
             WasmFeatureSet::IndexeddbNoCrypto,
-                "-p matrix-sdk-indexeddb --no-default-features --features state-store",
+                "-p matrix-sdk-indexeddb --no-default-features ",
         ),
         (
             WasmFeatureSet::IndexeddbWithCrypto,
-                "-p matrix-sdk-indexeddb --no-default-features --features state-store,crypto-store",
+                "-p matrix-sdk-indexeddb --no-default-features --features encryption",
         ),
     ]);
 
@@ -271,7 +271,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (WasmFeatureSet::MatrixSdkCrypto, ("matrix-sdk-crypto", "")),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto, (
-                "matrix-sdk", "--no-default-features --features indexeddb-state-store,rustls-tls",
+                "matrix-sdk", "--no-default-features --features indexeddb-state-store,rustls-tls --lib",
             )
         ),
         (
@@ -281,12 +281,12 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
         (
             WasmFeatureSet::IndexeddbNoCrypto, (
-                "matrix-sdk-indexeddb", "--no-default-features --features state-store",
+                "matrix-sdk-indexeddb", "--no-default-features",
             )
         ),
         (
             WasmFeatureSet::IndexeddbWithCrypto, (
-                "matrix-sdk-indexeddb", "--no-default-features --features state-store,crypto-store",
+                "matrix-sdk-indexeddb", "--no-default-features --features encryption",
             )
         ),
     ]);
