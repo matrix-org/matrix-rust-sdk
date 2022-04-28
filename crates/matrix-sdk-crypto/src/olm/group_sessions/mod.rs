@@ -163,11 +163,10 @@ impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
 mod tests {
     use std::time::Duration;
 
-    use matrix_sdk_common::instant::SystemTime;
+    use matrix_sdk_common::util::modified_seconds_since_unix_epoch;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id, events::room::message::RoomMessageEventContent, room_id, user_id,
-        SecondsSinceUnixEpoch,
     };
 
     use super::EncryptionSettings;
@@ -204,8 +203,8 @@ mod tests {
 
         assert!(!session.expired());
         // FIXME: this might break on macosx and windows
-        let time = SystemTime::now() - Duration::from_secs(60 * 60);
-        session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
+        let time = modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60) );
+        session.creation_time = time;
         assert!(session.expired());
 
         Ok(())
