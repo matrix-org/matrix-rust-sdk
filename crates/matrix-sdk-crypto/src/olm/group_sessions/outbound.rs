@@ -606,9 +606,9 @@ pub struct PickledOutboundGroupSession {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
-    use matrix_sdk_common::util::modified_seconds_since_unix_epoch;
 
     use atomic::Ordering;
+    use matrix_sdk_common::util::modified_seconds_since_unix_epoch;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -672,7 +672,8 @@ mod tests {
 
         assert!(!session.expired());
         // FIXME: this might break on macosx and windows
-        session.creation_time = modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60));
+        session.creation_time =
+            modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60));
         assert!(session.expired());
 
         let settings = EncryptionSettings { rotation_period_msgs: 0, ..Default::default() };
