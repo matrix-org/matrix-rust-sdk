@@ -335,15 +335,16 @@ impl IndexeddbStore {
         }
 
         if let Some(a) = &recovery_key_pickle {
-            tx.object_store(KEYS::BACKUP_KEYS)?
-                .put_key_val(&JsValue::from_str(KEYS::RECOVERY_KEY_V1), &self.serialize_value(&a)?)?;
+            tx.object_store(KEYS::BACKUP_KEYS)?.put_key_val(
+                &JsValue::from_str(KEYS::RECOVERY_KEY_V1),
+                &self.serialize_value(&a)?,
+            )?;
         }
 
         if let Some(a) = &backup_version {
             tx.object_store(KEYS::BACKUP_KEYS)?
                 .put_key_val(&JsValue::from_str(KEYS::BACKUP_KEY_V1), &self.serialize_value(&a)?)?;
         }
-
 
         if !changes.sessions.is_empty() {
             let sessions = tx.object_store(KEYS::SESSION)?;
@@ -861,10 +862,7 @@ impl IndexeddbStore {
         let key = {
             let tx = self
                 .inner
-                .transaction_on_one_with_mode(
-                    KEYS::BACKUP_KEYS,
-                    IdbTransactionMode::Readonly,
-                )?;
+                .transaction_on_one_with_mode(KEYS::BACKUP_KEYS, IdbTransactionMode::Readonly)?;
             let store = tx.object_store(KEYS::BACKUP_KEYS)?;
 
             let backup_version = store
