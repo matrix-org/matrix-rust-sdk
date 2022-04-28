@@ -28,9 +28,8 @@ jobs:
           - matrix-sdk-base
           - matrix-sdk-common
           - matrix-sdk-crypto
-          - matrix-sdk-indexeddb
-          - indexeddb-no-crypto
-          - indexeddb-with-crypto
+          - matrix-sdk-indexeddb-no-crypto
+          - matrix-sdk-indexeddb-with-crypto
 
         include:
           - name: matrix-sdk (no-default, wasm-flags)
