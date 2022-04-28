@@ -36,6 +36,11 @@ enum CiCommand {
         #[clap(subcommand)]
         cmd: Option<WasmFeatureSet>,
     },
+    /// Run wasm-pack tests
+    WasmPack {
+        #[clap(subcommand)]
+        cmd: Option<WasmFeatureSet>,
+    },
     /// Run tests for the different crypto crate features
     TestCrypto,
 }
@@ -61,7 +66,10 @@ enum WasmFeatureSet {
     MatrixSdkBase,
     MatrixSdkCommon,
     MatrixSdkCrypto,
+    MatrixSdkIndexeddbStoresNoCrypto,
     MatrixSdkIndexeddbStores,
+    IndexeddbNoCrypto,
+    IndexeddbWithCrypto,
     MatrixSdkCommandBot,
 }
 
@@ -79,6 +87,7 @@ impl CiArgs {
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
                 CiCommand::TestAppservice => run_appservice_tests(),
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
+                CiCommand::WasmPack { cmd } => run_wasm_pack_tests(cmd),
                 CiCommand::TestCrypto => run_crypto_tests(),
             },
             None => {
@@ -192,16 +201,26 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (WasmFeatureSet::MatrixQrcode, "-p matrix-qrcode"),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
-            "-p matrix-sdk \
-             --no-default-features \
-             --features qrcode,encryption,indexeddb-state-store,indexeddb-crypto-store,rustls-tls",
+            "-p matrix-sdk --no-default-features --features rustls-tls",
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
         (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
         (
+            WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
+            "-p matrix-sdk --no-default-features --features indexeddb-state-store,rustls-tls",
+        ),
+        (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             "-p matrix-sdk --no-default-features --features indexeddb-state-store,indexeddb-crypto-store,encryption,rustls-tls",
+        ),
+        (
+            WasmFeatureSet::IndexeddbNoCrypto,
+                "-p matrix-sdk-indexeddb --no-default-features ",
+        ),
+        (
+            WasmFeatureSet::IndexeddbWithCrypto,
+                "-p matrix-sdk-indexeddb --no-default-features --features encryption",
         ),
     ]);
 
@@ -218,6 +237,71 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(["--", "-D", "warnings", "-A", "clippy::unused-unit"])
             .run()
+    };
+
+    match cmd {
+        Some(cmd) => match cmd {
+            WasmFeatureSet::MatrixSdkCommandBot => {
+                test_command_bot()?;
+            }
+            _ => {
+                run(args[&cmd])?;
+            }
+        },
+        None => {
+            for &arg_set in args.values() {
+                run(arg_set)?;
+            }
+
+            test_command_bot()?;
+        }
+    }
+
+    Ok(())
+}
+
+fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    let args = BTreeMap::from([
+        (WasmFeatureSet::MatrixQrcode, ("matrix-qrcode", "")),
+        (
+            WasmFeatureSet::MatrixSdkNoDefault, ("matrix-sdk", "--no-default-features --features rustls-tls --lib")
+        ),
+        (WasmFeatureSet::MatrixSdkBase, ("matrix-sdk-base", "")),
+        (WasmFeatureSet::MatrixSdkCommon, ("matrix-sdk-common", "")),
+        (WasmFeatureSet::MatrixSdkCrypto, ("matrix-sdk-crypto", "")),
+        (
+            WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto, (
+                "matrix-sdk", "--no-default-features --features indexeddb-state-store,rustls-tls --lib",
+            )
+        ),
+        (
+            WasmFeatureSet::MatrixSdkIndexeddbStores, (
+                "matrix-sdk", "--no-default-features --features indexeddb-state-store,indexeddb-crypto-store,encryption,rustls-tls --lib",
+            )
+        ),
+        (
+            WasmFeatureSet::IndexeddbNoCrypto, (
+                "matrix-sdk-indexeddb", "--no-default-features",
+            )
+        ),
+        (
+            WasmFeatureSet::IndexeddbWithCrypto, (
+                "matrix-sdk-indexeddb", "--no-default-features --features encryption",
+            )
+        ),
+    ]);
+
+    let run = |(folder, arg_set): (&str, &str)| {
+        let _p = pushd(format!("crates/{}", folder));
+        cmd!("pwd").run()?; // print dir so we know what might have failed
+        cmd!("wasm-pack test --node -- ").args(arg_set.split_whitespace()).run()?;
+        cmd!("wasm-pack test --firefox --headless --").args(arg_set.split_whitespace()).run()
+    };
+
+    let test_command_bot = || {
+        let _p = pushd("crates/matrix-sdk/examples/wasm_command_bot");
+        cmd!("wasm-pack test --node").run()?;
+        cmd!("wasm-pack test --firefox --headless").run()
     };
 
     match cmd {
