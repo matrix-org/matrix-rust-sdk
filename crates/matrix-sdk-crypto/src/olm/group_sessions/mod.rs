@@ -165,9 +165,7 @@ mod tests {
 
     use matrix_sdk_common::util::modified_seconds_since_unix_epoch;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        device_id, events::room::message::RoomMessageEventContent, room_id, user_id,
-    };
+    use ruma::{device_id, events::room::message::RoomMessageEventContent, room_id, user_id};
 
     use super::EncryptionSettings;
     use crate::{MegolmError, ReadOnlyAccount};
@@ -203,7 +201,7 @@ mod tests {
 
         assert!(!session.expired());
         // FIXME: this might break on macosx and windows
-        let time = modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60) );
+        let time = modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60));
         session.creation_time = time;
         assert!(session.expired());
 
