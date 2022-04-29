@@ -33,7 +33,8 @@ async fn open_stores_with_name(
 
     if let Some(passphrase) = passphrase {
         let state_store = StateStore::open_with_passphrase(name.clone(), passphrase).await?;
-        let crypto_store = CryptoStore::open_with_passphrase(name, passphrase).await?;
+        let crypto_store =
+            CryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone()).await?;
         Ok((Box::new(state_store), Box::new(crypto_store)))
     } else {
         let state_store = StateStore::open_with_name(name.clone()).await?;

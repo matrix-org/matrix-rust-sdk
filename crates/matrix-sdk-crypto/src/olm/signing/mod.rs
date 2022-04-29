@@ -25,7 +25,7 @@ use ruma::{
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     encryption::KeyUsage,
     events::secret::request::SecretName,
-    UserId,
+    OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
@@ -86,7 +86,7 @@ impl ClearResult {
 #[allow(missing_debug_implementations)]
 pub struct PickledCrossSigningIdentity {
     /// The user id of the identity owner.
-    pub user_id: Box<UserId>,
+    pub user_id: OwnedUserId,
     /// Have the public keys of the identity been shared.
     pub shared: bool,
     /// The pickled signing keys
@@ -267,6 +267,37 @@ impl PrivateCrossSigningIdentity {
         Ok(())
     }
 
+    /// Import the private parts of the cross signing keys into this identity.
+    ///
+    /// The private parts should be unexpanded Ed25519 keys encoded as a base64
+    /// string.
+    ///
+    /// *Note*: This method won't check if the public keys match the public
+    /// keys present on the server.
+    pub async fn import_secrets_unchecked(
+        &self,
+        master_key: Option<&str>,
+        self_signing_key: Option<&str>,
+        user_signing_key: Option<&str>,
+    ) -> Result<(), SecretImportError> {
+        if let Some(master_key) = master_key {
+            let master = MasterSigning::from_base64(self.user_id().to_owned(), master_key)?;
+            *self.master_key.lock().await = Some(master);
+        }
+
+        if let Some(user_signing_key) = user_signing_key {
+            let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)?;
+            *self.user_signing_key.lock().await = Some(subkey);
+        };
+
+        if let Some(self_signing_key) = self_signing_key {
+            let subkey = SelfSigning::from_base64(self.user_id().to_owned(), self_signing_key)?;
+            *self.self_signing_key.lock().await = Some(subkey);
+        }
+
+        Ok(())
+    }
+
     /// Remove our private cross signing key if the public keys differ from
     /// what's found in the `ReadOnlyOwnUserIdentity`.
     pub(crate) async fn clear_if_differs(
@@ -339,7 +370,7 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Create a new empty identity.
-    pub(crate) fn empty(user_id: Box<UserId>) -> Self {
+    pub fn empty(user_id: &UserId) -> Self {
         Self {
             user_id: user_id.into(),
             shared: Arc::new(AtomicBool::new(false)),
@@ -490,7 +521,7 @@ impl PrivateCrossSigningIdentity {
         let signature_request = identity
             .sign_account(account)
             .await
-            .expect("Can't sign own device with new cross signign keys");
+            .expect("Can't sign own device with new cross signing keys");
 
         let request = identity.as_upload_request().await;
 
@@ -524,7 +555,7 @@ impl PrivateCrossSigningIdentity {
     /// created it.
     #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
-    pub async fn new(user_id: Box<UserId>) -> Self {
+    pub async fn new(user_id: OwnedUserId) -> Self {
         let master = Signing::new();
 
         let public_key = master.cross_signing_key(user_id.clone(), KeyUsage::Master);
@@ -594,7 +625,7 @@ impl PrivateCrossSigningIdentity {
         let user_signing = keys.user_signing_key.map(UserSigning::from_pickle).transpose()?;
 
         Ok(Self {
-            user_id: pickle.user_id.into(),
+            user_id: (&*pickle.user_id).into(),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             master_key: Arc::new(Mutex::new(master)),
             self_signing_key: Arc::new(Mutex::new(self_signing)),

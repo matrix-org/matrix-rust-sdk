@@ -22,11 +22,11 @@ decode_image = ["image", "rqrr", "qrcode/image", "qrcode/svg"]
 [dependencies]
 base64 = "0.13.0"
 byteorder = "1.4.3"
-image = { version = "0.23.14", optional = true }
+image = { version = "0.23.0", optional = true }
 qrcode = { version = "0.12.0", default-features = false }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "548232ef5" }
 rqrr = { version = "0.4.0", optional = true }
-thiserror = "1.0.25"
+ruma-common = "0.9.0"
+thiserror = "1.0.30"
 
 [dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac"

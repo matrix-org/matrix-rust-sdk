@@ -24,20 +24,21 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::{MemberEvent, SyncRoomEvent},
+    deserialized_responses::SyncRoomEvent,
     media::{MediaRequest, UniqueKey},
-    ruma::events::room::redaction::SyncRoomRedactionEvent,
     store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
 use matrix_sdk_common::{
     async_trait,
     ruma::{
-        self,
         events::{
             presence::PresenceEvent,
             receipt::Receipt,
-            room::member::{MembershipState, RoomMemberEventContent},
+            room::{
+                member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+                redaction::SyncRoomRedactionEvent,
+            },
             AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
             AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
             RoomAccountDataEventType, StateEventType,
@@ -45,7 +46,7 @@ use matrix_sdk_common::{
         receipt::ReceiptType,
         serde::Raw,
         signatures::{redact_in_place, CanonicalJsonObject},
-        EventId, MxcUri, RoomId, RoomVersionId, UserId,
+        EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
     },
 };
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
@@ -74,7 +75,7 @@ pub enum SledStoreError {
     #[error(transparent)]
     TransactionError(#[from] sled::Error),
     #[error(transparent)]
-    Identifier(#[from] ruma::IdParseError),
+    Identifier(#[from] IdParseError),
     #[error(transparent)]
     Task(#[from] tokio::task::JoinError),
 }
@@ -142,7 +143,7 @@ type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 pub struct SledStore {
     path: Option<PathBuf>,
     pub(crate) inner: Db,
-    store_cipher: Arc<Option<StoreCipher>>,
+    store_cipher: Option<Arc<StoreCipher>>,
     session: Tree,
     account_data: Tree,
     members: Tree,
@@ -180,7 +181,7 @@ impl SledStore {
     fn open_helper(
         db: Db,
         path: Option<PathBuf>,
-        store_cipher: Option<StoreCipher>,
+        store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self> {
         let session = db.open_tree(SESSION)?;
         let account_data = db.open_tree(ACCOUNT_DATA)?;
@@ -214,7 +215,7 @@ impl SledStore {
         Ok(Self {
             path,
             inner: db,
-            store_cipher: store_cipher.into(),
+            store_cipher,
             session,
             account_data,
             members,
@@ -255,7 +256,7 @@ impl SledStore {
         SledStore::open_helper(
             db,
             None,
-            Some(StoreCipher::new().expect("can't create store cipher")),
+            Some(StoreCipher::new().expect("can't create store cipher").into()),
         )
         .map_err(|e| e.into())
     }
@@ -274,7 +275,8 @@ impl SledStore {
             let cipher = StoreCipher::new()?;
             db.insert("store_cipher".encode(), cipher.export(passphrase)?)?;
             cipher
-        };
+        }
+        .into();
 
         SledStore::open_helper(db, Some(path), Some(store_cipher))
     }
@@ -294,15 +296,12 @@ impl SledStore {
     ///
     /// The given passphrase will be used to encrypt private data.
     #[cfg(feature = "crypto-store")]
-    pub fn open_crypto_store(
-        &self,
-        passphrase: Option<&str>,
-    ) -> Result<CryptoStore, OpenStoreError> {
-        CryptoStore::open_with_database(self.inner.clone(), passphrase)
+    pub fn open_crypto_store(&self) -> Result<CryptoStore, OpenStoreError> {
+        CryptoStore::open_with_database(self.inner.clone(), self.store_cipher.clone())
     }
 
     fn serialize_event(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             Ok(key.encrypt_value(event)?)
         } else {
             Ok(serde_json::to_vec(event)?)
@@ -313,7 +312,7 @@ impl SledStore {
         &self,
         event: &[u8],
     ) -> Result<T, SledStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             Ok(key.decrypt_value(event)?)
         } else {
             Ok(serde_json::from_slice(event)?)
@@ -321,7 +320,7 @@ impl SledStore {
     }
 
     fn encode_key<T: EncodeKey>(&self, table_name: &str, key: T) -> Vec<u8> {
-        if let Some(store_cipher) = &*self.store_cipher {
+        if let Some(store_cipher) = &self.store_cipher {
             key.encode_secure(table_name, store_cipher).to_vec()
         } else {
             key.encode()
@@ -557,7 +556,7 @@ impl SledStore {
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )? {
                                         // Remove the old receipt from the room event receipts
-                                        let (old_event, _): (Box<EventId>, Receipt) = self
+                                        let (old_event, _): (OwnedEventId, Receipt) = self
                                             .deserialize_event(&old)
                                             .map_err(ConflictableTransactionError::Abort)?;
                                         room_event_receipts.remove(self.encode_key(
@@ -647,7 +646,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<MemberEvent>> {
+    ) -> Result<Option<OriginalSyncRoomMemberEvent>> {
         let db = self.clone();
         let key = self.encode_key(MEMBER, (room_id, state_key));
         spawn_blocking(move || db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose())
@@ -657,7 +656,7 @@ impl SledStore {
     pub async fn get_user_ids_stream(
         &self,
         room_id: &RoomId,
-    ) -> StoreResult<impl Stream<Item = StoreResult<Box<UserId>>>> {
+    ) -> StoreResult<impl Stream<Item = StoreResult<OwnedUserId>>> {
         Ok(self
             .get_joined_user_ids(room_id)
             .await?
@@ -667,15 +666,14 @@ impl SledStore {
     pub async fn get_invited_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> StoreResult<impl Stream<Item = StoreResult<Box<UserId>>>> {
+    ) -> StoreResult<impl Stream<Item = StoreResult<OwnedUserId>>> {
         let db = self.clone();
         let key = self.encode_key(INVITED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(
-                    String::from_utf8_lossy(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1)
-                        .to_string(),
-                )
+                UserId::parse(String::from_utf8_lossy(
+                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                ))
                 .map_err(StoreError::Identifier)
             }))
         })
@@ -686,15 +684,14 @@ impl SledStore {
     pub async fn get_joined_user_ids(
         &self,
         room_id: &RoomId,
-    ) -> StoreResult<impl Stream<Item = StoreResult<Box<UserId>>>> {
+    ) -> StoreResult<impl Stream<Item = StoreResult<OwnedUserId>>> {
         let db = self.clone();
         let key = self.encode_key(JOINED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(
-                    String::from_utf8_lossy(&u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1)
-                        .to_string(),
-                )
+                UserId::parse(String::from_utf8_lossy(
+                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                ))
                 .map_err(StoreError::Identifier)
             }))
         })
@@ -724,7 +721,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<Box<UserId>>> {
+    ) -> Result<BTreeSet<OwnedUserId>> {
         let db = self.clone();
         let key = self.encode_key(DISPLAY_NAME, (room_id, display_name));
         spawn_blocking(move || {
@@ -768,7 +765,7 @@ impl SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>> {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         let db = self.clone();
         let key = self.encode_key(ROOM_USER_RECEIPT, (room_id, receipt_type, user_id));
         spawn_blocking(move || {
@@ -782,7 +779,7 @@ impl SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
+    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         let db = self.clone();
         let key = self.encode_key(ROOM_EVENT_RECEIPT, (room_id, receipt_type, event_id));
         spawn_blocking(move || {
@@ -1279,19 +1276,19 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<MemberEvent>> {
+    ) -> StoreResult<Option<OriginalSyncRoomMemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(Into::into)
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+    async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
         self.get_user_ids_stream(room_id).await?.try_collect().await
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
         self.get_invited_user_ids(room_id).await?.try_collect().await
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<Box<UserId>>> {
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
         self.get_joined_user_ids(room_id).await?.try_collect().await
     }
 
@@ -1317,7 +1314,7 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> StoreResult<BTreeSet<Box<UserId>>> {
+    ) -> StoreResult<BTreeSet<OwnedUserId>> {
         self.get_users_with_display_name(room_id, display_name).await.map_err(Into::into)
     }
 
@@ -1341,7 +1338,7 @@ impl StateStore for SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> StoreResult<Option<(Box<EventId>, Receipt)>> {
+    ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
         self.get_user_room_receipt_event(room_id, receipt_type, user_id).await.map_err(Into::into)
     }
 
@@ -1350,7 +1347,7 @@ impl StateStore for SledStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
+    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id)
             .await
             .map_err(Into::into)

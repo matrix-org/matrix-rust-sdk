@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, RwLock as SyncRwLock};
+use std::{
+    collections::HashSet,
+    sync::{Arc, RwLock as SyncRwLock},
+};
 
 use dashmap::DashSet;
 use futures_channel::mpsc;
@@ -34,7 +37,8 @@ use ruma::{
     },
     receipt::ReceiptType,
     room::RoomType as CreateRoomType,
-    EventId, MxcUri, RoomAliasId, RoomId, RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomId, RoomVersionId,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -163,12 +167,12 @@ impl Room {
     }
 
     /// Get the avatar url of this room.
-    pub fn avatar_url(&self) -> Option<Box<MxcUri>> {
+    pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
         self.inner.read().unwrap().base_info.avatar_url.clone()
     }
 
     /// Get the canonical alias of this room.
-    pub fn canonical_alias(&self) -> Option<Box<RoomAliasId>> {
+    pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
         self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
@@ -183,17 +187,17 @@ impl Room {
 
     /// Is this room considered a direct message.
     pub fn is_direct(&self) -> bool {
-        self.inner.read().unwrap().base_info.dm_target.is_some()
+        !self.inner.read().unwrap().base_info.dm_targets.is_empty()
     }
 
-    /// If this room is a direct message, get the member that we're sharing the
+    /// If this room is a direct message, get the members that we're sharing the
     /// room with.
     ///
     /// *Note*: The member list might have been modified in the meantime and
-    /// the target might not even be in the room anymore. This setting should
+    /// the targets might not even be in the room anymore. This setting should
     /// only be considered as guidance.
-    pub fn direct_target(&self) -> Option<Box<UserId>> {
-        self.inner.read().unwrap().base_info.dm_target.clone()
+    pub fn direct_targets(&self) -> HashSet<OwnedUserId> {
+        self.inner.read().unwrap().base_info.dm_targets.clone()
     }
 
     /// Is the room encrypted.
@@ -267,7 +271,7 @@ impl Room {
 
     /// Get the list of users ids that are considered to be joined members of
     /// this room.
-    pub async fn joined_user_ids(&self) -> StoreResult<Vec<Box<UserId>>> {
+    pub async fn joined_user_ids(&self) -> StoreResult<Vec<OwnedUserId>> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
@@ -465,7 +469,7 @@ impl Room {
     pub async fn user_read_receipt(
         &self,
         user_id: &UserId,
-    ) -> StoreResult<Option<(Box<EventId>, Receipt)>> {
+    ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
         self.store.get_user_room_receipt_event(self.room_id(), ReceiptType::Read, user_id).await
     }
 
@@ -474,7 +478,7 @@ impl Room {
     pub async fn event_read_receipts(
         &self,
         event_id: &EventId,
-    ) -> StoreResult<Vec<(Box<UserId>, Receipt)>> {
+    ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.store.get_event_room_receipt_events(self.room_id(), ReceiptType::Read, event_id).await
     }
 
@@ -661,7 +665,7 @@ impl RoomInfo {
         self.base_info.handle_state_event(event)
     }
 
-    /// Handle the given stripped tate event.
+    /// Handle the given stripped state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
     pub fn handle_stripped_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {

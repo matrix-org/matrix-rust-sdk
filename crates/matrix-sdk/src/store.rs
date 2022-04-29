@@ -80,11 +80,11 @@ fn open_stores_with_path(
 ) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
     if let Some(passphrase) = passphrase {
         let state_store = StateStore::open_with_passphrase(path, passphrase)?;
-        let crypto_store = state_store.open_crypto_store(Some(passphrase))?;
+        let crypto_store = state_store.open_crypto_store()?;
         Ok((Box::new(state_store), Box::new(crypto_store)))
     } else {
         let state_store = StateStore::open_with_path(path)?;
-        let crypto_store = state_store.open_crypto_store(None)?;
+        let crypto_store = state_store.open_crypto_store()?;
         Ok((Box::new(state_store), Box::new(crypto_store)))
     }
 }

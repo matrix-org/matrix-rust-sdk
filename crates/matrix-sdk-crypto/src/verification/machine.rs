@@ -18,14 +18,15 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
         ToDeviceEvent,
     },
     serde::Raw,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
+    uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -49,7 +50,7 @@ pub struct VerificationMachine {
     pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
-    requests: Arc<DashMap<Box<UserId>, DashMap<String, VerificationRequest>>>,
+    requests: Arc<DashMap<OwnedUserId, DashMap<String, VerificationRequest>>>,
 }
 
 impl VerificationMachine {
@@ -77,7 +78,7 @@ impl VerificationMachine {
     pub(crate) async fn request_to_device_verification(
         &self,
         user_id: &UserId,
-        recipient_devices: Vec<Box<DeviceId>>,
+        recipient_devices: Vec<OwnedDeviceId>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(TransactionId::new());
@@ -190,9 +191,7 @@ impl VerificationMachine {
         self.verifications.get_sas(user_id, flow_id)
     }
 
-    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
-        use ruma::{uint, UInt};
-
+    fn is_timestamp_valid(timestamp: MilliSecondsSinceUnixEpoch) -> bool {
         // The event should be ignored if the event is older than 10 minutes
         let old_timestamp_threshold: UInt = uint!(600);
         // The event should be ignored if the event is 5 minutes or more into the
@@ -200,7 +199,7 @@ impl VerificationMachine {
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();
-        let now = milli_seconds_since_unix_epoch().as_secs();
+        let now = SecondsSinceUnixEpoch::now().get();
 
         !(now.saturating_sub(timestamp) > old_timestamp_threshold
             || timestamp.saturating_sub(now) > timestamp_threshold)
@@ -566,11 +565,10 @@ mod tests {
 
         let bob_store = VerificationStore { account: bob, inner: Arc::new(bob_store) };
 
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let machine = VerificationMachine::new(alice, identity, Arc::new(store));
         let (bob_sas, start_content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(bob_id().to_owned()),
+            PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             bob_store,
             None,
@@ -591,8 +589,7 @@ mod tests {
     #[async_test]
     async fn create() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let store = MemoryStore::new();
         let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }
