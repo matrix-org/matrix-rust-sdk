@@ -12,6 +12,7 @@ crypto-store = ["matrix-sdk-crypto"]
 [dependencies]
 anyhow = "1.0.57"
 async-stream = "0.3.3"
+async-trait = "0.1.53"
 dashmap = "5.2.0"
 futures-core = "0.3.21"
 futures-util = { version = "0.3.21", default-features = false }

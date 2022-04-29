@@ -20,9 +20,9 @@ use std::{
 };
 
 use anyhow::anyhow;
+use async_trait::async_trait;
 use dashmap::DashSet;
 use matrix_sdk_common::{
-    async_trait,
     locks::Mutex,
     ruma::{
         events::room_key_request::RequestedKeyInfo, DeviceId, OwnedDeviceId, OwnedUserId, RoomId,

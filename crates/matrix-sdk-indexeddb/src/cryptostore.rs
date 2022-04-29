@@ -18,10 +18,10 @@ use std::{
 };
 
 use anyhow::anyhow;
+use async_trait::async_trait;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    async_trait,
     locks::Mutex,
     ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId},
 };
