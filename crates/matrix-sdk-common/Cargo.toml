@@ -20,13 +20,12 @@ async-trait = "0.1.53"
 ruma = { version = "0.6.0", features = ["client-api-c"] }
 serde = "1.0.136"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.17.0", default-features = false, features = ["rt", "sync"] }
-instant = { version = "0.1.12", features = ["now"] }
-
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-lock = "2.5.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen", "inaccurate"] }
 futures-util = { version = "0.3.21", default-features = false, features = ["channel"] }
 wasm-bindgen-futures = "0.4.30"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.17.0", default-features = false, features = ["rt", "sync"] }
+instant = { version = "0.1.12", features = ["now"] }

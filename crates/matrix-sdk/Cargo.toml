@@ -118,14 +118,9 @@ optional = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-timer= "0.2.5"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.backoff]
-version = "0.4.0"
-features = ["tokio"]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
-version = "1.17.0"
-default-features = false
-features = ["fs", "rt"]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+backoff = { version = "0.4.0", features = ["tokio"] }
+tokio = { version = "1.17.0", default-features = false, features = ["fs", "rt"] }
 
 [dev-dependencies]
 anyhow = "1.0.57"
@@ -139,15 +134,12 @@ serde_json = "1.0.79"
 tempfile = "3.3.0"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.tokio]
-version = "1.17.0"
-default-features = false
-features = ["rt-multi-thread", "macros"]
-
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
 wasm-bindgen-test = "0.3.30"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
 
 [[example]]
 name = "cross_signing_bootstrap"

@@ -51,22 +51,18 @@ anyhow = "1.0.57"
 # feature = testing only
 http = { version = "0.2.6", optional = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies.getrandom]
-version = "0.2.6"
-features = ["js"]
+[dependencies.ruma]
+version = "0.6.0"
+features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac"
 rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
 features = ["js"]
 
-[dependencies.ruma]
-version = "0.6.0"
-features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac"
+rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
@@ -79,4 +75,5 @@ proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 tokio = { version = "1.7.0", default-features = false, features = ["macros", "rt-multi-thread"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+getrandom = { version = "0.2.6", features = ["js"] }
 wasm-bindgen-test = "0.3.24"
