@@ -32,7 +32,4 @@ matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
 once_cell = "1.10.0"
 tempfile = "3.3.0"
-tokio = { version = "1.17.0", default-features = false, features = [
-    "rt-multi-thread",
-    "macros",
-] }
+tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }

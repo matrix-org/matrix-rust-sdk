@@ -55,10 +55,7 @@ ruma = { version = "0.6.1", features = ["client-api-c", "signatures"] }
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 http = "0.2.6"
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
-tokio = { version = "1.17.0", default-features = false, features = [
-    "rt-multi-thread",
-    "macros",
-] }
+tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.30"
