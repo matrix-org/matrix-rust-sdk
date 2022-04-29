@@ -15,6 +15,7 @@ hmac = "0.12.1"
 http = "0.2.6"
 pbkdf2 = "0.11.0"
 rand = "0.8.5"
+ruma = { version = "0.6.0", features = ["client-api-c"] }
 serde = "1.0.136"
 serde_json = "1.0.79"
 sha2 = "0.10.2"
@@ -48,11 +49,6 @@ rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
 version = "1.17.0"
 default_features = false
 features = ["rt-multi-thread"]
-
-[dependencies.ruma]
-git = "https://github.com/ruma/ruma"
-rev = "4014e6959"
-features = ["client-api-c"]
 
 [build-dependencies]
 uniffi_build = { version = "0.17.0", features = ["builtin-bindgen"] }

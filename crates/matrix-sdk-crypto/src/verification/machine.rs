@@ -191,7 +191,7 @@ impl VerificationMachine {
         self.verifications.get_sas(user_id, flow_id)
     }
 
-    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
+    fn is_timestamp_valid(timestamp: MilliSecondsSinceUnixEpoch) -> bool {
         use ruma::{uint, UInt};
 
         // The event should be ignored if the event is older than 10 minutes

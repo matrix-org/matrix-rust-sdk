@@ -65,8 +65,7 @@ rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
 features = ["js"]
 
 [dependencies.ruma]
-git = "https://github.com/ruma/ruma"
-rev = "4014e6959"
+version = "0.6.0"
 features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"]
 
 [dev-dependencies]
