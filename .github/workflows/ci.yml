@@ -56,7 +56,6 @@ jobs:
 
   test-crypto-features:
     name: linux / crypto-crate features
-    needs: [style]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
