@@ -37,5 +37,6 @@ matrix-sdk-common = {  path = "../matrix-sdk-common" }
 matrix-sdk-base = {  path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
 matrix-sdk-test = { path = "../matrix-sdk-test" }
+matrix-sdk-common = { path = "../matrix-sdk-common" }
 uuid = "1.0.0"
 wasm-bindgen-test = "0.3.30"

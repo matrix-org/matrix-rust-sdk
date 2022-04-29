@@ -1,8 +1,8 @@
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
-lazy_static! {
-    pub static ref ALIAS: JsonValue = json!({
+pub static ALIAS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "alias": "#tutorial:localhost"
         },
@@ -14,11 +14,11 @@ lazy_static! {
         "unsigned": {
             "age": 703422
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref ALIASES: JsonValue = json!({
+pub static ALIASES: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "aliases": [
                 "#tutorial:localhost"
@@ -32,11 +32,11 @@ lazy_static! {
         "unsigned": {
             "age": 703422
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref CREATE: JsonValue = json!({
+pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "creator": "@example:localhost",
             "m.federate": true,
@@ -50,21 +50,21 @@ lazy_static! {
         "unsigned": {
           "age": 139298
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref FULLY_READ: JsonValue = json!({
+pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "event_id": "$someplace:example.org"
         },
         "room_id": "!somewhere:example.org",
         "type": "m.fully_read"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref HISTORY_VISIBILITY: JsonValue = json!({
+pub static HISTORY_VISIBILITY: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "history_visibility": "world_readable"
         },
@@ -76,11 +76,11 @@ lazy_static! {
         "unsigned": {
           "age": 1392989
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref JOIN_RULES: JsonValue = json!({
+pub static JOIN_RULES: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "join_rule": "public"
         },
@@ -92,11 +92,11 @@ lazy_static! {
         "unsigned": {
           "age": 1392989
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref ROOM_MESSAGES: JsonValue = json!({
+pub static ROOM_MESSAGES: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "chunk": [
           {
             "age": 1042,
@@ -140,11 +140,11 @@ lazy_static! {
         ],
         "end": "t47409-4357353_219380_26003_2265",
         "start": "t47429-4392820_219380_26003_2265"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref SYNC_ROOM_MESSAGES_BATCH_1: JsonValue = json!({
+pub static SYNC_ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "chunk": [
           {
             "age": 1042,
@@ -188,11 +188,11 @@ lazy_static! {
         ],
         "end": "t47409-4357353_219380_26003_2269",
         "start": "t392-516_47314_0_7_1_1_1_11444_1"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref SYNC_ROOM_MESSAGES_BATCH_2: JsonValue = json!({
+pub static SYNC_ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "chunk": [
           {
             "age": 1042,
@@ -236,11 +236,11 @@ lazy_static! {
         ],
         "end": "t47409-4357353_219380_26003_2270",
         "start": "t47409-4357353_219380_26003_2269"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref KEYS_QUERY: JsonValue = json!({
+pub static KEYS_QUERY: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
       "device_keys": {
         "@alice:example.org": {
           "JLAFKJWSCS": {
@@ -266,29 +266,29 @@ lazy_static! {
         }
       },
       "failures": {}
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref KEYS_UPLOAD: JsonValue = json!({
+pub static KEYS_UPLOAD: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
       "one_time_key_counts": {
         "curve25519": 10,
         "signed_curve25519": 20
       }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LOGIN: JsonValue = json!({
+pub static LOGIN: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "access_token": "abc123",
         "device_id": "GHTYAJCE",
         "home_server": "matrix.org",
         "user_id": "@cheeky_monkey:matrix.org"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LOGIN_WITH_DISCOVERY: JsonValue = json!({
+pub static LOGIN_WITH_DISCOVERY: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "access_token": "abc123",
         "device_id": "GHTYAJCE",
         "home_server": "matrix.org",
@@ -301,18 +301,18 @@ lazy_static! {
                 "base_url": "https://id.example.org"
             }
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LOGIN_RESPONSE_ERR: JsonValue = json!({
+pub static LOGIN_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
       "errcode": "M_FORBIDDEN",
       "error": "Invalid password"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LOGIN_TYPES: JsonValue = json!({
+pub static LOGIN_TYPES: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "flows": [
             {
                 "type": "m.login.password"
@@ -324,21 +324,19 @@ lazy_static! {
                 "type": "m.login.token"
             }
         ]
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LOGOUT: JsonValue = json!({});
-}
+pub static LOGOUT: Lazy<JsonValue> = Lazy::new(|| json!({}));
 
-lazy_static! {
-    pub static ref EVENT_ID: JsonValue = json!({
+pub static EVENT_ID: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "event_id": "$h29iv0s8:example.com"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref ENCRYPTION: JsonValue = json!({
+pub static ENCRYPTION: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "algorithm": "m.megolm.v1.aes-sha2",
             "rotation_period_ms": 604800000,
@@ -353,12 +351,12 @@ lazy_static! {
         "unsigned": {
             "age": 1234
         }
-    });
-}
+    })
+});
 
 // TODO: Move `prev_content` into `unsigned` once ruma supports it
-lazy_static! {
-    pub static ref MEMBER: JsonValue = json!({
+pub static MEMBER: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "avatar_url": null,
             "displayname": "example",
@@ -379,11 +377,11 @@ lazy_static! {
             "age": 297036,
             "replaces_state": "$151800111315tsynI:localhost"
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MEMBER_INVITE: JsonValue = json!({
+pub static MEMBER_INVITE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "avatar_url": "mxc://localhost/SEsfnsuifSDFSSEF",
             "displayname": "example",
@@ -417,12 +415,12 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
 // TODO: Move `prev_content` into `unsigned` once ruma supports it
-lazy_static! {
-    pub static ref MEMBER_NAME_CHANGE: JsonValue = json!({
+pub static MEMBER_NAME_CHANGE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "avatar_url": null,
             "displayname": "changed",
@@ -443,11 +441,11 @@ lazy_static! {
             "age": 297032,
             "replaces_state": "$151800140517rfvjc:localhost"
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MEMBER_STRIPPED: JsonValue = json!({
+pub static MEMBER_STRIPPED: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "avatar_url": null,
             "displayname": "example",
@@ -456,11 +454,11 @@ lazy_static! {
         "sender": "@example:localhost",
         "state_key": "@example:localhost",
         "type": "m.room.member",
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MESSAGE_EDIT: JsonValue = json!({
+pub static MESSAGE_EDIT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "body": " * edited message",
             "m.new_content": {
@@ -480,11 +478,11 @@ lazy_static! {
         "unsigned": {
             "age": 85
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MESSAGE_EMOTE: JsonValue = json!({
+pub static MESSAGE_EMOTE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "body": "is dancing", "format": "org.matrix.custom.html",
             "formatted_body": "<strong>is dancing</strong>",
@@ -497,11 +495,11 @@ lazy_static! {
         "unsigned": {
             "age": 598971
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MESSAGE_NOTICE: JsonValue = json!({
+pub static MESSAGE_NOTICE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
       "origin_server_ts": 153356516,
       "sender": "@_neb_github:matrix.org",
       "event_id": "$153356516319138IHRIC:matrix.org",
@@ -516,11 +514,11 @@ lazy_static! {
       },
       "type": "m.room.message",
       "room_id": "!YHhmBTmGBHGQOlGpaZ:matrix.org"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MESSAGE_TEXT: JsonValue = json!({
+pub static MESSAGE_TEXT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "body": "is dancing", "format": "org.matrix.custom.html",
             "formatted_body": "<strong>is dancing</strong>",
@@ -533,11 +531,11 @@ lazy_static! {
         "unsigned": {
             "age": 598971
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref NAME: JsonValue = json!({
+pub static NAME: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "name": "room name"
         },
@@ -549,22 +547,22 @@ lazy_static! {
         "unsigned": {
             "age": 703422
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref NAME_STRIPPED: JsonValue = json!({
+pub static NAME_STRIPPED: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "name": "room name"
         },
         "sender": "@example:localhost",
         "state_key": "",
         "type": "m.room.name",
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref POWER_LEVELS: JsonValue = json!({
+pub static POWER_LEVELS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "ban": 50,
             "events": {
@@ -594,12 +592,11 @@ lazy_static! {
         "unsigned": {
             "age": 703422
         }
-    }
-    );
-}
+    })
+});
 
-lazy_static! {
-    pub static ref PRESENCE: JsonValue = json!({
+pub static PRESENCE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "avatar_url": "mxc://localhost/wefuiwegh8742w",
             "currently_active": false,
@@ -609,11 +606,11 @@ lazy_static! {
         },
         "sender": "@example:localhost",
         "type": "m.presence"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref PUBLIC_ROOMS: JsonValue = json!({
+pub static PUBLIC_ROOMS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "chunk": [
             {
                 "aliases": [
@@ -631,11 +628,11 @@ lazy_static! {
         "next_batch": "p190q",
         "prev_batch": "p1902",
         "total_room_count_estimate": 115
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref PUSH_RULES: JsonValue = json!({
+pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "global": {
                 "content": [
@@ -830,11 +827,11 @@ lazy_static! {
             }
         },
         "type": "m.push_rules"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref REGISTRATION_RESPONSE_ERR: JsonValue = json!({
+pub static REGISTRATION_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "errcode": "M_FORBIDDEN",
         "error": "Invalid password",
         "completed": ["example.type.foo"],
@@ -852,11 +849,11 @@ lazy_static! {
             }
         },
         "session": "xxxxxx"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref REACTION: JsonValue = json!({
+pub static REACTION: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "m.relates_to": {
                 "event_id": "$MDitXXXXXXuBlpP7S6c6XXXXXXXC2HqZ3peV1NrV4PKA",
@@ -871,11 +868,11 @@ lazy_static! {
         "unsigned": {
             "age": 85
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref READ_RECEIPT: JsonValue = json!({
+pub static READ_RECEIPT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "$example": {
                 "m.read": {
@@ -887,11 +884,11 @@ lazy_static! {
         },
         "room_id": "!test:localhost",
         "type": "m.receipt"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref READ_RECEIPT_OTHER: JsonValue = json!({
+pub static READ_RECEIPT_OTHER: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "$other": {
                 "m.read": {
@@ -903,21 +900,21 @@ lazy_static! {
         },
         "room_id": "!test:localhost",
         "type": "m.receipt"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref REDACTED_INVALID: JsonValue = json!({
+pub static REDACTED_INVALID: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {},
         "event_id": "$15275046980maRLj:localhost",
         "origin_server_ts": 1527504698,
         "sender": "@example:localhost",
         "type": "m.room.message"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref REDACTED_STATE: JsonValue = json!({
+pub static REDACTED_STATE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {},
         "event_id": "$example_id:example.org",
         "origin_server_ts": 153232493,
@@ -937,11 +934,11 @@ lazy_static! {
             },
             "redacted_by": "$redaction_example_id:example.org"
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref REDACTED: JsonValue = json!({
+pub static REDACTED: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {},
         "event_id": "$15275046980maRLj:localhost",
         "origin_server_ts": 1527504698,
@@ -962,11 +959,11 @@ lazy_static! {
             },
             "redacted_by": "$15275047031IXQRi:localhost"
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref REDACTION: JsonValue = json!({
+pub static REDACTION: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "reason": "😀"
         },
@@ -975,11 +972,11 @@ lazy_static! {
         "sender": "@example:localhost",
         "type": "m.room.redaction",
         "redacts": "$151957878228ssqrj:localhost"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref ROOM_AVATAR: JsonValue = json!({
+pub static ROOM_AVATAR: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "info": {
                 "h": 398,
@@ -998,17 +995,17 @@ lazy_static! {
         "unsigned": {
             "age": 1234
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref ROOM_ID: JsonValue = json!({
+pub static ROOM_ID: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "room_id": "!testroom:example.org"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref TAG: JsonValue = json!({
+pub static TAG: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "tags": {
                 "u.work": {
@@ -1017,12 +1014,12 @@ lazy_static! {
             }
         },
         "type": "m.tag"
-    });
-}
+    })
+});
 
 // TODO: Move `prev_content` into `unsigned` once ruma supports it
-lazy_static! {
-    pub static ref TOPIC: JsonValue = json!({
+pub static TOPIC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "topic": "😀"
         },
@@ -1039,11 +1036,11 @@ lazy_static! {
           "prev_sender": "@example:localhost",
           "replaces_state": "$151957069225EVYKm:localhost"
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref TYPING: JsonValue = json!({
+pub static TYPING: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "content": {
             "user_ids": [
                 "@alice:matrix.org",
@@ -1052,5 +1049,5 @@ lazy_static! {
         },
         "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
         "type": "m.typing"
-    });
-}
+    })
+});

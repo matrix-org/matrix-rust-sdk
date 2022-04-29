@@ -608,7 +608,7 @@ mod tests {
     use std::time::Duration;
 
     use atomic::Ordering;
-    use matrix_sdk_common::instant::SystemTime;
+    use matrix_sdk_common::util::modified_seconds_since_unix_epoch;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -616,7 +616,7 @@ mod tests {
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
             message::RoomMessageEventContent,
         },
-        room_id, uint, user_id, EventEncryptionAlgorithm, SecondsSinceUnixEpoch,
+        room_id, uint, user_id, EventEncryptionAlgorithm,
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
@@ -672,8 +672,8 @@ mod tests {
 
         assert!(!session.expired());
         // FIXME: this might break on macosx and windows
-        let time = SystemTime::now() - Duration::from_secs(60 * 60);
-        session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
+        session.creation_time =
+            modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60));
         assert!(session.expired());
 
         let settings = EncryptionSettings { rotation_period_msgs: 0, ..Default::default() };
