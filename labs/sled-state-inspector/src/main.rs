@@ -3,11 +3,9 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
-use matrix_sdk_base::{
-    ruma::{events::StateEventType, OwnedRoomId, OwnedUserId, RoomId},
-    RoomInfo, Store,
-};
+use matrix_sdk_base::{RoomInfo, Store};
 use matrix_sdk_sled::StateStore;
+use ruma::{events::StateEventType, OwnedRoomId, OwnedUserId, RoomId};
 use rustyline::{
     completion::{Completer, Pair},
     error::ReadlineError,
