@@ -21,10 +21,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_base::{
-    locks::Mutex,
-    ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId},
-};
+use matrix_sdk_base::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -36,6 +33,7 @@ use matrix_sdk_crypto::{
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
 use matrix_sdk_store_encryption::StoreCipher;
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 

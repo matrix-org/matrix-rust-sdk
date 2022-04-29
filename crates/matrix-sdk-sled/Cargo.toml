@@ -20,6 +20,7 @@ matrix-sdk-base = { path = "../matrix-sdk-base", optional = true }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }
+ruma = "0.6.1"
 serde = "1.0.136"
 serde_json = "1.0.79"
 sled = "0.34.7"

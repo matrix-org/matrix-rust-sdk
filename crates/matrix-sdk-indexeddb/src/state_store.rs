@@ -21,27 +21,27 @@ use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     deserialized_responses::SyncRoomEvent,
     media::{MediaRequest, UniqueKey},
-    ruma::{
-        events::{
-            presence::PresenceEvent,
-            receipt::Receipt,
-            room::{
-                member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
-                redaction::SyncRoomRedactionEvent,
-            },
-            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
-            AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-            RoomAccountDataEventType, StateEventType,
-        },
-        receipt::ReceiptType,
-        serde::Raw,
-        signatures::{redact_in_place, CanonicalJsonObject},
-        EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
-    },
     store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
+use ruma::{
+    events::{
+        presence::PresenceEvent,
+        receipt::Receipt,
+        room::{
+            member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+            redaction::SyncRoomRedactionEvent,
+        },
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
+        StateEventType,
+    },
+    receipt::ReceiptType,
+    serde::Raw,
+    signatures::{redact_in_place, CanonicalJsonObject},
+    EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use wasm_bindgen::JsValue;

@@ -35,7 +35,7 @@ macro_rules! statestore_integration_tests {
 
                 use futures_util::StreamExt;
                 use matrix_sdk_test::{async_test, test_json};
-                use matrix_sdk_common::ruma::{
+                use ruma::{
                     api::{
                         client::{
                             media::get_content_thumbnail::v3::Method,

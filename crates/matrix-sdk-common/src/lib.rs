@@ -2,7 +2,6 @@
 #![warn(missing_debug_implementations)]
 
 pub use instant;
-pub use ruma;
 
 pub mod deserialized_responses;
 pub mod executor;
