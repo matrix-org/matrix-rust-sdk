@@ -14,7 +14,7 @@ on:
 
 jobs:
   benchmarks:
-    name: Check style
+    name: Run Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
