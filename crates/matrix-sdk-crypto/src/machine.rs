@@ -1526,10 +1526,8 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
     use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
 
-    use matrix_sdk_common::util::milli_seconds_since_unix_epoch;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
@@ -1552,7 +1550,8 @@ pub(crate) mod tests {
         },
         room_id,
         serde::Raw,
-        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
+        uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
+        OwnedDeviceKeyId, UserId,
     };
     use serde_json::json;
     use vodozemac::Ed25519PublicKey;
@@ -1970,7 +1969,7 @@ pub(crate) mod tests {
 
         let event = OriginalSyncMessageLikeEvent {
             event_id: event_id!("$xxxxx:example.org").to_owned(),
-            origin_server_ts: milli_seconds_since_unix_epoch(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             sender: alice.user_id().to_owned(),
             content: encrypted_content,
             unsigned: MessageLikeUnsigned::default(),

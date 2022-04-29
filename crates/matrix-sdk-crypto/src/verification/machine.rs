@@ -18,15 +18,15 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
         ToDeviceEvent,
     },
     serde::Raw,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -191,9 +191,7 @@ impl VerificationMachine {
         self.verifications.get_sas(user_id, flow_id)
     }
 
-    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
-        use ruma::{uint, UInt};
-
+    fn is_timestamp_valid(timestamp: MilliSecondsSinceUnixEpoch) -> bool {
         // The event should be ignored if the event is older than 10 minutes
         let old_timestamp_threshold: UInt = uint!(600);
         // The event should be ignored if the event is 5 minutes or more into the
@@ -201,7 +199,7 @@ impl VerificationMachine {
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();
-        let now = milli_seconds_since_unix_epoch().as_secs();
+        let now = SecondsSinceUnixEpoch::now().get();
 
         !(now.saturating_sub(timestamp) > old_timestamp_threshold
             || timestamp.saturating_sub(now) > timestamp_threshold)

@@ -24,7 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, util::seconds_since_unix_epoch};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         room::{
@@ -175,7 +175,7 @@ impl OutboundGroupSession {
             device_id,
             account_identity_keys: identity_keys,
             session_id: session_id.into(),
-            creation_time: seconds_since_unix_epoch(),
+            creation_time: SecondsSinceUnixEpoch::now(),
             message_count: Arc::new(AtomicU64::new(0)),
             shared: Arc::new(AtomicBool::new(false)),
             invalidated: Arc::new(AtomicBool::new(false)),
@@ -307,7 +307,7 @@ impl OutboundGroupSession {
 
     fn elapsed(&self) -> bool {
         let creation_time = Duration::from_secs(self.creation_time.get().into());
-        let now = Duration::from_secs(seconds_since_unix_epoch().get().into());
+        let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
 
         // Since the encryption settings are provided by users and not
         // checked someone could set a really low rotation period so
@@ -608,7 +608,6 @@ mod tests {
     use std::time::Duration;
 
     use atomic::Ordering;
-    use matrix_sdk_common::util::modified_seconds_since_unix_epoch;
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,
@@ -643,6 +642,8 @@ mod tests {
     #[async_test]
     #[cfg(any(target_os = "linux", target_arch = "wasm32"))]
     async fn expiration() -> Result<(), MegolmError> {
+        use ruma::SecondsSinceUnixEpoch;
+
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
         let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
@@ -671,9 +672,9 @@ mod tests {
             .unwrap();
 
         assert!(!session.expired());
-        // FIXME: this might break on macosx and windows
-        session.creation_time =
-            modified_seconds_since_unix_epoch(|e| e - Duration::from_secs(60 * 60));
+
+        let now = SecondsSinceUnixEpoch::now();
+        session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3600));
         assert!(session.expired());
 
         let settings = EncryptionSettings { rotation_period_msgs: 0, ..Default::default() };

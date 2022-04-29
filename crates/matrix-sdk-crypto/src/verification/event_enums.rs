@@ -63,11 +63,11 @@ impl AnyEvent<'_> {
         }
     }
 
-    pub fn timestamp(&self) -> Option<&MilliSecondsSinceUnixEpoch> {
+    pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             AnyEvent::Room(e) => Some(e.origin_server_ts()),
             AnyEvent::ToDevice(e) => match e {
-                AnyToDeviceEvent::KeyVerificationRequest(e) => Some(&e.content.timestamp),
+                AnyToDeviceEvent::KeyVerificationRequest(e) => Some(e.content.timestamp),
                 _ => None,
             },
         }
