@@ -41,14 +41,14 @@ path = "../matrix-sdk-sled"
 default_features = false
 features = ["crypto-store"]
 
-[dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
-
 [dependencies.tokio]
 version = "1.17.0"
 default_features = false
 features = ["rt-multi-thread"]
+
+[dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac"
+rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
 
 [build-dependencies]
 uniffi_build = { version = "0.17.0", features = ["builtin-bindgen"] }

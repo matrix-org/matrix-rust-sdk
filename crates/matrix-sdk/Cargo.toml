@@ -51,6 +51,7 @@ docsrs = [
 [dependencies]
 anyhow = { version = "1.0.57", optional = true }
 anymap2 = "0.13.0"
+async-stream = "0.3.3"
 bytes = "1.1.0"
 dashmap = "5.2.0"
 event-listener = "2.5.2"
@@ -59,6 +60,8 @@ futures-core = "0.3.21"
 futures-util = { version = "0.3.21", default-features = false }
 http = "0.2.6"
 matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
+matrix-sdk-indexeddb = { path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
+matrix-sdk-sled = { path = "../matrix-sdk-sled", default-features = false, optional = true }
 mime = "0.3.16"
 rand = { version = "0.8.5", optional = true }
 serde = "1.0.136"
@@ -67,10 +70,6 @@ thiserror = "1.0.30"
 tracing = "0.1.34"
 url = "2.2.2"
 zeroize = "1.3.0"
-async-stream = "0.3.3"
-
-matrix-sdk-sled = { path = "../matrix-sdk-sled", default-features = false, optional = true }
-matrix-sdk-indexeddb = { path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
 
 [dependencies.image]
 version = "0.24.2"
@@ -116,7 +115,7 @@ default-features = false
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-timer= "0.2.5"
+wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backoff = { version = "0.4.0", features = ["tokio"] }
