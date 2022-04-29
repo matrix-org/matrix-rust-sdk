@@ -23,7 +23,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{locks::Mutex, util::seconds_since_unix_epoch};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::{
         upload_keys,
@@ -37,7 +37,7 @@ use ruma::{
     },
     serde::{CanonicalJsonValue, Raw},
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedUserId, RoomId, UInt, UserId,
+    OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
@@ -927,7 +927,7 @@ impl ReadOnlyAccount {
     ) -> Session {
         let session = self.inner.lock().await.create_outbound_session(identity_key, one_time_key);
 
-        let now = seconds_since_unix_epoch();
+        let now = SecondsSinceUnixEpoch::now();
         let session_id = session.session_id();
 
         Session {
@@ -1023,7 +1023,7 @@ impl ReadOnlyAccount {
         let result =
             self.inner.lock().await.create_inbound_session(&their_identity_key, message)?;
 
-        let now = seconds_since_unix_epoch();
+        let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
         let session = Session {

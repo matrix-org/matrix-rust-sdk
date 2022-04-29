@@ -18,7 +18,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -26,7 +26,7 @@ use ruma::{
     },
     serde::Raw,
     uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
-    TransactionId, UInt, UserId,
+    SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -199,7 +199,7 @@ impl VerificationMachine {
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();
-        let now = milli_seconds_since_unix_epoch().as_secs();
+        let now = SecondsSinceUnixEpoch::now().get();
 
         !(now.saturating_sub(timestamp) > old_timestamp_threshold
             || timestamp.saturating_sub(now) > timestamp_threshold)
