@@ -15,10 +15,10 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::anyhow;
+use async_trait::async_trait;
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    async_trait,
     deserialized_responses::SyncRoomEvent,
     media::{MediaRequest, UniqueKey},
     ruma::{

@@ -52,6 +52,7 @@ docsrs = [
 anyhow = { version = "1.0.57", optional = true }
 anymap2 = "0.13.0"
 async-stream = "0.3.3"
+async-trait = "0.1.53"
 bytes = "1.1.0"
 dashmap = "5.2.0"
 event-listener = "2.5.2"

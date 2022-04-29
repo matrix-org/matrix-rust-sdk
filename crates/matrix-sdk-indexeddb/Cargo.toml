@@ -12,6 +12,7 @@ default-target = "wasm32-unknown-unknown"
 
 [dependencies]
 anyhow = "1.0.57"
+async-trait = "0.1.53"
 base64 = "0.13.0"
 dashmap = "5.2.0"
 futures-util = { version = "0.3.21", default-features = false }
