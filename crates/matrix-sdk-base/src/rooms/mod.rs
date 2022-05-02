@@ -11,8 +11,8 @@ use ruma::{
             avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::RoomGuestAccessEventContent,
-            history_visibility::RoomHistoryVisibilityEventContent, join_rules::JoinRule,
-            tombstone::RoomTombstoneEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent, tombstone::RoomTombstoneEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
@@ -155,7 +155,7 @@ pub struct BaseRoomInfo {
     /// The history visibility policy of this room.
     history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    pub(crate) join_rule: JoinRule,
+    join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
@@ -211,7 +211,7 @@ impl BaseRoomInfo {
                 self.guest_access = Some(g.into());
             }
             AnySyncStateEvent::RoomJoinRules(c) => {
-                self.join_rule = c.join_rule().clone();
+                self.join_rules = Some(c.into());
             }
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = Some(a.into());
@@ -260,7 +260,7 @@ impl BaseRoomInfo {
                 self.guest_access = Some(g.into());
             }
             AnyStrippedStateEvent::RoomJoinRules(c) => {
-                self.join_rule = c.content.join_rule.clone();
+                self.join_rules = Some(c.into());
             }
             AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = Some(a.into());
@@ -295,7 +295,7 @@ impl Default for BaseRoomInfo {
             encryption: None,
             guest_access: None,
             history_visibility: None,
-            join_rule: JoinRule::Public,
+            join_rules: None,
             max_power_level: 100,
             name: None,
             tombstone: None,

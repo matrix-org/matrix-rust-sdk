@@ -239,7 +239,7 @@ impl Room {
 
     /// Get the join rule policy of this room.
     pub fn join_rule(&self) -> JoinRule {
-        self.inner.read().unwrap().base_info.join_rule.clone()
+        self.inner.read().unwrap().join_rule().clone()
     }
 
     /// Get the maximum power level that this room contains.
@@ -771,6 +771,13 @@ impl RoomInfo {
         match &self.base_info.history_visibility {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
             _ => &HistoryVisibility::WorldReadable,
+        }
+    }
+
+    fn join_rule(&self) -> &JoinRule {
+        match &self.base_info.join_rules {
+            Some(MinimalStateEvent::Original(ev)) => &ev.content.join_rule,
+            _ => &JoinRule::Public,
         }
     }
 }
