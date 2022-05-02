@@ -16,6 +16,7 @@ jobs:
   benchmarks:
     name: Run Benchmarks
     runs-on: ubuntu-latest
+    environment: matrix-rust-bot
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
@@ -42,7 +43,7 @@ jobs:
         output-file-path: benchmark-output.txt
         auto-push: false
         # comment to alert the user this has gone bad
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ secrets.MRB_ACCESS_TOKEN }}
         alert-threshold: '120%'
         comment-on-alert: true
         fail-threshold: '150%'
