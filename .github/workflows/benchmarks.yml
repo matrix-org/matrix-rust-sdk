@@ -32,7 +32,7 @@ jobs:
         override: true
 
     - name: Run Benchmarks
-      run: cargo bench --workspace --benches | tee benchmark-output.txt
+      run: cargo bench | tee benchmark-output.txt
 
     - name: Check benchmark result for PR
       if: github.event_name == 'pull_request'
