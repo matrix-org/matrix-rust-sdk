@@ -12,7 +12,8 @@ use ruma::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
-            join_rules::RoomJoinRulesEventContent, tombstone::RoomTombstoneEventContent,
+            join_rules::RoomJoinRulesEventContent, name::RoomNameEventContent,
+            tombstone::RoomTombstoneEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
@@ -159,7 +160,7 @@ pub struct BaseRoomInfo {
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    pub(crate) name: Option<String>,
+    name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
     pub(crate) tombstone: Option<RoomTombstoneEventContent>,
     /// The topic of this room.
@@ -198,8 +199,7 @@ impl BaseRoomInfo {
                 self.avatar = Some(a.into());
             }
             AnySyncStateEvent::RoomName(n) => {
-                self.name =
-                    n.as_original().and_then(|n| n.content.name.as_ref().map(|n| n.to_string()));
+                self.name = Some(n.into());
             }
             AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
                 self.create = Some(c.into());
@@ -248,7 +248,7 @@ impl BaseRoomInfo {
                 self.avatar = Some(a.into());
             }
             AnyStrippedStateEvent::RoomName(n) => {
-                self.name = n.content.name.as_ref().map(|n| n.to_string());
+                self.name = Some(n.into());
             }
             AnyStrippedStateEvent::RoomCreate(c) if self.create.is_none() => {
                 self.create = Some(c.into());

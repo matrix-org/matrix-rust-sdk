@@ -252,7 +252,7 @@ impl Room {
 
     /// Get the `m.room.name` of this room.
     pub fn name(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.name.clone()
+        self.inner.read().unwrap().name().map(ToOwned::to_owned)
     }
 
     /// Has the room been tombstoned.
@@ -342,7 +342,7 @@ impl Room {
         let summary = {
             let inner = self.inner.read().unwrap();
 
-            if let Some(name) = &inner.base_info.name {
+            if let Some(name) = &inner.name() {
                 let name = name.trim();
                 return Ok(DisplayName::Named(name.to_owned()));
             } else if let Some(alias) = inner.canonical_alias() {
@@ -780,6 +780,10 @@ impl RoomInfo {
             _ => &JoinRule::Public,
         }
     }
+
+    fn name(&self) -> Option<&str> {
+        Some(self.base_info.name.as_ref()?.as_original()?.content.name.as_ref()?.as_ref())
+    }
 }
 
 #[cfg(test)]
@@ -796,6 +800,7 @@ mod test {
                     MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
                     StrippedRoomMemberEvent,
                 },
+                name::RoomNameEventContent,
             },
             StateUnsigned,
         },
@@ -852,12 +857,17 @@ mod test {
             event_id: None,
         });
 
+        let name_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: RoomNameEventContent::new(Some("Test Room".try_into().unwrap())),
+            event_id: None,
+        });
+
         // has precedence
         room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event.clone());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
 
         // has precedence
-        room.inner.write().unwrap().base_info.name = Some("Test Room".to_owned());
+        room.inner.write().unwrap().base_info.name = Some(name_event.clone());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
 
         let (_, room) = make_room(RoomType::Invited);
@@ -868,7 +878,7 @@ mod test {
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
 
         // has precedence
-        room.inner.write().unwrap().base_info.name = Some("Test Room".to_owned());
+        room.inner.write().unwrap().base_info.name = Some(name_event);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
 
