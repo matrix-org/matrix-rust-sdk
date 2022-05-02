@@ -35,7 +35,7 @@ repos:
 
       - id: typos
         name: typos
-        stages: [ push ]
+        stages: [push]
         language: system
         entry: typos
         pass_filenames: false

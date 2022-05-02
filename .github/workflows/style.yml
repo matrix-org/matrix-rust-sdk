@@ -1,4 +1,4 @@
-name: Style checker
+name: Style
 
 on:
   workflow_dispatch:
@@ -16,9 +16,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-
   style:
-    name: Check Format
+    name: Check Formatting
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -41,7 +40,7 @@ jobs:
         args: -- --check
 
   pre-commit-styles:
-    name: Checking Styles
+    name: Check Style
     if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
@@ -64,7 +63,6 @@ jobs:
       with:
         # only run `commit`-hooks, excludes typos, clippy, etc
         extra_args: --show-diff-on-failure --hook-stage commit
-
 
   typos:
     name: Spell Check with Typos

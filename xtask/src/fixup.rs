@@ -14,7 +14,7 @@ pub struct FixupArgs {
 
 #[derive(Subcommand)]
 enum FixupCommand {
-    /// Check style
+    /// Fix style
     Style,
     /// Check for typos
     Typos,
