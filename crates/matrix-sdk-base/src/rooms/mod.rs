@@ -10,8 +10,9 @@ use ruma::{
         room::{
             avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::RoomGuestAccessEventContent, history_visibility::HistoryVisibility,
-            join_rules::JoinRule, tombstone::RoomTombstoneEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent, join_rules::JoinRule,
+            tombstone::RoomTombstoneEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
@@ -152,7 +153,7 @@ pub struct BaseRoomInfo {
     /// The guest access policy of this room.
     guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    pub(crate) history_visibility: HistoryVisibility,
+    history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
     pub(crate) join_rule: JoinRule,
     /// The maximal power level that can be found in this room.
@@ -204,7 +205,7 @@ impl BaseRoomInfo {
                 self.create = Some(c.into());
             }
             AnySyncStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = h.history_visibility().clone();
+                self.history_visibility = Some(h.into());
             }
             AnySyncStateEvent::RoomGuestAccess(g) => {
                 self.guest_access = Some(g.into());
@@ -253,7 +254,7 @@ impl BaseRoomInfo {
                 self.create = Some(c.into());
             }
             AnyStrippedStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = h.content.history_visibility.clone();
+                self.history_visibility = Some(h.into());
             }
             AnyStrippedStateEvent::RoomGuestAccess(g) => {
                 self.guest_access = Some(g.into());
@@ -293,7 +294,7 @@ impl Default for BaseRoomInfo {
             dm_targets: Default::default(),
             encryption: None,
             guest_access: None,
-            history_visibility: HistoryVisibility::WorldReadable,
+            history_visibility: None,
             join_rule: JoinRule::Public,
             max_power_level: 100,
             name: None,
