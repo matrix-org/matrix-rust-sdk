@@ -8,15 +8,100 @@ pub use normal::{Room, RoomInfo, RoomType};
 use ruma::{
     events::{
         room::{
-            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
+            avatar::RoomAvatarEventContent, create::RoomCreateEventContent,
+            encryption::RoomEncryptionEventContent, guest_access::GuestAccess,
+            history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::RoomTombstoneEventContent,
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
+        RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
     },
-    OwnedMxcUri, OwnedRoomAliasId, OwnedUserId,
+    OwnedEventId, OwnedRoomAliasId, OwnedUserId,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+// #[serde(bound)] instead of DeserializeOwned in type where clause does not
+// work, it can only be a single bound that replaces the default and if a helper
+// trait is used, the compiler still complains about Deserialize not being
+// implemented for C::Redacted.
+//
+// It is unclear why a Serialize bound on C::Redacted is not also required.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+enum MinimalStateEvent<C: StateEventContent<StateKey = EmptyStateKey> + RedactContent>
+where
+    C::Redacted:
+        StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
+{
+    Original(OriginalMinimalStateEvent<C>),
+    Redacted(RedactedMinimalStateEvent<C::Redacted>),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct OriginalMinimalStateEvent<C>
+where
+    C: StateEventContent<StateKey = EmptyStateKey>,
+{
+    content: C,
+    event_id: Option<OwnedEventId>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct RedactedMinimalStateEvent<C>
+where
+    C: StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent,
+{
+    content: C,
+    event_id: Option<OwnedEventId>,
+}
+
+impl<C> MinimalStateEvent<C>
+where
+    C: StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+    C::Redacted:
+        StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
+{
+    fn as_original(&self) -> Option<&OriginalMinimalStateEvent<C>> {
+        match self {
+            MinimalStateEvent::Original(ev) => Some(ev),
+            MinimalStateEvent::Redacted(_) => None,
+        }
+    }
+}
+
+impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
+where
+    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+    C::Redacted: Clone
+        + StateEventContent<StateKey = EmptyStateKey>
+        + RedactedEventContent
+        + DeserializeOwned,
+{
+    fn from(ev: &SyncStateEvent<C>) -> Self {
+        match ev {
+            SyncStateEvent::Original(ev) => Self::Original(OriginalMinimalStateEvent {
+                content: ev.content.clone(),
+                event_id: Some(ev.event_id.clone()),
+            }),
+            SyncStateEvent::Redacted(ev) => Self::Redacted(RedactedMinimalStateEvent {
+                content: ev.content.clone(),
+                event_id: Some(ev.event_id.clone()),
+            }),
+        }
+    }
+}
+
+impl<C> From<&StrippedStateEvent<C>> for MinimalStateEvent<C>
+where
+    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+    C::Redacted: Clone
+        + StateEventContent<StateKey = EmptyStateKey>
+        + RedactedEventContent
+        + DeserializeOwned,
+{
+    fn from(ev: &StrippedStateEvent<C>) -> Self {
+        Self::Original(OriginalMinimalStateEvent { content: ev.content.clone(), event_id: None })
+    }
+}
 
 /// The name of the room, either from the metadata or calculaetd
 /// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
@@ -54,7 +139,7 @@ impl fmt::Display for DisplayName {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub(crate) avatar_url: Option<OwnedMxcUri>,
+    avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
     pub(crate) canonical_alias: Option<OwnedRoomAliasId>,
     /// The `m.room.create` event content of this room.
@@ -109,7 +194,7 @@ impl BaseRoomInfo {
                 self.encryption = Some(encryption.content.clone());
             }
             AnySyncStateEvent::RoomAvatar(a) => {
-                self.avatar_url = a.as_original().and_then(|a| a.content.url.clone());
+                self.avatar = Some(a.into());
             }
             AnySyncStateEvent::RoomName(n) => {
                 self.name =
@@ -161,7 +246,7 @@ impl BaseRoomInfo {
                 self.encryption = Some(encryption.content.clone());
             }
             AnyStrippedStateEvent::RoomAvatar(a) => {
-                self.avatar_url = a.content.url.clone();
+                self.avatar = Some(a.into());
             }
             AnyStrippedStateEvent::RoomName(n) => {
                 self.name = n.content.name.as_ref().map(|n| n.to_string());
@@ -204,7 +289,7 @@ impl BaseRoomInfo {
 impl Default for BaseRoomInfo {
     fn default() -> Self {
         Self {
-            avatar_url: None,
+            avatar: None,
             canonical_alias: None,
             create: None,
             dm_targets: Default::default(),

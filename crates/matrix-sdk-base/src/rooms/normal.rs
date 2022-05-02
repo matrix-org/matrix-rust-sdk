@@ -179,7 +179,7 @@ impl Room {
 
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        self.inner.read().unwrap().base_info.avatar_url.clone()
+        self.inner.read().unwrap().base_info.avatar.as_ref()?.as_original()?.content.url.clone()
     }
 
     /// Get the canonical alias of this room.
