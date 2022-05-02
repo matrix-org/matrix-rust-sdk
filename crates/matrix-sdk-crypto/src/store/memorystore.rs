@@ -17,8 +17,9 @@ use std::{
     sync::Arc,
 };
 
+use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{async_trait, locks::Mutex};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };

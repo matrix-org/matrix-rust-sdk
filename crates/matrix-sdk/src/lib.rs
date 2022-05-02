@@ -29,6 +29,7 @@ compile_error!("'sso-login' cannot be enabled on 'wasm32' arch");
 #[cfg(all(feature = "image-rayon", target_arch = "wasm32"))]
 compile_error!("'image-rayon' cannot be enabled on 'wasm32' arch");
 
+pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
     media, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,

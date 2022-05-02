@@ -54,7 +54,8 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
+use async_trait::async_trait;
+use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{

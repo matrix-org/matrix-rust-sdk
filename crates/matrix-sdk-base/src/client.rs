@@ -31,7 +31,6 @@ use matrix_sdk_common::{
     },
     instant::Instant,
     locks::RwLock,
-    util::milli_seconds_since_unix_epoch,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
@@ -61,7 +60,7 @@ use ruma::{
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    OwnedUserId, RoomId, UInt, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -365,7 +364,7 @@ impl BaseClient {
                                     event.event.clone(),
                                     false,
                                     room_id.to_owned(),
-                                    milli_seconds_since_unix_epoch(),
+                                    MilliSecondsSinceUnixEpoch::now(),
                                 ),
                             );
                         }

@@ -18,10 +18,11 @@ use std::{
 };
 
 use async_stream::stream;
+use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 #[allow(unused_imports)]
-use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
+use matrix_sdk_common::{instant::Instant, locks::Mutex};
 use ruma::{
     events::{
         presence::PresenceEvent,

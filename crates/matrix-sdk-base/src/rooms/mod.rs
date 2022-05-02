@@ -119,10 +119,7 @@ impl BaseRoomInfo {
                 self.create = Some(c.content.clone());
             }
             AnySyncStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = match h {
-                    SyncStateEvent::Original(h) => h.content.history_visibility.clone(),
-                    SyncStateEvent::Redacted(h) => h.content.history_visibility.clone(),
-                };
+                self.history_visibility = h.history_visibility().clone();
             }
             AnySyncStateEvent::RoomGuestAccess(g) => {
                 self.guest_access = g
@@ -130,10 +127,7 @@ impl BaseRoomInfo {
                     .map_or(GuestAccess::Forbidden, |g| g.content.guest_access.clone());
             }
             AnySyncStateEvent::RoomJoinRules(c) => {
-                self.join_rule = match c {
-                    SyncStateEvent::Original(c) => c.content.join_rule.clone(),
-                    SyncStateEvent::Redacted(c) => c.content.join_rule.clone(),
-                };
+                self.join_rule = c.join_rule().clone();
             }
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = a.as_original().and_then(|a| a.content.alias.clone());

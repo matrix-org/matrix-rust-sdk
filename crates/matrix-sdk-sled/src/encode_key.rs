@@ -1,6 +1,7 @@
 use std::{borrow::Cow, ops::Deref};
 
-use matrix_sdk_common::ruma::{
+use matrix_sdk_store_encryption::StoreCipher;
+use ruma::{
     events::{
         secret::request::SecretName, GlobalAccountDataEventType, RoomAccountDataEventType,
         StateEventType,
@@ -9,7 +10,6 @@ use matrix_sdk_common::ruma::{
     DeviceId, EventEncryptionAlgorithm, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId,
     RoomId, TransactionId, UserId,
 };
-use matrix_sdk_store_encryption::StoreCipher;
 
 pub const ENCODE_SEPARATOR: u8 = 0xff;
 

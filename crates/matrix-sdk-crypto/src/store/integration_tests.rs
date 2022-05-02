@@ -7,7 +7,7 @@ macro_rules! cryptostore_integration_tests {
             use super::get_store;
 
             use matrix_sdk_test::async_test;
-            use matrix_sdk_common::ruma::{
+            use ruma::{
                 encryption::SignedKey, events::room_key_request::RequestedKeyInfo,
                 serde::Base64, user_id, TransactionId, DeviceId, EventEncryptionAlgorithm, UserId,
                 room_id, device_id,

@@ -32,8 +32,9 @@ use std::{
 #[macro_use]
 pub mod integration_tests;
 
+use async_trait::async_trait;
 use dashmap::DashMap;
-use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
+use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::store::CryptoStore;
 use ruma::{

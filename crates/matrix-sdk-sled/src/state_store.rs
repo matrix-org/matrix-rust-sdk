@@ -21,6 +21,7 @@ use std::{
 
 use anyhow::anyhow;
 use async_stream::stream;
+use async_trait::async_trait;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
@@ -29,27 +30,24 @@ use matrix_sdk_base::{
     store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
-use matrix_sdk_common::{
-    async_trait,
-    ruma::{
-        events::{
-            presence::PresenceEvent,
-            receipt::Receipt,
-            room::{
-                member::{MembershipState, RoomMemberEventContent},
-                redaction::SyncRoomRedactionEvent,
-            },
-            AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
-            AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-            RoomAccountDataEventType, StateEventType,
-        },
-        receipt::ReceiptType,
-        serde::Raw,
-        signatures::{redact_in_place, CanonicalJsonObject},
-        EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
-    },
-};
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
+use ruma::{
+    events::{
+        presence::PresenceEvent,
+        receipt::Receipt,
+        room::{
+            member::{MembershipState, RoomMemberEventContent},
+            redaction::SyncRoomRedactionEvent,
+        },
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
+        StateEventType,
+    },
+    receipt::ReceiptType,
+    serde::Raw,
+    signatures::{redact_in_place, CanonicalJsonObject},
+    EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
+};
 use serde::{Deserialize, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},

@@ -19,7 +19,6 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::util::seconds_since_unix_epoch;
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
@@ -27,7 +26,7 @@ use ruma::{
     assign,
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
     DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
-    OwnedUserId, TransactionId, UserId,
+    OwnedUserId, SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use tracing::{debug, error, info, warn};
 
@@ -97,7 +96,7 @@ impl SessionManager {
                     );
 
                     let creation_time = Duration::from_secs(session.creation_time.get().into());
-                    let now = Duration::from_secs(seconds_since_unix_epoch().get().into());
+                    let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
 
                     let should_unwedge = now
                         .checked_sub(creation_time)
