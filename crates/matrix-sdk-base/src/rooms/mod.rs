@@ -162,7 +162,7 @@ pub struct BaseRoomInfo {
     /// The `m.room.name` of this room.
     name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    pub(crate) tombstone: Option<RoomTombstoneEventContent>,
+    tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
     pub(crate) topic: Option<String>,
 }
@@ -220,7 +220,7 @@ impl BaseRoomInfo {
                 self.topic = t.as_original().map(|t| t.content.topic.clone());
             }
             AnySyncStateEvent::RoomTombstone(t) => {
-                self.tombstone = t.as_original().map(|t| t.content.clone());
+                self.tombstone = Some(t.into());
             }
             AnySyncStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p
@@ -269,7 +269,7 @@ impl BaseRoomInfo {
                 self.topic = Some(t.content.topic.clone());
             }
             AnyStrippedStateEvent::RoomTombstone(t) => {
-                self.tombstone = Some(t.content.clone());
+                self.tombstone = Some(t.into());
             }
             AnyStrippedStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p
