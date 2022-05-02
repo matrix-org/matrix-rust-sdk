@@ -224,7 +224,7 @@ impl Room {
 
     /// Get the guest access policy of this room.
     pub fn guest_access(&self) -> GuestAccess {
-        self.inner.read().unwrap().base_info.guest_access.clone()
+        self.inner.read().unwrap().guest_access().clone()
     }
 
     /// Get the history visibility policy of this room.
@@ -758,6 +758,13 @@ impl RoomInfo {
             MinimalStateEvent::Original(ev) => &ev.content.creator,
             MinimalStateEvent::Redacted(ev) => &ev.content.creator,
         })
+    }
+
+    fn guest_access(&self) -> &GuestAccess {
+        match &self.base_info.guest_access {
+            Some(MinimalStateEvent::Original(ev)) => &ev.content.guest_access,
+            _ => &GuestAccess::Forbidden,
+        }
     }
 }
 
