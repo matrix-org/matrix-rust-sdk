@@ -143,7 +143,7 @@ pub struct BaseRoomInfo {
     /// The canonical alias of this room.
     canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
-    pub(crate) create: Option<RoomCreateEventContent>,
+    create: Option<MinimalStateEvent<RoomCreateEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedUserId>,
@@ -200,8 +200,8 @@ impl BaseRoomInfo {
                 self.name =
                     n.as_original().and_then(|n| n.content.name.as_ref().map(|n| n.to_string()));
             }
-            AnySyncStateEvent::RoomCreate(SyncStateEvent::Original(c)) if self.create.is_none() => {
-                self.create = Some(c.content.clone());
+            AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
+                self.create = Some(c.into());
             }
             AnySyncStateEvent::RoomHistoryVisibility(h) => {
                 self.history_visibility = h.history_visibility().clone();
@@ -252,7 +252,7 @@ impl BaseRoomInfo {
                 self.name = n.content.name.as_ref().map(|n| n.to_string());
             }
             AnyStrippedStateEvent::RoomCreate(c) if self.create.is_none() => {
-                self.create = Some(c.content.clone());
+                self.create = Some(c.into());
             }
             AnyStrippedStateEvent::RoomHistoryVisibility(h) => {
                 self.history_visibility = h.content.history_visibility.clone();
