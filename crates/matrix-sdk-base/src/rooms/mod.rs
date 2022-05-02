@@ -8,15 +8,15 @@ pub use normal::{Room, RoomInfo, RoomType};
 use ruma::{
     events::{
         room::{
-            avatar::RoomAvatarEventContent, create::RoomCreateEventContent,
-            encryption::RoomEncryptionEventContent, guest_access::GuestAccess,
-            history_visibility::HistoryVisibility, join_rules::JoinRule,
+            avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
+            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
+            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::RoomTombstoneEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
     },
-    OwnedEventId, OwnedRoomAliasId, OwnedUserId,
+    OwnedEventId, OwnedUserId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -141,7 +141,7 @@ pub struct BaseRoomInfo {
     /// The avatar URL of this room.
     avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    pub(crate) canonical_alias: Option<OwnedRoomAliasId>,
+    canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
     pub(crate) create: Option<RoomCreateEventContent>,
     /// A list of user ids this room is considered as direct message, if this
@@ -215,7 +215,7 @@ impl BaseRoomInfo {
                 self.join_rule = c.join_rule().clone();
             }
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.as_original().and_then(|a| a.content.alias.clone());
+                self.canonical_alias = Some(a.into());
             }
             AnySyncStateEvent::RoomTopic(t) => {
                 self.topic = t.as_original().map(|t| t.content.topic.clone());
@@ -264,7 +264,7 @@ impl BaseRoomInfo {
                 self.join_rule = c.content.join_rule.clone();
             }
             AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.content.alias.clone();
+                self.canonical_alias = Some(a.into());
             }
             AnyStrippedStateEvent::RoomTopic(t) => {
                 self.topic = Some(t.content.topic.clone());

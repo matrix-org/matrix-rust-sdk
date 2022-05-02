@@ -41,8 +41,8 @@ use ruma::{
     },
     receipt::ReceiptType,
     room::RoomType as CreateRoomType,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomId, RoomVersionId,
-    UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
+    RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -184,7 +184,7 @@ impl Room {
 
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
-        self.inner.read().unwrap().base_info.canonical_alias.clone()
+        self.inner.read().unwrap().canonical_alias().map(ToOwned::to_owned)
     }
 
     /// Get the `m.room.create` content of this room.
@@ -345,7 +345,7 @@ impl Room {
             if let Some(name) = &inner.base_info.name {
                 let name = name.trim();
                 return Ok(DisplayName::Named(name.to_owned()));
-            } else if let Some(alias) = &inner.base_info.canonical_alias {
+            } else if let Some(alias) = inner.canonical_alias() {
                 let alias = alias.alias().trim();
                 return Ok(DisplayName::Aliased(alias.to_owned()));
             }
@@ -740,6 +740,11 @@ impl RoomInfo {
         self.summary.joined_member_count.saturating_add(self.summary.invited_member_count)
     }
 
+    /// Get the canonical alias of this room.
+    pub fn canonical_alias(&self) -> Option<&RoomAliasId> {
+        self.base_info.canonical_alias.as_ref()?.as_original()?.content.alias.as_deref()
+    }
+
     /// Get the room ID of this room.
     pub fn room_id(&self) -> &RoomId {
         &self.room_id
@@ -759,17 +764,23 @@ mod test {
     use ruma::{
         event_id,
         events::{
-            room::member::{
-                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                StrippedRoomMemberEvent,
+            room::{
+                canonical_alias::RoomCanonicalAliasEventContent,
+                member::{
+                    MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+                    StrippedRoomMemberEvent,
+                },
             },
             StateUnsigned,
         },
-        room_id, user_id, MilliSecondsSinceUnixEpoch, RoomAliasId,
+        room_alias_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
     };
 
     use super::*;
-    use crate::store::{MemoryStore, StateChanges};
+    use crate::{
+        rooms::{MinimalStateEvent, OriginalMinimalStateEvent},
+        store::{MemoryStore, StateChanges},
+    };
 
     fn make_room(room_type: RoomType) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
@@ -808,9 +819,15 @@ mod test {
         let (_, room) = make_room(RoomType::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
+        let canonical_alias_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: assign!(RoomCanonicalAliasEventContent::new(), {
+                alias: Some(room_alias_id!("#test:example.com").to_owned()),
+            }),
+            event_id: None,
+        });
+
         // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias =
-            Some(RoomAliasId::parse("#test:example.com").unwrap());
+        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event.clone());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
 
         // has precedence
@@ -821,8 +838,7 @@ mod test {
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
         // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias =
-            Some(RoomAliasId::parse("#test:example.com").unwrap());
+        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
 
         // has precedence
