@@ -18,7 +18,7 @@ use ruma::{
     events::forwarded_room_key::{
         ToDeviceForwardedRoomKeyEventContent, ToDeviceForwardedRoomKeyEventContentInit,
     },
-    DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
+    DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +44,7 @@ pub struct ExportedRoomKey {
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The room where the session is used.
-    pub room_id: Box<RoomId>,
+    pub room_id: OwnedRoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
     pub sender_key: String,
@@ -156,54 +156,5 @@ impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
             sender_key: forwarded_key.sender_key,
             session_key,
         })
-    }
-}
-
-#[cfg(all(test, any(target_os = "linux", target_arch = "wasm32")))]
-mod tests {
-    use std::{sync::Arc, time::Duration};
-
-    use matrix_sdk_common::instant::Instant;
-    use matrix_sdk_test::async_test;
-    use ruma::{device_id, events::room::message::RoomMessageEventContent, room_id, user_id};
-
-    use super::EncryptionSettings;
-    use crate::{MegolmError, ReadOnlyAccount};
-
-    #[async_test]
-    async fn expiration() -> Result<(), MegolmError> {
-        let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
-
-        let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
-        let (session, _) = account
-            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
-
-        assert!(!session.expired());
-        let _ = session
-            .encrypt(
-                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
-                "m.room.message",
-            )
-            .await;
-        assert!(session.expired());
-
-        let settings = EncryptionSettings {
-            rotation_period: Duration::from_millis(100),
-            ..Default::default()
-        };
-
-        let (mut session, _) = account
-            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
-
-        assert!(!session.expired());
-        // FIXME: this might break on macosx and windows
-        session.creation_time = Arc::new(Instant::now() - Duration::from_secs(60 * 60));
-        assert!(session.expired());
-
-        Ok(())
     }
 }

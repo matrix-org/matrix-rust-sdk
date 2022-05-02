@@ -18,13 +18,10 @@ use std::{
 };
 
 use anyhow::anyhow;
+use async_trait::async_trait;
 use dashmap::DashSet;
 use indexed_db_futures::prelude::*;
-use matrix_sdk_common::{
-    async_trait,
-    locks::Mutex,
-    ruma::{DeviceId, RoomId, TransactionId, UserId},
-};
+use matrix_sdk_base::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -36,6 +33,7 @@ use matrix_sdk_crypto::{
     GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities, SecretInfo,
 };
 use matrix_sdk_store_encryption::StoreCipher;
+use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 
@@ -65,6 +63,11 @@ mod KEYS {
     pub const STORE_CIPHER: &str = "store_cipher";
     pub const ACCOUNT: &str = "account";
     pub const PRIVATE_IDENTITY: &str = "private_identity";
+
+    // BACKUP v1
+    pub const BACKUP_KEYS: &str = "backup_keys";
+    pub const BACKUP_KEY_V1: &str = "backup_key_v1";
+    pub const RECOVERY_KEY_V1: &str = "recovery_key_v1";
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -73,11 +76,11 @@ pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
 
-    store_cipher: Arc<Option<StoreCipher>>,
+    store_cipher: Option<Arc<StoreCipher>>,
 
     session_cache: SessionStore,
-    tracked_users_cache: Arc<DashSet<Box<UserId>>>,
-    users_for_key_query_cache: Arc<DashSet<Box<UserId>>>,
+    tracked_users_cache: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
 impl std::fmt::Debug for IndexeddbStore {
@@ -133,7 +136,10 @@ pub struct AccountInfo {
 }
 
 impl IndexeddbStore {
-    async fn open_helper(prefix: String, store_cipher: Option<StoreCipher>) -> Result<Self> {
+    pub(crate) async fn open_with_store_cipher(
+        prefix: String,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto", prefix);
 
         // Open my_db v1
@@ -156,6 +162,8 @@ impl IndexeddbStore {
                 db.create_object_store(KEYS::OUTGOING_SECRET_REQUESTS)?;
                 db.create_object_store(KEYS::UNSENT_SECRET_REQUESTS)?;
                 db.create_object_store(KEYS::SECRET_REQUESTS_BY_INFO)?;
+
+                db.create_object_store(KEYS::BACKUP_KEYS)?;
             }
             Ok(())
         }));
@@ -167,7 +175,7 @@ impl IndexeddbStore {
             name,
             session_cache,
             inner: db,
-            store_cipher: store_cipher.into(),
+            store_cipher,
             account_info: RwLock::new(None).into(),
             tracked_users_cache: DashSet::new().into(),
             users_for_key_query_cache: DashSet::new().into(),
@@ -176,7 +184,7 @@ impl IndexeddbStore {
 
     /// Open a new IndexeddbStore with default name and no passphrase
     pub async fn open() -> Result<Self> {
-        IndexeddbStore::open_helper("crypto".to_owned(), None).await
+        IndexeddbStore::open_with_store_cipher("crypto".to_owned(), None).await
     }
 
     /// Open a new IndexeddbStore with given name and passphrase
@@ -229,16 +237,16 @@ impl IndexeddbStore {
             }
         };
 
-        IndexeddbStore::open_helper(prefix, Some(store_cipher)).await
+        IndexeddbStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
     }
 
     /// Open a new IndexeddbStore with given name and no passphrase
     pub async fn open_with_name(name: String) -> Result<Self> {
-        IndexeddbStore::open_helper(name, None).await
+        IndexeddbStore::open_with_store_cipher(name, None).await
     }
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             let value =
                 key.encrypt_value(value).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
 
@@ -252,7 +260,7 @@ impl IndexeddbStore {
         &self,
         value: JsValue,
     ) -> Result<T, CryptoStoreError> {
-        if let Some(key) = &*self.store_cipher {
+        if let Some(key) = &self.store_cipher {
             let value: Vec<u8> = value.into_serde()?;
             key.decrypt_value(&value).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
         } else {
@@ -267,6 +275,7 @@ impl IndexeddbStore {
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut stores: Vec<&str> = [
             (changes.account.is_some() || changes.private_identity.is_some(), KEYS::CORE),
+            (changes.recovery_key.is_some() || changes.backup_version.is_some(), KEYS::BACKUP_KEYS),
             (!changes.sessions.is_empty(), KEYS::SESSION),
             (
                 !changes.devices.new.is_empty()
@@ -308,6 +317,9 @@ impl IndexeddbStore {
         let private_identity_pickle =
             if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
 
+        let recovery_key_pickle = changes.recovery_key;
+        let backup_version = changes.backup_version;
+
         if let Some(a) = &account_pickle {
             tx.object_store(KEYS::CORE)?
                 .put_key_val(&JsValue::from_str(KEYS::ACCOUNT), &self.serialize_value(&a)?)?;
@@ -318,6 +330,18 @@ impl IndexeddbStore {
                 &JsValue::from_str(KEYS::PRIVATE_IDENTITY),
                 &self.serialize_value(i)?,
             )?;
+        }
+
+        if let Some(a) = &recovery_key_pickle {
+            tx.object_store(KEYS::BACKUP_KEYS)?.put_key_val(
+                &JsValue::from_str(KEYS::RECOVERY_KEY_V1),
+                &self.serialize_value(&a)?,
+            )?;
+        }
+
+        if let Some(a) = &backup_version {
+            tx.object_store(KEYS::BACKUP_KEYS)?
+                .put_key_val(&JsValue::from_str(KEYS::BACKUP_KEY_V1), &self.serialize_value(&a)?)?;
         }
 
         if !changes.sessions.is_empty() {
@@ -665,11 +689,11 @@ impl IndexeddbStore {
         Ok(())
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
@@ -718,7 +742,7 @@ impl IndexeddbStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let range = user_id.encode_to_range().map_err(|e| IndexeddbStoreError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
@@ -831,6 +855,31 @@ impl IndexeddbStore {
 
         tx.await.into_result().map_err(|e| e.into())
     }
+
+    async fn load_backup_keys(&self) -> Result<BackupKeys> {
+        let key = {
+            let tx = self
+                .inner
+                .transaction_on_one_with_mode(KEYS::BACKUP_KEYS, IdbTransactionMode::Readonly)?;
+            let store = tx.object_store(KEYS::BACKUP_KEYS)?;
+
+            let backup_version = store
+                .get(&JsValue::from_str(KEYS::BACKUP_KEY_V1))?
+                .await?
+                .map(|i| self.deserialize_value(i))
+                .transpose()?;
+
+            let recovery_key = store
+                .get(&JsValue::from_str(KEYS::RECOVERY_KEY_V1))?
+                .await?
+                .map(|i| self.deserialize_value(i))
+                .transpose()?;
+
+            BackupKeys { backup_version, recovery_key }
+        };
+
+        Ok(key)
+    }
 }
 
 #[async_trait(?Send)]
@@ -913,17 +962,16 @@ impl CryptoStore for IndexeddbStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query()
     }
 
-    #[allow(clippy::todo)]
     async fn load_backup_keys(&self) -> Result<BackupKeys, CryptoStoreError> {
-        todo!()
+        self.load_backup_keys().await.map_err(|e| e.into())
     }
 
     async fn update_tracked_user(
@@ -945,7 +993,7 @@ impl CryptoStore for IndexeddbStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, CryptoStoreError> {
         self.get_user_devices(user_id).await.map_err(|e| e.into())
     }
 

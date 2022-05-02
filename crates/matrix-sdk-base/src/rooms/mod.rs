@@ -1,7 +1,7 @@
 mod members;
 mod normal;
 
-use std::cmp::max;
+use std::{cmp::max, collections::HashSet};
 
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomType};
@@ -14,7 +14,7 @@ use ruma::{
         },
         AnyStrippedStateEvent, AnySyncStateEvent, SyncStateEvent,
     },
-    MxcUri, RoomAliasId, UserId,
+    OwnedMxcUri, OwnedRoomAliasId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,14 +24,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub(crate) avatar_url: Option<Box<MxcUri>>,
+    pub(crate) avatar_url: Option<OwnedMxcUri>,
     /// The canonical alias of this room.
-    pub(crate) canonical_alias: Option<Box<RoomAliasId>>,
+    pub(crate) canonical_alias: Option<OwnedRoomAliasId>,
     /// The `m.room.create` event content of this room.
     pub(crate) create: Option<RoomCreateEventContent>,
-    /// The user id this room is sharing the direct message with, if the room is
-    /// a direct message.
-    pub(crate) dm_target: Option<Box<UserId>>,
+    /// A list of user ids this room is considered as direct message, if this
+    /// room is a DM.
+    pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
@@ -89,10 +89,7 @@ impl BaseRoomInfo {
                 self.create = Some(c.content.clone());
             }
             AnySyncStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = match h {
-                    SyncStateEvent::Original(h) => h.content.history_visibility.clone(),
-                    SyncStateEvent::Redacted(h) => h.content.history_visibility.clone(),
-                };
+                self.history_visibility = h.history_visibility().clone();
             }
             AnySyncStateEvent::RoomGuestAccess(g) => {
                 self.guest_access = g
@@ -100,10 +97,7 @@ impl BaseRoomInfo {
                     .map_or(GuestAccess::Forbidden, |g| g.content.guest_access.clone());
             }
             AnySyncStateEvent::RoomJoinRules(c) => {
-                self.join_rule = match c {
-                    SyncStateEvent::Original(c) => c.content.join_rule.clone(),
-                    SyncStateEvent::Redacted(c) => c.content.join_rule.clone(),
-                };
+                self.join_rule = c.join_rule().clone();
             }
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = a.as_original().and_then(|a| a.content.alias.clone());
@@ -183,7 +177,7 @@ impl Default for BaseRoomInfo {
             avatar_url: None,
             canonical_alias: None,
             create: None,
-            dm_target: None,
+            dm_targets: Default::default(),
             encryption: None,
             guest_access: GuestAccess::Forbidden,
             history_visibility: HistoryVisibility::WorldReadable,

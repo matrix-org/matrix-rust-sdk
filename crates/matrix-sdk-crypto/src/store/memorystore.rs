@@ -17,9 +17,12 @@ use std::{
     sync::Arc,
 };
 
+use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{async_trait, locks::Mutex};
-use ruma::{DeviceId, RoomId, TransactionId, UserId};
+use matrix_sdk_common::locks::Mutex;
+use ruma::{
+    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -46,13 +49,13 @@ fn encode_key_info(info: &SecretInfo) -> String {
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    tracked_users: Arc<DashSet<Box<UserId>>>,
-    users_for_key_query: Arc<DashSet<Box<UserId>>>,
+    tracked_users: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query: Arc<DashSet<OwnedUserId>>,
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
-    identities: Arc<DashMap<Box<UserId>, ReadOnlyUserIdentities>>,
-    outgoing_key_requests: Arc<DashMap<Box<TransactionId>, GossipRequest>>,
-    key_requests_by_info: Arc<DashMap<String, Box<TransactionId>>>,
+    identities: Arc<DashMap<OwnedUserId, ReadOnlyUserIdentities>>,
+    outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
+    key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
 }
 
 impl Default for MemoryStore {
@@ -207,11 +210,11 @@ impl CryptoStore for MemoryStore {
         !self.users_for_key_query.is_empty()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users.iter().map(|u| u.to_owned()).collect()
     }
 
@@ -248,7 +251,7 @@ impl CryptoStore for MemoryStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         Ok(self.devices.user_devices(user_id))
     }
 

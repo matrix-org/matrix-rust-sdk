@@ -14,9 +14,10 @@
 
 use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duration};
 
+use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
-use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
+use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 use reqwest::Response;
 use ruma::api::{
     error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,

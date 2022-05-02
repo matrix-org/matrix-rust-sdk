@@ -21,7 +21,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 #[cfg(feature = "decode_image")]
 use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Luma};
 use qrcode::QrCode;
-use ruma_common::{serde::Base64, EventId};
+use ruma_common::{serde::Base64, OwnedEventId};
 use vodozemac::Ed25519PublicKey;
 
 #[cfg(feature = "decode_image")]
@@ -377,7 +377,7 @@ impl QrVerificationData {
 /// cross signing keys.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VerificationData {
-    event_id: Box<EventId>,
+    event_id: OwnedEventId,
     first_master_key: Ed25519PublicKey,
     second_master_key: Ed25519PublicKey,
     shared_secret: Base64,
@@ -400,7 +400,7 @@ impl VerificationData {
     /// * ` shared_secret` - A random bytestring encoded as unpadded base64,
     /// needs to be at least 8 bytes long.
     pub fn new(
-        event_id: Box<EventId>,
+        event_id: OwnedEventId,
         first_key: Ed25519PublicKey,
         second_key: Ed25519PublicKey,
         shared_secret: Base64,

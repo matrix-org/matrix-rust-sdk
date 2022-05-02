@@ -31,7 +31,8 @@ use ruma::{
         key::verification::VerificationMethod, room::encrypted::ToDeviceRoomEncryptedEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
@@ -39,6 +40,8 @@ use tracing::warn;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
+#[cfg(any(test, feature = "testing"))]
+use crate::OlmMachine;
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
@@ -46,10 +49,8 @@ use crate::{
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     types::{DeviceKey, DeviceKeys, SignedKey},
     verification::VerificationMachine,
-    OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
+    OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
 };
-#[cfg(any(test, feature = "testing"))]
-use crate::{OlmMachine, ReadOnlyAccount};
 
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -291,7 +292,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: HashMap<Box<DeviceId>, ReadOnlyDevice>,
+    pub(crate) inner: HashMap<OwnedDeviceId, ReadOnlyDevice>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
@@ -331,8 +332,8 @@ impl UserDevices {
     }
 
     /// Iterator over all the device ids of the user devices.
-    pub fn keys(&self) -> impl Iterator<Item = &Box<DeviceId>> {
-        self.inner.keys()
+    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
+        self.inner.keys().map(Deref::deref)
     }
 
     /// Iterator over all the devices of the user devices.
@@ -426,12 +427,12 @@ impl ReadOnlyDevice {
     }
 
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &BTreeMap<Box<DeviceKeyId>, DeviceKey> {
+    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, DeviceKey> {
         &self.inner.keys
     }
 
     /// Get a map containing all the device signatures.
-    pub fn signatures(&self) -> &BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
+    pub fn signatures(&self) -> &BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
         &self.inner.signatures
     }
 
@@ -516,16 +517,17 @@ impl ReadOnlyDevice {
             k
         } else {
             warn!(
-                "Trying to encrypt a Megolm session for user {} on device {}, \
-                but the device doesn't have a curve25519 key",
-                self.user_id(),
-                self.device_id()
+                user_id = %self.user_id(),
+                device_id = %self.device_id(),
+                "Trying to encrypt a Megolm session, but the device doesn't \
+                have a curve25519 key",
             );
             return Err(EventError::MissingSenderKey.into());
         };
 
         let session = if let Some(s) = store.get_sessions(&sender_key.to_base64()).await? {
-            let sessions = s.lock().await;
+            let mut sessions = s.lock().await;
+            sessions.sort_by_key(|s| s.last_use_time);
             sessions.get(0).cloned()
         } else {
             None
@@ -599,14 +601,22 @@ impl ReadOnlyDevice {
         ReadOnlyDevice::from_account(machine.account()).await
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    #[allow(dead_code)]
-    /// Generate the Device from the reference of an Account.
+    /// Create a `ReadOnlyDevice` from an `Account`
     ///
-    /// TESTING FACILITY ONLY, DO NOT USE OUTSIDE OF TESTS
+    /// We will have our own device in the store once we receive a keys/query
+    /// response, but this is useful to create it before we receive such a
+    /// response.
+    ///
+    /// It also makes it easier to check that the server doesn't lie about our
+    /// own device.
+    ///
+    /// *Don't* use this after we received a keys/query response, other
+    /// users/devices might add signatures to our own device, which can't be
+    /// replicated locally.
     pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
-        ReadOnlyDevice::try_from(&device_keys).unwrap()
+        ReadOnlyDevice::try_from(&device_keys)
+            .expect("Creating a device from our own account should always succeed")
     }
 }
 

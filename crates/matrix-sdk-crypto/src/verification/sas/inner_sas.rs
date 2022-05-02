@@ -18,7 +18,7 @@ use std::sync::Arc;
 use matrix_sdk_common::instant::Instant;
 use ruma::{
     events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
-    EventId, RoomId, TransactionId, UserId,
+    OwnedEventId, OwnedRoomId, OwnedTransactionId, UserId,
 };
 
 use super::{
@@ -57,7 +57,7 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<Box<TransactionId>>,
+        transaction_id: Option<OwnedTransactionId>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(
             account,
@@ -134,8 +134,8 @@ impl InnerSas {
     }
 
     pub fn start_in_room(
-        event_id: Box<EventId>,
-        room_id: Box<RoomId>,
+        event_id: OwnedEventId,
+        room_id: OwnedRoomId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,

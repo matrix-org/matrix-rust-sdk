@@ -27,8 +27,8 @@
 //! #     store::MemoryStore,
 //! # };
 //! # use ruma::{device_id, user_id};
-//! # let user_id = user_id!("@example:localhost").to_owned();
-//! # let device_id = device_id!("TEST").to_owned();
+//! # let user_id = user_id!("@example:localhost");
+//! # let device_id = device_id!("TEST");
 //! let store = Box::new(MemoryStore::new());
 //!
 //! let machine = OlmMachine::with_store(user_id, device_id, store);
@@ -54,11 +54,13 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
+use async_trait::async_trait;
+use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::secret::request::SecretName, DeviceId, IdParseError, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, IdParseError, OwnedDeviceId, OwnedUserId,
+    RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
@@ -349,7 +351,7 @@ impl Store {
     pub async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.remove(self.device_id());
@@ -364,7 +366,7 @@ impl Store {
     pub async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -386,8 +388,22 @@ impl Store {
     }
 
     /// Get all devices associated with the given `user_id`
+    ///
+    /// *Note*: This doesn't return our own device.
+    pub async fn get_user_devices_filtered(&self, user_id: &UserId) -> Result<UserDevices> {
+        self.get_user_devices(user_id).await.map(|mut d| {
+            if user_id == self.user_id() {
+                d.inner.remove(self.device_id());
+            }
+            d
+        })
+    }
+
+    /// Get all devices associated with the given `user_id`
+    ///
+    /// *Note*: This does also return our own device.
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
-        let devices = self.inner.get_user_devices(user_id).await?;
+        let devices = self.get_readonly_devices_unfiltered(user_id).await?;
 
         let own_identity =
             self.inner.get_user_identity(&self.user_id).await?.and_then(|i| i.own().cloned());
@@ -693,10 +709,10 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users.
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>>;
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId>;
 
     /// Get all tracked users we know about.
-    fn tracked_users(&self) -> HashSet<Box<UserId>>;
+    fn tracked_users(&self) -> HashSet<OwnedUserId>;
 
     /// Add an user for tracking.
     ///
@@ -730,7 +746,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>>;
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>>;
 
     /// Get the user identity that is attached to the given user id.
     ///

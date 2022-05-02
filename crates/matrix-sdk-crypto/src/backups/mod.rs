@@ -30,8 +30,8 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, RoomId,
-    TransactionId, UserId,
+    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceKeyId,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -64,9 +64,9 @@ pub struct BackupMachine {
 
 #[derive(Debug, Clone)]
 struct PendingBackup {
-    request_id: Box<TransactionId>,
+    request_id: OwnedTransactionId,
     request: KeysBackupRequest,
-    sessions: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
+    sessions: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
 }
 
 impl PendingBackup {
@@ -125,7 +125,7 @@ impl BackupMachine {
         struct AuthData {
             public_key: String,
             #[serde(default)]
-            signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+            signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
             #[serde(flatten)]
             extra: BTreeMap<String, Value>,
         }
@@ -350,11 +350,11 @@ impl BackupMachine {
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
     ) -> (
-        BTreeMap<Box<RoomId>, RoomKeyBackup>,
-        BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>>,
+        BTreeMap<OwnedRoomId, RoomKeyBackup>,
+        BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>>,
     ) {
-        let mut backup: BTreeMap<Box<RoomId>, RoomKeyBackup> = BTreeMap::new();
-        let mut session_record: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<String>>> =
+        let mut backup: BTreeMap<OwnedRoomId, RoomKeyBackup> = BTreeMap::new();
+        let mut session_record: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<String>>> =
             BTreeMap::new();
 
         for session in sessions {
@@ -459,7 +459,7 @@ mod tests {
 
     #[async_test]
     async fn memory_store_backups() -> Result<(), OlmError> {
-        let machine = OlmMachine::new(alice_id(), alice_device_id());
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
 
         backup_flow(machine).await
     }

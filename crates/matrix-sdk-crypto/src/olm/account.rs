@@ -23,7 +23,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{instant::Instant, locks::Mutex};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::{
         upload_keys,
@@ -36,7 +36,8 @@ use ruma::{
         AnyToDeviceEvent, OlmV1Keys,
     },
     serde::{CanonicalJsonValue, Raw},
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
+    OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
@@ -89,9 +90,14 @@ impl SessionType {
     }
 }
 
+/// A struct witnessing a successful decryption of an Olm-encrypted to-device
+/// event.
+///
+/// Contains the decrypted event plaintext along with some associated metadata,
+/// such as the identity (Curve25519) key of the to-device event sender.
 #[derive(Debug, Clone)]
-pub struct OlmDecryptionInfo {
-    pub sender: Box<UserId>,
+pub(crate) struct OlmDecryptionInfo {
+    pub sender: OwnedUserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
     pub deserialized_event: Option<AnyToDeviceEvent>,
@@ -212,7 +218,7 @@ impl Account {
         }
     }
 
-    pub async fn decrypt_to_device_event(
+    pub(crate) async fn decrypt_to_device_event(
         &self,
         event: &ToDeviceRoomEncryptedEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
@@ -398,8 +404,8 @@ impl Account {
     ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
         #[derive(Deserialize)]
         struct DecryptedEvent {
-            sender: Box<UserId>,
-            recipient: Box<UserId>,
+            sender: OwnedUserId,
+            recipient: OwnedUserId,
             recipient_keys: OlmV1Keys,
             keys: OlmV1Keys,
         }
@@ -452,9 +458,9 @@ pub struct ReadOnlyAccount {
 #[allow(missing_debug_implementations)]
 pub struct PickledAccount {
     /// The user id of the account owner.
-    pub user_id: Box<UserId>,
+    pub user_id: OwnedUserId,
     /// The device id of the account owner.
-    pub device_id: Box<DeviceId>,
+    pub device_id: OwnedDeviceId,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
     /// Was the account shared.
@@ -641,8 +647,8 @@ impl ReadOnlyAccount {
         &self,
     ) -> (
         Option<DeviceKeys>,
-        BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>,
-        BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>,
+        BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
+        BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
     ) {
         let device_keys = if !self.shared() { Some(self.device_keys().await) } else { None };
 
@@ -705,8 +711,8 @@ impl ReadOnlyAccount {
         let identity_keys = account.identity_keys();
 
         Ok(Self {
-            user_id: pickle.user_id.into(),
-            device_id: pickle.device_id.into(),
+            user_id: (&*pickle.user_id).into(),
+            device_id: (&*pickle.device_id).into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
@@ -831,7 +837,7 @@ impl ReadOnlyAccount {
     /// If no one-time keys need to be uploaded returns an empty BTreeMap.
     pub async fn signed_one_time_keys(
         &self,
-    ) -> BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>> {
+    ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
         let _ = self.generate_one_time_keys().await;
 
         let one_time_keys = self.one_time_keys().await;
@@ -848,7 +854,7 @@ impl ReadOnlyAccount {
     /// If no fallback keys need to be uploaded returns an empty BTreeMap.
     pub async fn signed_fallback_keys(
         &self,
-    ) -> BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>> {
+    ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
         let fallback_key = self.fallback_key().await;
 
         if fallback_key.is_empty() {
@@ -862,7 +868,7 @@ impl ReadOnlyAccount {
         &self,
         keys: HashMap<KeyId, Curve25519PublicKey>,
         fallback: bool,
-    ) -> BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>> {
+    ) -> BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>> {
         let mut keys_map = BTreeMap::new();
 
         for (key_id, key) in keys {
@@ -921,7 +927,7 @@ impl ReadOnlyAccount {
     ) -> Session {
         let session = self.inner.lock().await.create_outbound_session(identity_key, one_time_key);
 
-        let now = Instant::now();
+        let now = SecondsSinceUnixEpoch::now();
         let session_id = session.session_id();
 
         Session {
@@ -932,8 +938,8 @@ impl ReadOnlyAccount {
             session_id: session_id.into(),
             sender_key: identity_key,
             created_using_fallback_key: fallback_used,
-            creation_time: Arc::new(now),
-            last_use_time: Arc::new(now),
+            creation_time: now,
+            last_use_time: now,
         }
     }
 
@@ -951,7 +957,7 @@ impl ReadOnlyAccount {
     pub async fn create_outbound_session(
         &self,
         device: ReadOnlyDevice,
-        key_map: &BTreeMap<Box<DeviceKeyId>, Raw<ruma::encryption::OneTimeKey>>,
+        key_map: &BTreeMap<OwnedDeviceKeyId, Raw<ruma::encryption::OneTimeKey>>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {
             SessionCreationError::OneTimeKeyMissing(
@@ -1004,7 +1010,7 @@ impl ReadOnlyAccount {
     /// session failed.
     ///
     /// # Arguments
-    /// * `their_identity_key` - The other account's identitiy/curve25519 key.
+    /// * `their_identity_key` - The other account's identity/curve25519 key.
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
@@ -1017,7 +1023,7 @@ impl ReadOnlyAccount {
         let result =
             self.inner.lock().await.create_inbound_session(&their_identity_key, message)?;
 
-        let now = Instant::now();
+        let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
         let session = Session {
@@ -1028,8 +1034,8 @@ impl ReadOnlyAccount {
             session_id: session_id.into(),
             sender_key: their_identity_key,
             created_using_fallback_key: false,
-            creation_time: Arc::new(now),
-            last_use_time: Arc::new(now),
+            creation_time: now,
+            last_use_time: now,
         };
 
         Ok(InboundCreationResult { session, plaintext: result.plaintext })

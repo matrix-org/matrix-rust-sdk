@@ -20,13 +20,13 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{serde::Raw, DeviceKeyId, UserId};
+use ruma::{serde::Raw, OwnedDeviceKeyId, OwnedUserId};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
 /// Signatures for a `SignedKey` object.
-pub type SignedKeySignatures = BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, Ed25519Signature>>;
+pub type SignedKeySignatures = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Ed25519Signature>>;
 
 /// A key for the SignedCurve25519 algorithm
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -71,7 +71,7 @@ fn deserialize_signatures<'de, D>(de: D) -> Result<SignedKeySignatures, D::Error
 where
     D: serde::Deserializer<'de>,
 {
-    let map: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> =
+    let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> =
         Deserialize::deserialize(de)?;
 
     map.into_iter()
@@ -85,7 +85,7 @@ where
                             Ed25519Signature::from_base64(&s).map_err(serde::de::Error::custom)?,
                         ))
                     })
-                    .collect::<Result<BTreeMap<Box<DeviceKeyId>, Ed25519Signature>, _>>()?,
+                    .collect::<Result<BTreeMap<OwnedDeviceKeyId, Ed25519Signature>, _>>()?,
             ))
         })
         .collect::<Result<SignedKeySignatures, _>>()
@@ -95,7 +95,7 @@ fn serialize_signatures<S>(signatures: &SignedKeySignatures, s: S) -> Result<S::
 where
     S: Serializer,
 {
-    let signatures: BTreeMap<&Box<UserId>, BTreeMap<&Box<DeviceKeyId>, String>> = signatures
+    let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, String>> = signatures
         .iter()
         .map(|(u, m)| (u, m.iter().map(|(d, s)| (d, s.to_base64())).collect()))
         .collect();

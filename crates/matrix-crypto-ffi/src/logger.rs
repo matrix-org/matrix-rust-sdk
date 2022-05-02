@@ -27,7 +27,7 @@ impl Write for LoggerWrapper {
     }
 }
 
-impl MakeWriter for LoggerWrapper {
+impl MakeWriter<'_> for LoggerWrapper {
     type Writer = LoggerWrapper;
 
     fn make_writer(&self) -> Self::Writer {

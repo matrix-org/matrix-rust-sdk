@@ -1,14 +1,15 @@
 use std::{borrow::Cow, ops::Deref};
 
-use matrix_sdk_common::ruma::{
+use matrix_sdk_store_encryption::StoreCipher;
+use ruma::{
     events::{
         secret::request::SecretName, GlobalAccountDataEventType, RoomAccountDataEventType,
         StateEventType,
     },
     receipt::ReceiptType,
-    DeviceId, EventEncryptionAlgorithm, EventId, MxcUri, RoomId, TransactionId, UserId,
+    DeviceId, EventEncryptionAlgorithm, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId,
+    RoomId, TransactionId, UserId,
 };
-use matrix_sdk_store_encryption::StoreCipher;
 
 pub const ENCODE_SEPARATOR: u8 = 0xff;
 
@@ -27,18 +28,6 @@ pub trait EncodeKey {
 }
 
 impl<T: EncodeKey + ?Sized> EncodeKey for &T {
-    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
-        T::encode_as_bytes(self)
-    }
-    fn encode(&self) -> Vec<u8> {
-        T::encode(self)
-    }
-    fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        T::encode_secure(self, table_name, store_cipher)
-    }
-}
-
-impl<T: EncodeKey + ?Sized> EncodeKey for Box<T> {
     fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         T::encode_as_bytes(self)
     }
@@ -74,7 +63,19 @@ impl EncodeKey for EventId {
     }
 }
 
+impl EncodeKey for OwnedEventId {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
+    }
+}
+
 impl EncodeKey for RoomId {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
+    }
+}
+
+impl EncodeKey for OwnedRoomId {
     fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
@@ -121,6 +122,12 @@ impl EncodeKey for RoomAccountDataEventType {
 }
 
 impl EncodeKey for UserId {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_str().as_bytes().into()
+    }
+}
+
+impl EncodeKey for OwnedUserId {
     fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_str().as_bytes().into()
     }
