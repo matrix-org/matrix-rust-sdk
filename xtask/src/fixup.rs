@@ -16,9 +16,9 @@ pub struct FixupArgs {
 enum FixupCommand {
     /// Fix style
     Style,
-    /// Check for typos
+    /// Fix typos
     Typos,
-    /// Check clippy lints
+    /// Fix clippy lints
     Clippy,
 }
 
