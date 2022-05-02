@@ -10,8 +10,8 @@ use ruma::{
         room::{
             avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            tombstone::RoomTombstoneEventContent,
+            guest_access::RoomGuestAccessEventContent, history_visibility::HistoryVisibility,
+            join_rules::JoinRule, tombstone::RoomTombstoneEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
@@ -150,7 +150,7 @@ pub struct BaseRoomInfo {
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    pub(crate) guest_access: GuestAccess,
+    guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
     pub(crate) history_visibility: HistoryVisibility,
     /// The join rule policy of this room.
@@ -207,9 +207,7 @@ impl BaseRoomInfo {
                 self.history_visibility = h.history_visibility().clone();
             }
             AnySyncStateEvent::RoomGuestAccess(g) => {
-                self.guest_access = g
-                    .as_original()
-                    .map_or(GuestAccess::Forbidden, |g| g.content.guest_access.clone());
+                self.guest_access = Some(g.into());
             }
             AnySyncStateEvent::RoomJoinRules(c) => {
                 self.join_rule = c.join_rule().clone();
@@ -258,7 +256,7 @@ impl BaseRoomInfo {
                 self.history_visibility = h.content.history_visibility.clone();
             }
             AnyStrippedStateEvent::RoomGuestAccess(g) => {
-                self.guest_access = g.content.guest_access.clone();
+                self.guest_access = Some(g.into());
             }
             AnyStrippedStateEvent::RoomJoinRules(c) => {
                 self.join_rule = c.content.join_rule.clone();
@@ -294,7 +292,7 @@ impl Default for BaseRoomInfo {
             create: None,
             dm_targets: Default::default(),
             encryption: None,
-            guest_access: GuestAccess::Forbidden,
+            guest_access: None,
             history_visibility: HistoryVisibility::WorldReadable,
             join_rule: JoinRule::Public,
             max_power_level: 100,
