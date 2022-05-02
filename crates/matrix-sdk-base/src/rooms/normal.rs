@@ -229,7 +229,7 @@ impl Room {
 
     /// Get the history visibility policy of this room.
     pub fn history_visibility(&self) -> HistoryVisibility {
-        self.inner.read().unwrap().base_info.history_visibility.clone()
+        self.inner.read().unwrap().history_visibility().clone()
     }
 
     /// Is the room considered to be public.
@@ -764,6 +764,13 @@ impl RoomInfo {
         match &self.base_info.guest_access {
             Some(MinimalStateEvent::Original(ev)) => &ev.content.guest_access,
             _ => &GuestAccess::Forbidden,
+        }
+    }
+
+    fn history_visibility(&self) -> &HistoryVisibility {
+        match &self.base_info.history_visibility {
+            Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
+            _ => &HistoryVisibility::WorldReadable,
         }
     }
 }
