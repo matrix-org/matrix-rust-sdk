@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    deserialized_responses::SyncRoomEvent,
+    deserialized_responses::{SyncRoomEvent, MemberEvent},
     media::{MediaRequest, UniqueKey},
     store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
@@ -30,7 +30,7 @@ use ruma::{
         presence::PresenceEvent,
         receipt::Receipt,
         room::{
-            member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+            member::{MembershipState, RoomMemberEventContent},
             redaction::SyncRoomRedactionEvent,
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
