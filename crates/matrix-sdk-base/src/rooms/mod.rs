@@ -13,12 +13,13 @@ use ruma::{
             guest_access::RoomGuestAccessEventContent,
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent, name::RoomNameEventContent,
-            tombstone::RoomTombstoneEventContent, topic::RoomTopicEventContent,
+            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
         AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
         RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
     },
-    OwnedEventId, OwnedUserId,
+    EventId, OwnedEventId, OwnedUserId, RoomVersionId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -58,14 +59,30 @@ where
 
 impl<C> MinimalStateEvent<C>
 where
-    C: StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
     C::Redacted:
         StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
 {
+    fn event_id(&self) -> Option<&EventId> {
+        match self {
+            MinimalStateEvent::Original(ev) => ev.event_id.as_deref(),
+            MinimalStateEvent::Redacted(ev) => ev.event_id.as_deref(),
+        }
+    }
+
     fn as_original(&self) -> Option<&OriginalMinimalStateEvent<C>> {
         match self {
             MinimalStateEvent::Original(ev) => Some(ev),
             MinimalStateEvent::Redacted(_) => None,
+        }
+    }
+
+    fn redact(&mut self, room_version: &RoomVersionId) {
+        if let MinimalStateEvent::Original(ev) = self {
+            *self = MinimalStateEvent::Redacted(RedactedMinimalStateEvent {
+                content: ev.content.clone().redact(room_version),
+                event_id: ev.event_id.clone(),
+            });
         }
     }
 }
@@ -282,6 +299,42 @@ impl BaseRoomInfo {
         }
 
         true
+    }
+
+    pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
+        let room_version = self
+            .create
+            .as_ref()
+            .and_then(|ev| Some(ev.as_original()?.content.room_version.to_owned()))
+            .unwrap_or(RoomVersionId::V1);
+
+        // This sometimes does more event_id comparisons than necessary, but the
+        // alternatives are a lot of verbosity, and a macro
+        redact_if_match(&mut self.avatar, &event.redacts, &room_version);
+        redact_if_match(&mut self.canonical_alias, &event.redacts, &room_version);
+        redact_if_match(&mut self.create, &event.redacts, &room_version);
+        redact_if_match(&mut self.guest_access, &event.redacts, &room_version);
+        redact_if_match(&mut self.history_visibility, &event.redacts, &room_version);
+        redact_if_match(&mut self.join_rules, &event.redacts, &room_version);
+        redact_if_match(&mut self.name, &event.redacts, &room_version);
+        redact_if_match(&mut self.tombstone, &event.redacts, &room_version);
+        redact_if_match(&mut self.topic, &event.redacts, &room_version);
+    }
+}
+
+fn redact_if_match<C>(
+    ev: &mut Option<MinimalStateEvent<C>>,
+    event_id: &EventId,
+    room_version: &RoomVersionId,
+) where
+    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
+    C::Redacted:
+        StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
+{
+    if let Some(ev) = ev {
+        if ev.event_id() == Some(event_id) {
+            ev.redact(room_version);
+        }
     }
 }
 

@@ -44,7 +44,10 @@ use matrix_sdk_crypto::{
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
-        room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
+        room::{
+            encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility,
+            redaction::SyncRoomRedactionEvent,
+        },
         AnySyncMessageLikeEvent, MessageLikeEventContent, SyncMessageLikeEvent,
     },
     DeviceId, OwnedTransactionId, TransactionId,
@@ -316,6 +319,21 @@ impl BaseClient {
                         },
 
                         #[cfg(feature = "e2e-encryption")]
+                        AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
+                            // Redacted redactions don't have the `redacts` key, so we can't know
+                            // what they were meant to redact. A future room version might move the
+                            // redacts key, replace the current redaction event altogether, or have
+                            // the redacts key survive redaction.
+                            SyncRoomRedactionEvent::Original(r),
+                        )) => {
+                            room_info.handle_redaction(r);
+                            // FIXME: Find the event in self.store (needs
+                            // something like a get_event_by_id), redact it and
+                            // put it back via StateChanges. See
+                            // https://github.com/matrix-org/matrix-rust-sdk/issues/607
+                        }
+
+                        #[cfg(feature = "e2e-encryption")]
                         AnySyncRoomEvent::MessageLike(e) => match e {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(encrypted),
@@ -343,6 +361,7 @@ impl BaseClient {
                             }
                             _ => (),
                         },
+
                         #[cfg(not(feature = "e2e-encryption"))]
                         _ => (),
                     }
