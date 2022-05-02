@@ -1,7 +1,9 @@
 mod ci;
+mod fixup;
 
 use ci::CiArgs;
 use clap::{Parser, Subcommand};
+use fixup::FixupArgs;
 use xshell::cmd;
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
@@ -16,6 +18,8 @@ struct Xtask {
 enum Command {
     /// Run continuous integration checks
     Ci(CiArgs),
+    /// Fix up automatic checks
+    Fixup(FixupArgs),
     /// Build the SDKs documentation
     Doc {
         /// Opens the docs in a browser after the operation
@@ -27,6 +31,7 @@ enum Command {
 fn main() -> Result<()> {
     match Xtask::parse().cmd {
         Command::Ci(ci) => ci.run(),
+        Command::Fixup(cfg) => cfg.run(),
         Command::Doc { open } => build_docs(open.then(|| "--open"), DenyWarnings::No),
     }
 }
