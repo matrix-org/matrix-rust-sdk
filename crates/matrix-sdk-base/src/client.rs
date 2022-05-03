@@ -257,10 +257,10 @@ impl BaseClient {
         room: &Room,
         ruma_timeline: api::sync::sync_events::v3::Timeline,
         push_rules: &Ruleset,
+        user_ids: &mut BTreeSet<OwnedUserId>,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
-        user_ids: &mut BTreeSet<OwnedUserId>,
     ) -> Result<Timeline> {
         let room_id = room.room_id();
         let user_id = room.own_user_id();
@@ -423,10 +423,10 @@ impl BaseClient {
 
     async fn handle_state(
         &self,
-        changes: &mut StateChanges,
-        ambiguity_cache: &mut AmbiguityCache,
         events: &[Raw<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
+        changes: &mut StateChanges,
+        ambiguity_cache: &mut AmbiguityCache,
     ) -> StoreResult<BTreeSet<OwnedUserId>> {
         let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
@@ -608,10 +608,10 @@ impl BaseClient {
 
             let mut user_ids = self
                 .handle_state(
-                    &mut changes,
-                    &mut ambiguity_cache,
                     &new_info.state.events,
                     &mut room_info,
+                    &mut changes,
+                    &mut ambiguity_cache,
                 )
                 .await?;
 
@@ -633,10 +633,10 @@ impl BaseClient {
                     &room,
                     new_info.timeline,
                     &push_rules,
+                    &mut user_ids,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
-                    &mut user_ids,
                 )
                 .await?;
 
@@ -696,10 +696,10 @@ impl BaseClient {
 
             let mut user_ids = self
                 .handle_state(
-                    &mut changes,
-                    &mut ambiguity_cache,
                     &new_info.state.events,
                     &mut room_info,
+                    &mut changes,
+                    &mut ambiguity_cache,
                 )
                 .await?;
 
@@ -708,10 +708,10 @@ impl BaseClient {
                     &room,
                     new_info.timeline,
                     &push_rules,
+                    &mut user_ids,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
-                    &mut user_ids,
                 )
                 .await?;
 
