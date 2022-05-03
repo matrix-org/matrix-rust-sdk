@@ -311,8 +311,18 @@ impl IndexeddbStore {
         let tx =
             self.inner.transaction_on_multi_with_mode(&stores, IdbTransactionMode::Readwrite)?;
 
-        let account_pickle =
-            if let Some(a) = changes.account { Some(a.pickle().await) } else { None };
+        let account_pickle = if let Some(account) = changes.account {
+            let account_info = AccountInfo {
+                user_id: account.user_id.clone(),
+                device_id: account.device_id.clone(),
+                identity_keys: account.identity_keys.clone(),
+            };
+
+            *self.account_info.write().unwrap() = Some(account_info);
+            Some(account.pickle().await)
+        } else {
+            None
+        };
 
         let private_identity_pickle =
             if let Some(i) = changes.private_identity { Some(i.pickle().await?) } else { None };
@@ -889,17 +899,9 @@ impl CryptoStore for IndexeddbStore {
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<(), CryptoStoreError> {
-        let account_info = AccountInfo {
-            user_id: account.user_id.clone(),
-            device_id: account.device_id.clone(),
-            identity_keys: account.identity_keys.clone(),
-        };
-
-        *self.account_info.write().unwrap() = Some(account_info);
-
-        let changes = Changes { account: Some(account), ..Default::default() };
-
-        self.save_changes(changes).await.map_err(|e| e.into())
+        self.save_changes(Changes { account: Some(account), ..Default::default() })
+            .await
+            .map_err(|e| e.into())
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>, CryptoStoreError> {
