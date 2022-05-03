@@ -244,6 +244,7 @@ enum RequestType {
     "ToDevice",
     "SignatureUpload",
     "KeysBackup",
+    "RoomMessage",
 };
 
 interface OlmMachine {
