@@ -123,9 +123,7 @@ pub struct OutboundGroupSession {
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    #[allow(clippy::type_complexity)]
     pub(crate) shared_with_set: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ShareInfo>>>,
-    #[allow(clippy::type_complexity)]
     to_share_with_set: Arc<DashMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
 }
 
