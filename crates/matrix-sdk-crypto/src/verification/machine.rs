@@ -179,7 +179,7 @@ impl VerificationMachine {
     fn insert_request(&self, request: VerificationRequest) {
         self.requests
             .entry(request.other_user().to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(request.flow_id().as_str().to_owned(), request);
     }
 

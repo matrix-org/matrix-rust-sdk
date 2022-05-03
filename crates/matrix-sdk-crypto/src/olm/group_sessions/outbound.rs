@@ -218,7 +218,7 @@ impl OutboundGroupSession {
             );
 
             for (user_id, info) in r {
-                self.shared_with_set.entry(user_id).or_insert_with(DashMap::new).extend(info)
+                self.shared_with_set.entry(user_id).or_default().extend(info)
             }
 
             if self.to_share_with_set.is_empty() {
@@ -438,7 +438,7 @@ impl OutboundGroupSession {
     ) {
         self.shared_with_set
             .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(device_id.to_owned(), ShareInfo { sender_key, message_index: index });
     }
 
@@ -451,7 +451,7 @@ impl OutboundGroupSession {
         device_id: &DeviceId,
         sender_key: Curve25519PublicKey,
     ) {
-        self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
+        self.shared_with_set.entry(user_id.to_owned()).or_default().insert(
             device_id.to_owned(),
             ShareInfo { sender_key, message_index: self.message_index().await },
         );

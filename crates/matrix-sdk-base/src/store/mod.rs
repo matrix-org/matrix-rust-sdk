@@ -563,7 +563,7 @@ impl StateChanges {
     ) {
         self.room_account_data
             .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .insert(event.event_type(), raw_event);
     }
 
@@ -572,10 +572,7 @@ impl StateChanges {
     pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedRoomMemberEvent) {
         let user_id = event.state_key.clone();
 
-        self.stripped_members
-            .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(user_id, event);
+        self.stripped_members.entry(room_id.to_owned()).or_default().insert(user_id, event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -588,16 +585,16 @@ impl StateChanges {
     ) {
         self.state
             .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .entry(event.event_type())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .insert(event.state_key().to_owned(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `Notification`.
     pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
-        self.notifications.entry(room_id.to_owned()).or_insert_with(Vec::new).push(notification);
+        self.notifications.entry(room_id.to_owned()).or_default().push(notification);
     }
 
     /// Update the `StateChanges` struct with the given room with a new

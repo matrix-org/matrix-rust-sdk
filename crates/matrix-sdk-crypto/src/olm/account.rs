@@ -753,14 +753,10 @@ impl ReadOnlyAccount {
         let json_device_keys =
             serde_json::to_value(&device_keys).expect("device key is always safe to serialize");
 
-        device_keys
-            .signatures
-            .entry(self.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                self.sign_json(json_device_keys).await.to_base64(),
-            );
+        device_keys.signatures.entry(self.user_id().to_owned()).or_default().insert(
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+            self.sign_json(json_device_keys).await.to_base64(),
+        );
 
         device_keys
     }
@@ -779,14 +775,10 @@ impl ReadOnlyAccount {
     ) -> Result<(), SignatureError> {
         let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?).await;
 
-        cross_signing_key
-            .signatures
-            .entry(self.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-                signature.to_base64(),
-            );
+        cross_signing_key.signatures.entry(self.user_id().to_owned()).or_default().insert(
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signature.to_base64(),
+        );
 
         Ok(())
     }

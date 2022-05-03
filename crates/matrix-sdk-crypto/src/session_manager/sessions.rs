@@ -106,11 +106,11 @@ impl SessionManager {
                     if should_unwedge {
                         self.users_for_key_claim
                             .entry(device.user_id().to_owned())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(device.device_id().into());
                         self.wedged_devices
                             .entry(device.user_id().to_owned())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(device.device_id().into());
                     }
                 }
@@ -186,7 +186,7 @@ impl SessionManager {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
-        let mut missing = BTreeMap::new();
+        let mut missing: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
         // Add the list of devices that the user wishes to establish sessions
         // right now.
@@ -215,7 +215,7 @@ impl SessionManager {
                     if is_missing {
                         missing
                             .entry(user_id.to_owned())
-                            .or_insert_with(BTreeMap::new)
+                            .or_default()
                             .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
                     }
                 } else {
@@ -237,7 +237,7 @@ impl SessionManager {
             for device_id in item.value().iter() {
                 missing
                     .entry(user.to_owned())
-                    .or_insert_with(BTreeMap::new)
+                    .or_default()
                     .insert(device_id.to_owned(), DeviceKeyAlgorithm::SignedCurve25519);
             }
         }
