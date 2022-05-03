@@ -353,7 +353,7 @@ macro_rules! statestore_integration_tests {
                 #[async_test]
                 async fn test_stripped_member_saving() {
                     let store = get_store().await.unwrap();
-                    let room_id = room_id!("!test_member_saving:localhost");
+                    let room_id = room_id!("!test_stripped_member_saving:localhost");
                     let user_id = user_id();
 
                     assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
