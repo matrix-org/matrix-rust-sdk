@@ -848,49 +848,49 @@ impl SledStore {
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         let mut members_batch = sled::Batch::default();
         for key in self.members.scan_prefix(self.encode_key(MEMBER, room_id)).keys() {
-            members_batch.remove(key?)
+            members_batch.remove(key?);
         }
 
         let mut profiles_batch = sled::Batch::default();
         for key in self.profiles.scan_prefix(self.encode_key(PROFILE, room_id)).keys() {
-            profiles_batch.remove(key?)
+            profiles_batch.remove(key?);
         }
 
         let mut display_names_batch = sled::Batch::default();
         for key in self.display_names.scan_prefix(self.encode_key(DISPLAY_NAME, room_id)).keys() {
-            display_names_batch.remove(key?)
+            display_names_batch.remove(key?);
         }
 
         let mut joined_user_ids_batch = sled::Batch::default();
         for key in self.joined_user_ids.scan_prefix(self.encode_key(JOINED_USER_ID, room_id)).keys()
         {
-            joined_user_ids_batch.remove(key?)
+            joined_user_ids_batch.remove(key?);
         }
 
         let mut invited_user_ids_batch = sled::Batch::default();
         for key in
             self.invited_user_ids.scan_prefix(self.encode_key(INVITED_USER_ID, room_id)).keys()
         {
-            invited_user_ids_batch.remove(key?)
+            invited_user_ids_batch.remove(key?);
         }
 
         let mut room_state_batch = sled::Batch::default();
         for key in self.room_state.scan_prefix(self.encode_key(ROOM_STATE, room_id)).keys() {
-            room_state_batch.remove(key?)
+            room_state_batch.remove(key?);
         }
 
         let mut room_account_data_batch = sled::Batch::default();
         for key in
             self.room_account_data.scan_prefix(self.encode_key(ROOM_ACCOUNT_DATA, room_id)).keys()
         {
-            room_account_data_batch.remove(key?)
+            room_account_data_batch.remove(key?);
         }
 
         let mut stripped_members_batch = sled::Batch::default();
         for key in
             self.stripped_members.scan_prefix(self.encode_key(STRIPPED_ROOM_MEMBER, room_id)).keys()
         {
-            stripped_members_batch.remove(key?)
+            stripped_members_batch.remove(key?);
         }
 
         let mut stripped_room_state_batch = sled::Batch::default();
@@ -899,14 +899,14 @@ impl SledStore {
             .scan_prefix(self.encode_key(STRIPPED_ROOM_STATE, room_id))
             .keys()
         {
-            stripped_room_state_batch.remove(key?)
+            stripped_room_state_batch.remove(key?);
         }
 
         let mut room_user_receipts_batch = sled::Batch::default();
         for key in
             self.room_user_receipts.scan_prefix(self.encode_key(ROOM_USER_RECEIPT, room_id)).keys()
         {
-            room_user_receipts_batch.remove(key?)
+            room_user_receipts_batch.remove(key?);
         }
 
         let mut room_event_receipts_batch = sled::Batch::default();
@@ -915,7 +915,7 @@ impl SledStore {
             .scan_prefix(self.encode_key(ROOM_EVENT_RECEIPT, room_id))
             .keys()
         {
-            room_event_receipts_batch.remove(key?)
+            room_event_receipts_batch.remove(key?);
         }
 
         let ret: Result<(), TransactionError<SledStoreError>> = (
@@ -1017,7 +1017,7 @@ impl SledStore {
 
         let mut timeline_batch = sled::Batch::default();
         for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, &room_id)).keys() {
-            timeline_batch.remove(key?)
+            timeline_batch.remove(key?);
         }
 
         let mut event_id_to_position_batch = sled::Batch::default();
@@ -1026,7 +1026,7 @@ impl SledStore {
             .scan_prefix(self.encode_key(ROOM_EVENT_ID_POSITION, &room_id))
             .keys()
         {
-            event_id_to_position_batch.remove(key?)
+            event_id_to_position_batch.remove(key?);
         }
 
         let ret: Result<(), TransactionError<SledStoreError>> =
