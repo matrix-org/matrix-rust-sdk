@@ -176,24 +176,11 @@ pub enum Error {
     #[error(transparent)]
     ImageError(#[from] ImageError),
 
-    /// An other error was raised and formatted with eyre
-    /// this might happen because encryption was enabled on the base-crate
-    /// but not here and that raised.
-    #[cfg(feature = "eyre")]
-    OtherEyreReport(eyre::Report),
-
-    /// An other error was raised and formatted with anyhow
-    /// this might happen because encryption was enabled on the base-crate
-    /// but not here and that raised.
-    #[cfg(feature = "anyhow")]
-    OtherAnyhowError(anyhow::Error),
-
-    /// An other error was raised and neither eyre, nor anyhow were activated
-    /// so it's Debug information was formatted as a String.
+    /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate
     /// but not here and that raised.
     #[error("unknown error: {0}")]
-    UnknownError(String),
+    UnknownError(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Error for the room key importing functionality.
@@ -300,11 +287,14 @@ impl From<SdkBaseError> for Error {
             #[cfg(feature = "e2e-encryption")]
             SdkBaseError::MegolmError(e) => Self::MegolmError(e),
             #[cfg(feature = "eyre")]
-            _ => Self::OtherEyreReport(eyre::eyre!(e)),
+            _ => Self::UnknownError(eyre::eyre!(e).into()),
             #[cfg(all(not(feature = "eyre"), feature = "anyhow"))]
-            _ => Self::OtherAnyhowError(anyhow::anyhow!(e)),
+            _ => Self::UnknownError(anyhow::anyhow!(e).into()),
             #[cfg(all(not(feature = "eyre"), not(feature = "anyhow")))]
-            _ => Self::UnknownError(format!("{:?}", e)),
+            _ => {
+                let e: Box<dyn std::error::Error + Sync + Send> = format!("{:?}", e).into();
+                Self::UnknownError(e)
+            }
         }
     }
 }
