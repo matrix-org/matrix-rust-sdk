@@ -18,6 +18,7 @@ use ruma::{
                 Request as RustSignatureUploadRequest, Response as SignatureUploadResponse,
             },
         },
+        message::send_message_event::v3::Response as RoomMessageResponse,
         sync::sync_events::v3::DeviceLists as RumaDeviceLists,
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
@@ -226,6 +227,7 @@ pub enum RequestType {
     ToDevice,
     SignatureUpload,
     KeysBackup,
+    RoomMessage,
 }
 
 pub struct DeviceLists {
@@ -269,6 +271,7 @@ pub(crate) enum OwnedResponse {
     ToDevice(ToDeviceResponse),
     SignatureUpload(SignatureUploadResponse),
     KeysBackup(KeysBackupResponse),
+    RoomMessage(RoomMessageResponse),
 }
 
 impl From<KeysClaimResponse> for OwnedResponse {
@@ -307,6 +310,12 @@ impl From<KeysBackupResponse> for OwnedResponse {
     }
 }
 
+impl From<RoomMessageResponse> for OwnedResponse {
+    fn from(response: RoomMessageResponse) -> Self {
+        OwnedResponse::RoomMessage(response)
+    }
+}
+
 impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
     fn from(r: &'a OwnedResponse) -> Self {
         match r {
@@ -316,6 +325,7 @@ impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
             OwnedResponse::ToDevice(r) => IncomingResponse::ToDevice(r),
             OwnedResponse::SignatureUpload(r) => IncomingResponse::SignatureUpload(r),
             OwnedResponse::KeysBackup(r) => IncomingResponse::KeysBackup(r),
+            OwnedResponse::RoomMessage(r) => IncomingResponse::RoomMessage(r),
         }
     }
 }
