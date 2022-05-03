@@ -139,7 +139,6 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
-    #[allow(clippy::type_complexity)]
     entries: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ReadOnlyDevice>>>,
 }
 

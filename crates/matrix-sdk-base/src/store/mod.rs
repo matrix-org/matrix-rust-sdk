@@ -491,7 +491,6 @@ pub struct StateChanges {
 
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.
-    #[allow(clippy::type_complexity)]
     pub state:
         BTreeMap<OwnedRoomId, BTreeMap<StateEventType, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
@@ -504,7 +503,6 @@ pub struct StateChanges {
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
-    #[allow(clippy::type_complexity)]
     pub stripped_state: BTreeMap<
         OwnedRoomId,
         BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
