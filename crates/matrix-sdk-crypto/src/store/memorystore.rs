@@ -189,7 +189,7 @@ impl CryptoStore for MemoryStore {
 
     async fn reset_backup_state(&self) -> Result<()> {
         for session in self.get_inbound_group_sessions().await? {
-            session.reset_backup_state()
+            session.reset_backup_state();
         }
 
         Ok(())

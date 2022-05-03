@@ -1332,7 +1332,7 @@ impl OlmMachine {
             if !existing_sessions.has_better_session(&session) {
                 #[cfg(feature = "backups_v1")]
                 if from_backup {
-                    session.mark_as_backed_up()
+                    session.mark_as_backed_up();
                 }
 
                 keys.entry(session.room_id().to_owned())
@@ -1341,10 +1341,10 @@ impl OlmMachine {
                     .or_insert_with(BTreeSet::new)
                     .insert(session.session_id().to_owned());
 
-                sessions.push(session)
+                sessions.push(session);
             }
 
-            progress_listener(i, total_count)
+            progress_listener(i, total_count);
         }
 
         let imported_count = sessions.len();
