@@ -45,7 +45,7 @@ impl VerificationCache {
 
         self.verification
             .entry(verification.other_user().to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(verification.flow_id().to_owned(), verification);
     }
 

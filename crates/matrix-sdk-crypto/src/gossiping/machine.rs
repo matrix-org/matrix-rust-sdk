@@ -191,7 +191,7 @@ impl GossipMachine {
     fn handle_key_share_without_session(&self, device: Device, event: RequestEvent) {
         self.users_for_key_claim
             .entry(device.user_id().to_owned())
-            .or_insert_with(DashSet::new)
+            .or_default()
             .insert(device.device_id().into());
         self.wait_queue.insert(&device, event);
     }

@@ -296,14 +296,14 @@ impl BaseClient {
                                     changes
                                         .profiles
                                         .entry(room_id.to_owned())
-                                        .or_insert_with(BTreeMap::new)
+                                        .or_default()
                                         .insert(member.sender.clone(), member.content.clone());
                                 }
 
                                 changes
                                     .members
                                     .entry(room_id.to_owned())
-                                    .or_insert_with(BTreeMap::new)
+                                    .or_default()
                                     .insert(member.state_key.clone(), member.to_owned());
                             }
                             _ => {
@@ -872,14 +872,14 @@ impl BaseClient {
                         changes
                             .profiles
                             .entry(room_id.to_owned())
-                            .or_insert_with(BTreeMap::new)
+                            .or_default()
                             .insert(member.sender.clone(), member.content.clone());
                     }
 
                     changes
                         .members
                         .entry(room_id.to_owned())
-                        .or_insert_with(BTreeMap::new)
+                        .or_default()
                         .insert(member.state_key.clone(), member);
                 }
             }
