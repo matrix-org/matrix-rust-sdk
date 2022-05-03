@@ -199,8 +199,8 @@ impl SledStore {
         let presence = db.open_tree(PRESENCE)?;
         let room_account_data = db.open_tree(ROOM_ACCOUNT_DATA)?;
 
-        let stripped_joined_user_ids = db.open_tree(JOINED_USER_ID)?;
-        let stripped_invited_user_ids = db.open_tree(INVITED_USER_ID)?;
+        let stripped_joined_user_ids = db.open_tree(STRIPPED_JOINED_USER_ID)?;
+        let stripped_invited_user_ids = db.open_tree(STRIPPED_INVITED_USER_ID)?;
         let stripped_room_infos = db.open_tree(STRIPPED_ROOM_INFO)?;
         let stripped_members = db.open_tree(STRIPPED_ROOM_MEMBER)?;
         let stripped_room_state = db.open_tree(STRIPPED_ROOM_STATE)?;
