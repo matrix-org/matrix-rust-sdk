@@ -51,9 +51,7 @@ use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
         push_rules::PushRulesEvent,
-        room::member::{
-            MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEvent, StrippedRoomMemberEvent,
-        },
+        room::member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         StateEventType, SyncStateEvent,
@@ -389,39 +387,38 @@ impl BaseClient {
         Ok(timeline)
     }
 
-    #[allow(clippy::type_complexity)]
     fn handle_invited_state(
         &self,
         events: &[Raw<AnyStrippedStateEvent>],
         room_info: &mut RoomInfo,
-    ) -> (
-        BTreeMap<OwnedUserId, StrippedRoomMemberEvent>,
-        BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
+        changes: &mut StateChanges,
     ) {
-        events.iter().fold(
-            (BTreeMap::new(), BTreeMap::new()),
-            |(mut members, mut state_events), raw_event| {
-                match raw_event.deserialize() {
-                    Ok(AnyStrippedStateEvent::RoomMember(member)) => {
-                        members.insert(member.state_key.clone(), member);
-                    }
-                    Ok(e) => {
-                        room_info.handle_stripped_state_event(&e);
-                        state_events
-                            .entry(e.event_type())
-                            .or_insert_with(BTreeMap::new)
-                            .insert(e.state_key().to_owned(), raw_event.clone());
-                    }
-                    Err(err) => {
-                        warn!(
-                            "Couldn't deserialize stripped state event for room {}: {:?}",
-                            room_info.room_id, err
-                        );
-                    }
+        let mut members = BTreeMap::new();
+        let mut state_events = BTreeMap::new();
+
+        for raw_event in events {
+            match raw_event.deserialize() {
+                Ok(AnyStrippedStateEvent::RoomMember(member)) => {
+                    members.insert(member.state_key.clone(), member);
                 }
-                (members, state_events)
-            },
-        )
+                Ok(e) => {
+                    room_info.handle_stripped_state_event(&e);
+                    state_events
+                        .entry(e.event_type())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(e.state_key().to_owned(), raw_event.clone());
+                }
+                Err(err) => {
+                    warn!(
+                        "Couldn't deserialize stripped state event for room {}: {:?}",
+                        room_info.room_id, err
+                    );
+                }
+            }
+        }
+
+        changes.stripped_members.insert(room_info.room_id().to_owned(), members);
+        changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
     async fn handle_state(
@@ -737,11 +734,8 @@ impl BaseClient {
                 changes.add_room(room_info);
             }
 
-            let (members, state_events) =
-                self.handle_invited_state(&new_info.invite_state.events, &mut room_info);
+            self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
 
-            changes.stripped_members.insert(room_id.clone(), members);
-            changes.stripped_state.insert(room_id.clone(), state_events);
             changes.add_stripped_room(room_info);
 
             new_rooms.invite.insert(room_id, new_info);
