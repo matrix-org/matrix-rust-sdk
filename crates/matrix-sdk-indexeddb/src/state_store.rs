@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
-    deserialized_responses::{SyncRoomEvent, MemberEvent},
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
