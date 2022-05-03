@@ -208,7 +208,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            "-p matrix-sdk --no-default-features --features indexeddb-state-store,rustls-tls",
+            "-p matrix-sdk --no-default-features --features indexeddb,rustls-tls",
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
