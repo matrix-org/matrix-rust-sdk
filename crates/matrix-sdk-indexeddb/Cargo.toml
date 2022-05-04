@@ -2,10 +2,11 @@
 name = "matrix-sdk-indexeddb"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.60"
 
 [features]
-default = ["encryption"]
-encryption = ["matrix-sdk-base/encryption", "matrix-sdk-crypto"]
+default = ["e2e-encryption"]
+e2e-encryption = ["matrix-sdk-base/e2e-encryption", "matrix-sdk-crypto"]
 experimental-timeline = ["matrix-sdk-base/experimental-timeline"]
 
 [package.metadata.docs.rs]

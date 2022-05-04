@@ -35,7 +35,7 @@ use matrix_sdk_base::{
     deserialized_responses::RoomEvent,
 };
 use matrix_sdk_common::instant::Duration;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use ruma::{
     api::client::config::set_global_account_data,
     events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
@@ -75,7 +75,7 @@ use crate::{
 impl Client {
     /// Tries to decrypt a `AnyRoomEvent`. Returns undecrypted room event when
     /// decryption fails.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn decrypt_room_event(&self, event: Raw<AnyRoomEvent>) -> RoomEvent {
         if let Some(machine) = self.olm_machine().await {
             if let Ok(AnyRoomEvent::MessageLike(event)) = event.deserialize() {
@@ -106,7 +106,7 @@ impl Client {
     /// # Panics
     ///
     /// Panics if no key query needs to be done.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[instrument(skip(self))]
     pub(crate) async fn keys_query(
         &self,
@@ -123,7 +123,7 @@ impl Client {
 
     /// Encrypt and upload the file to be read from `reader` and construct an
     /// attachment message with `body`, `content_type`, `info` and `thumbnail`.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn prepare_encrypted_attachment_message<R: Read, T: Read>(
         &self,
         body: &str,
@@ -239,7 +239,7 @@ impl Client {
         })
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     async fn send_account_data<T>(
         &self,
         content: T,
@@ -255,7 +255,7 @@ impl Client {
         Ok(self.send(request, None).await?)
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn create_dm_room(
         &self,
         user_id: OwnedUserId,
@@ -313,7 +313,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `users` - The list of user/device pairs that we should claim keys for.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[instrument(skip_all)]
     pub(crate) async fn claim_one_time_keys(
         &self,
@@ -338,7 +338,7 @@ impl Client {
     ///
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[instrument(skip(self, request))]
     pub(crate) async fn keys_upload(
         &self,
@@ -357,7 +357,7 @@ impl Client {
         Ok(response)
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn room_send_helper(
         &self,
         request: &RoomMessageRequest,
@@ -372,7 +372,7 @@ impl Client {
             .await
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn send_to_device(
         &self,
         request: &ToDeviceRequest,
@@ -384,7 +384,7 @@ impl Client {
         self.send(request, None).await
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn send_verification_request(
         &self,
         request: matrix_sdk_base::crypto::OutgoingVerificationRequest,
@@ -401,7 +401,7 @@ impl Client {
         Ok(())
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
         let rooms = self.joined_rooms();
 
@@ -492,14 +492,14 @@ impl Client {
 /// A high-level API to manage the client's encryption.
 ///
 /// To get this, use [`Client::encryption()`].
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 #[derive(Debug, Clone)]
 pub struct Encryption {
     /// The underlying client.
     client: Client,
 }
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 impl Encryption {
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
