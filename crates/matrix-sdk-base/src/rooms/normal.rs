@@ -58,7 +58,9 @@ pub struct Room {
     own_user_id: Arc<UserId>,
     inner: Arc<SyncRwLock<RoomInfo>>,
     store: Arc<dyn StateStore>,
+    #[cfg(feature = "experimental-timeline")]
     forward_timeline_streams: Arc<Mutex<Vec<mpsc::Sender<TimelineSlice>>>>,
+    #[cfg(feature = "experimental-timeline")]
     backward_timeline_streams: Arc<Mutex<Vec<mpsc::Sender<TimelineSlice>>>>,
 }
 
@@ -117,7 +119,9 @@ impl Room {
             room_id: room_info.room_id.clone(),
             store,
             inner: Arc::new(SyncRwLock::new(room_info)),
+            #[cfg(feature = "experimental-timeline")]
             forward_timeline_streams: Default::default(),
+            #[cfg(feature = "experimental-timeline")]
             backward_timeline_streams: Default::default(),
         }
     }

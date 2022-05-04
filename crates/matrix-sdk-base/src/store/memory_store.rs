@@ -781,6 +781,7 @@ impl StateStore for MemoryStore {
 }
 
 #[derive(Debug, Default)]
+#[cfg(feature = "experimental-timeline")]
 struct TimelineData {
     pub start: String,
     pub start_position: isize,
