@@ -262,6 +262,7 @@ impl Common {
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(
         &self,
     ) -> Result<(impl Stream<Item = SyncRoomEvent>, impl Stream<Item = Result<SyncRoomEvent>>)>
@@ -330,7 +331,7 @@ impl Common {
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
-
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline_forward(&self) -> Result<impl Stream<Item = SyncRoomEvent>> {
         Ok(self.inner.timeline_forward().await?)
     }
@@ -394,6 +395,7 @@ impl Common {
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline_backward(&self) -> Result<impl Stream<Item = Result<SyncRoomEvent>>> {
         let backward_store = self.inner.timeline_backward().await?;
 
@@ -431,6 +433,7 @@ impl Common {
             false,
         );
 
+        #[cfg(feature = "experimental-timeline")]
         self.inner.add_timeline_slice(&timeline).await;
         self.client.base_client().receive_messages(self.room_id(), timeline).await?;
 

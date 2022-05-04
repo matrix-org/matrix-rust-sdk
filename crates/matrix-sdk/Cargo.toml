@@ -39,6 +39,12 @@ appservice = ["ruma/appservice-api-s", "ruma/appservice-api-helper"]
 image-proc = ["image"]
 image-rayon = ["image-proc", "image/jpeg_rayon"]
 
+experimental-timeline = [
+    "matrix-sdk-base/experimental-timeline",
+    "matrix-sdk-indexeddb?/experimental-timeline",
+    "matrix-sdk-sled?/experimental-timeline",
+]
+
 docsrs = [
     "encryption",
     "sled-crypto-store",
@@ -151,4 +157,4 @@ required-features = ["encryption"]
 
 [[example]]
 name = "timeline"
-required-features = ["sled-state-store"]
+required-features = ["sled-state-store", "experimental-timeline"]
