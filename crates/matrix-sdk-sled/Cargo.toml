@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 default = ["state-store", "crypto-store"]
+experimental-timeline = ["matrix-sdk-base/experimental-timeline"]
 
 state-store = ["matrix-sdk-base"]
 crypto-store = ["matrix-sdk-crypto"]

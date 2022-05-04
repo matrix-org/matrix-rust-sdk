@@ -583,6 +583,7 @@ impl SledStore {
 
         ret?;
 
+        #[cfg(feature = "experimental-timeline")]
         self.save_room_timeline(changes).await?;
 
         self.inner.flush_async().await?;
@@ -970,6 +971,7 @@ impl SledStore {
 
         ret?;
 
+        #[cfg(feature = "experimental-timeline")]
         self.remove_room_timeline(room_id).await?;
 
         self.inner.flush_async().await?;
@@ -977,6 +979,7 @@ impl SledStore {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -1012,6 +1015,7 @@ impl SledStore {
         Ok(Some((Box::pin(stream), end_token)))
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn remove_room_timeline(&self, room_id: &RoomId) -> Result<()> {
         info!("Remove stored timeline for {}", room_id);
 
@@ -1048,6 +1052,7 @@ impl SledStore {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn save_room_timeline(&self, changes: &StateChanges) -> Result<()> {
         let mut timeline_batch = sled::Batch::default();
         let mut event_id_to_position_batch = sled::Batch::default();
@@ -1379,6 +1384,7 @@ impl StateStore for SledStore {
         self.remove_room(room_id).await.map_err(Into::into)
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -1388,6 +1394,7 @@ impl StateStore for SledStore {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg(feature = "experimental-timeline")]
 struct TimelineMetadata {
     pub start: String,
     pub start_position: usize,
