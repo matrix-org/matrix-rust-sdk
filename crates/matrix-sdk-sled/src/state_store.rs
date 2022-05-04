@@ -20,14 +20,16 @@ use std::{
 };
 
 use anyhow::anyhow;
+#[cfg(feature = "experimental-timeline")]
 use async_stream::stream;
 use async_trait::async_trait;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
+#[cfg(feature = "experimental-timeline")]
+use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
 use matrix_sdk_base::{
-    deserialized_responses::SyncRoomEvent,
     media::{MediaRequest, UniqueKey},
-    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
+    store::{Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
@@ -35,18 +37,19 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
-        room::{
-            member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
-            redaction::SyncRoomRedactionEvent,
-        },
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
-        StateEventType,
+        room::member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
+        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
+    EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
+};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
     signatures::{redact_in_place, CanonicalJsonObject},
-    EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
+    RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
 use sled::{
@@ -54,11 +57,12 @@ use sled::{
     Config, Db, Transactional, Tree,
 };
 use tokio::task::spawn_blocking;
-use tracing::{info, warn};
 
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
-use crate::encode_key::{EncodeKey, ENCODE_SEPARATOR};
+use crate::encode_key::EncodeKey;
+#[cfg(feature = "experimental-timeline")]
+use crate::encode_key::ENCODE_SEPARATOR;
 #[cfg(feature = "crypto-store")]
 pub use crate::CryptoStore;
 
@@ -122,6 +126,7 @@ const MEMBER: &str = "member";
 const PRESENCE: &str = "presence";
 const PROFILE: &str = "profile";
 const ROOM_ACCOUNT_DATA: &str = "room-account-data";
+#[cfg(feature = "experimental-timeline")]
 const ROOM_EVENT_ID_POSITION: &str = "room-event-id-to-position";
 const ROOM_EVENT_RECEIPT: &str = "room-event-receipt";
 const ROOM_INFO: &str = "room-info";
@@ -132,7 +137,9 @@ const SESSION: &str = "session";
 const STRIPPED_ROOM_INFO: &str = "stripped-room-info";
 const STRIPPED_ROOM_MEMBER: &str = "stripped-room-member";
 const STRIPPED_ROOM_STATE: &str = "stripped-room-state";
+#[cfg(feature = "experimental-timeline")]
 const TIMELINE_METADATA: &str = "timeline-metadata";
+#[cfg(feature = "experimental-timeline")]
 const TIMELINE: &str = "timeline";
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
@@ -160,8 +167,11 @@ pub struct SledStore {
     room_event_receipts: Tree,
     media: Tree,
     custom: Tree,
+    #[cfg(feature = "experimental-timeline")]
     room_timeline: Tree,
+    #[cfg(feature = "experimental-timeline")]
     room_timeline_metadata: Tree,
+    #[cfg(feature = "experimental-timeline")]
     room_event_id_to_position: Tree,
 }
 
@@ -206,8 +216,11 @@ impl SledStore {
 
         let custom = db.open_tree(CUSTOM)?;
 
+        #[cfg(feature = "experimental-timeline")]
         let room_timeline = db.open_tree(TIMELINE)?;
+        #[cfg(feature = "experimental-timeline")]
         let room_timeline_metadata = db.open_tree(TIMELINE_METADATA)?;
+        #[cfg(feature = "experimental-timeline")]
         let room_event_id_to_position = db.open_tree(ROOM_EVENT_ID_POSITION)?;
 
         Ok(Self {
@@ -232,8 +245,11 @@ impl SledStore {
             room_event_receipts,
             media,
             custom,
+            #[cfg(feature = "experimental-timeline")]
             room_timeline,
+            #[cfg(feature = "experimental-timeline")]
             room_timeline_metadata,
+            #[cfg(feature = "experimental-timeline")]
             room_event_id_to_position,
         })
     }
@@ -325,6 +341,7 @@ impl SledStore {
         }
     }
 
+    #[cfg(feature = "experimental-timeline")]
     fn encode_key_with_counter<A: EncodeKey>(&self, tablename: &str, s: A, i: usize) -> Vec<u8> {
         [
             &self.encode_key(tablename, s),
@@ -588,7 +605,7 @@ impl SledStore {
 
         self.inner.flush_async().await?;
 
-        info!("Saved changes in {:?}", now.elapsed());
+        tracing::info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
     }
@@ -995,7 +1012,7 @@ impl SledStore {
         let metadata = match metadata {
             Some(m) => m,
             None => {
-                info!("No timeline for {} was previously stored", r_id);
+                tracing::info!("No timeline for {} was previously stored", r_id);
                 return Ok(None);
             }
         };
@@ -1003,7 +1020,11 @@ impl SledStore {
         let mut position = metadata.start_position;
         let end_token = metadata.end;
 
-        info!("Found previously stored timeline for {}, with end token {:?}", r_id, end_token);
+        tracing::info!(
+            "Found previously stored timeline for {}, with end token {:?}",
+            r_id,
+            end_token
+        );
 
         let stream = stream! {
             while let Ok(Some(item)) = db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &r_id, position)) {
@@ -1017,7 +1038,7 @@ impl SledStore {
 
     #[cfg(feature = "experimental-timeline")]
     async fn remove_room_timeline(&self, room_id: &RoomId) -> Result<()> {
-        info!("Remove stored timeline for {}", room_id);
+        tracing::info!("Remove stored timeline for {}", room_id);
 
         let mut timeline_batch = sled::Batch::default();
         for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, &room_id)).keys() {
@@ -1060,13 +1081,13 @@ impl SledStore {
 
         for (room_id, timeline) in &changes.timeline {
             if timeline.sync {
-                info!("Save new timeline batch from sync response for {}", room_id);
+                tracing::info!("Save new timeline batch from sync response for {}", room_id);
             } else {
-                info!("Save new timeline batch from messages response for {}", room_id);
+                tracing::info!("Save new timeline batch from messages response for {}", room_id);
             }
 
             let metadata: Option<TimelineMetadata> = if timeline.limited {
-                info!(
+                tracing::info!(
                     "Delete stored timeline for {} because the sync response was limited",
                     room_id
                 );
@@ -1083,7 +1104,7 @@ impl SledStore {
                         // This should only happen when a developer adds a wrong timeline
                         // batch to the `StateChanges` or the server returns a wrong response
                         // to our request.
-                        warn!("Drop unexpected timeline batch for {}", room_id);
+                        tracing::warn!("Drop unexpected timeline batch for {}", room_id);
                         return Ok(());
                     }
 
@@ -1101,7 +1122,7 @@ impl SledStore {
                     }
 
                     if delete_timeline {
-                        info!(
+                        tracing::info!(
                             "Delete stored timeline for {} because of duplicated events",
                             room_id
                         );
@@ -1136,7 +1157,10 @@ impl SledStore {
                 .transpose()?
                 .and_then(|info| info.room_version().cloned())
                 .unwrap_or_else(|| {
-                    warn!("Unable to find the room version for {}, assume version 9", room_id);
+                    tracing::warn!(
+                        "Unable to find the room version for {}, assume version 9",
+                        room_id
+                    );
                     RoomVersionId::V9
                 });
 

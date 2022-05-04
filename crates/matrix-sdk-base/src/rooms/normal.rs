@@ -17,10 +17,14 @@ use std::{
     sync::{Arc, RwLock as SyncRwLock},
 };
 
+#[cfg(feature = "experimental-timeline")]
 use dashmap::DashSet;
+#[cfg(feature = "experimental-timeline")]
 use futures_channel::mpsc;
+#[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt};
+#[cfg(feature = "experimental-timeline")]
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
@@ -41,12 +45,15 @@ use ruma::{
     UserId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
 
 use super::{BaseRoomInfo, RoomMember};
 use crate::{
-    deserialized_responses::{SyncRoomEvent, TimelineSlice, UnreadNotificationsCount},
+    deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore},
+};
+#[cfg(feature = "experimental-timeline")]
+use crate::{
+    deserialized_responses::{SyncRoomEvent, TimelineSlice},
     timeline_stream::{TimelineStreamBackward, TimelineStreamError, TimelineStreamForward},
 };
 
@@ -370,7 +377,7 @@ impl Room {
             members?
         };
 
-        debug!(
+        tracing::debug!(
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
             heroes_count = heroes_count,
@@ -574,7 +581,7 @@ impl Room {
                 if !forward.is_closed() {
                     if let Err(error) = forward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            warn!("Drop timeline slice because the limit of the buffer for the forward stream is reached");
+                            tracing::warn!("Drop timeline slice because the limit of the buffer for the forward stream is reached");
                         }
                     } else {
                         remaining_streams.push(forward);
@@ -589,7 +596,7 @@ impl Room {
                 if !backward.is_closed() {
                     if let Err(error) = backward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            warn!("Drop timeline slice because the limit of the buffer for the backward stream is reached");
+                            tracing::warn!("Drop timeline slice because the limit of the buffer for the backward stream is reached");
                         }
                     } else {
                         remaining_streams.push(backward);

@@ -1,15 +1,20 @@
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
+#[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
+use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
+#[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{
-    deserialized_responses::{MembersResponse, RoomEvent, SyncRoomEvent, TimelineSlice},
+    deserialized_responses::{SyncRoomEvent, TimelineSlice},
     TimelineStreamError,
 };
 use matrix_sdk_common::locks::Mutex;
+#[cfg(feature = "experimental-timeline")]
+use ruma::api::client::filter::LazyLoadOptions;
 use ruma::{
     api::client::{
         config::set_global_account_data,
-        filter::{LazyLoadOptions, RoomEventFilter},
+        filter::RoomEventFilter,
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events::{self, v3::Direction},
         room::get_room_event,
@@ -415,6 +420,7 @@ impl Common {
         Ok(backward)
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn request_messages(&self, token: &str) -> Result<()> {
         let filter = assign!(RoomEventFilter::default(), {
             lazy_load_options: LazyLoadOptions::Enabled { include_redundant_members: false },
@@ -424,7 +430,6 @@ impl Common {
             filter,
         });
         let messages = self.messages(options).await?;
-
         let timeline = TimelineSlice::new(
             messages.chunk.into_iter().map(SyncRoomEvent::from).collect(),
             messages.start,
@@ -433,7 +438,6 @@ impl Common {
             false,
         );
 
-        #[cfg(feature = "experimental-timeline")]
         self.inner.add_timeline_slice(&timeline).await;
         self.client.base_client().receive_messages(self.room_id(), timeline).await?;
 

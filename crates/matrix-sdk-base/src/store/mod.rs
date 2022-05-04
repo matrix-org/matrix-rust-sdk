@@ -56,8 +56,9 @@ use ruma::{
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
+#[cfg(feature = "experimental-timeline")]
+use crate::deserialized_responses::{SyncRoomEvent, TimelineSlice};
 use crate::{
-    deserialized_responses::{SyncRoomEvent, TimelineSlice},
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,

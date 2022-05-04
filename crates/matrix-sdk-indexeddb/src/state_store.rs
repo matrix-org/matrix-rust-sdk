@@ -16,12 +16,14 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+#[cfg(feature = "experimental-timeline")]
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
+#[cfg(feature = "experimental-timeline")]
+use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
 use matrix_sdk_base::{
-    deserialized_responses::SyncRoomEvent,
     media::{MediaRequest, UniqueKey},
-    store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
+    store::{Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
@@ -29,21 +31,21 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
-        room::{
-            member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
-            redaction::SyncRoomRedactionEvent,
-        },
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType,
-        StateEventType,
+        room::member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
+        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
+    EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
+};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
     signatures::{redact_in_place, CanonicalJsonObject},
-    EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, RoomVersionId, UserId,
+    RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -122,8 +124,11 @@ mod KEYS {
     pub const ROOM_USER_RECEIPTS: &str = "room_user_receipts";
     pub const ROOM_EVENT_RECEIPTS: &str = "room_event_receipts";
 
+    #[cfg(feature = "experimental-timeline")]
     pub const ROOM_TIMELINE: &str = "room_timeline";
+    #[cfg(feature = "experimental-timeline")]
     pub const ROOM_TIMELINE_METADATA: &str = "room_timeline_metadata";
+    #[cfg(feature = "experimental-timeline")]
     pub const ROOM_EVENT_ID_TO_POSITION: &str = "room_event_id_to_position";
 
     pub const MEDIA: &str = "media";
@@ -300,6 +305,7 @@ impl IndexeddbStore {
         .map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e))))
     }
 
+    #[cfg(feature = "experimental-timeline")]
     fn encode_key_with_counter<T>(&self, table_name: &str, key: &T, i: usize) -> JsValue
     where
         T: SafeEncode,
@@ -599,12 +605,15 @@ impl IndexeddbStore {
 
             for (room_id, timeline) in &changes.timeline {
                 if timeline.sync {
-                    info!("Save new timeline batch from sync response for {}", room_id);
+                    tracing::info!("Save new timeline batch from sync response for {}", room_id);
                 } else {
-                    info!("Save new timeline batch from messages response for {}", room_id);
+                    tracing::info!(
+                        "Save new timeline batch from messages response for {}",
+                        room_id
+                    );
                 }
                 let metadata: Option<TimelineMetadata> = if timeline.limited {
-                    info!(
+                    tracing::info!(
                         "Delete stored timeline for {} because the sync response was limited",
                         room_id
                     );
@@ -633,7 +642,7 @@ impl IndexeddbStore {
                             // This should only happen when a developer adds a wrong timeline
                             // batch to the `StateChanges` or the server returns a wrong response
                             // to our request.
-                            warn!("Drop unexpected timeline batch for {}", room_id);
+                            tracing::warn!("Drop unexpected timeline batch for {}", room_id);
                             return Ok(());
                         }
 
@@ -657,7 +666,7 @@ impl IndexeddbStore {
                         }
 
                         if delete_timeline {
-                            info!(
+                            tracing::info!(
                                 "Delete stored timeline for {} because of duplicated events",
                                 room_id
                             );
@@ -706,7 +715,7 @@ impl IndexeddbStore {
                         .transpose()?
                         .and_then(|info| info.room_version().cloned())
                         .unwrap_or_else(|| {
-                            warn!(
+                            tracing::warn!(
                                 "Unable to find the room version for {}, assume version 9",
                                 room_id
                             );
@@ -1100,18 +1109,13 @@ impl IndexeddbStore {
             KEYS::ROOM_USER_RECEIPTS,
             KEYS::STRIPPED_ROOM_STATE,
             KEYS::STRIPPED_MEMBERS,
+            #[cfg(feature = "experimental-timeline")]
+            KEYS::ROOM_TIMELINE,
+            #[cfg(feature = "experimental-timeline")]
+            KEYS::ROOM_TIMELINE_METADATA,
+            #[cfg(feature = "experimental-timeline")]
+            KEYS::ROOM_EVENT_ID_TO_POSITION,
         ];
-
-        #[cfg(feature = "experimental-timeline")]
-        let prefixed_stores = {
-            let mut timeline_stores = [
-                KEYS::ROOM_TIMELINE,
-                KEYS::ROOM_TIMELINE_METADATA,
-                KEYS::ROOM_EVENT_ID_TO_POSITION,
-            ];
-            timeline_stores.extend(prefixed_stores);
-            timeline_stores
-        };
 
         let all_stores = {
             let mut v = Vec::new();
@@ -1158,7 +1162,7 @@ impl IndexeddbStore {
         {
             Some(tl) => tl,
             _ => {
-                info!("No timeline for {} was previously stored", room_id);
+                tracing::info!("No timeline for {} was previously stored", room_id);
                 return Ok(None);
             }
         };
@@ -1174,7 +1178,11 @@ impl IndexeddbStore {
 
         let stream = Box::pin(stream::iter(timeline.into_iter()));
 
-        info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
+        tracing::info!(
+            "Found previously stored timeline for {}, with end token {:?}",
+            room_id,
+            end_token
+        );
 
         Ok(Some((stream, end_token)))
     }

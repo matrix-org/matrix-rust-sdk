@@ -2250,6 +2250,7 @@ pub(crate) mod tests {
     use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
     use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize};
+    #[cfg(feature = "experimental-timeline")]
     use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
