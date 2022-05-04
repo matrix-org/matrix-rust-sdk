@@ -184,10 +184,10 @@ impl Common {
         };
 
         for event in http_response.chunk {
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             let event = self.client.decrypt_room_event(event).await;
 
-            #[cfg(not(feature = "encryption"))]
+            #[cfg(not(feature = "e2e-encryption"))]
             let event = RoomEvent { event, encryption_info: None };
 
             response.chunk.push(event);
@@ -442,10 +442,10 @@ impl Common {
         let request = get_room_event::v3::Request::new(self.room_id(), event_id);
         let event = self.client.send(request, None).await?.event;
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         return Ok(self.client.decrypt_room_event(event).await);
 
-        #[cfg(not(feature = "encryption"))]
+        #[cfg(not(feature = "e2e-encryption"))]
         return Ok(RoomEvent { event, encryption_info: None });
     }
 
@@ -751,7 +751,7 @@ impl Common {
     /// verified.
     ///
     /// Returns true if all devices in the room are verified, otherwise false.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
         let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
 

@@ -148,12 +148,12 @@ fn run_tests() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (FeatureSet::NoEncryption, "--no-default-features --features sled-state-store,native-tls"),
-        (FeatureSet::NoSled, "--no-default-features --features encryption,native-tls"),
+        (FeatureSet::NoEncryption, "--no-default-features --features sled,native-tls"),
+        (FeatureSet::NoSled, "--no-default-features --features e2e-encryption,native-tls"),
         (FeatureSet::NoEncryptionAndSled, "--no-default-features --features native-tls"),
         (
             FeatureSet::SledCryptostore,
-            "--no-default-features --features encryption,sled-crypto-store,native-tls",
+            "--no-default-features --features e2e-encryption,sled,native-tls",
         ),
         (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls"),
         (FeatureSet::Markdown, "--features markdown"),
@@ -208,19 +208,16 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            "-p matrix-sdk --no-default-features --features indexeddb-state-store,rustls-tls",
+            "-p matrix-sdk --no-default-features --features indexeddb,rustls-tls",
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
-            "-p matrix-sdk --no-default-features --features indexeddb-state-store,indexeddb-crypto-store,encryption,rustls-tls",
+            "-p matrix-sdk --no-default-features --features indexeddb,e2e-encryption,rustls-tls",
         ),
-        (
-            WasmFeatureSet::IndexeddbNoCrypto,
-                "-p matrix-sdk-indexeddb --no-default-features ",
-        ),
+        (WasmFeatureSet::IndexeddbNoCrypto, "-p matrix-sdk-indexeddb --no-default-features "),
         (
             WasmFeatureSet::IndexeddbWithCrypto,
-                "-p matrix-sdk-indexeddb --no-default-features --features encryption",
+            "-p matrix-sdk-indexeddb --no-default-features --features e2e-encryption",
         ),
     ]);
 
@@ -264,30 +261,27 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixQrcode, ("matrix-qrcode", "")),
         (
-            WasmFeatureSet::MatrixSdkNoDefault, ("matrix-sdk", "--no-default-features --features rustls-tls --lib")
+            WasmFeatureSet::MatrixSdkNoDefault,
+            ("matrix-sdk", "--no-default-features --features rustls-tls --lib"),
         ),
         (WasmFeatureSet::MatrixSdkBase, ("matrix-sdk-base", "")),
         (WasmFeatureSet::MatrixSdkCommon, ("matrix-sdk-common", "")),
         (WasmFeatureSet::MatrixSdkCrypto, ("matrix-sdk-crypto", "")),
         (
-            WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto, (
-                "matrix-sdk", "--no-default-features --features indexeddb-state-store,rustls-tls --lib",
-            )
+            WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
+            ("matrix-sdk", "--no-default-features --features indexeddb,rustls-tls --lib"),
         ),
         (
-            WasmFeatureSet::MatrixSdkIndexeddbStores, (
-                "matrix-sdk", "--no-default-features --features indexeddb-state-store,indexeddb-crypto-store,encryption,rustls-tls --lib",
-            )
+            WasmFeatureSet::MatrixSdkIndexeddbStores,
+            (
+                "matrix-sdk",
+                "--no-default-features --features indexeddb,e2e-encryption,rustls-tls --lib",
+            ),
         ),
+        (WasmFeatureSet::IndexeddbNoCrypto, ("matrix-sdk-indexeddb", "--no-default-features")),
         (
-            WasmFeatureSet::IndexeddbNoCrypto, (
-                "matrix-sdk-indexeddb", "--no-default-features",
-            )
-        ),
-        (
-            WasmFeatureSet::IndexeddbWithCrypto, (
-                "matrix-sdk-indexeddb", "--no-default-features --features encryption",
-            )
+            WasmFeatureSet::IndexeddbWithCrypto,
+            ("matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),
         ),
     ]);
 

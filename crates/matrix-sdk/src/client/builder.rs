@@ -148,7 +148,7 @@ impl ClientBuilder {
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store should be opened before being set.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(
         mut self,
         store: Box<dyn matrix_sdk_base::crypto::store::CryptoStore>,
@@ -334,9 +334,9 @@ impl ClientBuilder {
             http_client,
             base_client,
             server_versions: Mutex::new(server_versions),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             group_session_locks: Default::default(),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             key_claim_lock: Default::default(),
             members_request_locks: Default::default(),
             typing_notice_times: Default::default(),
@@ -418,12 +418,12 @@ pub enum ClientBuildError {
     Http(#[from] HttpError),
 
     /// Error opening the indexeddb store.
-    #[cfg(any(feature = "indexeddb-state-store", feature = "indexeddb-crypto-store"))]
+    #[cfg(feature = "indexeddb")]
     #[error(transparent)]
     IndexeddbStore(#[from] matrix_sdk_indexeddb::OpenStoreError),
 
     /// Error opening the sled store.
-    #[cfg(any(feature = "sled-statehstore", feature = "sled-crypto-store"))]
+    #[cfg(feature = "sled")]
     #[error(transparent)]
     SledStore(#[from] matrix_sdk_sled::OpenStoreError),
 }

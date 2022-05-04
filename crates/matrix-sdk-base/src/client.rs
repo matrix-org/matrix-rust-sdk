@@ -19,10 +19,10 @@ use std::{
     sync::Arc,
 };
 #[allow(unused_imports)]
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, result::Result as StdResult};
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     deserialized_responses::{
@@ -32,13 +32,13 @@ use matrix_sdk_common::{
     instant::Instant,
     locks::RwLock,
 };
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError, MemoryStore as MemoryCryptoStore},
     Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
     OutgoingRequest, ToDeviceRequest, UserDevices,
 };
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
@@ -62,7 +62,7 @@ use ruma::{
 };
 use tracing::{info, trace, warn};
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use crate::error::Error;
 use crate::{
     error::Result,
@@ -88,7 +88,7 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     olm: Arc<Mutex<CryptoHolder>>,
 }
 
@@ -102,20 +102,20 @@ impl fmt::Debug for BaseClient {
     }
 }
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 enum CryptoHolder {
     PreSetupStore(Option<Box<dyn CryptoStore>>),
     Olm(Box<OlmMachine>),
 }
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 impl Default for CryptoHolder {
     fn default() -> Self {
         CryptoHolder::PreSetupStore(Some(Box::new(MemoryCryptoStore::default())))
     }
 }
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 impl CryptoHolder {
     fn new(store: Box<dyn CryptoStore>) -> Self {
         CryptoHolder::PreSetupStore(Some(store))
@@ -160,14 +160,14 @@ impl BaseClient {
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 
         BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
             store,
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             olm: Mutex::new(holder).into(),
         }
     }
@@ -218,7 +218,7 @@ impl BaseClient {
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         self.store.restore_session(session.clone()).await?;
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         {
             let mut olm = self.olm.lock().await;
             olm.convert_to_olm(&session).await?;
@@ -235,7 +235,7 @@ impl BaseClient {
         self.sync_token.read().await.clone()
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     async fn handle_unenecrypted_verification_event(
         &self,
         event: &AnySyncMessageLikeEvent,
@@ -313,7 +313,7 @@ impl BaseClient {
                             }
                         },
 
-                        #[cfg(feature = "encryption")]
+                        #[cfg(feature = "e2e-encryption")]
                         AnySyncRoomEvent::MessageLike(e) => match e {
                             AnySyncMessageLikeEvent::RoomEncrypted(
                                 SyncMessageLikeEvent::Original(encrypted),
@@ -341,7 +341,7 @@ impl BaseClient {
                             }
                             _ => (),
                         },
-                        #[cfg(not(feature = "encryption"))]
+                        #[cfg(not(feature = "e2e-encryption"))]
                         _ => (),
                     }
 
@@ -570,7 +570,7 @@ impl BaseClient {
 
         let now = Instant::now();
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let to_device = {
             if let Some(o) = self.olm_machine().await {
                 // Let the crypto machine handle the sync response, this
@@ -643,7 +643,7 @@ impl BaseClient {
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine().await {
                     if !room.is_encrypted() {
@@ -851,14 +851,14 @@ impl BaseClient {
 
             let mut changes = StateChanges::default();
 
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             let mut user_ids = BTreeSet::new();
 
             for member in &members {
                 let member: OriginalSyncRoomMemberEvent = member.clone().into();
 
                 if self.store.get_member_event(room_id, &member.state_key).await?.is_none() {
-                    #[cfg(feature = "encryption")]
+                    #[cfg(feature = "e2e-encryption")]
                     match member.content.membership {
                         MembershipState::Join | MembershipState::Invite => {
                             user_ids.insert(member.state_key.clone());
@@ -884,7 +884,7 @@ impl BaseClient {
                 }
             }
 
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine().await {
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await
@@ -950,7 +950,7 @@ impl BaseClient {
     /// machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
         match self.olm_machine().await {
             Some(o) => o.outgoing_requests().await,
@@ -967,7 +967,7 @@ impl BaseClient {
     ///
     /// * `response` - The response that was received from the server after the
     /// outgoing request was sent out.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &TransactionId,
@@ -982,7 +982,7 @@ impl BaseClient {
     /// Get a tuple of device and one-time keys that need to be uploaded.
     ///
     /// Returns an empty error if no keys need to be uploaded.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -994,7 +994,7 @@ impl BaseClient {
     }
 
     /// Get a to-device request that will share a group session for a room.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
         match self.olm_machine().await {
             Some(o) => {
@@ -1033,7 +1033,7 @@ impl BaseClient {
     }
 
     /// Encrypt a message event content.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
@@ -1050,7 +1050,7 @@ impl BaseClient {
     ///
     /// Returns true if a session was invalidated, false if there was no session
     /// to invalidate.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn invalidate_group_session(
         &self,
         room_id: &RoomId,
@@ -1089,7 +1089,7 @@ impl BaseClient {
     /// println!("{:?}", device);
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -1145,7 +1145,7 @@ impl BaseClient {
     /// }
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
@@ -1159,7 +1159,7 @@ impl BaseClient {
     }
 
     /// Get the olm machine.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn olm_machine(&self) -> Option<OlmMachine> {
         let olm = self.olm.lock().await;
         olm.machine()

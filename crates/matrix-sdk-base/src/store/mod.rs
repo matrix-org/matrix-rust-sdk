@@ -35,7 +35,7 @@ pub mod integration_tests;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::CryptoStore;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
@@ -622,7 +622,7 @@ impl StateChanges {
 /// ```
 #[derive(Default)]
 pub struct StoreConfig {
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store: Option<Box<dyn CryptoStore>>,
     pub(crate) state_store: Option<Box<dyn StateStore>>,
 }
@@ -644,7 +644,7 @@ impl StoreConfig {
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store must be opened before being set.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
         self.crypto_store = Some(store);
         self
