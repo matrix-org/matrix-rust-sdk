@@ -673,6 +673,7 @@ impl BaseClient {
                 true,
             );
 
+            #[cfg(feature = "experimental-timeline")]
             changes.add_timeline(&room_id, timeline_slice);
 
             new_rooms.join.insert(
@@ -795,6 +796,7 @@ impl BaseClient {
             }
         }
 
+        #[cfg(feature = "experimental-timeline")]
         for (room_id, timeline_slice) in &changes.timeline {
             if let Some(room) = self.store.get_room(room_id) {
                 room.add_timeline_slice(timeline_slice).await;
@@ -810,6 +812,7 @@ impl BaseClient {
     pub async fn receive_messages(&self, room_id: &RoomId, timeline: TimelineSlice) -> Result<()> {
         let mut changes = StateChanges::default();
 
+        #[cfg(feature = "experimental-timeline")]
         changes.add_timeline(room_id, timeline);
 
         self.store().save_changes(&changes).await?;

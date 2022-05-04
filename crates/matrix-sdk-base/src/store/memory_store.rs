@@ -85,6 +85,7 @@ pub struct MemoryStore {
     >,
     media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
     custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
+    #[cfg(feature = "experimental-timeline")]
     room_timeline: Arc<DashMap<OwnedRoomId, TimelineData>>,
 }
 
@@ -118,6 +119,7 @@ impl MemoryStore {
             room_event_receipts: Default::default(),
             media: Arc::new(Mutex::new(LruCache::new(100))),
             custom: DashMap::new().into(),
+            #[cfg(feature = "experimental-timeline")]
             room_timeline: Default::default(),
         }
     }
@@ -300,6 +302,7 @@ impl MemoryStore {
             }
         }
 
+        #[cfg(feature = "experimental-timeline")]
         for (room, timeline) in &changes.timeline {
             if timeline.sync {
                 info!("Save new timeline batch from sync response for {}", room);
@@ -588,11 +591,14 @@ impl MemoryStore {
         self.stripped_members.remove(room_id);
         self.room_user_receipts.remove(room_id);
         self.room_event_receipts.remove(room_id);
+
+        #[cfg(feature = "experimental-timeline")]
         self.room_timeline.remove(room_id);
 
         Ok(())
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -765,6 +771,7 @@ impl StateStore for MemoryStore {
         self.remove_room(room_id).await
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,

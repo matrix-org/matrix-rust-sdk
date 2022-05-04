@@ -344,6 +344,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// Returns a stream of events and a token that can be used to request
     /// previous events.
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -520,6 +521,7 @@ pub struct StateChanges {
     /// A map of `RoomId` to a vector of `Notification`s
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
     /// A mapping of `RoomId` to a `TimelineSlice`
+    #[cfg(feature = "experimental-timeline")]
     pub timeline: BTreeMap<OwnedRoomId, TimelineSlice>,
 }
 
@@ -605,6 +607,7 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `TimelineSlice`.
+    #[cfg(feature = "experimental-timeline")]
     pub fn add_timeline(&mut self, room_id: &RoomId, timeline: TimelineSlice) {
         self.timeline.insert(room_id.to_owned(), timeline);
     }

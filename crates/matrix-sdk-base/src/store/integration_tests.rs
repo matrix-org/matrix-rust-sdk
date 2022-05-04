@@ -572,6 +572,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                #[cfg(feature = "experimental-timeline")]
                 async fn test_room_timeline() {
                     let store = get_store().await.unwrap();
                     let mut stored_events = Vec::new();
@@ -699,6 +700,7 @@ macro_rules! statestore_integration_tests {
                     check_timeline_events(room_id, &store, &Vec::new(), end_token.as_deref()).await;
                 }
 
+                #[cfg(feature = "experimental-timeline")]
                 async fn check_timeline_events(
                     room_id: &RoomId,
                     store: &dyn StateStore,

@@ -19,6 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 encryption = ["matrix-sdk-crypto"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
+experimental-timeline = []
 
 # helpers for testing features build upon this
 testing = ["http"]

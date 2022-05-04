@@ -484,6 +484,7 @@ impl Room {
 
     /// Get two stream into the timeline.
     /// First one is forward in time and the second one is backward in time.
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(
         &self,
     ) -> StoreResult<(
@@ -522,6 +523,7 @@ impl Room {
     ///
     /// If you need also a backward stream you should use
     /// [`timeline`][`crate::Room::timeline`]
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline_forward(&self) -> StoreResult<impl Stream<Item = SyncRoomEvent>> {
         let mut forward_timeline_streams = self.forward_timeline_streams.lock().await;
         let event_ids = Arc::new(DashSet::new());
@@ -537,6 +539,7 @@ impl Room {
     ///
     /// If you need also a forward stream you should use
     /// [`timeline`][`crate::Room::timeline`]
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline_backward(
         &self,
     ) -> StoreResult<impl Stream<Item = Result<SyncRoomEvent, TimelineStreamError>>> {
@@ -558,6 +561,7 @@ impl Room {
     }
 
     /// Add a new timeline slice to the timeline streams.
+    #[cfg(feature = "experimental-timeline")]
     pub async fn add_timeline_slice(&self, timeline: &TimelineSlice) {
         if timeline.sync {
             let mut streams = self.forward_timeline_streams.lock().await;
