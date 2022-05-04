@@ -25,7 +25,7 @@ use async_trait::async_trait;
 use futures_core::stream::Stream;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
-    deserialized_responses::SyncRoomEvent,
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     store::{BoxStream, Result as StoreResult, StateChanges, StateStore, StoreError},
     RoomInfo,
@@ -36,7 +36,7 @@ use ruma::{
         presence::PresenceEvent,
         receipt::Receipt,
         room::{
-            member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent},
+            member::{MembershipState, RoomMemberEventContent},
             redaction::SyncRoomRedactionEvent,
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncMessageLikeEvent,
@@ -129,6 +129,8 @@ const ROOM_STATE: &str = "room-state";
 const ROOM_USER_RECEIPT: &str = "room-user-receipt";
 const ROOM: &str = "room";
 const SESSION: &str = "session";
+const STRIPPED_INVITED_USER_ID: &str = "stripped-invited-user-id";
+const STRIPPED_JOINED_USER_ID: &str = "stripped-joined-user-id";
 const STRIPPED_ROOM_INFO: &str = "stripped-room-info";
 const STRIPPED_ROOM_MEMBER: &str = "stripped-room-member";
 const STRIPPED_ROOM_STATE: &str = "stripped-room-state";
@@ -152,6 +154,8 @@ pub struct SledStore {
     room_info: Tree,
     room_state: Tree,
     room_account_data: Tree,
+    stripped_joined_user_ids: Tree,
+    stripped_invited_user_ids: Tree,
     stripped_room_infos: Tree,
     stripped_room_state: Tree,
     stripped_members: Tree,
@@ -195,6 +199,8 @@ impl SledStore {
         let presence = db.open_tree(PRESENCE)?;
         let room_account_data = db.open_tree(ROOM_ACCOUNT_DATA)?;
 
+        let stripped_joined_user_ids = db.open_tree(STRIPPED_JOINED_USER_ID)?;
+        let stripped_invited_user_ids = db.open_tree(STRIPPED_INVITED_USER_ID)?;
         let stripped_room_infos = db.open_tree(STRIPPED_ROOM_INFO)?;
         let stripped_members = db.open_tree(STRIPPED_ROOM_MEMBER)?;
         let stripped_room_state = db.open_tree(STRIPPED_ROOM_STATE)?;
@@ -225,6 +231,8 @@ impl SledStore {
             presence,
             room_state,
             room_info,
+            stripped_joined_user_ids,
+            stripped_invited_user_ids,
             stripped_room_infos,
             stripped_members,
             stripped_room_state,
@@ -357,9 +365,8 @@ impl SledStore {
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = Instant::now();
 
+        // room state & memberships
         let ret: Result<(), TransactionError<SledStoreError>> = (
-            &self.session,
-            &self.account_data,
             &self.members,
             &self.profiles,
             &self.display_names,
@@ -368,15 +375,14 @@ impl SledStore {
             &self.room_info,
             &self.room_state,
             &self.room_account_data,
-            &self.presence,
+            &self.stripped_joined_user_ids,
+            &self.stripped_invited_user_ids,
             &self.stripped_room_infos,
             &self.stripped_members,
             &self.stripped_room_state,
         )
             .transaction(
                 |(
-                    session,
-                    account_data,
                     members,
                     profiles,
                     display_names,
@@ -385,15 +391,12 @@ impl SledStore {
                     rooms,
                     state,
                     room_account_data,
-                    presence,
+                    stripped_joined,
+                    stripped_invited,
                     striped_rooms,
                     stripped_members,
                     stripped_state,
                 )| {
-                    if let Some(s) = &changes.sync_token {
-                        session.insert("sync_token".encode(), s.as_str())?;
-                    }
-
                     for (room, events) in &changes.members {
                         let profile_changes = changes.profiles.get(room);
 
@@ -449,14 +452,6 @@ impl SledStore {
                         }
                     }
 
-                    for (event_type, event) in &changes.account_data {
-                        account_data.insert(
-                            self.encode_key(ACCOUNT_DATA, event_type),
-                            self.serialize_event(&event)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
                     for (room, events) in &changes.room_account_data {
                         for (event_type, event) in events {
                             room_account_data.insert(
@@ -487,14 +482,6 @@ impl SledStore {
                         )?;
                     }
 
-                    for (sender, event) in &changes.presence {
-                        presence.insert(
-                            self.encode_key(PRESENCE, sender),
-                            self.serialize_event(&event)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
-                    }
-
                     for (room_id, info) in &changes.stripped_room_infos {
                         striped_rooms.insert(
                             self.encode_key(STRIPPED_ROOM_INFO, room_id),
@@ -505,11 +492,34 @@ impl SledStore {
 
                     for (room, events) in &changes.stripped_members {
                         for event in events.values() {
+                            let key = (room, &event.state_key);
+
+                            match event.content.membership {
+                                MembershipState::Join => {
+                                    stripped_joined.insert(
+                                        self.encode_key(STRIPPED_JOINED_USER_ID, &key),
+                                        event.state_key.as_str(),
+                                    )?;
+                                    stripped_invited
+                                        .remove(self.encode_key(STRIPPED_INVITED_USER_ID, &key))?;
+                                }
+                                MembershipState::Invite => {
+                                    stripped_invited.insert(
+                                        self.encode_key(STRIPPED_INVITED_USER_ID, &key),
+                                        event.state_key.as_str(),
+                                    )?;
+                                    stripped_joined
+                                        .remove(self.encode_key(STRIPPED_JOINED_USER_ID, &key))?;
+                                }
+                                _ => {
+                                    stripped_joined
+                                        .remove(self.encode_key(STRIPPED_JOINED_USER_ID, &key))?;
+                                    stripped_invited
+                                        .remove(self.encode_key(STRIPPED_INVITED_USER_ID, &key))?;
+                                }
+                            }
                             stripped_members.insert(
-                                self.encode_key(
-                                    STRIPPED_ROOM_MEMBER,
-                                    (room, event.state_key.to_string()),
-                                ),
+                                self.encode_key(STRIPPED_ROOM_MEMBER, &key),
                                 self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
@@ -538,8 +548,8 @@ impl SledStore {
         ret?;
 
         let ret: Result<(), TransactionError<SledStoreError>> =
-            (&self.room_user_receipts, &self.room_event_receipts).transaction(
-                |(room_user_receipts, room_event_receipts)| {
+            (&self.room_user_receipts, &self.room_event_receipts, &self.presence).transaction(
+                |(room_user_receipts, room_event_receipts, presence)| {
                     for (room, content) in &changes.receipts {
                         for (event_id, receipts) in &content.0 {
                             for (receipt_type, receipts) in receipts {
@@ -577,6 +587,14 @@ impl SledStore {
                         }
                     }
 
+                    for (sender, event) in &changes.presence {
+                        presence.insert(
+                            self.encode_key(PRESENCE, sender),
+                            self.serialize_event(&event)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
+                    }
+
                     Ok(())
                 },
             );
@@ -584,6 +602,26 @@ impl SledStore {
         ret?;
 
         self.save_room_timeline(changes).await?;
+
+        // user state
+        let ret: Result<(), TransactionError<SledStoreError>> = (&self.session, &self.account_data)
+            .transaction(|(session, account_data)| {
+                if let Some(s) = &changes.sync_token {
+                    session.insert("sync_token".encode(), s.as_str())?;
+                }
+
+                for (event_type, event) in &changes.account_data {
+                    account_data.insert(
+                        self.encode_key(ACCOUNT_DATA, event_type),
+                        self.serialize_event(&event)
+                            .map_err(ConflictableTransactionError::Abort)?,
+                    )?;
+                }
+
+                Ok(())
+            });
+
+        ret?;
 
         self.inner.flush_async().await?;
 
@@ -644,11 +682,25 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<OriginalSyncRoomMemberEvent>> {
+    ) -> Result<Option<MemberEvent>> {
         let db = self.clone();
         let key = self.encode_key(MEMBER, (room_id, state_key));
-        spawn_blocking(move || db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose())
-            .await?
+        let stripped_key = self.encode_key(STRIPPED_ROOM_MEMBER, (room_id, state_key));
+        spawn_blocking(move || {
+            if let Some(e) = db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()? {
+                Ok(Some(MemberEvent::Original(e)))
+            } else if let Some(e) = db
+                .stripped_members
+                .get(stripped_key)?
+                .map(|v| db.deserialize_event(&v))
+                .transpose()?
+            {
+                Ok(Some(MemberEvent::Stripped(e)))
+            } else {
+                Ok(None)
+            }
+        })
+        .await?
     }
 
     pub async fn get_user_ids_stream(
@@ -659,6 +711,15 @@ impl SledStore {
             .get_joined_user_ids(room_id)
             .await?
             .chain(self.get_invited_user_ids(room_id).await?))
+    }
+    pub async fn get_stripped_user_ids_stream(
+        &self,
+        room_id: &RoomId,
+    ) -> StoreResult<impl Stream<Item = StoreResult<OwnedUserId>>> {
+        Ok(self
+            .get_stripped_joined_user_ids(room_id)
+            .await?
+            .chain(self.get_stripped_invited_user_ids(room_id).await?))
     }
 
     pub async fn get_invited_user_ids(
@@ -687,6 +748,42 @@ impl SledStore {
         let key = self.encode_key(JOINED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
+                UserId::parse(String::from_utf8_lossy(
+                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                ))
+                .map_err(StoreError::Identifier)
+            }))
+        })
+        .await
+        .map_err(|e| StoreError::Backend(anyhow!(e)))
+    }
+
+    pub async fn get_stripped_invited_user_ids(
+        &self,
+        room_id: &RoomId,
+    ) -> StoreResult<impl Stream<Item = StoreResult<OwnedUserId>>> {
+        let db = self.clone();
+        let key = self.encode_key(STRIPPED_INVITED_USER_ID, room_id);
+        spawn_blocking(move || {
+            stream::iter(db.stripped_invited_user_ids.scan_prefix(key).map(|u| {
+                UserId::parse(String::from_utf8_lossy(
+                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                ))
+                .map_err(StoreError::Identifier)
+            }))
+        })
+        .await
+        .map_err(|e| StoreError::Backend(anyhow!(e)))
+    }
+
+    pub async fn get_stripped_joined_user_ids(
+        &self,
+        room_id: &RoomId,
+    ) -> StoreResult<impl Stream<Item = StoreResult<OwnedUserId>>> {
+        let db = self.clone();
+        let key = self.encode_key(STRIPPED_JOINED_USER_ID, room_id);
+        spawn_blocking(move || {
+            stream::iter(db.stripped_joined_user_ids.scan_prefix(key).map(|u| {
                 UserId::parse(String::from_utf8_lossy(
                     &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
                 ))
@@ -1274,20 +1371,32 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> StoreResult<Option<OriginalSyncRoomMemberEvent>> {
+    ) -> StoreResult<Option<MemberEvent>> {
         self.get_member_event(room_id, state_key).await.map_err(Into::into)
     }
 
     async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        self.get_user_ids_stream(room_id).await?.try_collect().await
+        let v: Vec<OwnedUserId> = self.get_user_ids_stream(room_id).await?.try_collect().await?;
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        self.get_stripped_user_ids_stream(room_id).await?.try_collect().await
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        self.get_invited_user_ids(room_id).await?.try_collect().await
+        let v: Vec<OwnedUserId> = self.get_invited_user_ids(room_id).await?.try_collect().await?;
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        self.get_stripped_invited_user_ids(room_id).await?.try_collect().await
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        self.get_joined_user_ids(room_id).await?.try_collect().await
+        let v: Vec<OwnedUserId> = self.get_joined_user_ids(room_id).await?.try_collect().await?;
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        self.get_stripped_joined_user_ids(room_id).await?.try_collect().await
     }
 
     async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {

@@ -2249,7 +2249,10 @@ pub(crate) mod tests {
 
     use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
-    use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize};
+    use matrix_sdk_base::{
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize},
+        DisplayName,
+    };
     use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
@@ -3365,7 +3368,10 @@ pub(crate) mod tests {
         let _response = client.sync_once(sync_settings).await.unwrap();
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!("example2", room.display_name().await.unwrap());
+        assert_eq!(
+            DisplayName::Calculated("example2".to_owned()),
+            room.display_name().await.unwrap()
+        );
     }
 
     #[async_test]
@@ -3443,7 +3449,7 @@ pub(crate) mod tests {
         assert_eq!(client.rooms().len(), 1);
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!("tutorial".to_owned(), room.display_name().await.unwrap());
+        assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
@@ -3457,7 +3463,10 @@ pub(crate) mod tests {
         assert_eq!(client.rooms().len(), 1);
         let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
 
-        assert_eq!("My Room Name".to_owned(), invited_room.display_name().await.unwrap());
+        assert_eq!(
+            DisplayName::Named("My Room Name".to_owned()),
+            invited_room.display_name().await.unwrap()
+        );
     }
 
     #[async_test]

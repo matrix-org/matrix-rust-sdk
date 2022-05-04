@@ -43,7 +43,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use super::{BaseRoomInfo, RoomMember};
+use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
     deserialized_responses::{SyncRoomEvent, TimelineSlice, UnreadNotificationsCount},
     store::{Result as StoreResult, StateStore},
@@ -265,7 +265,7 @@ impl Room {
     /// The display name is calculated according to [this algorithm][spec].
     ///
     /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub async fn display_name(&self) -> StoreResult<String> {
+    pub async fn display_name(&self) -> StoreResult<DisplayName> {
         self.calculate_name().await
     }
 
@@ -327,24 +327,19 @@ impl Room {
         Ok(members)
     }
 
-    async fn calculate_name(&self) -> StoreResult<String> {
+    async fn calculate_name(&self) -> StoreResult<DisplayName> {
         let summary = {
             let inner = self.inner.read().unwrap();
 
             if let Some(name) = &inner.base_info.name {
                 let name = name.trim();
-                return Ok(name.to_owned());
+                return Ok(DisplayName::Named(name.to_owned()));
             } else if let Some(alias) = &inner.base_info.canonical_alias {
                 let alias = alias.alias().trim();
-                return Ok(alias.to_owned());
+                return Ok(DisplayName::Aliased(alias.to_owned()));
             }
             inner.summary.clone()
         };
-        // TODO what should we do here? We have correct counts only if lazy
-        // loading is used.
-        let joined = summary.joined_member_count;
-        let invited = summary.invited_member_count;
-        let heroes_count = summary.heroes.len() as u64;
 
         let is_own_member = |m: &RoomMember| m.user_id() == &*self.own_user_id;
         let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
@@ -366,11 +361,27 @@ impl Room {
             members?
         };
 
+        let (joined, invited) = match self.room_type() {
+            RoomType::Invited => {
+                // when we were invited we don't have a proper summary, we have to do best
+                // guessing
+                (members.len() as u64, 1u64)
+            }
+            RoomType::Joined if summary.joined_member_count == 0 => {
+                // joined but the summary is not completed yet
+                (
+                    (members.len() as u64) + 1, // we've taken ourselves out of the count
+                    summary.invited_member_count,
+                )
+            }
+            _ => (summary.joined_member_count, summary.invited_member_count),
+        };
+
         debug!(
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
-            heroes_count = heroes_count,
-            heroes = ?summary.heroes,
+            joined, invited,
+            heroes = ?members,
             "Calculating name for a room",
         );
 
@@ -433,14 +444,18 @@ impl Room {
             .store
             .get_users_with_display_name(
                 self.room_id(),
-                member_event.content.displayname.as_deref().unwrap_or_else(|| user_id.localpart()),
+                member_event
+                    .content()
+                    .displayname
+                    .as_deref()
+                    .unwrap_or_else(|| user_id.localpart()),
             )
             .await?
             .len()
             > 1;
 
         Ok(Some(RoomMember {
-            event: member_event.into(),
+            event: Arc::new(member_event),
             profile: profile.into(),
             presence: presence.into(),
             power_levels: power.into(),
@@ -718,5 +733,214 @@ impl RoomInfo {
     /// Get the room version of this room.
     pub fn room_version(&self) -> Option<&RoomVersionId> {
         self.base_info.create.as_ref().map(|c| &c.room_version)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use assign::assign;
+    use ruma::{
+        event_id,
+        events::{
+            room::member::{
+                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+                StrippedRoomMemberEvent,
+            },
+            StateUnsigned,
+        },
+        room_id, user_id, MilliSecondsSinceUnixEpoch, RoomAliasId,
+    };
+
+    use super::*;
+    use crate::store::{MemoryStore, StateChanges};
+
+    fn make_room(room_type: RoomType) -> (Arc<MemoryStore>, Room) {
+        let store = Arc::new(MemoryStore::new());
+        let user_id = user_id!("@me:example.org");
+        let room_id = room_id!("!test:localhost");
+
+        (store.clone(), Room::new(user_id, store, room_id, room_type))
+    }
+
+    fn make_stripped_member_event(user_id: &UserId, name: &str) -> StrippedRoomMemberEvent {
+        StrippedRoomMemberEvent {
+            content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
+                displayname: Some(name.to_owned())
+            }),
+            sender: user_id.to_owned(),
+            state_key: user_id.to_owned(),
+        }
+    }
+
+    fn make_member_event(user_id: &UserId, name: &str) -> OriginalSyncRoomMemberEvent {
+        OriginalSyncRoomMemberEvent {
+            content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
+                displayname: Some(name.to_owned())
+            }),
+            sender: user_id.to_owned(),
+            state_key: user_id.to_owned(),
+            event_id: event_id!("$h29iv0s1:example.com").to_owned(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
+            unsigned: StateUnsigned::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_display_name_default() {
+        let _ = env_logger::try_init();
+        let (_, room) = make_room(RoomType::Joined);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+
+        // has precedence
+        room.inner.write().unwrap().base_info.canonical_alias =
+            Some(RoomAliasId::parse("#test:example.com").unwrap());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+
+        // has precedence
+        room.inner.write().unwrap().base_info.name = Some("Test Room".to_owned());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+
+        let (_, room) = make_room(RoomType::Invited);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
+
+        // has precedence
+        room.inner.write().unwrap().base_info.canonical_alias =
+            Some(RoomAliasId::parse("#test:example.com").unwrap());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
+
+        // has precedence
+        room.inner.write().unwrap().base_info.name = Some("Test Room".to_owned());
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn test_display_name_dm_invited() {
+        let _ = env_logger::try_init();
+        let (store, room) = make_room(RoomType::Invited);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_owned());
+        let summary = assign!(RumaSummary::new(), {
+            heroes: vec![me.to_string(), matthew.to_string()],
+        });
+
+        changes.add_stripped_member(room_id, make_stripped_member_event(matthew, "Matthew"));
+        changes.add_stripped_member(room_id, make_stripped_member_event(me, "Me"));
+        store.save_changes(&changes).await.unwrap();
+
+        room.inner.write().unwrap().update_summary(&summary);
+        assert_eq!(
+            room.display_name().await.unwrap(),
+            DisplayName::Calculated("Matthew".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_display_name_dm_invited_no_heroes() {
+        let _ = env_logger::try_init();
+        let (store, room) = make_room(RoomType::Invited);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_owned());
+
+        changes.add_stripped_member(room_id, make_stripped_member_event(matthew, "Matthew"));
+        changes.add_stripped_member(room_id, make_stripped_member_event(me, "Me"));
+        store.save_changes(&changes).await.unwrap();
+
+        assert_eq!(
+            room.display_name().await.unwrap(),
+            DisplayName::Calculated("Matthew".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_display_name_dm_joined() {
+        let _ = env_logger::try_init();
+        let (store, room) = make_room(RoomType::Joined);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_owned());
+        let summary = assign!(RumaSummary::new(), {
+            joined_member_count: Some(2u32.into()),
+            heroes: vec![me.to_string(), matthew.to_string()],
+        });
+
+        changes
+            .members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
+        changes
+            .members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(me.to_owned(), make_member_event(me, "Me"));
+        store.save_changes(&changes).await.unwrap();
+
+        room.inner.write().unwrap().update_summary(&summary);
+        assert_eq!(
+            room.display_name().await.unwrap(),
+            DisplayName::Calculated("Matthew".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_display_name_dm_joined_no_heroes() {
+        let _ = env_logger::try_init();
+        let (store, room) = make_room(RoomType::Joined);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_owned());
+
+        changes
+            .members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
+        changes
+            .members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(me.to_owned(), make_member_event(me, "Me"));
+        store.save_changes(&changes).await.unwrap();
+
+        assert_eq!(
+            room.display_name().await.unwrap(),
+            DisplayName::Calculated("Matthew".to_owned())
+        );
+    }
+    #[tokio::test]
+    async fn test_display_name_dm_alone() {
+        let _ = env_logger::try_init();
+        let (store, room) = make_room(RoomType::Joined);
+        let room_id = room_id!("!test:localhost");
+        let matthew = user_id!("@matthew:example.org");
+        let me = user_id!("@me:example.org");
+        let mut changes = StateChanges::new("".to_owned());
+        let summary = assign!(RumaSummary::new(), {
+            joined_member_count: Some(1u32.into()),
+            heroes: vec![me.to_string(), matthew.to_string()],
+        });
+
+        changes
+            .members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(matthew.to_owned(), make_member_event(matthew, "Matthew"));
+        changes
+            .members
+            .entry(room_id.to_owned())
+            .or_default()
+            .insert(me.to_owned(), make_member_event(me, "Me"));
+        store.save_changes(&changes).await.unwrap();
+
+        room.inner.write().unwrap().update_summary(&summary);
+        assert_eq!(room.display_name().await.unwrap(), DisplayName::EmptyWas("Matthew".to_owned()));
     }
 }

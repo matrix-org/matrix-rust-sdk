@@ -48,7 +48,7 @@ use tracing::{info, warn};
 
 use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
 use crate::{
-    deserialized_responses::SyncRoomEvent,
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
     StoreError,
 };
@@ -77,6 +77,8 @@ pub struct MemoryStore {
         DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
     stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, StrippedRoomMemberEvent>>>,
+    stripped_joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    stripped_invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
     room_user_receipts:
         Arc<DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedUserId, (OwnedEventId, Receipt)>>>>,
@@ -113,6 +115,8 @@ impl MemoryStore {
             stripped_room_infos: Default::default(),
             stripped_room_state: Default::default(),
             stripped_members: Default::default(),
+            stripped_joined_user_ids: Default::default(),
+            stripped_invited_user_ids: Default::default(),
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
@@ -243,6 +247,39 @@ impl MemoryStore {
 
         for (room, events) in &changes.stripped_members {
             for event in events.values() {
+                match event.content.membership {
+                    MembershipState::Join => {
+                        self.stripped_joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .insert(event.state_key.clone());
+                        self.stripped_invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                    MembershipState::Invite => {
+                        self.stripped_invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .insert(event.state_key.clone());
+                        self.stripped_joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                    _ => {
+                        self.stripped_joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                        self.stripped_invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                }
+
                 self.stripped_members
                     .entry(room.clone())
                     .or_default()
@@ -456,15 +493,28 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<OriginalSyncRoomMemberEvent>> {
-        Ok(self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())))
+    ) -> Result<Option<MemberEvent>> {
+        if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
+            Ok(Some(e.into()))
+        } else if let Some(e) =
+            self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
+            Ok(Some(e.into()))
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
-        self.members
-            .get(room_id)
-            .map(|u| u.iter().map(|u| u.key().clone()).collect())
-            .unwrap_or_default()
+        if let Some(u) = self.members.get(room_id) {
+            u.iter().map(|u| u.key().clone()).collect()
+        } else {
+            self.stripped_members
+                .get(room_id)
+                .map(|u| u.iter().map(|u| u.key().clone()).collect())
+                .unwrap_or_default()
+        }
     }
 
     fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
@@ -476,6 +526,20 @@ impl MemoryStore {
 
     fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
         self.joined_user_ids
+            .get(room_id)
+            .map(|u| u.iter().map(|u| u.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn get_stripped_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
+        self.stripped_invited_user_ids
+            .get(room_id)
+            .map(|u| u.iter().map(|u| u.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
+        self.stripped_joined_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
             .unwrap_or_default()
@@ -668,7 +732,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<OriginalSyncRoomMemberEvent>> {
+    ) -> Result<Option<MemberEvent>> {
         self.get_member_event(room_id, state_key).await
     }
 
@@ -677,11 +741,19 @@ impl StateStore for MemoryStore {
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok(self.get_invited_user_ids(room_id))
+        let v = self.get_invited_user_ids(room_id);
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        Ok(self.get_stripped_invited_user_ids(room_id))
     }
 
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
-        Ok(self.get_joined_user_ids(room_id))
+        let v = self.get_joined_user_ids(room_id);
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        Ok(self.get_stripped_joined_user_ids(room_id))
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {

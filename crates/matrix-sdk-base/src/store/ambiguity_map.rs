@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use matrix_sdk_common::deserialized_responses::AmbiguityChange;
+use matrix_sdk_common::deserialized_responses::{AmbiguityChange, MemberEvent};
 use ruma::{
     events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -158,13 +158,13 @@ impl AmbiguityCache {
         let old_event = if let Some(m) =
             changes.members.get(room_id).and_then(|m| m.get(&member_event.state_key))
         {
-            Some(m.clone())
+            Some(MemberEvent::Original(m.clone()))
         } else {
             self.store.get_member_event(room_id, &member_event.state_key).await?
         };
 
         let old_display_name = if let Some(event) = old_event {
-            if matches!(event.content.membership, Join | Invite) {
+            if matches!(event.content().membership, Join | Invite) {
                 let display_name = if let Some(d) = changes
                     .profiles
                     .get(room_id)
@@ -180,10 +180,10 @@ impl AmbiguityCache {
                 {
                     Some(d)
                 } else {
-                    event.content.displayname.clone()
+                    event.content().displayname.clone()
                 };
 
-                Some(display_name.unwrap_or_else(|| event.state_key.localpart().to_owned()))
+                Some(display_name.unwrap_or_else(|| event.user_id().localpart().to_owned()))
             } else {
                 None
             }

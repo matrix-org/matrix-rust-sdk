@@ -57,7 +57,7 @@ use ruma::{
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
 use crate::{
-    deserialized_responses::{SyncRoomEvent, TimelineSlice},
+    deserialized_responses::{MemberEvent, SyncRoomEvent, TimelineSlice},
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,
@@ -178,7 +178,7 @@ pub trait StateStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<RoomMemberEventContent>>;
 
-    /// Get a raw `MemberEvent` for the given state key in the given room id.
+    /// Get the `MemberEvent` for the given state key in the given room id.
     ///
     /// # Arguments
     ///
@@ -189,17 +189,18 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Result<Option<OriginalSyncRoomMemberEvent>>;
+    ) -> Result<Option<MemberEvent>>;
 
-    /// Get all the user ids of members for a given room.
+    /// Get all the user ids of members for a given room, for stripped and
+    /// regular rooms alike.
     async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the user ids of members that are in the invited state for a
-    /// given room.
+    /// given room, for stripped and regular rooms alike.
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the user ids of members that are in the joined state for a
-    /// given room.
+    /// given room, for stripped and regular rooms alike.
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the pure `RoomInfo`s the store knows about.

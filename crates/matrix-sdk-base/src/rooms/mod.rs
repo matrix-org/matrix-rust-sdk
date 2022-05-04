@@ -1,7 +1,7 @@
 mod members;
 mod normal;
 
-use std::{cmp::max, collections::HashSet};
+use std::{cmp::max, collections::HashSet, fmt};
 
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomType};
@@ -17,6 +17,36 @@ use ruma::{
     OwnedMxcUri, OwnedRoomAliasId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
+
+/// The name of the room, either from the metadata or calculaetd
+/// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum DisplayName {
+    /// The room has been named explicitly as
+    Named(String),
+    /// The room has a canonical alias that should be used
+    Aliased(String),
+    /// The room has not given an explicit name but a name could be
+    /// calculated
+    Calculated(String),
+    /// The room doesn't have a name right now, but used to have one
+    /// e.g. because it was a DM and everyone has left the room
+    EmptyWas(String),
+    /// No useful name could be calculated or ever found
+    Empty,
+}
+
+impl fmt::Display for DisplayName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DisplayName::Named(s) | DisplayName::Calculated(s) | DisplayName::Aliased(s) => {
+                write!(f, "{}", s)
+            }
+            DisplayName::EmptyWas(s) => write!(f, "Empty Room (was {})", s),
+            DisplayName::Empty => write!(f, "Empty Room"),
+        }
+    }
+}
 
 /// A base room info struct that is the backbone of normal as well as stripped
 /// rooms. Holds all the state events that are important to present a room to
@@ -61,7 +91,7 @@ impl BaseRoomInfo {
         joined_member_count: u64,
         invited_member_count: u64,
         heroes: Vec<RoomMember>,
-    ) -> String {
+    ) -> DisplayName {
         calculate_room_name(
             joined_member_count,
             invited_member_count,
@@ -190,14 +220,12 @@ impl Default for BaseRoomInfo {
     }
 }
 
-/// Calculate room name according to step 3 of the [naming algorithm.][spec]
-///
-/// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+/// Calculate room name according to step 3 of the [naming algorithm.]
 fn calculate_room_name(
     joined_member_count: u64,
     invited_member_count: u64,
     heroes: Vec<&str>,
-) -> String {
+) -> DisplayName {
     let heroes_count = heroes.len() as u64;
     let invited_joined = invited_member_count + joined_member_count;
     let invited_joined_minus_one = invited_joined.saturating_sub(1);
@@ -221,12 +249,12 @@ fn calculate_room_name(
     // User is alone.
     if invited_joined <= 1 {
         if names.is_empty() {
-            "Empty room".to_owned()
+            DisplayName::Empty
         } else {
-            format!("Empty room (was {})", names)
+            DisplayName::EmptyWas(names)
         }
     } else {
-        names
+        DisplayName::Calculated(names)
     }
 }
 
@@ -237,33 +265,33 @@ mod tests {
 
     fn test_calculate_room_name() {
         let mut actual = calculate_room_name(2, 0, vec!["a"]);
-        assert_eq!("a", actual);
+        assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
 
         actual = calculate_room_name(3, 0, vec!["a", "b"]);
-        assert_eq!("a, b", actual);
+        assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
 
         actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
-        assert_eq!("a, b, c", actual);
+        assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
 
         actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
-        assert_eq!("a, b, c, and 2 others", actual);
+        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
 
         actual = calculate_room_name(0, 0, vec![]);
-        assert_eq!("Empty room", actual);
+        assert_eq!(DisplayName::Empty, actual);
 
         actual = calculate_room_name(1, 0, vec![]);
-        assert_eq!("Empty room", actual);
+        assert_eq!(DisplayName::Empty, actual);
 
         actual = calculate_room_name(0, 1, vec![]);
-        assert_eq!("Empty room", actual);
+        assert_eq!(DisplayName::Empty, actual);
 
         actual = calculate_room_name(1, 0, vec!["a"]);
-        assert_eq!("Empty room (was a)", actual);
+        assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
 
         actual = calculate_room_name(1, 0, vec!["a", "b"]);
-        assert_eq!("Empty room (was a, b)", actual);
+        assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
 
         actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
-        assert_eq!("Empty room (was a, b, c)", actual);
+        assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
 }
