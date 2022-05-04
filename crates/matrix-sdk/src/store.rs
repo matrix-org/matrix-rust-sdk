@@ -18,10 +18,10 @@
 //!
 //! 1. `sled` provides a `StateStore`, and a `CryptoStore` for encryption data
 //! if `e2e-encryption` is enabled. This is the default persistent store
-//! implementation for non-WebAssembly.
+//! implementation for non-WebAssembly targets.
 //! 2. `indexeddb`, too, provides a `StateStore` and a `CryptoStore` if
 //! `encryption` is also enabled. This is the default persistent store
-//! implementation for WebAssembly.
+//! implementation for WebAssembly targets.
 //!
 //! Both options provide a `make_store_config` convenience method to create a
 //! [`StoreConfig`] for [`ClientBuilder::store_config()`].

@@ -69,8 +69,8 @@ The following crate feature flags are available:
 | `markdown`          |   No    | Support to send Markdown-formatted messages                           |
 | `qrcode`            |   Yes   | QR code verification support                                          |
 | `sled`              |   Yes   | Persistent storage of state and E2EE-Data using sled (if `e2e-encryption` is activated)
-| `sled`              |   No    | Persistent storage of state and E2EE-Data for browsers using indexeddb (if `e2e-encryption` is activated)
-| `socks`             |   No    | Enables SOCKS support i        |n the default HTTP client, [`reqwest`]         |
+| `indexdb`           |   No    | Persistent storage of state and E2EE-Data for browsers using indexeddb (if `e2e-encryption` is activated)
+| `socks`             |   No    | Enables SOCKS support in the default HTTP client, [`reqwest`]         |
 | `sso-login`         |   No    | Enables SSO login with a local HTTP server                            |
 
 [`reqwest`]: https://docs.rs/reqwest/0.11.5/reqwest/index.html
