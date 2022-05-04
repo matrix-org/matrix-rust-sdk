@@ -47,7 +47,6 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
-    pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
     requests: Arc<DashMap<OwnedUserId, DashMap<String, VerificationRequest>>>,
@@ -60,8 +59,7 @@ impl VerificationMachine {
         store: Arc<dyn CryptoStore>,
     ) -> Self {
         Self {
-            private_identity: identity,
-            store: VerificationStore { account, inner: store },
+            store: VerificationStore { account, private_identity: identity, inner: store },
             verifications: VerificationCache::new(),
             requests: Default::default(),
         }
@@ -85,7 +83,6 @@ impl VerificationMachine {
 
         let verification = VerificationRequest::new(
             self.verifications.clone(),
-            self.private_identity.lock().await.clone(),
             self.store.clone(),
             flow_id,
             user_id,
@@ -111,7 +108,6 @@ impl VerificationMachine {
 
         let request = VerificationRequest::new(
             self.verifications.clone(),
-            self.private_identity.lock().await.clone(),
             self.store.clone(),
             flow_id,
             identity.user_id(),
@@ -128,21 +124,8 @@ impl VerificationMachine {
         &self,
         device: ReadOnlyDevice,
     ) -> Result<(Sas, OutgoingVerificationRequest), CryptoStoreError> {
-        let identity = self.store.get_user_identity(device.user_id()).await?;
-        let own_identity =
-            self.store.get_user_identity(self.own_user_id()).await?.and_then(|i| i.into_own());
-        let private_identity = self.private_identity.lock().await.clone();
-
-        let (sas, content) = Sas::start(
-            private_identity,
-            device.clone(),
-            self.store.clone(),
-            own_identity,
-            identity,
-            None,
-            true,
-            None,
-        );
+        let identities = self.store.get_identities(device.clone()).await?;
+        let (sas, content) = Sas::start(identities, None, true, None);
 
         let request = match content {
             OutgoingContent::Room(r, c) => {
@@ -337,7 +320,6 @@ impl VerificationMachine {
                             if !event_sent_from_us(&event, r.from_device()) {
                                 let request = VerificationRequest::from_request(
                                     self.verifications.clone(),
-                                    self.private_identity.lock().await.clone(),
                                     self.store.clone(),
                                     event.sender(),
                                     flow_id,
@@ -408,25 +390,9 @@ impl VerificationMachine {
                         if let Some(device) =
                             self.store.get_device(event.sender(), c.from_device()).await?
                         {
-                            let private_identity = self.private_identity.lock().await.clone();
-                            let own_identity = self
-                                .store
-                                .get_user_identity(self.own_user_id())
-                                .await?
-                                .and_then(|i| i.into_own());
-                            let identity = self.store.get_user_identity(event.sender()).await?;
+                            let identities = self.store.get_identities(device).await?;
 
-                            match Sas::from_start_event(
-                                flow_id,
-                                c,
-                                self.store.clone(),
-                                private_identity,
-                                device,
-                                own_identity,
-                                identity,
-                                None,
-                                false,
-                            ) {
+                            match Sas::from_start_event(flow_id, c, identities, None, false) {
                                 Ok(sas) => {
                                     self.verifications.insert_sas(sas);
                                 }
@@ -563,20 +529,20 @@ mod tests {
         store.save_devices(vec![bob_device]).await;
         bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let bob_store = VerificationStore { account: bob, inner: Arc::new(bob_store) };
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
+        let bob_store = VerificationStore {
+            account: bob,
+            inner: Arc::new(bob_store),
+            private_identity: identity,
+        };
 
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
-        let machine = VerificationMachine::new(alice, identity, Arc::new(store));
-        let (bob_sas, start_content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(bob_id()),
-            alice_device,
-            bob_store,
-            None,
-            None,
-            None,
-            true,
-            None,
+        let identities = bob_store.get_identities(alice_device).await.unwrap();
+        let machine = VerificationMachine::new(
+            alice,
+            Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
+            Arc::new(store),
         );
+        let (bob_sas, start_content) = Sas::start(identities, None, true, None);
 
         machine
             .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))

@@ -58,12 +58,13 @@ use crate::{
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
     store::{Changes, CryptoStore},
-    CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
+    CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
 
 #[derive(Clone, Debug)]
 pub(crate) struct VerificationStore {
     pub account: ReadOnlyAccount,
+    pub private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<dyn CryptoStore>,
 }
 
@@ -99,6 +100,25 @@ impl VerificationStore {
         user_id: &UserId,
     ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
         self.inner.get_user_identity(user_id).await
+    }
+
+    pub async fn get_identities(
+        &self,
+        device_being_verified: ReadOnlyDevice,
+    ) -> Result<IdentitiesBeingVerified, CryptoStoreError> {
+        let identity_being_verified =
+            self.get_user_identity(device_being_verified.user_id()).await?;
+
+        Ok(IdentitiesBeingVerified {
+            private_identity: self.private_identity.lock().await.clone(),
+            store: self.clone(),
+            device_being_verified,
+            own_identity: self
+                .get_user_identity(self.account.user_id())
+                .await?
+                .and_then(|i| i.into_own()),
+            identity_being_verified,
+        })
     }
 
     pub async fn save_changes(&self, changes: Changes) -> Result<(), CryptoStoreError> {
@@ -413,6 +433,7 @@ pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
     store: VerificationStore,
     device_being_verified: ReadOnlyDevice,
+    own_identity: Option<ReadOnlyOwnUserIdentity>,
     identity_being_verified: Option<ReadOnlyUserIdentities>,
 }
 
