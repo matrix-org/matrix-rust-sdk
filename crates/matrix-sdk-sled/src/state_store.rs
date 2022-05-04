@@ -328,10 +328,7 @@ impl SledStore {
         // FUTURE UPGRADE CODE GOES HERE
 
         // can't upgrade from that version to the new one
-        Err(StoreError::UnsupportedDatabaseVersion(
-            old_version.into(),
-            DATABASE_VERSION.into(),
-        ))
+        Err(StoreError::UnsupportedDatabaseVersion(old_version.into(), DATABASE_VERSION.into()))
     }
 
     /// Open a `CryptoStore` that uses the same database as this store.
