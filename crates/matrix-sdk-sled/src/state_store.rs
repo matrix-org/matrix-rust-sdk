@@ -429,12 +429,6 @@ impl SledStore {
                                 self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
-                            // clear out any remaining stripped data
-                            stripped_members.remove(self.encode_key(STRIPPED_ROOM_MEMBER, &key))?;
-                            stripped_joined
-                                .remove(self.encode_key(STRIPPED_JOINED_USER_ID, &key))?;
-                            stripped_invited
-                                .remove(self.encode_key(STRIPPED_INVITED_USER_ID, &key))?;
 
                             if let Some(profile) =
                                 profile_changes.and_then(|p| p.get(&event.state_key))
@@ -529,10 +523,6 @@ impl SledStore {
                                 self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
-
-                            members.remove(self.encode_key(MEMBER, &key))?;
-                            joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
-                            invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
                         }
                     }
 
