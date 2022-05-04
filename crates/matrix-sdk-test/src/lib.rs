@@ -166,7 +166,7 @@ impl EventBuilder {
     }
 
     fn add_joined_event(&mut self, room_id: &RoomId, event: Raw<AnySyncRoomEvent>) {
-        self.joined_room_events.entry(room_id.to_owned()).or_insert_with(Vec::new).push(event);
+        self.joined_room_events.entry(room_id.to_owned()).or_default().push(event);
     }
 
     pub fn add_custom_invited_event(
@@ -175,7 +175,7 @@ impl EventBuilder {
         event: serde_json::Value,
     ) -> &mut Self {
         let event = serde_json::from_value(event).unwrap();
-        self.invited_room_events.entry(room_id.to_owned()).or_insert_with(Vec::new).push(event);
+        self.invited_room_events.entry(room_id.to_owned()).or_default().push(event);
         self
     }
 
@@ -185,7 +185,7 @@ impl EventBuilder {
         event: serde_json::Value,
     ) -> &mut Self {
         let event = serde_json::from_value(event).unwrap();
-        self.left_room_events.entry(room_id.to_owned()).or_insert_with(Vec::new).push(event);
+        self.left_room_events.entry(room_id.to_owned()).or_default().push(event);
         self
     }
 

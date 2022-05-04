@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = "1.56"
+rust-version = "1.60"
 version = "0.4.1"
 
 [package.metadata.docs.rs]
@@ -17,19 +17,21 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = [
-    "encryption",
-    "sled-crypto-store",
-    "sled-state-store",
+    "e2e-encryption",
+    "sled",
     "native-tls"
 ]
 
-indexeddb-state-store = ["matrix-sdk-indexeddb"]
-indexeddb-crypto-store = ["matrix-sdk-indexeddb/encryption", "encryption"]
-encryption = ["matrix-sdk-base/encryption"]
-qrcode = ["encryption", "matrix-sdk-base/qrcode"]
-# TODO merge those two sled features
-sled-state-store = ["matrix-sdk-sled/state-store"]
-sled-crypto-store = ["matrix-sdk-sled/crypto-store", "encryption"]
+e2e-encryption = [
+    "matrix-sdk-base/e2e-encryption",
+    "matrix-sdk-sled?/crypto-store",          # activate crypto-store on sled if given
+    "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
+]
+
+sled = ["matrix-sdk-sled/state-store"]
+indexeddb = ["matrix-sdk-indexeddb"]
+
+qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
@@ -40,9 +42,8 @@ image-proc = ["image"]
 image-rayon = ["image-proc", "image/jpeg_rayon"]
 
 docsrs = [
-    "encryption",
-    "sled-crypto-store",
-    "sled-state-store",
+    "e2e-encryption",
+    "sled",
     "sso-login",
     "qrcode",
     "image-proc",
@@ -143,12 +144,12 @@ tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-th
 
 [[example]]
 name = "cross_signing_bootstrap"
-required-features = ["encryption"]
+required-features = ["e2e-encryption"]
 
 [[example]]
 name = "emoji_verification"
-required-features = ["encryption"]
+required-features = ["e2e-encryption"]
 
 [[example]]
 name = "timeline"
-required-features = ["sled-state-store"]
+required-features = ["sled"]

@@ -25,6 +25,7 @@ use ruma::{
                 upload_keys::v3::Response as KeysUploadResponse,
                 upload_signatures::v3::Response as SignatureUploadResponse,
             },
+            message::send_message_event::v3::Response as RoomMessageResponse,
             sync::sync_events::v3::{DeviceLists as RumaDeviceLists, ToDevice},
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
@@ -329,6 +330,9 @@ impl OlmMachine {
             }
             RequestType::KeysBackup => {
                 KeysBackupResponse::try_from_http_response(response).map(Into::into)
+            }
+            RequestType::RoomMessage => {
+                RoomMessageResponse::try_from_http_response(response).map(Into::into)
             }
         }
         .expect("Can't convert json string to response");

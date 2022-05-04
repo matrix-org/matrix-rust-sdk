@@ -1,6 +1,6 @@
 #[cfg(feature = "image-proc")]
 use std::io::Cursor;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
 use std::{
     io::{BufReader, Read, Seek},
@@ -8,7 +8,7 @@ use std::{
 };
 
 use matrix_sdk_common::instant::{Duration, Instant};
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::locks::Mutex;
 use mime::{self, Mime};
 use ruma::{
@@ -33,7 +33,7 @@ use ruma::{
 };
 use serde_json::Value;
 use tracing::debug;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use tracing::instrument;
 
 #[cfg(feature = "image-proc")]
@@ -316,7 +316,7 @@ impl Joined {
     /// room if necessary and share a group session with them.
     ///
     /// Does nothing if no group session needs to be shared.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     async fn preshare_group_session(&self) -> Result<()> {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
@@ -367,7 +367,7 @@ impl Joined {
     ///
     /// Panics if the client isn't logged in.
     #[instrument]
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     async fn share_group_session(&self) -> Result<()> {
         let requests = self.client.base_client().share_group_session(self.inner.room_id()).await?;
 
@@ -540,7 +540,7 @@ impl Joined {
     ) -> Result<send_message_event::v3::Response> {
         let txn_id: OwnedTransactionId = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
-        #[cfg(not(feature = "encryption"))]
+        #[cfg(not(feature = "e2e-encryption"))]
         let content = {
             debug!(
                 room_id = %self.room_id(),
@@ -549,7 +549,7 @@ impl Joined {
             Raw::new(&content)?.cast()
         };
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let (content, event_type) = if self.is_encrypted() {
             // Reactions are currently famously not encrypted, skip encrypting
             // them until they are.
@@ -736,7 +736,7 @@ impl Joined {
         reader: &mut R,
         config: AttachmentConfig<'_, T>,
     ) -> Result<send_message_event::v3::Response> {
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted() {
             self.client
                 .prepare_encrypted_attachment_message(
@@ -759,7 +759,7 @@ impl Joined {
                 .await?
         };
 
-        #[cfg(not(feature = "encryption"))]
+        #[cfg(not(feature = "e2e-encryption"))]
         let content = self
             .client
             .prepare_attachment_message(body, content_type, reader, config.info, config.thumbnail)

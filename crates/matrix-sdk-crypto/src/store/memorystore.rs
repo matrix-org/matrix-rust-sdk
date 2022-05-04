@@ -135,7 +135,7 @@ impl CryptoStore for MemoryStore {
         for hash in changes.message_hashes {
             self.olm_hashes
                 .entry(hash.sender_key.to_owned())
-                .or_insert_with(DashSet::new)
+                .or_default()
                 .insert(hash.hash.clone());
         }
 
@@ -189,7 +189,7 @@ impl CryptoStore for MemoryStore {
 
     async fn reset_backup_state(&self) -> Result<()> {
         for session in self.get_inbound_group_sessions().await? {
-            session.reset_backup_state()
+            session.reset_backup_state();
         }
 
         Ok(())
@@ -263,7 +263,7 @@ impl CryptoStore for MemoryStore {
         Ok(self
             .olm_hashes
             .entry(message_hash.sender_key.to_owned())
-            .or_insert_with(DashSet::new)
+            .or_default()
             .contains(&message_hash.hash))
     }
 

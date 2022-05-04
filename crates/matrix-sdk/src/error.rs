@@ -19,7 +19,7 @@ use std::io::Error as IoError;
 use http::StatusCode;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_base::crypto::ScanError;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
@@ -105,6 +105,7 @@ pub enum HttpError {
 
 /// Internal representation of errors.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// Error doing an HTTP request.
     #[error(transparent)]
@@ -117,7 +118,7 @@ pub enum Error {
 
     /// Attempting to restore a session after the olm-machine has already been
     /// set up fails
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error("The olm machine has already been initialized")]
     BadCryptoStoreState,
 
@@ -130,22 +131,22 @@ pub enum Error {
     Io(#[from] IoError),
 
     /// An error occurred in the crypto store.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
     /// An error occurred during a E2EE operation.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     OlmError(#[from] OlmError),
 
     /// An error occurred during a E2EE group operation.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
 
     /// An error occurred during decryption.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
 
@@ -174,10 +175,16 @@ pub enum Error {
     #[cfg(feature = "image-proc")]
     #[error(transparent)]
     ImageError(#[from] ImageError),
+
+    /// An other error was raised
+    /// this might happen because encryption was enabled on the base-crate
+    /// but not here and that raised.
+    #[error("unknown error: {0}")]
+    UnknownError(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Error for the room key importing functionality.
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 #[derive(Error, Debug)]
 // This is allowed because key importing isn't enabled under wasm.
 #[allow(dead_code)]
@@ -271,14 +278,23 @@ impl From<SdkBaseError> for Error {
             SdkBaseError::StateStore(e) => Self::StateStore(e),
             SdkBaseError::SerdeJson(e) => Self::SerdeJson(e),
             SdkBaseError::IoError(e) => Self::Io(e),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::BadCryptoStoreState => Self::BadCryptoStoreState,
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::OlmError(e) => Self::OlmError(e),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             SdkBaseError::MegolmError(e) => Self::MegolmError(e),
+            #[cfg(feature = "eyre")]
+            _ => Self::UnknownError(eyre::eyre!(e).into()),
+            #[cfg(all(not(feature = "eyre"), feature = "anyhow"))]
+            _ => Self::UnknownError(anyhow::anyhow!(e).into()),
+            #[cfg(all(not(feature = "eyre"), not(feature = "anyhow")))]
+            _ => {
+                let e: Box<dyn std::error::Error + Sync + Send> = format!("{:?}", e).into();
+                Self::UnknownError(e)
+            }
         }
     }
 }

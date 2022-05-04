@@ -394,10 +394,7 @@ impl GroupSessionManager {
                 };
             }
 
-            devices
-                .entry(user_id.to_owned())
-                .or_insert_with(Vec::new)
-                .extend(non_blacklisted_devices);
+            devices.entry(user_id.to_owned()).or_default().extend(non_blacklisted_devices);
         }
 
         trace!(

@@ -45,11 +45,7 @@ impl SessionStore {
     /// Returns true if the session was added, false if the session was
     /// already in the store.
     pub async fn add(&self, session: Session) -> bool {
-        let sessions_lock = self
-            .entries
-            .entry(session.sender_key.to_base64())
-            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())));
-
+        let sessions_lock = self.entries.entry(session.sender_key.to_base64()).or_default();
         let mut sessions = sessions_lock.lock().await;
 
         if !sessions.contains(&session) {
@@ -91,9 +87,9 @@ impl GroupSessionStore {
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
             .entry((*session.room_id).to_owned())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .entry(session.sender_key.to_string())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(session.session_id().to_owned(), session)
             .is_none()
     }
@@ -139,7 +135,6 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
-    #[allow(clippy::type_complexity)]
     entries: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ReadOnlyDevice>>>,
 }
 
@@ -156,7 +151,7 @@ impl DeviceStore {
         let user_id = device.user_id();
         self.entries
             .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(device.device_id().into(), device)
             .is_none()
     }
@@ -178,7 +173,7 @@ impl DeviceStore {
     pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, ReadOnlyDevice> {
         self.entries
             .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .iter()
             .map(|i| (i.key().to_owned(), i.value().clone()))
             .collect()

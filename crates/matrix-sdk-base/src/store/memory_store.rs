@@ -153,38 +153,38 @@ impl MemoryStore {
                     MembershipState::Join => {
                         self.joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(event.state_key.clone());
                         self.invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                     MembershipState::Invite => {
                         self.invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(event.state_key.clone());
                         self.joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                     _ => {
                         self.joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                         self.invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                 }
 
                 self.members
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(event.state_key.clone(), event.clone());
             }
         }
@@ -193,7 +193,7 @@ impl MemoryStore {
             for (user_id, profile) in users {
                 self.profiles
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(user_id.clone(), profile.clone());
             }
         }
@@ -202,7 +202,7 @@ impl MemoryStore {
             for (display_name, display_names) in map {
                 self.display_names
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(display_name.clone(), display_names.clone());
             }
         }
@@ -215,7 +215,7 @@ impl MemoryStore {
             for (event_type, event) in events {
                 self.room_account_data
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(event_type.clone(), event.clone());
             }
         }
@@ -225,9 +225,9 @@ impl MemoryStore {
                 for (state_key, event) in events {
                     self.room_state
                         .entry(room.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .entry(event_type.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .insert(state_key.to_owned(), event.clone());
                 }
             }
@@ -282,7 +282,7 @@ impl MemoryStore {
 
                 self.stripped_members
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(event.state_key.clone(), event.clone());
             }
         }
@@ -292,9 +292,9 @@ impl MemoryStore {
                 for (state_key, event) in events {
                     self.stripped_room_state
                         .entry(room.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .entry(event_type.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .insert(state_key.to_owned(), event.clone());
                 }
             }
@@ -308,9 +308,9 @@ impl MemoryStore {
                         if let Some((old_event, _)) = self
                             .room_user_receipts
                             .entry(room.clone())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .entry(receipt_type.to_string())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .insert(user_id.clone(), (event_id.clone(), receipt.clone()))
                         {
                             // Remove the old receipt from the room event receipts
@@ -326,11 +326,11 @@ impl MemoryStore {
                         // Add the receipt to the room event receipts
                         self.room_event_receipts
                             .entry(room.clone())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .entry(receipt_type.to_string())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .entry(event_id.clone())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .insert(user_id.clone(), receipt.clone());
                     }
                 }

@@ -588,7 +588,7 @@ impl VerificationRequest {
                 sender = sender.as_str(),
                 device_id = content.from_device().as_str(),
                 "Received a key verification start event but we're not yet in the ready state"
-            )
+            );
         }
 
         Ok(())

@@ -36,7 +36,7 @@ mod timeline_stream;
 pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
 pub use http;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
 pub use rooms::{DisplayName, Room, RoomInfo, RoomMember, RoomType};
 pub use store::{StateChanges, StateStore, Store, StoreError};

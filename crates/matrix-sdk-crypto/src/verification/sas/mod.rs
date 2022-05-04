@@ -430,7 +430,7 @@ impl Sas {
         let mut guard = self.inner.lock().unwrap();
 
         if let Some(request) = &self.request_handle {
-            request.cancel_with_code(&code)
+            request.cancel_with_code(&code);
         }
 
         let sas: InnerSas = (*guard).clone();

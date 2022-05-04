@@ -3,6 +3,7 @@ name = "matrix-crypto-ffi"
 version = "0.1.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 edition = "2018"
+rust-version = "1.60"
 
 [lib]
 crate-type = ["cdylib", "lib"]

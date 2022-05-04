@@ -222,17 +222,13 @@ impl SelfSigning {
     pub fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
         let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?)?;
 
-        device_keys
-            .signatures
-            .entry(self.public_key.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key.to_base64().as_str().into(),
-                ),
-                signature.to_base64(),
-            );
+        device_keys.signatures.entry(self.public_key.user_id().to_owned()).or_default().insert(
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                self.inner.public_key.to_base64().as_str().into(),
+            ),
+            signature.to_base64(),
+        );
 
         Ok(())
     }
