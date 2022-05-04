@@ -182,9 +182,12 @@ impl IndexeddbStore {
                 db.create_object_store(KEYS::ROOM_USER_RECEIPTS)?;
                 db.create_object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
 
-                db.create_object_store(KEYS::ROOM_TIMELINE)?;
-                db.create_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
-                db.create_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
+                #[cfg(feature = "experimental-timeline")]
+                {
+                    db.create_object_store(KEYS::ROOM_TIMELINE)?;
+                    db.create_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
+                    db.create_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
+                }
 
                 db.create_object_store(KEYS::MEDIA)?;
 
@@ -354,7 +357,10 @@ impl IndexeddbStore {
             (!changes.profiles.is_empty(), KEYS::PROFILES),
             (!changes.state.is_empty(), KEYS::ROOM_STATE),
             (!changes.room_account_data.is_empty(), KEYS::ROOM_ACCOUNT_DATA),
+            #[cfg(feature = "experimental-timeline")]
             (!changes.room_infos.is_empty() || !changes.timeline.is_empty(), KEYS::ROOM_INFOS),
+            #[cfg(not(feature = "experimental-timeline"))]
+            (!changes.room_infos.is_empty(), KEYS::ROOM_INFOS),
             (!changes.receipts.is_empty(), KEYS::ROOM_EVENT_RECEIPTS),
             (!changes.stripped_state.is_empty(), KEYS::STRIPPED_ROOM_STATE),
             (!changes.stripped_members.is_empty(), KEYS::STRIPPED_MEMBERS),
@@ -377,6 +383,7 @@ impl IndexeddbStore {
             stores.extend([KEYS::ROOM_EVENT_RECEIPTS, KEYS::ROOM_USER_RECEIPTS])
         }
 
+        #[cfg(feature = "experimental-timeline")]
         if !changes.timeline.is_empty() {
             stores.extend([
                 KEYS::ROOM_TIMELINE,
@@ -583,6 +590,7 @@ impl IndexeddbStore {
             }
         }
 
+        #[cfg(feature = "experimental-timeline")]
         if !changes.timeline.is_empty() {
             let timeline_store = tx.object_store(KEYS::ROOM_TIMELINE)?;
             let timeline_metadata_store = tx.object_store(KEYS::ROOM_TIMELINE_METADATA)?;
@@ -1092,10 +1100,18 @@ impl IndexeddbStore {
             KEYS::ROOM_USER_RECEIPTS,
             KEYS::STRIPPED_ROOM_STATE,
             KEYS::STRIPPED_MEMBERS,
-            KEYS::ROOM_TIMELINE,
-            KEYS::ROOM_TIMELINE_METADATA,
-            KEYS::ROOM_EVENT_ID_TO_POSITION,
         ];
+
+        #[cfg(feature = "experimental-timeline")]
+        let prefixed_stores = {
+            let mut timeline_stores = [
+                KEYS::ROOM_TIMELINE,
+                KEYS::ROOM_TIMELINE_METADATA,
+                KEYS::ROOM_EVENT_ID_TO_POSITION,
+            ];
+            timeline_stores.extend(prefixed_stores);
+            timeline_stores
+        };
 
         let all_stores = {
             let mut v = Vec::new();
@@ -1122,6 +1138,7 @@ impl IndexeddbStore {
         tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -1312,6 +1329,7 @@ impl StateStore for IndexeddbStore {
         self.remove_room(room_id).await.map_err(|e| e.into())
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -1321,6 +1339,7 @@ impl StateStore for IndexeddbStore {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg(feature = "experimental-timeline")]
 struct TimelineMetadata {
     pub start: String,
     pub start_position: usize,
