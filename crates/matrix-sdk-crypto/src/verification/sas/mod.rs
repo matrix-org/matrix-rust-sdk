@@ -183,11 +183,11 @@ impl Sas {
     /// sent out through the server to the other device.
     pub(crate) fn start(
         identities: IdentitiesBeingVerified,
-        transaction_id: Option<OwnedTransactionId>,
+        transaction_id: OwnedTransactionId,
         we_started: bool,
         request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
-        let flow_id = FlowId::ToDevice(transaction_id.unwrap_or_else(TransactionId::new));
+        let flow_id = FlowId::ToDevice(transaction_id);
 
         Self::start_helper(flow_id, identities, we_started, request_handle)
     }
@@ -512,7 +512,7 @@ mod tests {
 
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, UserId};
+    use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
 
     use super::Sas;
     use crate::{
@@ -566,7 +566,7 @@ mod tests {
 
         let identities = alice_store.get_identities(bob_device).await.unwrap();
 
-        let (alice, content) = Sas::start(identities, None, true, None);
+        let (alice, content) = Sas::start(identities, TransactionId::new(), true, None);
 
         let flow_id = alice.flow_id().to_owned();
         let content = StartContent::try_from(&content).unwrap();

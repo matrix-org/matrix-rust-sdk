@@ -125,7 +125,7 @@ impl VerificationMachine {
         device: ReadOnlyDevice,
     ) -> Result<(Sas, OutgoingVerificationRequest), CryptoStoreError> {
         let identities = self.store.get_identities(device.clone()).await?;
-        let (sas, content) = Sas::start(identities, None, true, None);
+        let (sas, content) = Sas::start(identities, TransactionId::new(), true, None);
 
         let request = match content {
             OutgoingContent::Room(r, c) => {
@@ -487,7 +487,7 @@ mod tests {
 
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, UserId};
+    use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
 
     use super::{Sas, VerificationMachine};
     use crate::{
@@ -542,7 +542,7 @@ mod tests {
             Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
             Arc::new(store),
         );
-        let (bob_sas, start_content) = Sas::start(identities, None, true, None);
+        let (bob_sas, start_content) = Sas::start(identities, TransactionId::new(), true, None);
 
         machine
             .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))

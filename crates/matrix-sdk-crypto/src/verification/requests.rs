@@ -1180,7 +1180,7 @@ impl RequestState<Ready> {
         Ok(Some(match self.flow_id.as_ref() {
             FlowId::ToDevice(t) => {
                 let (sas, content) =
-                    Sas::start(identities, Some(t.to_owned()), we_started, Some(request_handle));
+                    Sas::start(identities, t.to_owned(), we_started, Some(request_handle));
                 (sas, content)
             }
             FlowId::InRoom(r, e) => {
