@@ -33,17 +33,21 @@ macro_rules! statestore_integration_tests {
         $(
             mod $name {
 
+                #[cfg(feature = "experimental-timeline")]
                 use futures_util::StreamExt;
-                use matrix_sdk_test::{async_test, test_json};
+                #[cfg(feature = "experimental-timeline")]
                 use ruma::{
                     api::{
                         client::{
-                            media::get_content_thumbnail::v3::Method,
                             message::get_message_events::v3::Response as MessageResponse,
                             sync::sync_events::v3::Response as SyncResponse,
                         },
                         IncomingResponse,
-                    },
+                    }
+                };
+                use matrix_sdk_test::{async_test, test_json};
+                use ruma::{
+                    api::client::media::get_content_thumbnail::v3::Method,
                     device_id, event_id,
                     events::{
                         presence::PresenceEvent,
@@ -71,10 +75,13 @@ macro_rules! statestore_integration_tests {
 
                 use std::collections::{BTreeMap, BTreeSet};
 
+                #[cfg(feature = "experimental-timeline")]
                 use $crate::{
                     http::Response,
-                    RoomType, Session,
                     deserialized_responses::{ RoomEvent, SyncRoomEvent, TimelineSlice},
+                };
+                use $crate::{
+                    RoomType, Session,
                     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
                     store::{
                         Store,
@@ -606,6 +613,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                #[cfg(feature = "experimental-timeline")]
                 async fn test_room_timeline() {
                     let store = get_store().await.unwrap();
                     let mut stored_events = Vec::new();
@@ -733,6 +741,7 @@ macro_rules! statestore_integration_tests {
                     check_timeline_events(room_id, &store, &Vec::new(), end_token.as_deref()).await;
                 }
 
+                #[cfg(feature = "experimental-timeline")]
                 async fn check_timeline_events(
                     room_id: &RoomId,
                     store: &dyn StateStore,

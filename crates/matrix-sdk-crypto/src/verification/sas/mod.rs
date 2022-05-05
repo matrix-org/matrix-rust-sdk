@@ -34,14 +34,13 @@ use tracing::trace;
 use super::{
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
     requests::RequestHandle,
-    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult, VerificationStore,
+    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    olm::PrivateCrossSigningIdentity,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
-    Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity, ToDeviceRequest,
+    Emoji, ReadOnlyAccount, ToDeviceRequest,
 };
 
 /// Short authentication string object.
@@ -143,33 +142,33 @@ impl Sas {
     }
 
     fn start_helper(
-        inner_sas: InnerSas,
-        private_identity: PrivateCrossSigningIdentity,
-        other_device: ReadOnlyDevice,
-        store: VerificationStore,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        flow_id: FlowId,
+        identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: Option<RequestHandle>,
-    ) -> Sas {
-        let flow_id = inner_sas.verification_flow_id();
+    ) -> (Sas, OutgoingContent) {
+        let (inner, content) = InnerSas::start(
+            identities.store.account.clone(),
+            identities.device_being_verified.clone(),
+            identities.own_identity.clone(),
+            identities.identity_being_verified.clone(),
+            flow_id.clone(),
+            request_handle.is_some(),
+        );
 
-        let account = store.account.clone();
+        let account = identities.store.account.clone();
 
-        let identities = IdentitiesBeingVerified {
-            private_identity,
-            store,
-            device_being_verified: other_device,
-            identity_being_verified: other_identity,
-        };
-
-        Sas {
-            inner: Arc::new(Mutex::new(inner_sas)),
-            account,
-            identities_being_verified: identities,
-            flow_id,
-            we_started,
-            request_handle,
-        }
+        (
+            Sas {
+                inner: Arc::new(Mutex::new(inner)),
+                account,
+                identities_being_verified: identities,
+                flow_id: flow_id.into(),
+                we_started,
+                request_handle,
+            },
+            content,
+        )
     }
 
     /// Start a new SAS auth flow with the given device.
@@ -182,37 +181,15 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start(
-        private_identity: PrivateCrossSigningIdentity,
-        other_device: ReadOnlyDevice,
-        store: VerificationStore,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<OwnedTransactionId>,
+        identities: IdentitiesBeingVerified,
+        transaction_id: OwnedTransactionId,
         we_started: bool,
         request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
-        let (inner, content) = InnerSas::start(
-            store.account.clone(),
-            other_device.clone(),
-            own_identity,
-            other_identity.clone(),
-            transaction_id,
-        );
+        let flow_id = FlowId::ToDevice(transaction_id);
 
-        (
-            Self::start_helper(
-                inner,
-                private_identity,
-                other_device,
-                store,
-                other_identity,
-                we_started,
-                request_handle,
-            ),
-            content,
-        )
+        Self::start_helper(flow_id, identities, we_started, request_handle)
     }
 
     /// Start a new SAS auth flow with the given device inside the given room.
@@ -229,35 +206,12 @@ impl Sas {
     pub(crate) fn start_in_room(
         flow_id: OwnedEventId,
         room_id: OwnedRoomId,
-        private_identity: PrivateCrossSigningIdentity,
-        other_device: ReadOnlyDevice,
-        store: VerificationStore,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: RequestHandle,
     ) -> (Sas, OutgoingContent) {
-        let (inner, content) = InnerSas::start_in_room(
-            flow_id,
-            room_id,
-            store.account.clone(),
-            other_device.clone(),
-            own_identity,
-            other_identity.clone(),
-        );
-
-        (
-            Self::start_helper(
-                inner,
-                private_identity,
-                other_device,
-                store,
-                other_identity,
-                we_started,
-                Some(request_handle),
-            ),
-            content,
-        )
+        let flow_id = FlowId::InRoom(room_id, flow_id);
+        Self::start_helper(flow_id, identities, we_started, Some(request_handle))
     }
 
     /// Create a new Sas object from a m.key.verification.start request.
@@ -270,37 +224,33 @@ impl Sas {
     ///
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_start_event(
         flow_id: FlowId,
         content: &StartContent<'_>,
-        store: VerificationStore,
-        private_identity: PrivateCrossSigningIdentity,
-        other_device: ReadOnlyDevice,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
+        identities: IdentitiesBeingVerified,
         request_handle: Option<RequestHandle>,
         we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
-            store.account.clone(),
-            other_device.clone(),
-            flow_id,
+            identities.store.account.clone(),
+            identities.device_being_verified.clone(),
+            flow_id.clone(),
             content,
-            own_identity,
-            other_identity.clone(),
+            identities.own_identity.clone(),
+            identities.identity_being_verified.clone(),
             request_handle.is_some(),
         )?;
 
-        Ok(Self::start_helper(
-            inner,
-            private_identity,
-            other_device,
-            store,
-            other_identity,
+        let account = identities.store.account.clone();
+
+        Ok(Sas {
+            inner: Arc::new(Mutex::new(inner)),
+            account,
+            identities_being_verified: identities,
+            flow_id: flow_id.into(),
             we_started,
             request_handle,
-        ))
+        })
     }
 
     /// Accept the SAS verification.
@@ -560,8 +510,9 @@ impl AcceptSettings {
 mod tests {
     use std::{convert::TryFrom, sync::Arc};
 
+    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, UserId};
+    use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
 
     use super::Sas;
     use crate::{
@@ -598,40 +549,30 @@ mod tests {
         let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_store =
-            VerificationStore { account: alice.clone(), inner: Arc::new(MemoryStore::new()) };
+        let alice_store = VerificationStore {
+            account: alice.clone(),
+            inner: Arc::new(MemoryStore::new()),
+            private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
+        };
 
         let bob_store = MemoryStore::new();
         bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let bob_store = VerificationStore { account: bob.clone(), inner: Arc::new(bob_store) };
+        let bob_store = VerificationStore {
+            account: bob.clone(),
+            inner: Arc::new(bob_store),
+            private_identity: Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())).into(),
+        };
 
-        let (alice, content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(alice_id()),
-            bob_device,
-            alice_store,
-            None,
-            None,
-            None,
-            true,
-            None,
-        );
+        let identities = alice_store.get_identities(bob_device).await.unwrap();
+
+        let (alice, content) = Sas::start(identities, TransactionId::new(), true, None);
 
         let flow_id = alice.flow_id().to_owned();
         let content = StartContent::try_from(&content).unwrap();
 
-        let bob = Sas::from_start_event(
-            flow_id,
-            &content,
-            bob_store,
-            PrivateCrossSigningIdentity::empty(bob_id()),
-            alice_device,
-            None,
-            None,
-            None,
-            false,
-        )
-        .unwrap();
+        let identities = bob_store.get_identities(alice_device).await.unwrap();
+        let bob = Sas::from_start_event(flow_id, &content, identities, None, false).unwrap();
 
         let request = bob.accept().unwrap();
         let content = OutgoingContent::try_from(request).unwrap();
