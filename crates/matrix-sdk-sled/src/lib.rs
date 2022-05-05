@@ -1,5 +1,7 @@
+#[cfg(any(feature = "state-store", feature = "crypto-store"))]
+use matrix_sdk_base::store::StoreConfig;
 #[cfg(feature = "state-store")]
-use matrix_sdk_base::store::{StoreConfig, StoreError};
+use matrix_sdk_base::store::StoreError;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::store::CryptoStoreError;
 use sled::Error as SledError;
