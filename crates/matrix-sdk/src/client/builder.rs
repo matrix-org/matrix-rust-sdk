@@ -327,7 +327,7 @@ impl ClientBuilder {
         let server_versions = {
             let cell = async_once_cell::OnceCell::new();
             if let Some(server_versions) = self.server_versions {
-                cell.get_or_init(async move { server_versions.into() }).await;
+                cell.get_or_init(async move { server_versions }).await;
             }
             cell
         };
