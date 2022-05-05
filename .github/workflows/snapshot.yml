@@ -6,7 +6,7 @@ on:
 jobs:
   build_native:
     name: Build and generate crypto native libs
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     strategy:
       matrix:
         targets: [ {value: armv7-linux-androideabi, folder: armeabi-v7a}, {value: i686-linux-android, folder: x86}, {value: aarch64-linux-android, folder: arm64-v8a}]
@@ -99,7 +99,7 @@ jobs:
    
   build_android:
     name: Build and publish android library 
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     needs: build_native
     env:
         OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
