@@ -218,6 +218,7 @@ impl Device {
         if self.user_id() == self.verification_machine.own_user_id() {
             Ok(self
                 .verification_machine
+                .store
                 .private_identity
                 .lock()
                 .await

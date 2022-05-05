@@ -40,7 +40,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId, UserId,
+    DeviceId, UserId,
 };
 use tracing::info;
 use vodozemac::{
@@ -397,10 +397,9 @@ impl SasState<Created> {
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<OwnedTransactionId>,
+        flow_id: FlowId,
+        started_from_request: bool,
     ) -> SasState<Created> {
-        let started_from_request = transaction_id.is_some();
-        let flow_id = FlowId::ToDevice(transaction_id.unwrap_or_else(TransactionId::new));
         Self::new_helper(
             flow_id,
             account,
@@ -409,30 +408,6 @@ impl SasState<Created> {
             other_identity,
             started_from_request,
         )
-    }
-
-    /// Create a new SAS in-room verification flow.
-    ///
-    /// # Arguments
-    ///
-    /// * `event_id` - The event id of the `m.key.verification.request` event
-    /// that started the verification flow.
-    ///
-    /// * `account` - Our own account.
-    ///
-    /// * `other_device` - The other device which we are going to verify.
-    ///
-    /// * `other_identity` - The identity of the other user if one exists.
-    pub fn new_in_room(
-        room_id: OwnedRoomId,
-        event_id: OwnedEventId,
-        account: ReadOnlyAccount,
-        other_device: ReadOnlyDevice,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
-    ) -> SasState<Created> {
-        let flow_id = FlowId::InRoom(room_id, event_id);
-        Self::new_helper(flow_id, account, other_device, own_identity, other_identity, false)
     }
 
     fn new_helper(
@@ -1260,7 +1235,7 @@ mod tests {
             ShortAuthenticationString,
         },
         serde::Base64,
-        user_id, DeviceId, UserId,
+        user_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::json;
 
@@ -1296,7 +1271,9 @@ mod tests {
         let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None, None);
+        let flow_id = TransactionId::new().into();
+        let alice_sas =
+            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false);
 
         let start_content = alice_sas.as_content();
         let flow_id = start_content.flow_id();
@@ -1479,7 +1456,9 @@ mod tests {
         let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None, None);
+        let flow_id = TransactionId::new().into();
+        let alice_sas =
+            SasState::<Created>::new(alice.clone(), bob_device, None, None, flow_id, false);
 
         let mut start_content = alice_sas.as_content();
         let method = start_content.method_mut();

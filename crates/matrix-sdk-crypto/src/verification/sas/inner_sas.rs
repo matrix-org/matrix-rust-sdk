@@ -18,7 +18,7 @@ use std::sync::Arc;
 use matrix_sdk_common::instant::Instant;
 use ruma::{
     events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
-    OwnedEventId, OwnedRoomId, OwnedTransactionId, UserId,
+    UserId,
 };
 
 use super::{
@@ -57,7 +57,8 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<OwnedTransactionId>,
+        transaction_id: FlowId,
+        started_from_request: bool,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(
             account,
@@ -65,6 +66,7 @@ impl InnerSas {
             own_identity,
             other_identity,
             transaction_id,
+            started_from_request,
         );
         let content = sas.as_content();
         (InnerSas::Created(sas), content.into())
@@ -131,26 +133,6 @@ impl InnerSas {
             InnerSas::Done(_) => false,
             InnerSas::Cancelled(_) => false,
         }
-    }
-
-    pub fn start_in_room(
-        event_id: OwnedEventId,
-        room_id: OwnedRoomId,
-        account: ReadOnlyAccount,
-        other_device: ReadOnlyDevice,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
-    ) -> (InnerSas, OutgoingContent) {
-        let sas = SasState::<Created>::new_in_room(
-            room_id,
-            event_id,
-            account,
-            other_device,
-            own_identity,
-            other_identity,
-        );
-        let content = sas.as_content();
-        (InnerSas::Created(sas), content.into())
     }
 
     pub fn from_start_event(
@@ -377,21 +359,6 @@ impl InnerSas {
             InnerSas::WaitingForDone(s) => s.timed_out(),
             InnerSas::Done(s) => s.timed_out(),
             InnerSas::WeAccepted(s) => s.timed_out(),
-        }
-    }
-
-    pub fn verification_flow_id(&self) -> Arc<FlowId> {
-        match self {
-            InnerSas::Created(s) => s.verification_flow_id.clone(),
-            InnerSas::Started(s) => s.verification_flow_id.clone(),
-            InnerSas::Cancelled(s) => s.verification_flow_id.clone(),
-            InnerSas::Accepted(s) => s.verification_flow_id.clone(),
-            InnerSas::KeyReceived(s) => s.verification_flow_id.clone(),
-            InnerSas::Confirmed(s) => s.verification_flow_id.clone(),
-            InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
-            InnerSas::WaitingForDone(s) => s.verification_flow_id.clone(),
-            InnerSas::Done(s) => s.verification_flow_id.clone(),
-            InnerSas::WeAccepted(s) => s.verification_flow_id.clone(),
         }
     }
 
