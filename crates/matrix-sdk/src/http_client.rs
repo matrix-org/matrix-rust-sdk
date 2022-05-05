@@ -114,7 +114,7 @@ impl HttpClient {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        server_versions: &[MatrixVersion],
+        server_versions: Arc<[MatrixVersion]>,
     ) -> Result<Request::IncomingResponse, HttpError>
     where
         Request: OutgoingRequest + Debug,
@@ -154,7 +154,7 @@ impl HttpClient {
             request.try_into_http_request::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
                 send_access_token,
-                server_versions,
+                &server_versions,
             )?
         } else {
             let (send_access_token, user_id) = {
@@ -169,7 +169,7 @@ impl HttpClient {
                 &self.homeserver.read().await.to_string(),
                 send_access_token,
                 &user_id,
-                server_versions,
+                &server_versions,
             )?
         };
 

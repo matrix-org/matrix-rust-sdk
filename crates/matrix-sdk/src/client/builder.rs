@@ -1,15 +1,11 @@
 use std::sync::Arc;
 
-#[cfg(target_arch = "wasm32")]
-pub use async_once_cell::OnceCell;
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName, UserId,
 };
 use thiserror::Error;
-#[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::OnceCell;
 use url::Url;
 
 use super::{Client, ClientInner};
@@ -66,7 +62,7 @@ pub struct ClientBuilder {
     request_config: RequestConfig,
     respect_login_well_known: bool,
     appservice_mode: bool,
-    server_versions: Option<Vec<MatrixVersion>>,
+    server_versions: Option<Arc<[MatrixVersion]>>,
 }
 
 impl ClientBuilder {
@@ -309,7 +305,11 @@ impl ClientBuilder {
                 let homeserver = homeserver_from_name(&server_name)?;
                 let http_client = mk_http_client(Arc::new(RwLock::new(homeserver)));
                 let well_known = http_client
-                    .send(discover_homeserver::Request::new(), None, &[MatrixVersion::V1_0])
+                    .send(
+                        discover_homeserver::Request::new(),
+                        None,
+                        [MatrixVersion::V1_0].into_iter().collect(),
+                    )
                     .await
                     .map_err(|e| match e {
                         HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
@@ -324,16 +324,16 @@ impl ClientBuilder {
         let http_client = mk_http_client(homeserver.clone());
 
         #[cfg(target_arch = "wasm32")]
-        let server_versions = if let Some(server_versions) = self.server_versions {
-            let cell = OnceCell::new();
-            cell.get_or_init(async move { server_versions }).await;
+        let server_versions = {
+            let cell = async_once_cell::OnceCell::new();
+            if let Some(server_versions) = self.server_versions {
+                cell.get_or_init(async move { server_versions.into() }).await;
+            }
             cell
-        } else {
-            OnceCell::new()
         };
 
         #[cfg(not(target_arch = "wasm32"))]
-        let server_versions = OnceCell::new_with(self.server_versions);
+        let server_versions = tokio::sync::OnceCell::new_with(self.server_versions);
 
         let inner = Arc::new(ClientInner {
             homeserver,
