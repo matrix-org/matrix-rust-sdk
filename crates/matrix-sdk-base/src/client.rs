@@ -667,7 +667,6 @@ impl BaseClient {
             let notification_count = new_info.unread_notifications.into();
             room_info.update_notification_count(notification_count);
 
-            let mut changes = StateChanges::default();
             #[cfg(feature = "experimental-timeline")]
             let timeline_slice = TimelineSlice::new(
                 timeline.events.clone(),
