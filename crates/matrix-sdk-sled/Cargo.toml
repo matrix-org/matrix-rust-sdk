@@ -12,6 +12,7 @@ crypto-store = [
     "matrix-sdk-crypto",
     "matrix-sdk-base?/e2e-encryption",
 ]
+experimental-timeline = ["matrix-sdk-base/experimental-timeline"]
 
 [dependencies]
 anyhow = "1.0.57"

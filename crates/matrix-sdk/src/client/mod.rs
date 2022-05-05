@@ -2253,6 +2253,7 @@ pub(crate) mod tests {
         media::{MediaFormat, MediaRequest, MediaThumbnailSize},
         DisplayName,
     };
+    #[cfg(feature = "experimental-timeline")]
     use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
@@ -3784,6 +3785,7 @@ pub(crate) mod tests {
     // inconsistent manners, isn't activated.
     //#[async_test]
     #[allow(dead_code)]
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline_with_remove() {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -3907,7 +3909,9 @@ pub(crate) mod tests {
         mocked_messages.assert();
         mocked_messages_2.assert();
     }
+
     #[async_test]
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline() {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));

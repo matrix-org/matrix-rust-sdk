@@ -22,12 +22,14 @@ use std::{
 #[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, result::Result as StdResult};
 
+#[cfg(feature = "experimental-timeline")]
+use matrix_sdk_common::deserialized_responses::TimelineSlice;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     deserialized_responses::{
         AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
-        SyncRoomEvent, Timeline, TimelineSlice,
+        SyncRoomEvent, Timeline,
     },
     instant::Instant,
     locks::RwLock,
@@ -665,6 +667,7 @@ impl BaseClient {
             let notification_count = new_info.unread_notifications.into();
             room_info.update_notification_count(notification_count);
 
+            #[cfg(feature = "experimental-timeline")]
             let timeline_slice = TimelineSlice::new(
                 timeline.events.clone(),
                 next_batch.clone(),
@@ -673,6 +676,7 @@ impl BaseClient {
                 true,
             );
 
+            #[cfg(feature = "experimental-timeline")]
             changes.add_timeline(&room_id, timeline_slice);
 
             new_rooms.join.insert(
@@ -795,6 +799,7 @@ impl BaseClient {
             }
         }
 
+        #[cfg(feature = "experimental-timeline")]
         for (room_id, timeline_slice) in &changes.timeline {
             if let Some(room) = self.store.get_room(room_id) {
                 room.add_timeline_slice(timeline_slice).await;
@@ -807,6 +812,7 @@ impl BaseClient {
     /// You should pass only slices requested from the store to this function.
     ///
     /// * `timeline` - The `TimelineSlice`
+    #[cfg(feature = "experimental-timeline")]
     pub async fn receive_messages(&self, room_id: &RoomId, timeline: TimelineSlice) -> Result<()> {
         let mut changes = StateChanges::default();
 
