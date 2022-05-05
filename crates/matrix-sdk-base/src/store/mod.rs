@@ -94,6 +94,13 @@ pub enum StoreError {
     /// The store failed to encode or decode some data.
     #[error("Error encoding or decoding data from the store: {0}")]
     Codec(String),
+
+    /// The database format has changed in a backwards incompatible way.
+    #[error(
+        "The database format changed in an incompatible way, current \
+        version: {0}, latest version: {1}"
+    )]
+    UnsupportedDatabaseVersion(usize, usize),
     /// Redacting an event in the store has failed.
     ///
     /// This should never happen.

@@ -111,6 +111,9 @@ impl Into<StoreError> for SledStoreError {
         }
     }
 }
+const DATABASE_VERSION: u8 = 1;
+
+const VERSION_KEY: &str = "state-store-version";
 
 const ACCOUNT_DATA: &str = "account-data";
 const CUSTOM: &str = "custom";
@@ -216,7 +219,7 @@ impl SledStore {
         let room_timeline_metadata = db.open_tree(TIMELINE_METADATA)?;
         let room_event_id_to_position = db.open_tree(ROOM_EVENT_ID_POSITION)?;
 
-        Ok(Self {
+        let database = Self {
             path,
             inner: db,
             store_cipher,
@@ -243,7 +246,10 @@ impl SledStore {
             room_timeline,
             room_timeline_metadata,
             room_event_id_to_position,
-        })
+        };
+
+        database.upgrade()?;
+        Ok(database)
     }
 
     pub fn open() -> StoreResult<Self> {
@@ -296,6 +302,41 @@ impl SledStore {
         let db = Config::new().temporary(false).path(&path).open()?;
 
         SledStore::open_helper(db, Some(path), None)
+    }
+
+    fn upgrade(&self) -> StoreResult<()> {
+        let db_version =
+            self.inner.get(VERSION_KEY).map_err(|e| StoreError::Backend(anyhow!(e)))?.map(|v| {
+                let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
+                u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
+            });
+
+        let old_version = match db_version {
+            None => {
+                // we are fresh, let's write the current version
+                self.inner
+                    .insert(VERSION_KEY, DATABASE_VERSION.to_be_bytes().as_ref())
+                    .map_err(|e| StoreError::Backend(anyhow!(e)))?;
+                self.inner.flush().map_err(|e| StoreError::Backend(anyhow!(e)))?;
+                return Ok(());
+            }
+            Some(version) if version == DATABASE_VERSION => {
+                // current, we don't have to do anything
+                return Ok(());
+            }
+            Some(version) => version,
+        };
+
+        tracing::debug!(
+            old_version,
+            new_version = DATABASE_VERSION,
+            "Upgrading the Sled state store"
+        );
+
+        // FUTURE UPGRADE CODE GOES HERE
+
+        // can't upgrade from that version to the new one
+        Err(StoreError::UnsupportedDatabaseVersion(old_version.into(), DATABASE_VERSION.into()))
     }
 
     /// Open a `CryptoStore` that uses the same database as this store.
