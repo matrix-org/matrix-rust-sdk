@@ -20,7 +20,7 @@ async-trait = "0.1.53"
 dashmap = "5.2.0"
 futures-core = "0.3.21"
 futures-util = { version = "0.3.21", default-features = false }
-matrix-sdk-base = { path = "../matrix-sdk-base", optional = true }
+matrix-sdk-base = { path = "../matrix-sdk-base", optional = true, features = ["anyhow"] }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }

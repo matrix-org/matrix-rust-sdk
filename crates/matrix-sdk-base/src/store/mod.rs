@@ -71,9 +71,14 @@ pub use self::memory_store::MemoryStore;
 /// State store specific error type.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[cfg(feature = "anyhow")]
     #[error(transparent)]
     /// An error happened in the underlying database backend.
     Backend(#[from] anyhow::Error),
+    #[cfg(feature = "eyre")]
+    #[error(transparent)]
+    /// An error happened in the underlying database backend.
+    BackendEyre(#[from] eyre::Error),
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
