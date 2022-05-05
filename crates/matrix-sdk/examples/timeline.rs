@@ -41,7 +41,7 @@ fn event_content(event: AnySyncRoomEvent) -> Option<String> {
         None
     }
 }
-#[cfg(feature = "experimental-timeline")]
+
 async fn print_timeline(room: Room) {
     let backward_stream = room.timeline_backward().await.unwrap();
 
