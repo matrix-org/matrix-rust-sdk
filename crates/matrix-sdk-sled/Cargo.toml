@@ -10,7 +10,7 @@ default = ["state-store"]
 state-store = ["matrix-sdk-base"]
 crypto-store = [
     "matrix-sdk-crypto",
-    "matrix-sdk-base?/e2e-encryption",
+    "matrix-sdk-base/e2e-encryption",
 ]
 
 [dependencies]
