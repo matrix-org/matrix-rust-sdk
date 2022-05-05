@@ -23,6 +23,8 @@ use std::{
 };
 
 use anymap2::any::CloneAnySendSync;
+#[cfg(target_arch = "wasm32")]
+pub use async_once_cell::OnceCell;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
 use matrix_sdk_base::{
@@ -66,6 +68,8 @@ use ruma::{
     ServerName, UInt,
 };
 use serde::de::DeserializeOwned;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::OnceCell;
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
@@ -129,7 +133,7 @@ pub(crate) struct ClientInner {
     /// User session data.
     pub(crate) base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    server_versions: Mutex<Arc<[MatrixVersion]>>,
+    server_versions: OnceCell<Vec<MatrixVersion>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -642,13 +646,13 @@ impl Client {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    &server_versions,
+                    server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                &server_versions,
+                server_versions,
             )
         };
 
@@ -1486,30 +1490,35 @@ impl Client {
         self.inner.http_client.send(request, config, self.server_versions().await?).await
     }
 
-    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
-        let mut server_versions = self.inner.server_versions.lock().await;
+    async fn request_server_versions(&self) -> HttpResult<Vec<MatrixVersion>> {
+        let server_versions: Vec<MatrixVersion> = self
+            .inner
+            .http_client
+            .send(get_supported_versions::Request::new(), None, &[MatrixVersion::V1_0])
+            .await?
+            .known_versions()
+            .collect();
 
         if server_versions.is_empty() {
-            // Not initialized before
-            *server_versions = self
-                .inner
-                .http_client
-                .send(
-                    get_supported_versions::Request::new(),
-                    None,
-                    [MatrixVersion::V1_0].into_iter().collect(),
-                )
-                .await?
-                .known_versions()
-                .collect();
-
-            if server_versions.is_empty() {
-                // No known versions, fall back to v1.0 (r0 paths)
-                *server_versions = vec![MatrixVersion::V1_0].into();
-            }
+            Ok(vec![MatrixVersion::V1_0])
+        } else {
+            Ok(server_versions)
         }
+    }
 
-        Ok(server_versions.clone())
+    async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
+        #[cfg(target_arch = "wasm32")]
+        let server_versions =
+            self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let server_versions = self
+            .inner
+            .server_versions
+            .get_or_try_init(move || self.request_server_versions())
+            .await?;
+
+        Ok(&*server_versions)
     }
 
     /// Get information of all our own devices.

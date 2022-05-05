@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
+#[cfg(target_arch = "wasm32")]
+pub use async_once_cell::OnceCell;
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName, UserId,
 };
 use thiserror::Error;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::OnceCell;
 use url::Url;
 
 use super::{Client, ClientInner};
@@ -63,7 +66,7 @@ pub struct ClientBuilder {
     request_config: RequestConfig,
     respect_login_well_known: bool,
     appservice_mode: bool,
-    server_versions: Option<Arc<[MatrixVersion]>>,
+    server_versions: Option<Vec<MatrixVersion>>,
 }
 
 impl ClientBuilder {
@@ -306,11 +309,7 @@ impl ClientBuilder {
                 let homeserver = homeserver_from_name(&server_name)?;
                 let http_client = mk_http_client(Arc::new(RwLock::new(homeserver)));
                 let well_known = http_client
-                    .send(
-                        discover_homeserver::Request::new(),
-                        None,
-                        [MatrixVersion::V1_0].into_iter().collect(),
-                    )
+                    .send(discover_homeserver::Request::new(), None, &[MatrixVersion::V1_0])
                     .await
                     .map_err(|e| match e {
                         HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
@@ -324,16 +323,23 @@ impl ClientBuilder {
         let homeserver = Arc::new(RwLock::new(Url::parse(&homeserver)?));
         let http_client = mk_http_client(homeserver.clone());
 
-        let server_versions = match self.server_versions {
-            Some(vs) => vs,
-            None => vec![].into(),
+        #[cfg(target_arch = "wasm32")]
+        let server_versions = if let Some(server_versions) = self.server_versions {
+            let cell = OnceCell::new();
+            cell.get_or_init(async move { server_versions }).await;
+            cell
+        } else {
+            OnceCell::new()
         };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let server_versions = OnceCell::new_with(self.server_versions);
 
         let inner = Arc::new(ClientInner {
             homeserver,
             http_client,
             base_client,
-            server_versions: Mutex::new(server_versions),
+            server_versions,
             #[cfg(feature = "e2e-encryption")]
             group_session_locks: Default::default(),
             #[cfg(feature = "e2e-encryption")]
