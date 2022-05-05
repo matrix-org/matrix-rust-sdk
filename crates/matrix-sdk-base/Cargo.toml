@@ -55,7 +55,10 @@ ruma = { version = "0.6.1", features = ["client-api-c", "signatures"] }
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
+tracing = { version = "0.1.26", features = ["log"] }
 http = "0.2.6"
+assign = "1.1.1"
+env_logger = "0.9.0"
 matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
 

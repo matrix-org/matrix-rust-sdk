@@ -8,9 +8,15 @@ use ruma::{
             State, ToDevice, UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
     },
-    events::{room::member::OriginalRoomMemberEvent, AnyRoomEvent, AnySyncRoomEvent},
+    events::{
+        room::member::{
+            OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+            StrippedRoomMemberEvent,
+        },
+        AnyRoomEvent, AnySyncRoomEvent,
+    },
     serde::Raw,
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedUserId,
+    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -287,6 +293,43 @@ impl TimelineSlice {
         sync: bool,
     ) -> Self {
         Self { start, end, events, limited, sync }
+    }
+}
+
+/// Wrapper around both MemberEvent-Types
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum MemberEvent {
+    Stripped(StrippedRoomMemberEvent),
+    Original(OriginalSyncRoomMemberEvent),
+}
+
+impl MemberEvent {
+    /// The inner Content of the wrapped Event
+    pub fn content(&self) -> &RoomMemberEventContent {
+        match &*self {
+            MemberEvent::Stripped(e) => &e.content,
+            MemberEvent::Original(e) => &e.content,
+        }
+    }
+
+    /// The user id associated to this member event
+    pub fn user_id(&self) -> &UserId {
+        match &*self {
+            MemberEvent::Stripped(e) => &e.state_key,
+            MemberEvent::Original(e) => &e.state_key,
+        }
+    }
+}
+
+impl From<StrippedRoomMemberEvent> for MemberEvent {
+    fn from(other: StrippedRoomMemberEvent) -> Self {
+        MemberEvent::Stripped(other)
+    }
+}
+impl From<OriginalSyncRoomMemberEvent> for MemberEvent {
+    fn from(other: OriginalSyncRoomMemberEvent) -> Self {
+        MemberEvent::Original(other)
     }
 }
 
