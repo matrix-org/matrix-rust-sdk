@@ -75,7 +75,7 @@ pub use self::memory_store::MemoryStore;
 pub enum StoreError {
     #[error(transparent)]
     /// An error happened in the underlying database backend.
-    Backend(#[from] anyhow::Error),
+    Backend(#[from] Box<dyn std::error::Error + Send + Sync>),
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),

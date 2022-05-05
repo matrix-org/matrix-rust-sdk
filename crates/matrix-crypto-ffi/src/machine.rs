@@ -5,7 +5,6 @@ use std::{
     ops::Deref,
 };
 
-use anyhow::anyhow;
 use base64::{decode_config, encode, STANDARD_NO_PAD};
 use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
@@ -102,9 +101,9 @@ impl OlmMachine {
                         // variant for the state store. Not sure what to do about
                         // this.
                         matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
-                        matrix_sdk_sled::OpenStoreError::Sled(s) => {
-                            CryptoStoreError::CryptoStore(anyhow!(s).into())
-                        }
+                        matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
+                            matrix_sdk_crypto::store::CryptoStoreError::Backend(Box::new(s)),
+                        ),
                         _ => unreachable!(),
                     }
                 })?,
