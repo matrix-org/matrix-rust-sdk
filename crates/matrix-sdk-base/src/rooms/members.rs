@@ -91,13 +91,7 @@ impl RoomMember {
     pub fn power_level(&self) -> i64 {
         (*self.power_levels)
             .as_ref()
-            .map(|e| {
-                let pls = e.power_levels();
-                pls.users
-                    .get(self.user_id())
-                    .map(|p| (*p).into())
-                    .unwrap_or_else(|| pls.users_default.into())
-            })
+            .map(|e| e.power_levels().for_user(self.user_id()).into())
             .unwrap_or_else(|| if self.is_room_creator { 100 } else { 0 })
     }
 
