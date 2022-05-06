@@ -1,6 +1,6 @@
 #[cfg(feature = "image-proc")]
 use std::io::Cursor;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
 use std::{
     io::{BufReader, Read, Seek},
@@ -8,7 +8,7 @@ use std::{
 };
 
 use matrix_sdk_common::instant::{Duration, Instant};
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::locks::Mutex;
 use mime::{self, Mime};
 use ruma::{
@@ -29,11 +29,11 @@ use ruma::{
     events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
     receipt::ReceiptType,
     serde::Raw,
-    EventId, TransactionId, UserId,
+    EventId, OwnedTransactionId, TransactionId, UserId,
 };
 use serde_json::Value;
 use tracing::debug;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use tracing::instrument;
 
 #[cfg(feature = "image-proc")]
@@ -316,7 +316,7 @@ impl Joined {
     /// room if necessary and share a group session with them.
     ///
     /// Does nothing if no group session needs to be shared.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     async fn preshare_group_session(&self) -> Result<()> {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
@@ -367,7 +367,7 @@ impl Joined {
     ///
     /// Panics if the client isn't logged in.
     #[instrument]
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     async fn share_group_session(&self) -> Result<()> {
         let requests = self.client.base_client().share_group_session(self.inner.room_id()).await?;
 
@@ -538,42 +538,53 @@ impl Joined {
         event_type: &str,
         txn_id: Option<&TransactionId>,
     ) -> Result<send_message_event::v3::Response> {
-        let txn_id: Box<TransactionId> = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
+        let txn_id: OwnedTransactionId = txn_id.map_or_else(TransactionId::new, ToOwned::to_owned);
 
-        #[cfg(not(feature = "encryption"))]
+        #[cfg(not(feature = "e2e-encryption"))]
         let content = {
             debug!(
-                room_id = self.room_id().as_str(),
+                room_id = %self.room_id(),
                 "Sending plaintext event to room because we don't have encryption support.",
             );
             Raw::new(&content)?.cast()
         };
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let (content, event_type) = if self.is_encrypted() {
-            debug!(
-                room_id = self.room_id().as_str(),
-                "Sending encrypted event because the room is encrypted.",
-            );
+            // Reactions are currently famously not encrypted, skip encrypting
+            // them until they are.
+            if event_type == "m.reaction" {
+                debug!(
+                    room_id = %self.room_id(),
+                    "Sending plaintext event because the event type is {}", event_type
+                );
+                (Raw::new(&content)?.cast(), event_type)
+            } else {
+                debug!(
+                    room_id = self.room_id().as_str(),
+                    "Sending encrypted event because the room is encrypted.",
+                );
 
-            if !self.are_members_synced() {
-                self.request_members().await?;
-                // TODO query keys here?
+                if !self.are_members_synced() {
+                    self.request_members().await?;
+                    // TODO query keys here?
+                }
+
+                self.preshare_group_session().await?;
+
+                let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
+
+                let encrypted_content =
+                    olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
+                let raw_content = Raw::new(&encrypted_content)
+                    .expect("Failed to serialize encrypted event")
+                    .cast();
+
+                (raw_content, "m.room.encrypted")
             }
-
-            self.preshare_group_session().await?;
-
-            let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
-
-            let encrypted_content =
-                olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
-            let raw_content =
-                Raw::new(&encrypted_content).expect("Failed to serialize encrypted event").cast();
-
-            (raw_content, "m.room.encrypted")
         } else {
             debug!(
-                room_id = self.room_id().as_str(),
+                room_id = %self.room_id(),
                 "Sending plaintext event because the room is NOT encrypted.",
             );
 
@@ -725,7 +736,7 @@ impl Joined {
         reader: &mut R,
         config: AttachmentConfig<'_, T>,
     ) -> Result<send_message_event::v3::Response> {
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let content = if self.is_encrypted() {
             self.client
                 .prepare_encrypted_attachment_message(
@@ -748,7 +759,7 @@ impl Joined {
                 .await?
         };
 
-        #[cfg(not(feature = "encryption"))]
+        #[cfg(not(feature = "e2e-encryption"))]
         let content = self
             .client
             .prepare_attachment_message(body, content_type, reader, config.info, config.thumbnail)
@@ -795,7 +806,7 @@ impl Joined {
     ///
     /// // Custom event:
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State)]
+    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State, state_key_type = String)]
     /// struct XxxStateEventContent { /* fields... */ }
     /// let content: XxxStateEventContent = todo!();
     ///
@@ -902,7 +913,7 @@ impl Joined {
         &self,
         event_id: &EventId,
         reason: Option<&str>,
-        txn_id: Option<Box<TransactionId>>,
+        txn_id: Option<OwnedTransactionId>,
     ) -> HttpResult<redact_event::v3::Response> {
         let txn_id = txn_id.unwrap_or_else(TransactionId::new);
         let request =

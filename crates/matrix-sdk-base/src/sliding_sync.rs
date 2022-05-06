@@ -1,25 +1,20 @@
 use super::BaseClient;
 use ruma::{
     api::client::sync::{sync_events::v3, sliding_sync_events},
-    UserId, RoomId,
+    RoomId,
 };
-use std::ops::Deref;
 use crate::{
     rooms::RoomType,
     error::Result,
     store::{
-        ambiguity_map::AmbiguityCache, StateChanges, Store, StoreConfig,
+        ambiguity_map::AmbiguityCache, StateChanges,
     },
 };
 
 use matrix_sdk_common::{
     deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Rooms,
-        StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline, TimelineSlice,
+        AmbiguityChanges, JoinedRoom, Rooms, SyncResponse, 
     },
-    instant::Instant,
-    locks::RwLock,
-    util::milli_seconds_since_unix_epoch,
 };
 
 impl BaseClient {
@@ -143,13 +138,8 @@ impl BaseClient {
                     room_info.mark_as_invited();
                     changes.add_room(room_info);
                 }
-    
-                let (members, state_events) =
-                    self.handle_invited_state(invite_states.as_slice(), &mut room_info);
-    
-                changes.stripped_members.insert(room_id.clone(), members);
-                changes.stripped_state.insert(room_id.clone(), state_events);
-                changes.add_stripped_room(room_info);
+                
+                self.handle_invited_state(invite_states.as_slice(), &mut room_info, &mut changes);
 
                 new_rooms.invite.insert(room_id.clone(), v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())));
             } else {
@@ -166,10 +156,10 @@ impl BaseClient {
 
                 let mut user_ids = self
                     .handle_state(
-                        &mut changes,
-                        &mut ambiguity_cache,
                         &room_data.required_state,
                         &mut room_info,
+                        &mut changes,
+                        &mut ambiguity_cache,
                     )
                     .await?;
 

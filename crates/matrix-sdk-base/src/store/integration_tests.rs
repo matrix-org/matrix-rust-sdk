@@ -33,22 +33,29 @@ macro_rules! statestore_integration_tests {
         $(
             mod $name {
 
+                #[cfg(feature = "experimental-timeline")]
                 use futures_util::StreamExt;
-                use matrix_sdk_test::{async_test, test_json};
-                use matrix_sdk_common::ruma::{
+                #[cfg(feature = "experimental-timeline")]
+                use ruma::{
                     api::{
                         client::{
-                            media::get_content_thumbnail::v3::Method,
                             message::get_message_events::v3::Response as MessageResponse,
                             sync::sync_events::v3::Response as SyncResponse,
                         },
                         IncomingResponse,
-                    },
+                    }
+                };
+                use matrix_sdk_test::{async_test, test_json};
+                use ruma::{
+                    api::client::media::get_content_thumbnail::v3::Method,
                     device_id, event_id,
                     events::{
                         presence::PresenceEvent,
                         room::{
-                            member::{MembershipState, RoomMemberEventContent},
+                            member::{
+                                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+                                StrippedRoomMemberEvent,
+                            },
                             power_levels::RoomPowerLevelsEventContent,
                             MediaSource,
                         },
@@ -61,16 +68,20 @@ macro_rules! statestore_integration_tests {
                     receipt::ReceiptType,
                     room_id,
                     serde::Raw,
-                    uint, user_id, MilliSecondsSinceUnixEpoch, UserId, EventId, RoomId,
+                    uint, user_id, MilliSecondsSinceUnixEpoch, UserId, EventId, OwnedEventId,
+                    RoomId,
                 };
                 use serde_json::{json, Value as JsonValue};
 
                 use std::collections::{BTreeMap, BTreeSet};
 
+                #[cfg(feature = "experimental-timeline")]
                 use $crate::{
                     http::Response,
+                    deserialized_responses::{ RoomEvent, SyncRoomEvent, TimelineSlice},
+                };
+                use $crate::{
                     RoomType, Session,
-                    deserialized_responses::{MemberEvent, StrippedMemberEvent, RoomEvent, SyncRoomEvent, TimelineSlice},
                     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
                     store::{
                         Store,
@@ -162,7 +173,8 @@ macro_rules! statestore_integration_tests {
                     let mut room_members = BTreeMap::new();
 
                     let member_json: &JsonValue = &test_json::MEMBER;
-                    let member_event = serde_json::from_value::<MemberEvent>(member_json.clone()).unwrap();
+                    let member_event: OriginalSyncRoomMemberEvent =
+                        serde_json::from_value(member_json.clone()).unwrap();
                     let member_event_content = member_event.content.clone();
                     room_ambiguity_map.insert(
                         member_event_content.displayname.clone().unwrap(),
@@ -177,8 +189,9 @@ macro_rules! statestore_integration_tests {
                     changes.add_state_event(room_id, member_state_event, member_state_raw);
 
                     let invited_member_json: &JsonValue = &test_json::MEMBER_INVITE;
-                    let invited_member_event =
-                        serde_json::from_value::<MemberEvent>(invited_member_json.clone()).unwrap();
+                    // FIXME: Should be stripped room member event
+                    let invited_member_event: OriginalSyncRoomMemberEvent =
+                        serde_json::from_value(invited_member_json.clone()).unwrap();
                     room_ambiguity_map
                         .entry(member_event_content.displayname.clone().unwrap())
                         .or_default()
@@ -228,8 +241,9 @@ macro_rules! statestore_integration_tests {
                     changes.add_stripped_room(stripped_room);
 
                     let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
-                    let stripped_member_event =
-                        serde_json::from_value::<StrippedMemberEvent>(stripped_member_json.clone()).unwrap();
+                    let stripped_member_event = serde_json::from_value::<StrippedRoomMemberEvent>(
+                        stripped_member_json.clone(),
+                    ).unwrap();
                     changes.add_stripped_member(stripped_room_id, stripped_member_event);
 
                     store.save_changes(&changes).await?;
@@ -251,12 +265,29 @@ macro_rules! statestore_integration_tests {
                     serde_json::from_value(event).unwrap()
                 }
 
-                fn membership_event() -> MemberEvent {
+                fn stripped_membership_event() -> StrippedRoomMemberEvent {
+                    custom_stripped_membership_event(user_id())
+                }
+
+                fn custom_stripped_membership_event(
+                    user_id: &UserId,
+                ) -> StrippedRoomMemberEvent {
+                    StrippedRoomMemberEvent {
+                        content: RoomMemberEventContent::new(MembershipState::Join),
+                        sender: user_id.to_owned(),
+                        state_key: user_id.to_owned(),
+                    }
+                }
+
+                fn membership_event() -> OriginalSyncRoomMemberEvent {
                     custom_membership_event(user_id(), event_id!("$h29iv0s8:example.com").to_owned())
                 }
 
-                fn custom_membership_event(user_id: &UserId, event_id: Box<EventId>) -> MemberEvent {
-                    MemberEvent {
+                fn custom_membership_event(
+                    user_id: &UserId,
+                    event_id: OwnedEventId,
+                ) -> OriginalSyncRoomMemberEvent {
+                    OriginalSyncRoomMemberEvent {
                         event_id,
                         content: RoomMemberEventContent::new(MembershipState::Join),
                         sender: user_id.to_owned(),
@@ -264,7 +295,6 @@ macro_rules! statestore_integration_tests {
                         state_key: user_id.to_owned(),
                         unsigned: StateUnsigned::default(),
                     }
-
                 }
 
                 #[async_test]
@@ -328,6 +358,27 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                async fn test_stripped_member_saving() {
+                    let store = get_store().await.unwrap();
+                    let room_id = room_id!("!test_stripped_member_saving:localhost");
+                    let user_id = user_id();
+
+                    assert!(store.get_member_event(room_id, user_id).await.unwrap().is_none());
+                    let mut changes = StateChanges::default();
+                    changes
+                        .stripped_members
+                        .entry(room_id.to_owned())
+                        .or_default()
+                        .insert(user_id.to_owned(), stripped_membership_event());
+
+                    store.save_changes(&changes).await.unwrap();
+                    assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
+
+                    let members = store.get_user_ids(room_id).await.unwrap();
+                    assert!(!members.is_empty(), "We expected to find members for the room")
+                }
+
+                #[async_test]
                 async fn test_power_level_saving() {
                     let store = get_store().await.unwrap();
                     let room_id = room_id!("!test_power_level_saving:localhost");
@@ -357,13 +408,13 @@ macro_rules! statestore_integration_tests {
 
                     let room_id = room_id!("!test_receipts_saving:localhost");
 
-                    let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org").to_owned();
-                    let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org").to_owned();
+                    let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
+                    let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
 
                     let first_receipt_event = serde_json::from_value(json!({
-                        first_event_id.clone(): {
+                        first_event_id: {
                             "m.read": {
-                                user_id().to_owned(): {
+                                user_id(): {
                                     "ts": 1436451550453u64
                                 }
                             }
@@ -372,9 +423,9 @@ macro_rules! statestore_integration_tests {
                     .expect("json creation failed");
 
                     let second_receipt_event = serde_json::from_value(json!({
-                        second_event_id.clone(): {
+                        second_event_id: {
                             "m.read": {
-                                user_id().to_owned(): {
+                                user_id(): {
                                     "ts": 1436451551453u64
                                 }
                             }
@@ -562,6 +613,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                #[cfg(feature = "experimental-timeline")]
                 async fn test_room_timeline() {
                     let store = get_store().await.unwrap();
                     let mut stored_events = Vec::new();
@@ -689,6 +741,7 @@ macro_rules! statestore_integration_tests {
                     check_timeline_events(room_id, &store, &Vec::new(), end_token.as_deref()).await;
                 }
 
+                #[cfg(feature = "experimental-timeline")]
                 async fn check_timeline_events(
                     room_id: &RoomId,
                     store: &dyn StateStore,
@@ -701,8 +754,8 @@ macro_rules! statestore_integration_tests {
 
                     let timeline = timeline_iter.collect::<Vec<StoreResult<SyncRoomEvent>>>().await;
 
-                    let expected: Vec<Box<EventId>> = stored_events.iter().map(|a| a.event_id().expect("event id doesn't exist")).collect();
-                    let found: Vec<Box<EventId>> = timeline.iter().map(|a| a.as_ref().expect("object missing").event_id().clone().expect("event id missing")).collect();
+                    let expected: Vec<OwnedEventId> = stored_events.iter().map(|a| a.event_id().expect("event id doesn't exist")).collect();
+                    let found: Vec<OwnedEventId> = timeline.iter().map(|a| a.as_ref().expect("object missing").event_id().clone().expect("event id missing")).collect();
 
                     for (idx, (a, b)) in timeline
                         .into_iter()

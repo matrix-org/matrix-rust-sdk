@@ -7,7 +7,7 @@ use std::{
 use futures_signals::{signal::Mutable, signal_vec::MutableVec};
 use log::warn;
 use matrix_sdk::{Client, SlidingSyncRoom, SlidingSyncView};
-use matrix_sdk_common::ruma::{events::AnyRoomEvent, RoomId};
+use ruma::{events::AnyRoomEvent, OwnedRoomId};
 use tuirealm::tui::widgets::TableState;
 
 #[derive(Clone, Default)]
@@ -26,7 +26,7 @@ pub struct SlidingSyncState {
     full_sync: Option<Duration>,
     current_rooms_count: Option<u32>,
     total_rooms_count: Option<u32>,
-    pub selected_room: Mutable<Option<Box<matrix_sdk::ruma::RoomId>>>,
+    pub selected_room: Mutable<Option<OwnedRoomId>>,
 }
 
 impl std::cmp::PartialOrd for SlidingSyncState {
@@ -60,7 +60,7 @@ impl SlidingSyncState {
             view,
             first_render: None,
             full_sync: None,
-            selected_room: Mutable::new(None),
+            selected_room: Default::default(),
             current_rooms_count: None,
             total_rooms_count: None,
         }
@@ -70,7 +70,7 @@ impl SlidingSyncState {
         &self.started
     }
 
-    pub fn select_room(&self, r: Option<Box<RoomId>>) {
+    pub fn select_room(&self, r: Option<OwnedRoomId>) {
         self.selected_room.replace(r);
     }
 

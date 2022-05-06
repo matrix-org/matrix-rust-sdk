@@ -28,12 +28,16 @@ jobs:
           - matrix-sdk-base
           - matrix-sdk-common
           - matrix-sdk-crypto
+          - indexeddb-no-crypto
+          - indexeddb-with-crypto
 
         include:
           - name: matrix-sdk (no-default, wasm-flags)
             cmd: matrix-sdk-no-default
           - name: matrix-sdk / indexeddb_stores
             cmd: matrix-sdk-indexeddb-stores
+          - name: matrix-sdk / indexeddb_stores / no crypto
+            cmd: matrix-sdk-indexeddb-stores-no-crypto
           - name: matrix-sdk / wasm-example
             cmd: matrix-sdk-command-bot
 
@@ -50,11 +54,22 @@ jobs:
         profile: minimal
         override: true
 
+    - name: Install WasmPack
+      uses: jetli/wasm-pack-action@v0.3.0
+      with:
+        version: 'latest'
+
     - name: Load cache
       uses: Swatinem/rust-cache@v1
 
-    - name: check
+    - name: Rust Check
       uses: actions-rs/cargo@v1
       with:
         command: run
         args: -p xtask -- ci wasm ${{ matrix.cmd || matrix.name }}
+
+    - name: Wasm-Pack test
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci wasm-pack ${{ matrix.cmd || matrix.name }}

@@ -9,20 +9,20 @@ mod safe_encode;
 mod state_store;
 
 #[cfg(target_arch = "wasm32")]
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 mod cryptostore;
 
 #[cfg(target_arch = "wasm32")]
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 pub use cryptostore::IndexeddbStore as CryptoStore;
 #[cfg(target_arch = "wasm32")]
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use cryptostore::IndexeddbStoreError;
 #[cfg(target_arch = "wasm32")]
 pub use state_store::IndexeddbStore as StateStore;
 
 #[cfg(target_arch = "wasm32")]
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 /// Create a [`StateStore`] and a [`CryptoStore`] that use the same name and
 /// passphrase.
 async fn open_stores_with_name(
@@ -33,7 +33,8 @@ async fn open_stores_with_name(
 
     if let Some(passphrase) = passphrase {
         let state_store = StateStore::open_with_passphrase(name.clone(), passphrase).await?;
-        let crypto_store = CryptoStore::open_with_passphrase(name, passphrase).await?;
+        let crypto_store =
+            CryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone()).await?;
         Ok((Box::new(state_store), Box::new(crypto_store)))
     } else {
         let state_store = StateStore::open_with_name(name.clone()).await?;
@@ -52,13 +53,13 @@ pub async fn make_store_config(
 ) -> Result<StoreConfig, OpenStoreError> {
     let name = name.into();
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     {
         let (state_store, crypto_store) = open_stores_with_name(name, passphrase).await?;
         Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
     }
 
-    #[cfg(not(feature = "encryption"))]
+    #[cfg(not(feature = "e2e-encryption"))]
     {
         let state_store = if let Some(passphrase) = passphrase {
             StateStore::open_with_passphrase(name, passphrase).await?
@@ -79,7 +80,7 @@ pub enum OpenStoreError {
     State(#[from] StoreError),
 
     /// An error occurred with the crypto store implementation.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     Crypto(#[from] IndexeddbStoreError),
 }

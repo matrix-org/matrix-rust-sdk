@@ -8,13 +8,13 @@ license = "Apache-2.0"
 name = "matrix-sdk-test-macros"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = "1.56"
+rust-version = "1.60"
 version = "0.1.0"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.29"
-quote = "1"
-syn = { version = "1.0.81", features = ["full",] }
+proc-macro2 = "1.0.37"
+quote = "1.0.18"
+syn = { version = "1.0.91", features = ["full"] }

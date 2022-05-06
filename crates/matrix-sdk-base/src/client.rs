@@ -15,55 +15,56 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    convert::TryFrom,
     fmt,
     sync::Arc,
 };
 #[allow(unused_imports)]
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, result::Result as StdResult};
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "experimental-timeline")]
+use matrix_sdk_common::deserialized_responses::TimelineSlice;
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Rooms,
-        StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline, TimelineSlice,
+        AmbiguityChanges, JoinedRoom, LeftRoom, MembersResponse, Rooms, SyncResponse,
+        SyncRoomEvent, Timeline,
     },
     instant::Instant,
     locks::RwLock,
-    util::milli_seconds_since_unix_epoch,
 };
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError, MemoryStore as MemoryCryptoStore},
     Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
     OutgoingRequest, ToDeviceRequest, UserDevices,
 };
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use ruma::{
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::{
         room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
         AnySyncMessageLikeEvent, MessageLikeEventContent, SyncMessageLikeEvent,
     },
-    DeviceId, TransactionId,
+    DeviceId, OwnedTransactionId, TransactionId,
 };
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
-        push_rules::PushRulesEvent, room::member::MembershipState, AnyGlobalAccountDataEvent,
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType, StateEventType,
-        SyncStateEvent,
+        push_rules::PushRulesEvent,
+        room::member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEvent},
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        StateEventType, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    RoomId, UInt, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use crate::error::Error;
 use crate::{
     error::Result,
@@ -89,7 +90,7 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     olm: Arc<Mutex<CryptoHolder>>,
 }
 
@@ -103,20 +104,20 @@ impl fmt::Debug for BaseClient {
     }
 }
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 enum CryptoHolder {
     PreSetupStore(Option<Box<dyn CryptoStore>>),
     Olm(Box<OlmMachine>),
 }
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 impl Default for CryptoHolder {
     fn default() -> Self {
         CryptoHolder::PreSetupStore(Some(Box::new(MemoryCryptoStore::default())))
     }
 }
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 impl CryptoHolder {
     fn new(store: Box<dyn CryptoStore>) -> Self {
         CryptoHolder::PreSetupStore(Some(store))
@@ -125,8 +126,8 @@ impl CryptoHolder {
         if let CryptoHolder::PreSetupStore(store) = self {
             *self = CryptoHolder::Olm(Box::new(
                 OlmMachine::with_store(
-                    session.user_id.to_owned(),
-                    session.device_id.as_str().into(),
+                    &session.user_id,
+                    &session.device_id,
                     store.take().expect("We always exist"),
                 )
                 .await
@@ -161,14 +162,14 @@ impl BaseClient {
     /// previous login call.
     pub fn with_store_config(config: StoreConfig) -> Self {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let holder = config.crypto_store.map(CryptoHolder::new).unwrap_or_default();
 
         BaseClient {
             session: store.session.clone(),
             sync_token: store.sync_token.clone(),
             store,
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             olm: Mutex::new(holder).into(),
         }
     }
@@ -219,7 +220,7 @@ impl BaseClient {
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         self.store.restore_session(session.clone()).await?;
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         {
             let mut olm = self.olm.lock().await;
             olm.convert_to_olm(&session).await?;
@@ -236,16 +237,32 @@ impl BaseClient {
         self.sync_token.read().await.clone()
     }
 
+    #[cfg(feature = "e2e-encryption")]
+    async fn handle_unenecrypted_verification_event(
+        &self,
+        event: &AnySyncMessageLikeEvent,
+        room_id: &RoomId,
+    ) -> Result<()> {
+        if let Some(olm) = self.olm_machine().await {
+            olm.receive_unencrypted_verification_event(
+                &event.clone().into_full_event(room_id.to_owned()),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn handle_timeline(
         &self,
         room: &Room,
         ruma_timeline: api::sync::sync_events::v3::Timeline,
         push_rules: &Ruleset,
+        user_ids: &mut BTreeSet<OwnedUserId>,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
-        user_ids: &mut BTreeSet<Box<UserId>>,
     ) -> Result<Timeline> {
         let room_id = room.room_id();
         let user_id = room.own_user_id();
@@ -262,36 +279,34 @@ impl BaseClient {
                     match &e {
                         AnySyncRoomEvent::State(s) => match s {
                             AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) => {
-                                if let Ok(member) = MemberEvent::try_from(member.clone()) {
-                                    ambiguity_cache.handle_event(changes, room_id, &member).await?;
+                                ambiguity_cache.handle_event(changes, room_id, member).await?;
 
-                                    match member.content.membership {
-                                        MembershipState::Join | MembershipState::Invite => {
-                                            user_ids.insert(member.state_key.clone());
-                                        }
-                                        _ => {
-                                            user_ids.remove(&member.state_key);
-                                        }
+                                match member.content.membership {
+                                    MembershipState::Join | MembershipState::Invite => {
+                                        user_ids.insert(member.state_key.clone());
                                     }
-
-                                    // Senders can fake the profile easily so we keep track
-                                    // of profiles that the member set themselves to avoid
-                                    // having confusing profile changes when a member gets
-                                    // kicked/banned.
-                                    if member.state_key == member.sender {
-                                        changes
-                                            .profiles
-                                            .entry(room_id.to_owned())
-                                            .or_insert_with(BTreeMap::new)
-                                            .insert(member.sender.clone(), member.content.clone());
+                                    _ => {
+                                        user_ids.remove(&member.state_key);
                                     }
-
-                                    changes
-                                        .members
-                                        .entry(room_id.to_owned())
-                                        .or_insert_with(BTreeMap::new)
-                                        .insert(member.state_key.clone(), member);
                                 }
+
+                                // Senders can fake the profile easily so we keep track
+                                // of profiles that the member set themselves to avoid
+                                // having confusing profile changes when a member gets
+                                // kicked/banned.
+                                if member.state_key == member.sender {
+                                    changes
+                                        .profiles
+                                        .entry(room_id.to_owned())
+                                        .or_default()
+                                        .insert(member.sender.clone(), member.content.clone());
+                                }
+
+                                changes
+                                    .members
+                                    .entry(room_id.to_owned())
+                                    .or_default()
+                                    .insert(member.state_key.clone(), member.to_owned());
                             }
                             _ => {
                                 room_info.handle_state_event(s);
@@ -300,22 +315,35 @@ impl BaseClient {
                             }
                         },
 
-                        #[cfg(feature = "encryption")]
-                        AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                            SyncMessageLikeEvent::Original(encrypted),
-                        )) => {
-                            if let Some(olm) = self.olm_machine().await {
-                                if let Ok(decrypted) =
-                                    olm.decrypt_room_event(encrypted, room_id).await
-                                {
-                                    event = decrypted.into();
+                        #[cfg(feature = "e2e-encryption")]
+                        AnySyncRoomEvent::MessageLike(e) => match e {
+                            AnySyncMessageLikeEvent::RoomEncrypted(
+                                SyncMessageLikeEvent::Original(encrypted),
+                            ) => {
+                                if let Some(olm) = self.olm_machine().await {
+                                    if let Ok(decrypted) =
+                                        olm.decrypt_room_event(encrypted, room_id).await
+                                    {
+                                        event = decrypted.into();
+                                    }
                                 }
                             }
-                        }
-                        // TODO if there is redacted state save the room id,
-                        // event type and state key, add a method to get the
-                        // requests that are needed to be called to heal this
-                        // redacted state.
+                            AnySyncMessageLikeEvent::RoomMessage(
+                                SyncMessageLikeEvent::Original(original_event),
+                            ) => match &original_event.content.msgtype {
+                                ruma::events::room::message::MessageType::VerificationRequest(
+                                    _,
+                                ) => {
+                                    self.handle_unenecrypted_verification_event(e, room_id).await?;
+                                }
+                                _ => (),
+                            },
+                            _ if e.event_type().to_string().starts_with("m.key.verification") => {
+                                self.handle_unenecrypted_verification_event(e, room_id).await?;
+                            }
+                            _ => (),
+                        },
+                        #[cfg(not(feature = "e2e-encryption"))]
                         _ => (),
                     }
 
@@ -336,7 +364,7 @@ impl BaseClient {
                                     event.event.clone(),
                                     false,
                                     room_id.to_owned(),
-                                    milli_seconds_since_unix_epoch(),
+                                    MilliSecondsSinceUnixEpoch::now(),
                                 ),
                             );
                         }
@@ -361,56 +389,47 @@ impl BaseClient {
         Ok(timeline)
     }
 
-    #[allow(clippy::type_complexity)]
     pub(crate) fn handle_invited_state(
         &self,
         events: &[Raw<AnyStrippedStateEvent>],
         room_info: &mut RoomInfo,
-    ) -> (
-        BTreeMap<Box<UserId>, StrippedMemberEvent>,
-        BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
+        changes: &mut StateChanges,
     ) {
-        events.iter().fold(
-            (BTreeMap::new(), BTreeMap::new()),
-            |(mut members, mut state_events), raw_event| {
-                match raw_event.deserialize() {
-                    Ok(AnyStrippedStateEvent::RoomMember(member)) => {
-                        match StrippedMemberEvent::try_from(member) {
-                            Ok(m) => {
-                                members.insert(m.state_key.clone(), m);
-                            }
-                            Err(e) => warn!(
-                                "Stripped member event in room {} has an invalid state key {:?}",
-                                room_info.room_id, e
-                            ),
-                        }
-                    }
-                    Ok(e) => {
-                        room_info.handle_stripped_state_event(&e);
-                        state_events
-                            .entry(e.event_type())
-                            .or_insert_with(BTreeMap::new)
-                            .insert(e.state_key().to_owned(), raw_event.clone());
-                    }
-                    Err(err) => {
-                        warn!(
-                            "Couldn't deserialize stripped state event for room {}: {:?}",
-                            room_info.room_id, err
-                        );
-                    }
+        let mut members = BTreeMap::new();
+        let mut state_events = BTreeMap::new();
+
+        for raw_event in events {
+            match raw_event.deserialize() {
+                Ok(AnyStrippedStateEvent::RoomMember(member)) => {
+                    members.insert(member.state_key.clone(), member);
                 }
-                (members, state_events)
-            },
-        )
+                Ok(e) => {
+                    room_info.handle_stripped_state_event(&e);
+                    state_events
+                        .entry(e.event_type())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(e.state_key().to_owned(), raw_event.clone());
+                }
+                Err(err) => {
+                    warn!(
+                        "Couldn't deserialize stripped state event for room {}: {:?}",
+                        room_info.room_id, err
+                    );
+                }
+            }
+        }
+
+        changes.stripped_members.insert(room_info.room_id().to_owned(), members);
+        changes.stripped_state.insert(room_info.room_id().to_owned(), state_events);
     }
 
     pub(crate) async fn handle_state(
         &self,
-        changes: &mut StateChanges,
-        ambiguity_cache: &mut AmbiguityCache,
         events: &[Raw<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
-    ) -> StoreResult<BTreeSet<Box<UserId>>> {
+        changes: &mut StateChanges,
+        ambiguity_cache: &mut AmbiguityCache,
+    ) -> StoreResult<BTreeSet<OwnedUserId>> {
         let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
@@ -433,32 +452,24 @@ impl BaseClient {
             room_info.handle_state_event(&event);
 
             if let AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) = event {
-                match MemberEvent::try_from(member) {
-                    Ok(m) => {
-                        ambiguity_cache.handle_event(changes, &room_id, &m).await?;
+                ambiguity_cache.handle_event(changes, &room_id, &member).await?;
 
-                        match m.content.membership {
-                            MembershipState::Join | MembershipState::Invite => {
-                                user_ids.insert(m.state_key.clone());
-                            }
-                            _ => (),
-                        }
-
-                        // Senders can fake the profile easily so we keep track
-                        // of profiles that the member set themselves to avoid
-                        // having confusing profile changes when a member gets
-                        // kicked/banned.
-                        if m.state_key == m.sender {
-                            profiles.insert(m.sender.clone(), m.content.clone());
-                        }
-
-                        members.insert(m.state_key.clone(), m);
+                match member.content.membership {
+                    MembershipState::Join | MembershipState::Invite => {
+                        user_ids.insert(member.state_key.clone());
                     }
-                    Err(e) => warn!(
-                        "Member event in room {} has an invalid state key {:?}",
-                        room_info.room_id, e
-                    ),
+                    _ => (),
                 }
+
+                // Senders can fake the profile easily so we keep track
+                // of profiles that the member set themselves to avoid
+                // having confusing profile changes when a member gets
+                // kicked/banned.
+                if member.state_key == member.sender {
+                    profiles.insert(member.sender.clone(), member.content.clone());
+                }
+
+                members.insert(member.state_key.clone(), member);
             } else {
                 state_events
                     .entry(event.event_type())
@@ -513,11 +524,12 @@ impl BaseClient {
                         );
 
                         if let Some(room) = changes.room_infos.get_mut(room_id) {
-                            room.base_info.dm_target = Some(user_id.clone());
+                            room.base_info.dm_targets.insert(user_id.clone());
                         } else if let Some(room) = self.store.get_room(room_id) {
                             let mut info = room.clone_info();
-                            info.base_info.dm_target = Some(user_id.clone());
-                            changes.add_room(info);
+                            if info.base_info.dm_targets.insert(user_id.clone()) {
+                                changes.add_room(info);
+                            }
                         }
                     }
                 }
@@ -560,7 +572,7 @@ impl BaseClient {
 
         let now = Instant::now();
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         let to_device = {
             if let Some(o) = self.olm_machine().await {
                 // Let the crypto machine handle the sync response, this
@@ -598,10 +610,10 @@ impl BaseClient {
 
             let mut user_ids = self
                 .handle_state(
-                    &mut changes,
-                    &mut ambiguity_cache,
                     &new_info.state.events,
                     &mut room_info,
+                    &mut changes,
+                    &mut ambiguity_cache,
                 )
                 .await?;
 
@@ -623,17 +635,17 @@ impl BaseClient {
                     &room,
                     new_info.timeline,
                     &push_rules,
+                    &mut user_ids,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
-                    &mut user_ids,
                 )
                 .await?;
 
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine().await {
                     if !room.is_encrypted() {
@@ -655,6 +667,7 @@ impl BaseClient {
             let notification_count = new_info.unread_notifications.into();
             room_info.update_notification_count(notification_count);
 
+            #[cfg(feature = "experimental-timeline")]
             let timeline_slice = TimelineSlice::new(
                 timeline.events.clone(),
                 next_batch.clone(),
@@ -663,6 +676,7 @@ impl BaseClient {
                 true,
             );
 
+            #[cfg(feature = "experimental-timeline")]
             changes.add_timeline(&room_id, timeline_slice);
 
             new_rooms.join.insert(
@@ -686,10 +700,10 @@ impl BaseClient {
 
             let mut user_ids = self
                 .handle_state(
-                    &mut changes,
-                    &mut ambiguity_cache,
                     &new_info.state.events,
                     &mut room_info,
+                    &mut changes,
+                    &mut ambiguity_cache,
                 )
                 .await?;
 
@@ -698,10 +712,10 @@ impl BaseClient {
                     &room,
                     new_info.timeline,
                     &push_rules,
+                    &mut user_ids,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
-                    &mut user_ids,
                 )
                 .await?;
 
@@ -724,11 +738,8 @@ impl BaseClient {
                 changes.add_room(room_info);
             }
 
-            let (members, state_events) =
-                self.handle_invited_state(&new_info.invite_state.events, &mut room_info);
+            self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
 
-            changes.stripped_members.insert(room_id.clone(), members);
-            changes.stripped_state.insert(room_id.clone(), state_events);
             changes.add_stripped_room(room_info);
 
             new_rooms.invite.insert(room_id, new_info);
@@ -788,6 +799,7 @@ impl BaseClient {
             }
         }
 
+        #[cfg(feature = "experimental-timeline")]
         for (room_id, timeline_slice) in &changes.timeline {
             if let Some(room) = self.store.get_room(room_id) {
                 room.add_timeline_slice(timeline_slice).await;
@@ -800,6 +812,7 @@ impl BaseClient {
     /// You should pass only slices requested from the store to this function.
     ///
     /// * `timeline` - The `TimelineSlice`
+    #[cfg(feature = "experimental-timeline")]
     pub async fn receive_messages(&self, room_id: &RoomId, timeline: TimelineSlice) -> Result<()> {
         let mut changes = StateChanges::default();
 
@@ -824,11 +837,18 @@ impl BaseClient {
         room_id: &RoomId,
         response: &api::membership::get_member_events::v3::Response,
     ) -> Result<MembersResponse> {
-        let members: Vec<MemberEvent> = response
+        let members: Vec<_> = response
             .chunk
             .iter()
-            .filter_map(|e| e.deserialize().ok().and_then(|e| MemberEvent::try_from(e).ok()))
+            .filter_map(|e| e.deserialize().ok())
+            .filter_map(|ev| match ev {
+                RoomMemberEvent::Original(ev) => Some(ev),
+                // FIXME: don't filter these out
+                // https://github.com/matrix-org/matrix-rust-sdk/issues/607
+                RoomMemberEvent::Redacted(_) => None,
+            })
             .collect();
+
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
@@ -837,12 +857,14 @@ impl BaseClient {
 
             let mut changes = StateChanges::default();
 
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             let mut user_ids = BTreeSet::new();
 
             for member in &members {
+                let member: OriginalSyncRoomMemberEvent = member.clone().into();
+
                 if self.store.get_member_event(room_id, &member.state_key).await?.is_none() {
-                    #[cfg(feature = "encryption")]
+                    #[cfg(feature = "e2e-encryption")]
                     match member.content.membership {
                         MembershipState::Join | MembershipState::Invite => {
                             user_ids.insert(member.state_key.clone());
@@ -850,25 +872,25 @@ impl BaseClient {
                         _ => (),
                     }
 
-                    ambiguity_cache.handle_event(&changes, room_id, member).await?;
+                    ambiguity_cache.handle_event(&changes, room_id, &member).await?;
 
                     if member.state_key == member.sender {
                         changes
                             .profiles
                             .entry(room_id.to_owned())
-                            .or_insert_with(BTreeMap::new)
+                            .or_default()
                             .insert(member.sender.clone(), member.content.clone());
                     }
 
                     changes
                         .members
                         .entry(room_id.to_owned())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(member.state_key.clone(), member.clone());
+                        .or_default()
+                        .insert(member.state_key.clone(), member);
                 }
             }
 
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine().await {
                     o.update_tracked_users(user_ids.iter().map(Deref::deref)).await
@@ -934,7 +956,7 @@ impl BaseClient {
     /// machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
         match self.olm_machine().await {
             Some(o) => o.outgoing_requests().await,
@@ -951,7 +973,7 @@ impl BaseClient {
     ///
     /// * `response` - The response that was received from the server after the
     /// outgoing request was sent out.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &TransactionId,
@@ -966,11 +988,11 @@ impl BaseClient {
     /// Get a tuple of device and one-time keys that need to be uploaded.
     ///
     /// Returns an empty error if no keys need to be uploaded.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> Result<Option<(Box<TransactionId>, KeysClaimRequest)>> {
+    ) -> Result<Option<(OwnedTransactionId, KeysClaimRequest)>> {
         match self.olm_machine().await {
             Some(o) => Ok(o.get_missing_sessions(users).await?),
             None => Ok(None),
@@ -978,7 +1000,7 @@ impl BaseClient {
     }
 
     /// Get a to-device request that will share a group session for a room.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
         match self.olm_machine().await {
             Some(o) => {
@@ -1017,7 +1039,7 @@ impl BaseClient {
     }
 
     /// Encrypt a message event content.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
@@ -1034,7 +1056,7 @@ impl BaseClient {
     ///
     /// Returns true if a session was invalidated, false if there was no session
     /// to invalidate.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn invalidate_group_session(
         &self,
         room_id: &RoomId,
@@ -1073,7 +1095,7 @@ impl BaseClient {
     /// println!("{:?}", device);
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -1129,7 +1151,7 @@ impl BaseClient {
     /// }
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
@@ -1143,7 +1165,7 @@ impl BaseClient {
     }
 
     /// Get the olm machine.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn olm_machine(&self) -> Option<OlmMachine> {
         let olm = self.olm.lock().await;
         olm.machine()
@@ -1278,12 +1300,15 @@ impl Default for BaseClient {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_test::{async_test, EventBuilder};
-    use ruma::{room_id, user_id};
+    use matrix_sdk_test::{async_test, response_from_file, EventBuilder};
+    use ruma::{
+        api::{client as api, IncomingResponse},
+        room_id, user_id,
+    };
     use serde_json::json;
 
     use super::BaseClient;
-    use crate::{RoomType, Session};
+    use crate::{DisplayName, RoomType, Session};
 
     #[async_test]
     async fn invite_after_leaving() {
@@ -1339,5 +1364,101 @@ mod tests {
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Invited);
+    }
+
+    #[async_test]
+    async fn invite_displayname_integration_test() {
+        let user_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = BaseClient::new();
+        client
+            .restore_login(Session {
+                access_token: "token".to_owned(),
+                user_id: user_id.to_owned(),
+                device_id: "FOOBAR".into(),
+            })
+            .await
+            .unwrap();
+
+        let response = api::sync::sync_events::v3::Response::try_from_http_response(response_from_file(&json!({
+            "next_batch": "asdkl;fjasdkl;fj;asdkl;f",
+            "device_one_time_keys_count": {
+                "signed_curve25519": 50u64
+            },
+            "device_unused_fallback_key_types": [
+                "signed_curve25519"
+            ],
+            "rooms": {
+                "invite": {
+                    "!ithpyNKDtmhneaTQja:example.org": {
+                        "invite_state": {
+                            "events": [
+                                {
+                                    "content": {
+                                        "creator": "@test:example.org",
+                                        "room_version": "9"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "",
+                                    "type": "m.room.create"
+                                },
+                                {
+                                    "content": {
+                                        "join_rule": "invite"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "",
+                                    "type": "m.room.join_rules"
+                                },
+                                {
+                                    "content": {
+                                        "algorithm": "m.megolm.v1.aes-sha2"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "",
+                                    "type": "m.room.encryption"
+                                },
+                                {
+                                    "content": {
+                                        "avatar_url": "mxc://example.org/dcBBDwuWEUrjfrOchvkirUST",
+                                        "displayname": "Kyra",
+                                        "membership": "join"
+                                    },
+                                    "sender": "@test:example.org",
+                                    "state_key": "@test:example.org",
+                                    "type": "m.room.member"
+                                },
+                                {
+                                    "content": {
+                                        "avatar_url": "mxc://example.org/ABFEXSDrESxovWwEnCYdNcHT",
+                                        "displayname": "alice",
+                                        "is_direct": true,
+                                        "membership": "invite"
+                                    },
+                                    "origin_server_ts": 1650878657984u64,
+                                    "sender": "@test:example.org",
+                                    "state_key": "@alice:example.org",
+                                    "type": "m.room.member",
+                                    "unsigned": {
+                                        "age": 14u64
+                                    },
+                                    "event_id": "$fLDqltg9Puj-kWItLSFVHPGN4YkgpYQf2qImPzdmgrE"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }))).expect("static json doesn't fail to parse");
+
+        client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_room(room_id).expect("Room not found");
+        assert_eq!(room.room_type(), RoomType::Invited);
+        assert_eq!(
+            room.display_name().await.expect("fetching display name failed"),
+            DisplayName::Calculated("Kyra".to_owned())
+        );
     }
 }

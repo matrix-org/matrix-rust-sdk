@@ -24,7 +24,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceKeyAlgorithm, DeviceKeyId, UserId,
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
 };
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
@@ -222,7 +222,7 @@ pub fn receive_mac_event(
             ids.other_device.device_id()
         );
 
-        let key_id: Box<DeviceKeyId> = match key_id.as_str().try_into() {
+        let key_id: OwnedDeviceKeyId = match key_id.as_str().try_into() {
             Ok(id) => id,
             Err(_) => continue,
         };

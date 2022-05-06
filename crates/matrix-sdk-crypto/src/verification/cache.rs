@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use ruma::{DeviceId, TransactionId, UserId};
+use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
 use tracing::trace;
 
 use super::{event_enums::OutgoingContent, Sas, Verification};
@@ -25,8 +25,8 @@ use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, To
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
-    verification: Arc<DashMap<Box<UserId>, DashMap<String, Verification>>>,
-    outgoing_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
+    verification: Arc<DashMap<OwnedUserId, DashMap<String, Verification>>>,
+    outgoing_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
 }
 
 impl VerificationCache {
@@ -45,7 +45,7 @@ impl VerificationCache {
 
         self.verification
             .entry(verification.other_user().to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(verification.flow_id().to_owned(), verification);
     }
 

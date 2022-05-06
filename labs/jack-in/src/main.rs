@@ -5,7 +5,7 @@
 use eyre::{eyre, Result};
 use log::{warn, LevelFilter};
 use matrix_sdk::{Client, Session};
-use matrix_sdk_common::ruma::{DeviceId, RoomId, UserId};
+use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use tuirealm::application::PollStrategy;
 use tuirealm::{AttrValue, Attribute, Event, Update};
 // -- internal
@@ -23,7 +23,7 @@ pub enum Msg {
     Clock,
     RoomsBlur,
     DetailsBlur,
-    SelectRoom(Option<Box<RoomId>>),
+    SelectRoom(Option<OwnedRoomId>),
 }
 
 #[derive(Eq, PartialEq, PartialOrd, Clone)]
@@ -79,8 +79,8 @@ impl tuirealm::listener::Poll<JackInEvent> for MatrixPoller {
 async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
-    let user_id: Box<UserId> = opt.user.clone().parse()?;
-    let device_id: Box<DeviceId> = "XdftAsd".into();
+    let user_id: OwnedUserId = opt.user.clone().parse()?;
+    let device_id: OwnedDeviceId = "XdftAsd".into();
 
     // Configure log
 

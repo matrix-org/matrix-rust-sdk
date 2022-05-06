@@ -21,7 +21,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk_common::locks::Mutex;
-use ruma::{DeviceId, RoomId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 
 use crate::{
     identities::ReadOnlyDevice,
@@ -45,11 +45,7 @@ impl SessionStore {
     /// Returns true if the session was added, false if the session was
     /// already in the store.
     pub async fn add(&self, session: Session) -> bool {
-        let sessions_lock = self
-            .entries
-            .entry(session.sender_key.to_base64())
-            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())));
-
+        let sessions_lock = self.entries.entry(session.sender_key.to_base64()).or_default();
         let mut sessions = sessions_lock.lock().await;
 
         if !sessions.contains(&session) {
@@ -75,7 +71,7 @@ impl SessionStore {
 /// In-memory store that holds inbound group sessions.
 pub struct GroupSessionStore {
     #[allow(clippy::type_complexity)]
-    entries: Arc<DashMap<Box<RoomId>, HashMap<String, HashMap<String, InboundGroupSession>>>>,
+    entries: Arc<DashMap<OwnedRoomId, HashMap<String, HashMap<String, InboundGroupSession>>>>,
 }
 
 impl GroupSessionStore {
@@ -91,9 +87,9 @@ impl GroupSessionStore {
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
             .entry((*session.room_id).to_owned())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .entry(session.sender_key.to_string())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(session.session_id().to_owned(), session)
             .is_none()
     }
@@ -139,8 +135,7 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
-    #[allow(clippy::type_complexity)]
-    entries: Arc<DashMap<Box<UserId>, DashMap<Box<DeviceId>, ReadOnlyDevice>>>,
+    entries: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ReadOnlyDevice>>>,
 }
 
 impl DeviceStore {
@@ -156,7 +151,7 @@ impl DeviceStore {
         let user_id = device.user_id();
         self.entries
             .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(device.device_id().into(), device)
             .is_none()
     }
@@ -175,10 +170,10 @@ impl DeviceStore {
     }
 
     /// Get a read-only view over all devices of the given user.
-    pub fn user_devices(&self, user_id: &UserId) -> HashMap<Box<DeviceId>, ReadOnlyDevice> {
+    pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, ReadOnlyDevice> {
         self.entries
             .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .iter()
             .map(|i| (i.key().to_owned(), i.value().clone()))
             .collect()

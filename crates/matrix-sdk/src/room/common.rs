@@ -1,14 +1,20 @@
-use std::{ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
+#[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
+use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
+#[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{
-    deserialized_responses::{MembersResponse, RoomEvent, SyncRoomEvent, TimelineSlice},
+    deserialized_responses::{SyncRoomEvent, TimelineSlice},
     TimelineStreamError,
 };
 use matrix_sdk_common::locks::Mutex;
+#[cfg(feature = "experimental-timeline")]
+use ruma::api::client::filter::LazyLoadOptions;
 use ruma::{
     api::client::{
-        filter::{LazyLoadOptions, RoomEventFilter},
+        config::set_global_account_data,
+        filter::RoomEventFilter,
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events::{self, v3::Direction},
         room::get_room_event,
@@ -16,10 +22,11 @@ use ruma::{
     },
     assign,
     events::{
+        direct::DirectEvent,
         room::{history_visibility::HistoryVisibility, MediaSource},
         tag::{TagInfo, TagName},
-        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, RedactContent,
-        RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        RedactContent, RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
         RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
         SyncStateEvent,
     },
@@ -30,7 +37,7 @@ use ruma::{
 use crate::{
     media::{MediaFormat, MediaRequest},
     room::RoomType,
-    BaseRoom, Client, HttpError, HttpResult, Result, RoomMember,
+    BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomMember,
 };
 
 /// A struct containing methods that are common for Joined, Invited and Left
@@ -133,7 +140,7 @@ impl Common {
     /// ```
     pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url() {
-            let request = MediaRequest { source: MediaSource::Plain(url.clone()), format };
+            let request = MediaRequest { source: MediaSource::Plain(url.to_owned()), format };
             Ok(Some(self.client.get_media_content(&request, true).await?))
         } else {
             Ok(None)
@@ -182,10 +189,10 @@ impl Common {
         };
 
         for event in http_response.chunk {
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             let event = self.client.decrypt_room_event(event).await;
 
-            #[cfg(not(feature = "encryption"))]
+            #[cfg(not(feature = "e2e-encryption"))]
             let event = RoomEvent { event, encryption_info: None };
 
             response.chunk.push(event);
@@ -260,6 +267,7 @@ impl Common {
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline(
         &self,
     ) -> Result<(impl Stream<Item = SyncRoomEvent>, impl Stream<Item = Result<SyncRoomEvent>>)>
@@ -328,7 +336,7 @@ impl Common {
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
-
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline_forward(&self) -> Result<impl Stream<Item = SyncRoomEvent>> {
         Ok(self.inner.timeline_forward().await?)
     }
@@ -392,6 +400,7 @@ impl Common {
     /// # Result::<_, matrix_sdk::Error>::Ok(())
     /// # });
     /// ```
+    #[cfg(feature = "experimental-timeline")]
     pub async fn timeline_backward(&self) -> Result<impl Stream<Item = Result<SyncRoomEvent>>> {
         let backward_store = self.inner.timeline_backward().await?;
 
@@ -411,6 +420,7 @@ impl Common {
         Ok(backward)
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn request_messages(&self, token: &str) -> Result<()> {
         let filter = assign!(RoomEventFilter::default(), {
             lazy_load_options: LazyLoadOptions::Enabled { include_redundant_members: false },
@@ -420,7 +430,6 @@ impl Common {
             filter,
         });
         let messages = self.messages(options).await?;
-
         let timeline = TimelineSlice::new(
             messages.chunk.into_iter().map(SyncRoomEvent::from).collect(),
             messages.start,
@@ -440,10 +449,10 @@ impl Common {
         let request = get_room_event::v3::Request::new(self.room_id(), event_id);
         let event = self.client.send(request, None).await?.event;
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         return Ok(self.client.decrypt_room_event(event).await);
 
-        #[cfg(not(feature = "encryption"))]
+        #[cfg(not(feature = "e2e-encryption"))]
         return Ok(RoomEvent { event, encryption_info: None });
     }
 
@@ -749,7 +758,7 @@ impl Common {
     /// verified.
     ///
     /// Returns true if all devices in the room are verified, otherwise false.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn contains_only_verified_devices(&self) -> Result<bool> {
         let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
 
@@ -816,6 +825,56 @@ impl Common {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
         let request = delete_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
         self.client.send(request, None).await
+    }
+
+    /// Sets whether this room is a DM.
+    ///
+    /// When setting this room as DM, it will be marked as DM for all active
+    /// members of the room. When unsetting this room as DM, it will be
+    /// unmarked as DM for all users, not just the members.
+    ///
+    /// # Arguments
+    /// * `is_direct` - Whether to mark this room as direct.
+    pub async fn set_is_direct(&self, is_direct: bool) -> Result<()> {
+        let user_id = self
+            .client
+            .user_id()
+            .await
+            .ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+
+        let mut content = self
+            .client
+            .store()
+            .get_account_data_event(GlobalAccountDataEventType::Direct)
+            .await?
+            .map(|e| e.deserialize_as::<DirectEvent>())
+            .transpose()?
+            .map(|e| e.content)
+            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+
+        let this_room_id = self.inner.room_id();
+
+        if is_direct {
+            let room_members = self.active_members().await?;
+            for member in room_members {
+                let entry = content.entry(member.user_id().to_owned()).or_default();
+                if !entry.iter().any(|room_id| room_id == this_room_id) {
+                    entry.push(this_room_id.to_owned());
+                }
+            }
+        } else {
+            for (_, list) in content.iter_mut() {
+                list.retain(|room_id| *room_id != this_room_id);
+            }
+
+            // Remove user ids that don't have any room marked as DM
+            content.retain(|_, list| !list.is_empty());
+        }
+
+        let request = set_global_account_data::v3::Request::new(&content, &user_id)?;
+
+        self.client.send(request, None).await?;
+        Ok(())
     }
 }
 

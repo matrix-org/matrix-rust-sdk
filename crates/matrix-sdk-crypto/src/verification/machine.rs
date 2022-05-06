@@ -18,14 +18,15 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{locks::Mutex, util::milli_seconds_since_unix_epoch};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
         ToDeviceEvent,
     },
     serde::Raw,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
+    uint, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UInt, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -46,10 +47,9 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
-    pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
-    requests: Arc<DashMap<Box<UserId>, DashMap<String, VerificationRequest>>>,
+    requests: Arc<DashMap<OwnedUserId, DashMap<String, VerificationRequest>>>,
 }
 
 impl VerificationMachine {
@@ -59,8 +59,7 @@ impl VerificationMachine {
         store: Arc<dyn CryptoStore>,
     ) -> Self {
         Self {
-            private_identity: identity,
-            store: VerificationStore { account, inner: store },
+            store: VerificationStore { account, private_identity: identity, inner: store },
             verifications: VerificationCache::new(),
             requests: Default::default(),
         }
@@ -77,14 +76,13 @@ impl VerificationMachine {
     pub(crate) async fn request_to_device_verification(
         &self,
         user_id: &UserId,
-        recipient_devices: Vec<Box<DeviceId>>,
+        recipient_devices: Vec<OwnedDeviceId>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(TransactionId::new());
 
         let verification = VerificationRequest::new(
             self.verifications.clone(),
-            self.private_identity.lock().await.clone(),
             self.store.clone(),
             flow_id,
             user_id,
@@ -110,7 +108,6 @@ impl VerificationMachine {
 
         let request = VerificationRequest::new(
             self.verifications.clone(),
-            self.private_identity.lock().await.clone(),
             self.store.clone(),
             flow_id,
             identity.user_id(),
@@ -127,21 +124,8 @@ impl VerificationMachine {
         &self,
         device: ReadOnlyDevice,
     ) -> Result<(Sas, OutgoingVerificationRequest), CryptoStoreError> {
-        let identity = self.store.get_user_identity(device.user_id()).await?;
-        let own_identity =
-            self.store.get_user_identity(self.own_user_id()).await?.and_then(|i| i.into_own());
-        let private_identity = self.private_identity.lock().await.clone();
-
-        let (sas, content) = Sas::start(
-            private_identity,
-            device.clone(),
-            self.store.clone(),
-            own_identity,
-            identity,
-            None,
-            true,
-            None,
-        );
+        let identities = self.store.get_identities(device.clone()).await?;
+        let (sas, content) = Sas::start(identities, TransactionId::new(), true, None);
 
         let request = match content {
             OutgoingContent::Room(r, c) => {
@@ -178,7 +162,7 @@ impl VerificationMachine {
     fn insert_request(&self, request: VerificationRequest) {
         self.requests
             .entry(request.other_user().to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(request.flow_id().as_str().to_owned(), request);
     }
 
@@ -190,9 +174,7 @@ impl VerificationMachine {
         self.verifications.get_sas(user_id, flow_id)
     }
 
-    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
-        use ruma::{uint, UInt};
-
+    fn is_timestamp_valid(timestamp: MilliSecondsSinceUnixEpoch) -> bool {
         // The event should be ignored if the event is older than 10 minutes
         let old_timestamp_threshold: UInt = uint!(600);
         // The event should be ignored if the event is 5 minutes or more into the
@@ -200,7 +182,7 @@ impl VerificationMachine {
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();
-        let now = milli_seconds_since_unix_epoch().as_secs();
+        let now = SecondsSinceUnixEpoch::now().get();
 
         !(now.saturating_sub(timestamp) > old_timestamp_threshold
             || timestamp.saturating_sub(now) > timestamp_threshold)
@@ -338,7 +320,6 @@ impl VerificationMachine {
                             if !event_sent_from_us(&event, r.from_device()) {
                                 let request = VerificationRequest::from_request(
                                     self.verifications.clone(),
-                                    self.private_identity.lock().await.clone(),
                                     self.store.clone(),
                                     event.sender(),
                                     flow_id,
@@ -409,25 +390,9 @@ impl VerificationMachine {
                         if let Some(device) =
                             self.store.get_device(event.sender(), c.from_device()).await?
                         {
-                            let private_identity = self.private_identity.lock().await.clone();
-                            let own_identity = self
-                                .store
-                                .get_user_identity(self.own_user_id())
-                                .await?
-                                .and_then(|i| i.into_own());
-                            let identity = self.store.get_user_identity(event.sender()).await?;
+                            let identities = self.store.get_identities(device).await?;
 
-                            match Sas::from_start_event(
-                                flow_id,
-                                c,
-                                self.store.clone(),
-                                private_identity,
-                                device,
-                                own_identity,
-                                identity,
-                                None,
-                                false,
-                            ) {
+                            match Sas::from_start_event(flow_id, c, identities, None, false) {
                                 Ok(sas) => {
                                     self.verifications.insert_sas(sas);
                                 }
@@ -522,7 +487,7 @@ mod tests {
 
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, UserId};
+    use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
 
     use super::{Sas, VerificationMachine};
     use crate::{
@@ -564,21 +529,20 @@ mod tests {
         store.save_devices(vec![bob_device]).await;
         bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let bob_store = VerificationStore { account: bob, inner: Arc::new(bob_store) };
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
+        let bob_store = VerificationStore {
+            account: bob,
+            inner: Arc::new(bob_store),
+            private_identity: identity,
+        };
 
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
-        let machine = VerificationMachine::new(alice, identity, Arc::new(store));
-        let (bob_sas, start_content) = Sas::start(
-            PrivateCrossSigningIdentity::empty(bob_id().to_owned()),
-            alice_device,
-            bob_store,
-            None,
-            None,
-            None,
-            true,
-            None,
+        let identities = bob_store.get_identities(alice_device).await.unwrap();
+        let machine = VerificationMachine::new(
+            alice,
+            Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
+            Arc::new(store),
         );
+        let (bob_sas, start_content) = Sas::start(identities, TransactionId::new(), true, None);
 
         machine
             .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))
@@ -591,8 +555,7 @@ mod tests {
     #[async_test]
     async fn create() {
         let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id().to_owned())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let store = MemoryStore::new();
         let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }

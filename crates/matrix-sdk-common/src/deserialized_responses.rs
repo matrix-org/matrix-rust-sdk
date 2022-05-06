@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, convert::TryFrom};
+use std::collections::BTreeMap;
 
 use ruma::{
     api::client::{
@@ -13,10 +13,10 @@ use ruma::{
             OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
             StrippedRoomMemberEvent,
         },
-        AnyRoomEvent, AnySyncRoomEvent, StateUnsigned,
+        AnyRoomEvent, AnySyncRoomEvent,
     },
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,9 +28,9 @@ pub struct AmbiguityChange {
     /// event itself ambiguous because of the event.
     pub member_ambiguous: bool,
     /// Has another user been disambiguated because of this event.
-    pub disambiguated_member: Option<Box<UserId>>,
+    pub disambiguated_member: Option<OwnedUserId>,
     /// Has another user become ambiguous because of this event.
-    pub ambiguated_member: Option<Box<UserId>>,
+    pub ambiguated_member: Option<OwnedUserId>,
 }
 
 /// Collection of ambiguioty changes that room member events trigger.
@@ -38,7 +38,7 @@ pub struct AmbiguityChange {
 pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
-    pub changes: BTreeMap<Box<RoomId>, BTreeMap<Box<EventId>, AmbiguityChange>>,
+    pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
 /// The verification state of the device that sent an event to us.
@@ -75,10 +75,10 @@ pub enum AlgorithmInfo {
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
     /// `verification_state` is as well trusted.
-    pub sender: Box<UserId>,
+    pub sender: OwnedUserId,
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is as well trusted.
-    pub sender_device: Box<DeviceId>,
+    pub sender_device: OwnedDeviceId,
     /// Information about the algorithm that was used to encrypt the event.
     pub algorithm_info: AlgorithmInfo,
     /// The verification state of the device that sent us the event, note this
@@ -100,8 +100,8 @@ pub struct SyncRoomEvent {
 
 impl SyncRoomEvent {
     /// Get the event id of this `SyncRoomEvent` if the event has any valid id.
-    pub fn event_id(&self) -> Option<Box<EventId>> {
-        self.event.get_field::<Box<EventId>>("event_id").ok().flatten()
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        self.event.get_field::<OwnedEventId>("event_id").ok().flatten()
     }
 }
 
@@ -144,7 +144,7 @@ pub struct SyncResponse {
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
-    pub notifications: BTreeMap<Box<RoomId>, Vec<Notification>>,
+    pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
 }
 
 impl SyncResponse {
@@ -165,11 +165,11 @@ pub struct RoomEvent {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Rooms {
     /// The rooms that the user has left or been banned from.
-    pub leave: BTreeMap<Box<RoomId>, LeftRoom>,
+    pub leave: BTreeMap<OwnedRoomId, LeftRoom>,
     /// The rooms that the user has joined.
-    pub join: BTreeMap<Box<RoomId>, JoinedRoom>,
+    pub join: BTreeMap<OwnedRoomId, JoinedRoom>,
     /// The rooms that the user has been invited to.
-    pub invite: BTreeMap<Box<RoomId>, InvitedRoom>,
+    pub invite: BTreeMap<OwnedRoomId, InvitedRoom>,
 }
 
 /// Updates to joined rooms.
@@ -296,87 +296,40 @@ impl TimelineSlice {
     }
 }
 
+/// Wrapper around both MemberEvent-Types
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(try_from = "OriginalSyncRoomMemberEvent", into = "OriginalSyncRoomMemberEvent")]
-pub struct MemberEvent {
-    pub content: RoomMemberEventContent,
-    pub event_id: Box<EventId>,
-    pub origin_server_ts: MilliSecondsSinceUnixEpoch,
-    pub sender: Box<UserId>,
-    pub state_key: Box<UserId>,
-    pub unsigned: StateUnsigned<RoomMemberEventContent>,
+pub enum MemberEvent {
+    Stripped(StrippedRoomMemberEvent),
+    Original(OriginalSyncRoomMemberEvent),
 }
 
-impl TryFrom<OriginalSyncRoomMemberEvent> for MemberEvent {
-    type Error = ruma::IdParseError;
-
-    fn try_from(event: OriginalSyncRoomMemberEvent) -> Result<Self, Self::Error> {
-        Ok(MemberEvent {
-            content: event.content,
-            event_id: event.event_id,
-            origin_server_ts: event.origin_server_ts,
-            sender: event.sender,
-            state_key: event.state_key.try_into()?,
-            unsigned: event.unsigned,
-        })
+impl MemberEvent {
+    /// The inner Content of the wrapped Event
+    pub fn content(&self) -> &RoomMemberEventContent {
+        match &*self {
+            MemberEvent::Stripped(e) => &e.content,
+            MemberEvent::Original(e) => &e.content,
+        }
     }
-}
 
-impl TryFrom<OriginalRoomMemberEvent> for MemberEvent {
-    type Error = ruma::IdParseError;
-
-    fn try_from(event: OriginalRoomMemberEvent) -> Result<Self, Self::Error> {
-        Ok(MemberEvent {
-            content: event.content,
-            event_id: event.event_id,
-            origin_server_ts: event.origin_server_ts,
-            sender: event.sender,
-            state_key: event.state_key.try_into()?,
-            unsigned: event.unsigned,
-        })
-    }
-}
-
-impl From<MemberEvent> for OriginalSyncRoomMemberEvent {
-    fn from(other: MemberEvent) -> Self {
-        Self {
-            content: other.content,
-            event_id: other.event_id,
-            sender: other.sender,
-            origin_server_ts: other.origin_server_ts,
-            state_key: other.state_key.to_string(),
-            unsigned: other.unsigned,
+    /// The user id associated to this member event
+    pub fn user_id(&self) -> &UserId {
+        match &*self {
+            MemberEvent::Stripped(e) => &e.state_key,
+            MemberEvent::Original(e) => &e.state_key,
         }
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(try_from = "StrippedRoomMemberEvent", into = "StrippedRoomMemberEvent")]
-pub struct StrippedMemberEvent {
-    pub content: RoomMemberEventContent,
-    pub sender: Box<UserId>,
-    pub state_key: Box<UserId>,
-}
-
-impl TryFrom<StrippedRoomMemberEvent> for StrippedMemberEvent {
-    type Error = ruma::IdParseError;
-
-    fn try_from(event: StrippedRoomMemberEvent) -> Result<Self, Self::Error> {
-        Ok(StrippedMemberEvent {
-            content: event.content,
-            sender: event.sender,
-            state_key: event.state_key.try_into()?,
-        })
+impl From<StrippedRoomMemberEvent> for MemberEvent {
+    fn from(other: StrippedRoomMemberEvent) -> Self {
+        MemberEvent::Stripped(other)
     }
 }
-
-impl From<StrippedMemberEvent> for StrippedRoomMemberEvent {
-    fn from(other: StrippedMemberEvent) -> Self {
-        Self {
-            content: other.content,
-            sender: other.sender,
-            state_key: other.state_key.to_string(),
-        }
+impl From<OriginalSyncRoomMemberEvent> for MemberEvent {
+    fn from(other: OriginalSyncRoomMemberEvent) -> Self {
+        MemberEvent::Original(other)
     }
 }
 
@@ -386,7 +339,7 @@ impl From<StrippedMemberEvent> for StrippedRoomMemberEvent {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MembersResponse {
     /// The list of members events.
-    pub chunk: Vec<MemberEvent>,
+    pub chunk: Vec<OriginalRoomMemberEvent>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
 }

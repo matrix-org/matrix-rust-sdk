@@ -12,42 +12,51 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-timeline")]
+use std::collections::{BTreeMap, HashMap};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::BTreeSet,
     sync::{Arc, RwLock},
 };
 
+#[cfg(feature = "experimental-timeline")]
 use async_stream::stream;
+use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 #[allow(unused_imports)]
-use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
+use matrix_sdk_common::{instant::Instant, locks::Mutex};
 use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
-        room::{
-            member::{MembershipState, RoomMemberEventContent},
-            redaction::SyncRoomRedactionEvent,
+        room::member::{
+            MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+            StrippedRoomMemberEvent,
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncMessageLikeEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-        RoomAccountDataEventType, StateEventType,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
+    EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
     signatures::{redact_in_place, CanonicalJsonObject},
-    EventId, MxcUri, RoomId, RoomVersionId, UserId,
+    RoomVersionId,
 };
-#[allow(unused_imports)]
-use tracing::{info, warn};
 
-use super::{BoxStream, Result, RoomInfo, StateChanges, StateStore};
+#[cfg(feature = "experimental-timeline")]
+use super::BoxStream;
+use super::{Result, RoomInfo, StateChanges, StateStore};
 use crate::{
-    deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent},
+    deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
-    StoreError,
 };
+#[cfg(feature = "experimental-timeline")]
+use crate::{deserialized_responses::SyncRoomEvent, StoreError};
 
 /// In-Memory, non-persistent implementation of the `StateStore`
 ///
@@ -58,30 +67,33 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, MemberEvent>>>,
-    profiles: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, RoomMemberEventContent>>>,
-    display_names: Arc<DashMap<Box<RoomId>, DashMap<String, BTreeSet<Box<UserId>>>>>,
-    joined_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
-    invited_user_ids: Arc<DashMap<Box<RoomId>, DashSet<Box<UserId>>>>,
-    room_info: Arc<DashMap<Box<RoomId>, RoomInfo>>,
+    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, OriginalSyncRoomMemberEvent>>>,
+    profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, RoomMemberEventContent>>>,
+    display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
+    joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    room_info: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     room_state:
-        Arc<DashMap<Box<RoomId>, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
+        Arc<DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnySyncStateEvent>>>>>,
     room_account_data:
-        Arc<DashMap<Box<RoomId>, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
-    stripped_room_infos: Arc<DashMap<Box<RoomId>, RoomInfo>>,
+        Arc<DashMap<OwnedRoomId, DashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>>,
+    stripped_room_infos: Arc<DashMap<OwnedRoomId, RoomInfo>>,
     stripped_room_state: Arc<
-        DashMap<Box<RoomId>, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
+        DashMap<OwnedRoomId, DashMap<StateEventType, DashMap<String, Raw<AnyStrippedStateEvent>>>>,
     >,
-    stripped_members: Arc<DashMap<Box<RoomId>, DashMap<Box<UserId>, StrippedMemberEvent>>>,
-    presence: Arc<DashMap<Box<UserId>, Raw<PresenceEvent>>>,
+    stripped_members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, StrippedRoomMemberEvent>>>,
+    stripped_joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    stripped_invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
+    presence: Arc<DashMap<OwnedUserId, Raw<PresenceEvent>>>,
     room_user_receipts:
-        Arc<DashMap<Box<RoomId>, DashMap<String, DashMap<Box<UserId>, (Box<EventId>, Receipt)>>>>,
+        Arc<DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedUserId, (OwnedEventId, Receipt)>>>>,
     room_event_receipts: Arc<
-        DashMap<Box<RoomId>, DashMap<String, DashMap<Box<EventId>, DashMap<Box<UserId>, Receipt>>>>,
+        DashMap<OwnedRoomId, DashMap<String, DashMap<OwnedEventId, DashMap<OwnedUserId, Receipt>>>>,
     >,
     media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
     custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
-    room_timeline: Arc<DashMap<Box<RoomId>, TimelineData>>,
+    #[cfg(feature = "experimental-timeline")]
+    room_timeline: Arc<DashMap<OwnedRoomId, TimelineData>>,
 }
 
 impl Default for MemoryStore {
@@ -109,11 +121,14 @@ impl MemoryStore {
             stripped_room_infos: Default::default(),
             stripped_room_state: Default::default(),
             stripped_members: Default::default(),
+            stripped_joined_user_ids: Default::default(),
+            stripped_invited_user_ids: Default::default(),
             presence: Default::default(),
             room_user_receipts: Default::default(),
             room_event_receipts: Default::default(),
             media: Arc::new(Mutex::new(LruCache::new(100))),
             custom: DashMap::new().into(),
+            #[cfg(feature = "experimental-timeline")]
             room_timeline: Default::default(),
         }
     }
@@ -145,38 +160,38 @@ impl MemoryStore {
                     MembershipState::Join => {
                         self.joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(event.state_key.clone());
                         self.invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                     MembershipState::Invite => {
                         self.invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(event.state_key.clone());
                         self.joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                     _ => {
                         self.joined_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                         self.invited_user_ids
                             .entry(room.clone())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .remove(&event.state_key);
                     }
                 }
 
                 self.members
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(event.state_key.clone(), event.clone());
             }
         }
@@ -185,7 +200,7 @@ impl MemoryStore {
             for (user_id, profile) in users {
                 self.profiles
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(user_id.clone(), profile.clone());
             }
         }
@@ -194,7 +209,7 @@ impl MemoryStore {
             for (display_name, display_names) in map {
                 self.display_names
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(display_name.clone(), display_names.clone());
             }
         }
@@ -207,7 +222,7 @@ impl MemoryStore {
             for (event_type, event) in events {
                 self.room_account_data
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(event_type.clone(), event.clone());
             }
         }
@@ -217,9 +232,9 @@ impl MemoryStore {
                 for (state_key, event) in events {
                     self.room_state
                         .entry(room.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .entry(event_type.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .insert(state_key.to_owned(), event.clone());
                 }
             }
@@ -239,9 +254,42 @@ impl MemoryStore {
 
         for (room, events) in &changes.stripped_members {
             for event in events.values() {
+                match event.content.membership {
+                    MembershipState::Join => {
+                        self.stripped_joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .insert(event.state_key.clone());
+                        self.stripped_invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                    MembershipState::Invite => {
+                        self.stripped_invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .insert(event.state_key.clone());
+                        self.stripped_joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                    _ => {
+                        self.stripped_joined_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                        self.stripped_invited_user_ids
+                            .entry(room.clone())
+                            .or_insert_with(DashSet::new)
+                            .remove(&event.state_key);
+                    }
+                }
+
                 self.stripped_members
                     .entry(room.clone())
-                    .or_insert_with(DashMap::new)
+                    .or_default()
                     .insert(event.state_key.clone(), event.clone());
             }
         }
@@ -251,9 +299,9 @@ impl MemoryStore {
                 for (state_key, event) in events {
                     self.stripped_room_state
                         .entry(room.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .entry(event_type.clone())
-                        .or_insert_with(DashMap::new)
+                        .or_default()
                         .insert(state_key.to_owned(), event.clone());
                 }
             }
@@ -267,9 +315,9 @@ impl MemoryStore {
                         if let Some((old_event, _)) = self
                             .room_user_receipts
                             .entry(room.clone())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .entry(receipt_type.to_string())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .insert(user_id.clone(), (event_id.clone(), receipt.clone()))
                         {
                             // Remove the old receipt from the room event receipts
@@ -285,34 +333,38 @@ impl MemoryStore {
                         // Add the receipt to the room event receipts
                         self.room_event_receipts
                             .entry(room.clone())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .entry(receipt_type.to_string())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .entry(event_id.clone())
-                            .or_insert_with(DashMap::new)
+                            .or_default()
                             .insert(user_id.clone(), receipt.clone());
                     }
                 }
             }
         }
 
+        #[cfg(feature = "experimental-timeline")]
         for (room, timeline) in &changes.timeline {
             if timeline.sync {
-                info!("Save new timeline batch from sync response for {}", room);
+                tracing::info!("Save new timeline batch from sync response for {}", room);
             } else {
-                info!("Save new timeline batch from messages response for {}", room);
+                tracing::info!("Save new timeline batch from messages response for {}", room);
             }
 
             let mut delete_timeline = false;
             if timeline.limited {
-                info!("Delete stored timeline for {} because the sync response was limited", room);
+                tracing::info!(
+                    "Delete stored timeline for {} because the sync response was limited",
+                    room
+                );
                 delete_timeline = true;
             } else if let Some(mut data) = self.room_timeline.get_mut(room) {
                 if !timeline.sync && Some(&timeline.start) != data.end.as_ref() {
                     // This should only happen when a developer adds a wrong timeline
                     // batch to the `StateChanges` or the server returns a wrong response
                     // to our request.
-                    warn!("Drop unexpected timeline batch for {}", room);
+                    tracing::warn!("Drop unexpected timeline batch for {}", room);
                     return Ok(());
                 }
 
@@ -336,7 +388,7 @@ impl MemoryStore {
             }
 
             if delete_timeline {
-                info!("Delete stored timeline for {} because of duplicated events", room);
+                tracing::info!("Delete stored timeline for {} because of duplicated events", room);
                 self.room_timeline.remove(room);
             }
 
@@ -354,7 +406,10 @@ impl MemoryStore {
                         info.base_info.create.as_ref().map(|event| event.room_version.clone())
                     })
                     .unwrap_or_else(|| {
-                        warn!("Unable to find the room version for {}, assume version 9", room);
+                        tracing::warn!(
+                            "Unable to find the room version for {}, assume version 9",
+                            room
+                        );
                         RoomVersionId::V9
                     })
             };
@@ -405,7 +460,7 @@ impl MemoryStore {
             }
         }
 
-        info!("Saved changes in {:?}", now.elapsed());
+        tracing::info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
     }
@@ -453,25 +508,52 @@ impl MemoryStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        Ok(self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())))
+        if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
+            Ok(Some(e.into()))
+        } else if let Some(e) =
+            self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
+        {
+            Ok(Some(e.into()))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn get_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
-        self.members
-            .get(room_id)
-            .map(|u| u.iter().map(|u| u.key().clone()).collect())
-            .unwrap_or_default()
+    fn get_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
+        if let Some(u) = self.members.get(room_id) {
+            u.iter().map(|u| u.key().clone()).collect()
+        } else {
+            self.stripped_members
+                .get(room_id)
+                .map(|u| u.iter().map(|u| u.key().clone()).collect())
+                .unwrap_or_default()
+        }
     }
 
-    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
+    fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
         self.invited_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
             .unwrap_or_default()
     }
 
-    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<Box<UserId>> {
+    fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
         self.joined_user_ids
+            .get(room_id)
+            .map(|u| u.iter().map(|u| u.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn get_stripped_invited_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
+        self.stripped_invited_user_ids
+            .get(room_id)
+            .map(|u| u.iter().map(|u| u.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn get_stripped_joined_user_ids(&self, room_id: &RoomId) -> Vec<OwnedUserId> {
+        self.stripped_joined_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
             .unwrap_or_default()
@@ -505,7 +587,7 @@ impl MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>> {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         Ok(self.room_user_receipts.get(room_id).and_then(|m| {
             m.get(receipt_type.as_ref()).and_then(|m| m.get(user_id).map(|r| r.clone()))
         }))
@@ -516,7 +598,7 @@ impl MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
             .room_event_receipts
             .get(room_id)
@@ -584,11 +666,14 @@ impl MemoryStore {
         self.stripped_members.remove(room_id);
         self.room_user_receipts.remove(room_id);
         self.room_event_receipts.remove(room_id);
+
+        #[cfg(feature = "experimental-timeline")]
         self.room_timeline.remove(room_id);
 
         Ok(())
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -596,7 +681,7 @@ impl MemoryStore {
         let (events, end_token) = if let Some(data) = self.room_timeline.get(room_id) {
             (data.events.clone(), data.end.clone())
         } else {
-            info!("No timeline for {} was previously stored", room_id);
+            tracing::info!("No timeline for {} was previously stored", room_id);
             return Ok(None);
         };
 
@@ -606,7 +691,11 @@ impl MemoryStore {
             }
         };
 
-        info!("Found previously stored timeline for {}, with end token {:?}", room_id, end_token);
+        tracing::info!(
+            "Found previously stored timeline for {}, with end token {:?}",
+            room_id,
+            end_token
+        );
 
         Ok(Some((Box::pin(stream), end_token)))
     }
@@ -668,16 +757,24 @@ impl StateStore for MemoryStore {
         self.get_member_event(room_id, state_key).await
     }
 
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         Ok(self.get_user_ids(room_id))
     }
 
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        Ok(self.get_invited_user_ids(room_id))
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        let v = self.get_invited_user_ids(room_id);
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        Ok(self.get_stripped_invited_user_ids(room_id))
     }
 
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>> {
-        Ok(self.get_joined_user_ids(room_id))
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+        let v = self.get_joined_user_ids(room_id);
+        if !v.is_empty() {
+            return Ok(v);
+        }
+        Ok(self.get_stripped_joined_user_ids(room_id))
     }
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
@@ -692,7 +789,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<Box<UserId>>> {
+    ) -> Result<BTreeSet<OwnedUserId>> {
         Ok(self
             .display_names
             .get(room_id)
@@ -720,7 +817,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>> {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
     }
 
@@ -729,7 +826,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(Box<UserId>, Receipt)>> {
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
     }
 
@@ -761,6 +858,7 @@ impl StateStore for MemoryStore {
         self.remove_room(room_id).await
     }
 
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -770,13 +868,14 @@ impl StateStore for MemoryStore {
 }
 
 #[derive(Debug, Default)]
+#[cfg(feature = "experimental-timeline")]
 struct TimelineData {
     pub start: String,
     pub start_position: isize,
     pub end: Option<String>,
     pub end_position: isize,
     pub events: BTreeMap<isize, SyncRoomEvent>,
-    pub event_id_to_position: HashMap<Box<EventId>, isize>,
+    pub event_id_to_position: HashMap<OwnedEventId, isize>,
 }
 
 #[cfg(test)]

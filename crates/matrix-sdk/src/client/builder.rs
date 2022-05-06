@@ -3,12 +3,8 @@ use std::sync::Arc;
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::{
-        client::{discovery::discover_homeserver, Error},
-        error::FromHttpResponseError,
-        MatrixVersion,
-    },
-    ServerName, UserId,
+    api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
+    OwnedServerName, ServerName, UserId,
 };
 use thiserror::Error;
 use url::Url;
@@ -16,6 +12,7 @@ use url::Url;
 use super::{Client, ClientInner};
 use crate::{
     config::RequestConfig,
+    error::RumaApiError,
     http_client::{HttpClient, HttpSend, HttpSettings},
     HttpError,
 };
@@ -151,7 +148,7 @@ impl ClientBuilder {
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store should be opened before being set.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(
         mut self,
         store: Box<dyn matrix_sdk_base::crypto::store::CryptoStore>,
@@ -316,7 +313,7 @@ impl ClientBuilder {
                     )
                     .await
                     .map_err(|e| match e {
-                        HttpError::ClientApi(err) => ClientBuildError::AutoDiscovery(err),
+                        HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
                         err => ClientBuildError::Http(err),
                     })?;
 
@@ -337,9 +334,9 @@ impl ClientBuilder {
             http_client,
             base_client,
             server_versions: Mutex::new(server_versions),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             group_session_locks: Default::default(),
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "e2e-encryption")]
             key_claim_lock: Default::default(),
             members_request_locks: Default::default(),
             typing_notice_times: Default::default(),
@@ -370,7 +367,7 @@ fn homeserver_from_name(server_name: &ServerName) -> Result<Url, url::ParseError
 #[derive(Debug)]
 enum HomeserverConfig {
     Url(String),
-    ServerName(Box<ServerName>),
+    ServerName(OwnedServerName),
 }
 
 #[derive(Debug)]
@@ -410,7 +407,7 @@ pub enum ClientBuildError {
 
     /// Error looking up the .well-known endpoint on auto-discovery
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
-    AutoDiscovery(FromHttpResponseError<Error>),
+    AutoDiscovery(FromHttpResponseError<RumaApiError>),
 
     /// An error encountered when trying to parse the homeserver url.
     #[error(transparent)]
@@ -421,12 +418,12 @@ pub enum ClientBuildError {
     Http(#[from] HttpError),
 
     /// Error opening the indexeddb store.
-    #[cfg(any(feature = "indexeddb-state-store", feature = "indexeddb-crypto-store"))]
+    #[cfg(feature = "indexeddb")]
     #[error(transparent)]
     IndexeddbStore(#[from] matrix_sdk_indexeddb::OpenStoreError),
 
     /// Error opening the sled store.
-    #[cfg(any(feature = "sled-statehstore", feature = "sled-crypto-store"))]
+    #[cfg(feature = "sled")]
     #[error(transparent)]
     SledStore(#[from] matrix_sdk_sled::OpenStoreError),
 }

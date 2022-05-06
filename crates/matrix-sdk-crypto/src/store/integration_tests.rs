@@ -7,7 +7,7 @@ macro_rules! cryptostore_integration_tests {
             use super::get_store;
 
             use matrix_sdk_test::async_test;
-            use matrix_sdk_common::ruma::{
+            use ruma::{
                 encryption::SignedKey, events::room_key_request::RequestedKeyInfo,
                 serde::Base64, user_id, TransactionId, DeviceId, EventEncryptionAlgorithm, UserId,
                 room_id, device_id,
@@ -66,12 +66,25 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
+            async fn save_account_via_generic_save() {
+                let store = get_store("save_account_via_generic".to_owned(), None).await;
+                assert!(store.get_account_info().is_none());
+                assert!(store.load_account().await.unwrap().is_none());
+                let account = get_account();
+
+                store.save_changes(Changes { account: Some(account), ..Default::default() } ).await.expect("Can't save account");
+                assert!(store.get_account_info().is_some());
+            }
+
+            #[async_test]
             async fn save_account() {
                 let store = get_store("save_account".to_owned(), None).await;
+                assert!(store.get_account_info().is_none());
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
 
                 store.save_account(account).await.expect("Can't save account");
+                assert!(store.get_account_info().is_some());
             }
 
             #[async_test]

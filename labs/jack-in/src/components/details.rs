@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use matrix_sdk_common::ruma::{events::{AnyRoomEvent, AnyMessageLikeEvent, MessageLikeEvent}, RoomId};
+use ruma::{events::{AnyRoomEvent, AnyMessageLikeEvent, MessageLikeEvent}, RoomId};
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},

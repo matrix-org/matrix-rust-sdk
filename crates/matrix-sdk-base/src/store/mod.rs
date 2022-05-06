@@ -32,29 +32,34 @@ use std::{
 #[macro_use]
 pub mod integration_tests;
 
+use async_trait::async_trait;
 use dashmap::DashMap;
-use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
-#[cfg(feature = "encryption")]
+use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::store::CryptoStore;
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent},
-        room::member::RoomMemberEventContent,
+        room::member::{
+            OriginalSyncRoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
-    EventId, MxcUri, RoomId, UserId,
+    EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 
 /// BoxStream of owned Types
 pub type BoxStream<T> = Pin<Box<dyn futures_util::Stream<Item = T> + Send>>;
 
+#[cfg(feature = "experimental-timeline")]
+use crate::deserialized_responses::{SyncRoomEvent, TimelineSlice};
 use crate::{
-    deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent, TimelineSlice},
+    deserialized_responses::MemberEvent,
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,
@@ -91,6 +96,13 @@ pub enum StoreError {
     /// The store failed to encode or decode some data.
     #[error("Error encoding or decoding data from the store: {0}")]
     Codec(String),
+
+    /// The database format has changed in a backwards incompatible way.
+    #[error(
+        "The database format changed in an incompatible way, current \
+        version: {0}, latest version: {1}"
+    )]
+    UnsupportedDatabaseVersion(usize, usize),
     /// Redacting an event in the store has failed.
     ///
     /// This should never happen.
@@ -175,7 +187,7 @@ pub trait StateStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<RoomMemberEventContent>>;
 
-    /// Get a raw `MemberEvent` for the given state key in the given room id.
+    /// Get the `MemberEvent` for the given state key in the given room id.
     ///
     /// # Arguments
     ///
@@ -188,16 +200,17 @@ pub trait StateStore: AsyncTraitDeps {
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>>;
 
-    /// Get all the user ids of members for a given room.
-    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>>;
+    /// Get all the user ids of members for a given room, for stripped and
+    /// regular rooms alike.
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the user ids of members that are in the invited state for a
-    /// given room.
-    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>>;
+    /// given room, for stripped and regular rooms alike.
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the user ids of members that are in the joined state for a
-    /// given room.
-    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<Box<UserId>>>;
+    /// given room, for stripped and regular rooms alike.
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>;
 
     /// Get all the pure `RoomInfo`s the store knows about.
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
@@ -217,7 +230,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<Box<UserId>>>;
+    ) -> Result<BTreeSet<OwnedUserId>>;
 
     /// Get an event out of the account data store.
     ///
@@ -259,7 +272,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(Box<EventId>, Receipt)>>;
+    ) -> Result<Option<(OwnedEventId, Receipt)>>;
 
     /// Get events out of the event room receipt store.
     ///
@@ -277,7 +290,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(Box<UserId>, Receipt)>>;
+    ) -> Result<Vec<(OwnedUserId, Receipt)>>;
 
     /// Get arbitrary data from the custom store
     ///
@@ -341,6 +354,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// Returns a stream of events and a token that can be used to request
     /// previous events.
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline(
         &self,
         room_id: &RoomId,
@@ -356,8 +370,8 @@ pub struct Store {
     inner: Arc<dyn StateStore>,
     pub(crate) session: Arc<RwLock<Option<Session>>>,
     pub(crate) sync_token: Arc<RwLock<Option<String>>>,
-    rooms: Arc<DashMap<Box<RoomId>, Room>>,
-    stripped_rooms: Arc<DashMap<Box<RoomId>, Room>>,
+    rooms: Arc<DashMap<OwnedRoomId, Room>>,
+    stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
 }
 
 impl Store {
@@ -477,47 +491,48 @@ pub struct StateChanges {
     /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.
-    pub presence: BTreeMap<Box<UserId>, Raw<PresenceEvent>>,
+    pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
 
-    /// A mapping of `RoomId` to a map of users and their `MemberEvent`.
-    pub members: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, MemberEvent>>,
+    /// A mapping of `RoomId` to a map of users and their
+    /// `OriginalRoomMemberEvent`.
+    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, OriginalSyncRoomMemberEvent>>,
     /// A mapping of `RoomId` to a map of users and their
     /// `RoomMemberEventContent`.
-    pub profiles: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, RoomMemberEventContent>>,
+    pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, RoomMemberEventContent>>,
 
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.
-    #[allow(clippy::type_complexity)]
     pub state:
-        BTreeMap<Box<RoomId>, BTreeMap<StateEventType, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
+        BTreeMap<OwnedRoomId, BTreeMap<StateEventType, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
     pub room_account_data:
-        BTreeMap<Box<RoomId>, BTreeMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
+        BTreeMap<OwnedRoomId, BTreeMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
     /// A map of `RoomId` to `RoomInfo`.
-    pub room_infos: BTreeMap<Box<RoomId>, RoomInfo>,
+    pub room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
     /// A map of `RoomId` to `ReceiptEventContent`.
-    pub receipts: BTreeMap<Box<RoomId>, ReceiptEventContent>,
+    pub receipts: BTreeMap<OwnedRoomId, ReceiptEventContent>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
-    #[allow(clippy::type_complexity)]
     pub stripped_state: BTreeMap<
-        Box<RoomId>,
+        OwnedRoomId,
         BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     >,
-    /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.
-    pub stripped_members: BTreeMap<Box<RoomId>, BTreeMap<Box<UserId>, StrippedMemberEvent>>,
+    /// A mapping of `RoomId` to a map of users and their
+    /// `StrippedRoomMemberEvent`.
+    pub stripped_members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, StrippedRoomMemberEvent>>,
     /// A map of `RoomId` to `RoomInfo` for stripped rooms (e.g. for invites or
     /// while knocking)
-    pub stripped_room_infos: BTreeMap<Box<RoomId>, RoomInfo>,
+    pub stripped_room_infos: BTreeMap<OwnedRoomId, RoomInfo>,
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
-    pub ambiguity_maps: BTreeMap<Box<RoomId>, BTreeMap<String, BTreeSet<Box<UserId>>>>,
+    pub ambiguity_maps: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
     /// A map of `RoomId` to a vector of `Notification`s
-    pub notifications: BTreeMap<Box<RoomId>, Vec<Notification>>,
+    pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
     /// A mapping of `RoomId` to a `TimelineSlice`
-    pub timeline: BTreeMap<Box<RoomId>, TimelineSlice>,
+    #[cfg(feature = "experimental-timeline")]
+    pub timeline: BTreeMap<OwnedRoomId, TimelineSlice>,
 }
 
 impl StateChanges {
@@ -560,19 +575,16 @@ impl StateChanges {
     ) {
         self.room_account_data
             .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .insert(event.event_type(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `StrippedMemberEvent`.
-    pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedMemberEvent) {
+    pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedRoomMemberEvent) {
         let user_id = event.state_key.clone();
 
-        self.stripped_members
-            .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(user_id, event);
+        self.stripped_members.entry(room_id.to_owned()).or_default().insert(user_id, event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -585,16 +597,16 @@ impl StateChanges {
     ) {
         self.state
             .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .entry(event.event_type())
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .insert(event.state_key().to_owned(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `Notification`.
     pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
-        self.notifications.entry(room_id.to_owned()).or_insert_with(Vec::new).push(notification);
+        self.notifications.entry(room_id.to_owned()).or_default().push(notification);
     }
 
     /// Update the `StateChanges` struct with the given room with a new
@@ -605,6 +617,7 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given room with a new
     /// `TimelineSlice`.
+    #[cfg(feature = "experimental-timeline")]
     pub fn add_timeline(&mut self, room_id: &RoomId, timeline: TimelineSlice) {
         self.timeline.insert(room_id.to_owned(), timeline);
     }
@@ -622,7 +635,7 @@ impl StateChanges {
 /// ```
 #[derive(Default)]
 pub struct StoreConfig {
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) crypto_store: Option<Box<dyn CryptoStore>>,
     pub(crate) state_store: Option<Box<dyn StateStore>>,
 }
@@ -644,7 +657,7 @@ impl StoreConfig {
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store must be opened before being set.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
         self.crypto_store = Some(store);
         self

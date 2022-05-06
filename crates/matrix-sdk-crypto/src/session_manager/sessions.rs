@@ -19,14 +19,14 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::util::seconds_since_unix_epoch;
 use ruma::{
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, TransactionId, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
+    OwnedUserId, SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use tracing::{debug, error, info, warn};
 
@@ -47,10 +47,10 @@ pub(crate) struct SessionManager {
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
-    users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
-    wedged_devices: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+    users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
+    wedged_devices: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     key_request_machine: GossipMachine,
-    outgoing_to_device_requests: Arc<DashMap<Box<TransactionId>, OutgoingRequest>>,
+    outgoing_to_device_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
 }
 
 impl SessionManager {
@@ -59,7 +59,7 @@ impl SessionManager {
 
     pub fn new(
         account: Account,
-        users_for_key_claim: Arc<DashMap<Box<UserId>, DashSet<Box<DeviceId>>>>,
+        users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
@@ -96,7 +96,7 @@ impl SessionManager {
                     );
 
                     let creation_time = Duration::from_secs(session.creation_time.get().into());
-                    let now = Duration::from_secs(seconds_since_unix_epoch().get().into());
+                    let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
 
                     let should_unwedge = now
                         .checked_sub(creation_time)
@@ -106,11 +106,11 @@ impl SessionManager {
                     if should_unwedge {
                         self.users_for_key_claim
                             .entry(device.user_id().to_owned())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(device.device_id().into());
                         self.wedged_devices
                             .entry(device.user_id().to_owned())
-                            .or_insert_with(DashSet::new)
+                            .or_default()
                             .insert(device.device_id().into());
                     }
                 }
@@ -185,8 +185,8 @@ impl SessionManager {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<Option<(Box<TransactionId>, KeysClaimRequest)>> {
-        let mut missing = BTreeMap::new();
+    ) -> StoreResult<Option<(OwnedTransactionId, KeysClaimRequest)>> {
+        let mut missing: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
 
         // Add the list of devices that the user wishes to establish sessions
         // right now.
@@ -215,7 +215,7 @@ impl SessionManager {
                     if is_missing {
                         missing
                             .entry(user_id.to_owned())
-                            .or_insert_with(BTreeMap::new)
+                            .or_default()
                             .insert(device_id, DeviceKeyAlgorithm::SignedCurve25519);
                     }
                 } else {
@@ -237,7 +237,7 @@ impl SessionManager {
             for device_id in item.value().iter() {
                 missing
                     .entry(user.to_owned())
-                    .or_insert_with(BTreeMap::new)
+                    .or_default()
                     .insert(device_id.to_owned(), DeviceKeyAlgorithm::SignedCurve25519);
             }
         }
@@ -374,14 +374,14 @@ mod tests {
     }
 
     async fn session_manager() -> SessionManager {
-        let user_id = user_id().to_owned();
+        let user_id = user_id();
         let device_id = device_id();
 
         let users_for_key_claim = Arc::new(DashMap::new());
-        let account = ReadOnlyAccount::new(&user_id, device_id);
+        let account = ReadOnlyAccount::new(user_id, device_id);
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         store.save_account(account.clone()).await.unwrap();
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id.clone())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification =
             VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 

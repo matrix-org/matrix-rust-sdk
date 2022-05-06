@@ -39,6 +39,7 @@ use matrix_sdk_common::locks::RwLock;
 //     task::Poll
 // };
 use ruma::{
+    OwnedRoomId,
     api::client::sync::sliding_sync_events, assign, events::{EventType, AnySyncRoomEvent}, serde::Raw, RoomId, UInt,
 };
 use tracing::{error, info, instrument, warn};
@@ -91,21 +92,21 @@ impl Default for SlidingSyncMode {
 #[derive(Clone, Debug)]
 pub enum RoomListEntry {
     Empty,
-    Invalidated(Box<RoomId>),
-    Filled(Box<RoomId>),
+    Invalidated(OwnedRoomId),
+    Filled(OwnedRoomId),
 }
 
 impl RoomListEntry {
     pub fn none_or_invalid(&self) -> bool{
         matches!{&self, RoomListEntry::Empty | RoomListEntry::Invalidated(_)}
     }
-    pub fn room_id(&self) -> Option<Box<RoomId>> {
+    pub fn room_id(&self) -> Option<OwnedRoomId> {
         match &self  {
             RoomListEntry::Empty => None,
             RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.clone())
         }
     }
-    pub fn as_ref<'a>(&'a self) -> Option<&'a Box<RoomId>> {
+    pub fn as_ref<'a>(&'a self) -> Option<&'a OwnedRoomId> {
         match &self  {
             RoomListEntry::Empty => None,
             RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b)
@@ -178,14 +179,14 @@ type PosState = futures_signals::signal::Mutable<Option<String>>;
 type RangeState = futures_signals::signal::Mutable<Vec<(UInt, UInt)>>;
 type RoomsCount = futures_signals::signal::Mutable<Option<u32>>;
 type RoomsList = Arc<futures_signals::signal_vec::MutableVec<RoomListEntry>>;
-type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<Box<RoomId>, SlidingSyncRoom>>;
+type RoomsMap = Arc<futures_signals::signal_map::MutableBTreeMap<OwnedRoomId, SlidingSyncRoom>>;
 type RoomsSubscriptions = Arc<
     futures_signals::signal_map::MutableBTreeMap<
-        Box<RoomId>,
+        OwnedRoomId,
         sliding_sync_events::RoomSubscription,
     >,
 >;
-type RoomUnsubscribe = Arc<futures_signals::signal_vec::MutableVec<Box<RoomId>>>;
+type RoomUnsubscribe = Arc<futures_signals::signal_vec::MutableVec<OwnedRoomId>>;
 type ViewsList = Arc<futures_signals::signal_vec::MutableVec<SlidingSyncView>>;
 pub type Cancel = futures_signals::signal::Mutable<bool>;
 
@@ -195,7 +196,7 @@ use derive_builder::Builder;
 pub struct UpdateSummary {
     /// The views (according to their name), which have seen an update
     pub views: Option<Vec<String>>,
-    pub rooms: Vec<Box<RoomId>>,
+    pub rooms: Vec<OwnedRoomId>,
 }
 
 #[derive(Clone, Debug, Builder)]
@@ -293,7 +294,7 @@ impl SlidingSync {
     /// might take one round trip to take effect.
     pub fn subscribe(
         &self,
-        room_id: Box<RoomId>,
+        room_id: OwnedRoomId,
         settings: Option<sliding_sync_events::RoomSubscription>,
     ) {
         self.subscriptions.lock_mut().insert_cloned(room_id, settings.unwrap_or_default());
@@ -304,7 +305,7 @@ impl SlidingSync {
     /// Note: this does not cancel any pending request, so make sure to only
     /// poll the stream after you've altered this. If you do that during, it
     /// might take one round trip to take effect.
-    pub fn unsubscribe(&self, room_id: Box<RoomId>) {
+    pub fn unsubscribe(&self, room_id: OwnedRoomId) {
         if let Some(prev) = self.subscriptions.lock_mut().remove(&room_id) {
             self.unsubscribe.lock_mut().push_cloned(room_id);
         }
@@ -692,13 +693,13 @@ impl SlidingSyncView {
             let mut room_ids = Vec::new();
             if let Some(rooms) = &op.rooms {
                 for room in rooms {
-                    let r: Box<RoomId> =
+                    let r: OwnedRoomId =
                         room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
                     rooms_map.insert_cloned(r.clone(), room.clone().into());
                     room_ids.push(r);
                 }
             } else if let Some(room) = &op.room { // Insert specific 
-                let r: Box<RoomId> =
+                let r: OwnedRoomId =
                     room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
                 rooms_map.insert_cloned(r.clone(), room.clone().into());
                 room_ids.push(r);

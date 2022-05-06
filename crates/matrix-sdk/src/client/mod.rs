@@ -36,7 +36,7 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use ruma::TransactionId;
 use ruma::{
     api::{
@@ -63,13 +63,14 @@ use ruma::{
     assign,
     events::room::MediaSource,
     presence::PresenceState,
-    DeviceId, MxcUri, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, OwnedUserId, RoomId, RoomOrAliasId,
+    ServerName, UInt,
 };
 use serde::de::DeserializeOwned;
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 use crate::encryption::Encryption;
 use crate::{
     attachment::{AttachmentInfo, Thumbnail},
@@ -132,13 +133,13 @@ pub(crate) struct ClientInner {
     pub(crate) server_versions: Mutex<Arc<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
-    #[cfg(feature = "encryption")]
-    pub(crate) group_session_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) group_session_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    #[cfg(feature = "e2e-encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     pub(crate) key_claim_lock: Mutex<()>,
-    pub(crate) members_request_locks: DashMap<Box<RoomId>, Arc<Mutex<()>>>,
-    pub(crate) typing_notice_times: DashMap<Box<RoomId>, Instant>,
+    pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
+    pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `register_event_handler`.
     event_handlers: RwLock<EventHandlerMap>,
     /// Custom event handler context. See `register_event_handler_context`.
@@ -190,12 +191,12 @@ impl Client {
         &self.inner.base_client
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn olm_machine(&self) -> Option<matrix_sdk_base::crypto::OlmMachine> {
         self.base_client().olm_machine().await
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub(crate) async fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
@@ -255,7 +256,7 @@ impl Client {
         incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest,
     ) -> Result<()> {
         let txn_id = incoming_transaction.txn_id.clone();
-        let response = incoming_transaction.try_into_sync_response(txn_id)?;
+        let response = incoming_transaction.try_into_sync_response(txn_id.as_str())?;
         self.process_sync(response).await?;
 
         Ok(())
@@ -272,13 +273,13 @@ impl Client {
     }
 
     /// Get the user id of the current owner of the client.
-    pub async fn user_id(&self) -> Option<Box<UserId>> {
+    pub async fn user_id(&self) -> Option<OwnedUserId> {
         let session = self.inner.base_client.session().read().await;
         session.as_ref().cloned().map(|s| s.user_id)
     }
 
     /// Get the device id that identifies the current session.
-    pub async fn device_id(&self) -> Option<Box<DeviceId>> {
+    pub async fn device_id(&self) -> Option<OwnedDeviceId> {
         let session = self.inner.base_client.session().read().await;
         session.as_ref().map(|s| s.device_id.clone())
     }
@@ -304,7 +305,7 @@ impl Client {
     }
 
     /// Get the encryption manager of the client.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "e2e-encryption")]
     pub fn encryption(&self) -> Encryption {
         Encryption::new(self.clone())
     }
@@ -1244,7 +1245,7 @@ impl Client {
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
-        server_names: &[Box<ServerName>],
+        server_names: &[OwnedServerName],
     ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
@@ -1593,7 +1594,7 @@ impl Client {
     /// # Result::<_, matrix_sdk::Error>::Ok(()) });
     pub async fn delete_devices(
         &self,
-        devices: &[Box<DeviceId>],
+        devices: &[OwnedDeviceId],
         auth_data: Option<AuthData<'_>>,
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices);
@@ -1704,7 +1705,7 @@ impl Client {
         // crypto requests were sent out.
         //
         // This will mostly be a no-op.
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
@@ -1725,7 +1726,7 @@ impl Client {
         let response = self.send(request, Some(request_config)).await?;
         let response = self.process_sync(response).await?;
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "e2e-encryption")]
         if let Err(e) = self.send_outgoing_requests().await {
             error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
@@ -1967,7 +1968,7 @@ impl Client {
                     let content: Vec<u8> =
                         self.send(get_content::v3::Request::from_url(&file.url)?, None).await?.file;
 
-                    #[cfg(feature = "encryption")]
+                    #[cfg(feature = "e2e-encryption")]
                     let content = {
                         let mut cursor = std::io::Cursor::new(content);
                         let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
@@ -2249,7 +2250,11 @@ pub(crate) mod tests {
 
     use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
-    use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize};
+    use matrix_sdk_base::{
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize},
+        DisplayName,
+    };
+    #[cfg(feature = "experimental-timeline")]
     use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
@@ -2294,6 +2299,7 @@ pub(crate) mod tests {
             Thumbnail,
         },
         config::{RequestConfig, SyncSettings},
+        error::RumaApiError,
         HttpError, RoomMember,
     };
 
@@ -2611,8 +2617,12 @@ pub(crate) mod tests {
             .create();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::Http(HttpError::ClientApi(FromHttpResponseError::Server(
-                ServerError::Known(client_api::Error { kind, message, status_code }),
+            if let crate::Error::Http(HttpError::Api(FromHttpResponseError::Server(
+                ServerError::Known(RumaApiError::ClientApi(client_api::Error {
+                    kind,
+                    message,
+                    status_code,
+                })),
             ))) = err
             {
                 if let client_api::error::ErrorKind::Forbidden = kind {
@@ -3362,7 +3372,10 @@ pub(crate) mod tests {
         let _response = client.sync_once(sync_settings).await.unwrap();
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!("example2", room.display_name().await.unwrap());
+        assert_eq!(
+            DisplayName::Calculated("example2".to_owned()),
+            room.display_name().await.unwrap()
+        );
     }
 
     #[async_test]
@@ -3440,7 +3453,7 @@ pub(crate) mod tests {
         assert_eq!(client.rooms().len(), 1);
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        assert_eq!("tutorial".to_owned(), room.display_name().await.unwrap());
+        assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
             .with_status(200)
@@ -3454,7 +3467,10 @@ pub(crate) mod tests {
         assert_eq!(client.rooms().len(), 1);
         let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
 
-        assert_eq!("My Room Name".to_owned(), invited_room.display_name().await.unwrap());
+        assert_eq!(
+            DisplayName::Named("My Room Name".to_owned()),
+            invited_room.display_name().await.unwrap()
+        );
     }
 
     #[async_test]
@@ -3772,6 +3788,7 @@ pub(crate) mod tests {
     // inconsistent manners, isn't activated.
     //#[async_test]
     #[allow(dead_code)]
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline_with_remove() {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -3895,7 +3912,9 @@ pub(crate) mod tests {
         mocked_messages.assert();
         mocked_messages_2.assert();
     }
+
     #[async_test]
+    #[cfg(feature = "experimental-timeline")]
     async fn room_timeline() {
         let client = logged_in_client().await;
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));

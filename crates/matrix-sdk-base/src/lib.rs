@@ -19,10 +19,11 @@
 
 pub use matrix_sdk_common::*;
 
+#[cfg(feature = "experimental-timeline")]
+pub use crate::timeline_stream::TimelineStreamError;
 pub use crate::{
     error::{Error, Result},
     session::Session,
-    timeline_stream::TimelineStreamError,
 };
 
 mod client;
@@ -33,12 +34,13 @@ mod session;
 pub mod store;
 // FIXME: make optional
 mod sliding_sync;
+#[cfg(feature = "experimental-timeline")]
 mod timeline_stream;
 
 pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
 pub use http;
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
-pub use rooms::{Room, RoomInfo, RoomMember, RoomType};
+pub use rooms::{DisplayName, Room, RoomInfo, RoomMember, RoomType};
 pub use store::{StateChanges, StateStore, Store, StoreError};

@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use matrix_sdk_common::{locks::Mutex, util::seconds_since_unix_epoch};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         room::encrypted::{
@@ -83,7 +83,7 @@ impl Session {
     /// * `message` - The Olm message that should be decrypted.
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let plaintext = self.inner.lock().await.decrypt(message)?;
-        self.last_use_time = seconds_since_unix_epoch();
+        self.last_use_time = SecondsSinceUnixEpoch::now();
         Ok(plaintext)
     }
 
@@ -101,7 +101,7 @@ impl Session {
     /// * `plaintext` - The plaintext that should be encrypted.
     pub(crate) async fn encrypt_helper(&mut self, plaintext: &str) -> OlmMessage {
         let message = self.inner.lock().await.encrypt(plaintext);
-        self.last_use_time = seconds_since_unix_epoch();
+        self.last_use_time = SecondsSinceUnixEpoch::now();
         message
     }
 

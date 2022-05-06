@@ -9,7 +9,7 @@ use tuirealm::tui::{backend::CrosstermBackend, Terminal};
 pub mod state;
 
 use futures_signals::signal::SignalExt;
-use matrix_sdk::{ruma::RoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
+use matrix_sdk::{ruma::OwnedRoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
 
 pub async fn run_client(
     client: Client,
@@ -81,7 +81,7 @@ pub async fn run_client(
     }
 
     let mut err_counter = 0;
-    let mut prev_selected_room: Option<Box<RoomId>> = None;
+    let mut prev_selected_room: Option<OwnedRoomId> = None;
 
     while let Some(update) = stream.next().await {
         {

@@ -21,7 +21,8 @@
 use std::collections::BTreeMap;
 
 use ruma::{
-    serde::Raw, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
+    serde::Raw, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
+    OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
@@ -34,21 +35,21 @@ pub struct DeviceKeys {
     /// The ID of the user the device belongs to.
     ///
     /// Must match the user ID used when logging in.
-    pub user_id: Box<UserId>,
+    pub user_id: OwnedUserId,
 
     /// The ID of the device these keys belong to.
     ///
     /// Must match the device ID used when logging in.
-    pub device_id: Box<DeviceId>,
+    pub device_id: OwnedDeviceId,
 
     /// The encryption algorithms supported by this device.
     pub algorithms: Vec<EventEncryptionAlgorithm>,
 
     /// Public identity keys.
-    pub keys: BTreeMap<Box<DeviceKeyId>, DeviceKey>,
+    pub keys: BTreeMap<OwnedDeviceKeyId, DeviceKey>,
 
     /// Signatures for the device key object.
-    pub signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+    pub signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
 
     /// Additional data added to the device key information by intermediate
     /// servers, and not covered by the signatures.
@@ -63,11 +64,11 @@ impl DeviceKeys {
     /// Creates a new `DeviceKeys` from the given user id, device id,
     /// algorithms, keys and signatures.
     pub fn new(
-        user_id: Box<UserId>,
-        device_id: Box<DeviceId>,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
         algorithms: Vec<EventEncryptionAlgorithm>,
-        keys: BTreeMap<Box<DeviceKeyId>, DeviceKey>,
-        signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+        keys: BTreeMap<OwnedDeviceKeyId, DeviceKey>,
+        signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     ) -> Self {
         Self {
             user_id,
@@ -149,11 +150,11 @@ impl From<Ed25519PublicKey> for DeviceKey {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct DeviceKeyHelper {
-    pub user_id: Box<UserId>,
-    pub device_id: Box<DeviceId>,
+    pub user_id: OwnedUserId,
+    pub device_id: OwnedDeviceId,
     pub algorithms: Vec<EventEncryptionAlgorithm>,
-    pub keys: BTreeMap<Box<DeviceKeyId>, String>,
-    pub signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+    pub keys: BTreeMap<OwnedDeviceKeyId, String>,
+    pub signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
     pub unsigned: UnsignedDeviceInfo,
     #[serde(flatten)]
@@ -164,7 +165,7 @@ impl TryFrom<DeviceKeyHelper> for DeviceKeys {
     type Error = vodozemac::KeyError;
 
     fn try_from(value: DeviceKeyHelper) -> Result<Self, Self::Error> {
-        let keys: Result<BTreeMap<Box<DeviceKeyId>, DeviceKey>, vodozemac::KeyError> = value
+        let keys: Result<BTreeMap<OwnedDeviceKeyId, DeviceKey>, vodozemac::KeyError> = value
             .keys
             .into_iter()
             .map(|(k, v)| {
@@ -196,7 +197,7 @@ impl TryFrom<DeviceKeyHelper> for DeviceKeys {
 
 impl From<DeviceKeys> for DeviceKeyHelper {
     fn from(value: DeviceKeys) -> Self {
-        let keys: BTreeMap<Box<DeviceKeyId>, String> =
+        let keys: BTreeMap<OwnedDeviceKeyId, String> =
             value.keys.into_iter().map(|(k, v)| (k, v.to_base64())).collect();
 
         Self {

@@ -21,20 +21,20 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{encryption::KeyUsage, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+use ruma::{encryption::KeyUsage, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceKeyId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::Ed25519PublicKey;
 
 /// Signatures for a `CrossSigningKey` object.
-pub type CrossSigningKeySignatures = BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>;
+pub type CrossSigningKeySignatures = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>;
 
 /// A cross signing key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(try_from = "CrossSigningKeyHelper", into = "CrossSigningKeyHelper")]
 pub struct CrossSigningKey {
     /// The ID of the user the key belongs to.
-    pub user_id: Box<UserId>,
+    pub user_id: OwnedUserId,
 
     /// What the key is used for.
     pub usage: Vec<KeyUsage>,
@@ -42,7 +42,7 @@ pub struct CrossSigningKey {
     /// The public key.
     ///
     /// The object must have exactly one property.
-    pub keys: BTreeMap<Box<DeviceKeyId>, SigningKey>,
+    pub keys: BTreeMap<OwnedDeviceKeyId, SigningKey>,
 
     /// Signatures of the key.
     ///
@@ -58,9 +58,9 @@ impl CrossSigningKey {
     /// Creates a new `CrossSigningKey` with the given user ID, usage, keys and
     /// signatures.
     pub fn new(
-        user_id: Box<UserId>,
+        user_id: OwnedUserId,
         usage: Vec<KeyUsage>,
-        keys: BTreeMap<Box<DeviceKeyId>, SigningKey>,
+        keys: BTreeMap<OwnedDeviceKeyId, SigningKey>,
         signatures: CrossSigningKeySignatures,
     ) -> Self {
         Self { user_id, usage, keys, signatures, other: BTreeMap::new() }
@@ -103,9 +103,9 @@ impl From<Ed25519PublicKey> for SigningKey {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct CrossSigningKeyHelper {
-    pub user_id: Box<UserId>,
+    pub user_id: OwnedUserId,
     pub usage: Vec<KeyUsage>,
-    pub keys: BTreeMap<Box<DeviceKeyId>, String>,
+    pub keys: BTreeMap<OwnedDeviceKeyId, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub signatures: CrossSigningKeySignatures,
     #[serde(flatten)]
@@ -116,7 +116,7 @@ impl TryFrom<CrossSigningKeyHelper> for CrossSigningKey {
     type Error = vodozemac::KeyError;
 
     fn try_from(value: CrossSigningKeyHelper) -> Result<Self, Self::Error> {
-        let keys: Result<BTreeMap<Box<DeviceKeyId>, SigningKey>, vodozemac::KeyError> = value
+        let keys: Result<BTreeMap<OwnedDeviceKeyId, SigningKey>, vodozemac::KeyError> = value
             .keys
             .into_iter()
             .map(|(k, v)| {
@@ -143,7 +143,7 @@ impl TryFrom<CrossSigningKeyHelper> for CrossSigningKey {
 
 impl From<CrossSigningKey> for CrossSigningKeyHelper {
     fn from(value: CrossSigningKey) -> Self {
-        let keys: BTreeMap<Box<DeviceKeyId>, String> =
+        let keys: BTreeMap<OwnedDeviceKeyId, String> =
             value.keys.into_iter().map(|(k, v)| (k, v.to_base64())).collect();
 
         Self {
