@@ -46,10 +46,11 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{BaseRoomInfo, DisplayName, MinimalStateEvent, RoomMember};
+use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore},
+    MinimalStateEvent,
 };
 #[cfg(feature = "experimental-timeline")]
 use crate::{
@@ -823,8 +824,8 @@ mod test {
 
     use super::*;
     use crate::{
-        rooms::{MinimalStateEvent, OriginalMinimalStateEvent},
         store::{MemoryStore, StateChanges},
+        MinimalStateEvent, OriginalMinimalStateEvent,
     };
 
     fn make_room(room_type: RoomType) -> (Arc<MemoryStore>, Room) {
