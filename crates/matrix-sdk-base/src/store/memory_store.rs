@@ -32,7 +32,7 @@ use ruma::{
         receipt::Receipt,
         room::member::{
             MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-            StrippedRoomMemberEvent,
+            StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
@@ -508,7 +508,7 @@ impl MemoryStore {
     ) -> Result<Option<MemberEvent>> {
         if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(MemberEvent::Original(e)))
+            Ok(Some(MemberEvent::Sync(SyncRoomMemberEvent::Original(e))))
         } else if let Some(e) =
             self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {

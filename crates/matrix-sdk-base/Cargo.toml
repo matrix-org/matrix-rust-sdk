@@ -50,7 +50,7 @@ zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 ruma = { version = "0.6.1", features = ["client-api-c", "js", "signatures"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ruma = { version = "0.6.1", features = ["client-api-c", "signatures"] }
+ruma = { version = "0.6.2", features = ["client-api-c", "signatures"] }
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }

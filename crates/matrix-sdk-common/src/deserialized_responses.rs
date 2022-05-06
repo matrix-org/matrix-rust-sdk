@@ -10,8 +10,8 @@ use ruma::{
     },
     events::{
         room::member::{
-            OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-            StrippedRoomMemberEvent,
+            MembershipState, OriginalRoomMemberEvent, RoomMemberEventContent,
+            StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
         AnyRoomEvent, AnySyncRoomEvent,
     },
@@ -300,24 +300,32 @@ impl TimelineSlice {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MemberEvent {
+    Sync(SyncRoomMemberEvent),
     Stripped(StrippedRoomMemberEvent),
-    Original(OriginalSyncRoomMemberEvent),
 }
 
 impl MemberEvent {
     /// The inner Content of the wrapped Event
-    pub fn content(&self) -> &RoomMemberEventContent {
-        match &*self {
-            MemberEvent::Stripped(e) => &e.content,
-            MemberEvent::Original(e) => &e.content,
+    pub fn original_content(&self) -> Option<&RoomMemberEventContent> {
+        match self {
+            MemberEvent::Sync(e) => e.as_original().map(|e| &e.content),
+            MemberEvent::Stripped(e) => Some(&e.content),
+        }
+    }
+
+    /// The membership state of the user
+    pub fn membership(&self) -> &MembershipState {
+        match self {
+            MemberEvent::Sync(e) => e.membership(),
+            MemberEvent::Stripped(e) => &e.content.membership,
         }
     }
 
     /// The user id associated to this member event
     pub fn user_id(&self) -> &UserId {
-        match &*self {
+        match self {
+            MemberEvent::Sync(e) => e.state_key(),
             MemberEvent::Stripped(e) => &e.state_key,
-            MemberEvent::Original(e) => &e.state_key,
         }
     }
 }
