@@ -308,33 +308,41 @@ impl BaseRoomInfo {
             .and_then(|ev| Some(ev.as_original()?.content.room_version.to_owned()))
             .unwrap_or(RoomVersionId::V1);
 
-        // This sometimes does more event_id comparisons than necessary, but the
-        // alternatives are a lot of verbosity, and a macro
-        redact_if_match(&mut self.avatar, &event.redacts, &room_version);
-        redact_if_match(&mut self.canonical_alias, &event.redacts, &room_version);
-        redact_if_match(&mut self.create, &event.redacts, &room_version);
-        redact_if_match(&mut self.guest_access, &event.redacts, &room_version);
-        redact_if_match(&mut self.history_visibility, &event.redacts, &room_version);
-        redact_if_match(&mut self.join_rules, &event.redacts, &room_version);
-        redact_if_match(&mut self.name, &event.redacts, &room_version);
-        redact_if_match(&mut self.tombstone, &event.redacts, &room_version);
-        redact_if_match(&mut self.topic, &event.redacts, &room_version);
+        // FIXME: Use let chains once available to get rid of unwrap()s
+        if self.avatar.has_event_id(&event.redacts) {
+            self.avatar.as_mut().unwrap().redact(&room_version);
+        } else if self.canonical_alias.has_event_id(&event.redacts) {
+            self.canonical_alias.as_mut().unwrap().redact(&room_version);
+        } else if self.create.has_event_id(&event.redacts) {
+            self.create.as_mut().unwrap().redact(&room_version);
+        } else if self.guest_access.has_event_id(&event.redacts) {
+            self.guest_access.as_mut().unwrap().redact(&room_version);
+        } else if self.history_visibility.has_event_id(&event.redacts) {
+            self.history_visibility.as_mut().unwrap().redact(&room_version);
+        } else if self.join_rules.has_event_id(&event.redacts) {
+            self.join_rules.as_mut().unwrap().redact(&room_version);
+        } else if self.name.has_event_id(&event.redacts) {
+            self.name.as_mut().unwrap().redact(&room_version);
+        } else if self.tombstone.has_event_id(&event.redacts) {
+            self.tombstone.as_mut().unwrap().redact(&room_version);
+        } else if self.topic.has_event_id(&event.redacts) {
+            self.topic.as_mut().unwrap().redact(&room_version);
+        }
     }
 }
 
-fn redact_if_match<C>(
-    ev: &mut Option<MinimalStateEvent<C>>,
-    event_id: &EventId,
-    room_version: &RoomVersionId,
-) where
+trait OptionExt {
+    fn has_event_id(&self, ev_id: &EventId) -> bool;
+}
+
+impl<C> OptionExt for Option<MinimalStateEvent<C>>
+where
     C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
     C::Redacted:
         StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
 {
-    if let Some(ev) = ev {
-        if ev.event_id() == Some(event_id) {
-            ev.redact(room_version);
-        }
+    fn has_event_id(&self, ev_id: &EventId) -> bool {
+        self.as_ref().and_then(|ev| ev.event_id()).map_or(false, |id| id == ev_id)
     }
 }
 
