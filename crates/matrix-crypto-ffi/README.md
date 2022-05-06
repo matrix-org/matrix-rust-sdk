@@ -44,7 +44,7 @@ linker = "NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-andro
 
 ## Building
 
-To enable cross compilation fro `olm-sys` which builds our libolm C library
+To enable cross compilation for `olm-sys` which builds our `libolm` C library
 we'll need to set the `ANDROID_NDK` environment variable to the location of our
 Android NDK installation.
 
