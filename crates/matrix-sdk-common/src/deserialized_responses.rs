@@ -322,17 +322,6 @@ impl MemberEvent {
     }
 }
 
-impl From<StrippedRoomMemberEvent> for MemberEvent {
-    fn from(other: StrippedRoomMemberEvent) -> Self {
-        MemberEvent::Stripped(other)
-    }
-}
-impl From<OriginalSyncRoomMemberEvent> for MemberEvent {
-    fn from(other: OriginalSyncRoomMemberEvent) -> Self {
-        MemberEvent::Original(other)
-    }
-}
-
 /// A deserialized response for the rooms members API call.
 ///
 /// [GET /_matrix/client/r0/rooms/{roomId}/members](https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-rooms-roomid-members)
