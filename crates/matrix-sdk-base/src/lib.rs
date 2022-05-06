@@ -43,5 +43,6 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use rooms::{DisplayName, Room, RoomInfo, RoomMember, RoomType};
 pub use store::{StateChanges, StateStore, Store, StoreError};
-#[allow(unused_imports)]
-pub(crate) use utils::{MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent};
+pub use utils::{
+    MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
+};

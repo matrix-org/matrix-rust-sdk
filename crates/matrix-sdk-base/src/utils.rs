@@ -1,5 +1,6 @@
 use ruma::{
     events::{
+        room::member::{MembershipState, RoomMemberEventContent},
         RedactContent, RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
     },
     EventId, OwnedEventId, RoomVersionId,
@@ -12,30 +13,48 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 // implemented for C::Redacted.
 //
 // It is unclear why a Serialize bound on C::Redacted is not also required.
+
+/// A minimal state event.
+///
+/// This type can holding an possibly-redacted state event with an optional
+/// event ID. The event ID is optional so this type can also hold events from
+/// invited rooms, where event IDs are not available.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MinimalStateEvent<C: StateEventContent + RedactContent>
 where
     C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
 {
+    /// An unredacted event.
     Original(OriginalMinimalStateEvent<C>),
+    /// A redacted event.
     Redacted(RedactedMinimalStateEvent<C::Redacted>),
 }
 
+/// An unredacted minimal state event.
+///
+/// For more details see [`MinimalStateEvent`].
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OriginalMinimalStateEvent<C>
 where
     C: StateEventContent,
 {
+    /// The event's content.
     pub content: C,
+    /// The event's ID, if known.
     pub event_id: Option<OwnedEventId>,
 }
 
+/// A redacted minimal state event.
+///
+/// For more details see [`MinimalStateEvent`].
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RedactedMinimalStateEvent<C>
 where
     C: StateEventContent + RedactedEventContent,
 {
+    /// The event's content.
     pub content: C,
+    /// The event's ID, if known.
     pub event_id: Option<OwnedEventId>,
 }
 
@@ -44,6 +63,7 @@ where
     C: StateEventContent + RedactContent,
     C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
 {
+    /// Get the inner event's ID.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
             MinimalStateEvent::Original(ev) => ev.event_id.as_deref(),
@@ -51,6 +71,7 @@ where
         }
     }
 
+    /// Returns the inner event, if it isn't redacted.
     pub fn as_original(&self) -> Option<&OriginalMinimalStateEvent<C>> {
         match self {
             MinimalStateEvent::Original(ev) => Some(ev),
@@ -58,6 +79,18 @@ where
         }
     }
 
+    /// Converts `self` to the inner `OriginalMinimalStateEvent<C>`, if it isn't
+    /// redacted.
+    pub fn into_original(self) -> Option<OriginalMinimalStateEvent<C>> {
+        match self {
+            MinimalStateEvent::Original(ev) => Some(ev),
+            MinimalStateEvent::Redacted(_) => None,
+        }
+    }
+
+    /// Redacts this event.
+    ///
+    /// Does nothing if it is already redacted.
     pub fn redact(&mut self, room_version: &RoomVersionId)
     where
         C: Clone,
@@ -67,6 +100,20 @@ where
                 content: ev.content.clone().redact(room_version),
                 event_id: ev.event_id.clone(),
             });
+        }
+    }
+}
+
+/// A minimal `m.room.member` event.
+pub type MinimalRoomMemberEvent = MinimalStateEvent<RoomMemberEventContent>;
+
+impl MinimalRoomMemberEvent {
+    /// Obtain the membership state, regardless of whether this event is
+    /// redacted.
+    pub fn membership(&self) -> &MembershipState {
+        match self {
+            MinimalStateEvent::Original(ev) => &ev.content.membership,
+            MinimalStateEvent::Redacted(ev) => &ev.content.membership,
         }
     }
 }

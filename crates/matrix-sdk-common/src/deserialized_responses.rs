@@ -10,8 +10,8 @@ use ruma::{
     },
     events::{
         room::member::{
-            MembershipState, OriginalRoomMemberEvent, RoomMemberEventContent,
-            StrippedRoomMemberEvent, SyncRoomMemberEvent,
+            MembershipState, RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
+            SyncRoomMemberEvent,
         },
         AnyRoomEvent, AnySyncRoomEvent,
     },
@@ -336,7 +336,7 @@ impl MemberEvent {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MembersResponse {
     /// The list of members events.
-    pub chunk: Vec<OriginalRoomMemberEvent>,
+    pub chunk: Vec<RoomMemberEvent>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
 }
