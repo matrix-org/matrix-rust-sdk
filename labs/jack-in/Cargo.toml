@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tuirealm = "1.5"
+tuirealm = "1.6"
 ruma = "0.6.1"
 matrix-sdk = { path = "../../crates/matrix-sdk", default-features = false, features  = ["e2e-encryption", "anyhow", "native-tls", "sled"] }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
@@ -18,5 +18,5 @@ tracing-subscriber = { version = "0.3" }
 futures-signals = "0.3.24"
 eyre = "0.6"
 
-tui-logger = "0.7.1"
+tui-logger = {  git = " https://github.com/gnunicorn/tui-logger", branch = "ben-update-deps" }
 log = "0.4" 
