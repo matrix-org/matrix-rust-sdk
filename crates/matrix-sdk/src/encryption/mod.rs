@@ -38,7 +38,7 @@ use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
 use ruma::{
     api::client::config::set_global_account_data,
-    events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
+    events::{GlobalAccountDataEventContent, MessageLikeEvent},
     OwnedDeviceId,
 };
 use ruma::{
@@ -54,9 +54,7 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    events::{
-        AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, GlobalAccountDataEventType,
-    },
+    events::{AnyMessageLikeEvent, AnyRoomEvent, GlobalAccountDataEventType},
     serde::Raw,
     DeviceId, OwnedUserId, TransactionId, UserId,
 };
@@ -81,14 +79,13 @@ impl Client {
             if let Ok(AnyRoomEvent::MessageLike(event)) = event.deserialize() {
                 if let AnyMessageLikeEvent::RoomEncrypted(_) = event {
                     let room_id = event.room_id();
-                    // Turn the AnyMessageLikeEvent into a AnySyncMessageLikeEvent
-                    let event = event.clone().into();
 
-                    if let AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(
-                        e,
-                    )) = event
+                    if let AnyMessageLikeEvent::RoomEncrypted(MessageLikeEvent::Original(ev)) =
+                        &event
                     {
-                        if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
+                        // Turn the OriginalMessageLikeEvent into a OriginalSyncMessageLikeEvent
+                        let ev = ev.clone().into();
+                        if let Ok(decrypted) = machine.decrypt_room_event(&ev, room_id).await {
                             return decrypted;
                         }
                     }
