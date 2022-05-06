@@ -353,7 +353,7 @@ mod tests {
         );
 
         let store = MemoryStore::new();
-        let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;
+        store.save_inbound_group_sessions(vec![inbound.clone()]).await;
 
         let loaded_session = store
             .get_inbound_group_session(room_id, "test_key", outbound.session_id())
