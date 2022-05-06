@@ -508,11 +508,11 @@ impl MemoryStore {
     ) -> Result<Option<MemberEvent>> {
         if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(e.into()))
+            Ok(Some(MemberEvent::Original(e)))
         } else if let Some(e) =
             self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(e.into()))
+            Ok(Some(MemberEvent::Stripped(e)))
         } else {
             Ok(None)
         }
