@@ -19,7 +19,6 @@ use std::{
     time::Instant,
 };
 
-use anyhow::anyhow;
 #[cfg(feature = "experimental-timeline")]
 use async_stream::stream;
 use async_trait::async_trait;
@@ -112,7 +111,7 @@ impl Into<StoreError> for SledStoreError {
                 )),
             },
             SledStoreError::StoreError(e) => e,
-            _ => StoreError::Backend(anyhow!(self)),
+            _ => StoreError::Backend(Box::new(self)),
         }
     }
 }
@@ -271,7 +270,7 @@ impl SledStore {
 
     pub fn open() -> StoreResult<Self> {
         let db =
-            Config::new().temporary(true).open().map_err(|e| StoreError::Backend(anyhow!(e)))?;
+            Config::new().temporary(true).open().map_err(|e| StoreError::Backend(Box::new(e)))?;
 
         SledStore::open_helper(db, None, None).map_err(|e| e.into())
     }
@@ -280,7 +279,7 @@ impl SledStore {
     #[cfg(test)]
     fn open_encrypted() -> StoreResult<Self> {
         let db =
-            Config::new().temporary(true).open().map_err(|e| StoreError::Backend(anyhow!(e)))?;
+            Config::new().temporary(true).open().map_err(|e| StoreError::Backend(Box::new(e)))?;
 
         SledStore::open_helper(
             db,
@@ -323,7 +322,7 @@ impl SledStore {
 
     fn upgrade(&self) -> StoreResult<()> {
         let db_version =
-            self.inner.get(VERSION_KEY).map_err(|e| StoreError::Backend(anyhow!(e)))?.map(|v| {
+            self.inner.get(VERSION_KEY).map_err(|e| StoreError::Backend(Box::new(e)))?.map(|v| {
                 let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
                 u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
             });
@@ -333,8 +332,8 @@ impl SledStore {
                 // we are fresh, let's write the current version
                 self.inner
                     .insert(VERSION_KEY, DATABASE_VERSION.to_be_bytes().as_ref())
-                    .map_err(|e| StoreError::Backend(anyhow!(e)))?;
-                self.inner.flush().map_err(|e| StoreError::Backend(anyhow!(e)))?;
+                    .map_err(|e| StoreError::Backend(Box::new(e)))?;
+                self.inner.flush().map_err(|e| StoreError::Backend(Box::new(e)))?;
                 return Ok(());
             }
             Some(version) if version == DATABASE_VERSION => {
@@ -791,13 +790,13 @@ impl SledStore {
         spawn_blocking(move || {
             stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
                 UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
                 ))
                 .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(anyhow!(e)))
+        .map_err(|e| StoreError::Backend(Box::new(e)))
     }
 
     pub async fn get_joined_user_ids(
@@ -809,13 +808,13 @@ impl SledStore {
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
                 UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
                 ))
                 .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(anyhow!(e)))
+        .map_err(|e| StoreError::Backend(Box::new(e)))
     }
 
     pub async fn get_stripped_invited_user_ids(
@@ -827,13 +826,13 @@ impl SledStore {
         spawn_blocking(move || {
             stream::iter(db.stripped_invited_user_ids.scan_prefix(key).map(|u| {
                 UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
                 ))
                 .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(anyhow!(e)))
+        .map_err(|e| StoreError::Backend(Box::new(e)))
     }
 
     pub async fn get_stripped_joined_user_ids(
@@ -845,13 +844,13 @@ impl SledStore {
         spawn_blocking(move || {
             stream::iter(db.stripped_joined_user_ids.scan_prefix(key).map(|u| {
                 UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(anyhow!(e)))?.1,
+                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
                 ))
                 .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(anyhow!(e)))
+        .map_err(|e| StoreError::Backend(Box::new(e)))
     }
 
     pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
@@ -942,13 +941,13 @@ impl SledStore {
                 .scan_prefix(key)
                 .values()
                 .map(|u| {
-                    let v = u.map_err(|e| StoreError::Backend(anyhow!(e)))?;
-                    db.deserialize_event(&v).map_err(|e| StoreError::Backend(anyhow!(e)))
+                    let v = u.map_err(|e| StoreError::Backend(Box::new(e)))?;
+                    db.deserialize_event(&v).map_err(|e| StoreError::Backend(Box::new(e)))
                 })
                 .collect()
         })
         .await
-        .map_err(|e| StoreError::Backend(anyhow!(e)))?
+        .map_err(|e| StoreError::Backend(Box::new(e)))?
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {

@@ -625,7 +625,7 @@ pub enum CryptoStoreError {
 
     /// A problem with the underlying database backend
     #[error(transparent)]
-    Backend(#[from] anyhow::Error),
+    Backend(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic

@@ -95,7 +95,7 @@ impl From<SerializationError> for StoreError {
                     expected, found
                 )),
             },
-            _ => StoreError::Backend(anyhow!(e)),
+            _ => StoreError::Backend(Box::new(e)),
         }
     }
 }
@@ -307,7 +307,7 @@ impl IndexeddbStore {
             Some(ref cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e))))
+        .map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e).into())))
     }
 
     #[cfg(feature = "experimental-timeline")]

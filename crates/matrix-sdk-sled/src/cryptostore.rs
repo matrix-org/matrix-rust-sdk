@@ -19,7 +19,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use dashmap::DashSet;
 use matrix_sdk_common::locks::Mutex;
@@ -217,7 +216,7 @@ impl SledStore {
             .temporary(false)
             .path(&path)
             .open()
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
 
         let store_cipher = if let Some(passphrase) = passphrase {
             Some(Self::get_or_create_store_cipher(passphrase, &db)?.into())
@@ -243,7 +242,7 @@ impl SledStore {
 
     fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, CryptoStoreError> {
         if let Some(key) = &self.store_cipher {
-            key.encrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
+            key.encrypt_value(event).map_err(|e| CryptoStoreError::Backend(Box::new(e)))
         } else {
             Ok(serde_json::to_vec(event)?)
         }
@@ -254,7 +253,7 @@ impl SledStore {
         event: &[u8],
     ) -> Result<T, CryptoStoreError> {
         if let Some(key) = &self.store_cipher {
-            key.decrypt_value(event).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
+            key.decrypt_value(event).map_err(|e| CryptoStoreError::Backend(Box::new(e)))
         } else {
             Ok(serde_json::from_slice(event)?)
         }
@@ -273,7 +272,7 @@ impl SledStore {
             .inbound_group_sessions
             .iter()
             .map(|p| {
-                let item = p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                let item = p.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
                 Ok((item.0, self.deserialize_value(&item.1)?))
             })
             .collect::<Result<_>>()?;
@@ -295,9 +294,9 @@ impl SledStore {
                 Ok(())
             });
 
-        ret.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        ret.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
 
-        self.inner.flush_async().await.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        self.inner.flush_async().await.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
 
         Ok(())
     }
@@ -306,7 +305,7 @@ impl SledStore {
         let version = self
             .inner
             .get("store_version")
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
             .map(|v| {
                 let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
                 u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
@@ -326,8 +325,8 @@ impl SledStore {
 
         self.inner
             .insert("store_version", DATABASE_VERSION.to_be_bytes().as_ref())
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-        self.inner.flush().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
+        self.inner.flush().map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
 
         Ok(())
     }
@@ -335,16 +334,16 @@ impl SledStore {
     fn get_or_create_store_cipher(passphrase: &str, database: &Db) -> Result<StoreCipher> {
         let key = if let Some(key) = database
             .get("store_cipher".encode())
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
         {
             StoreCipher::import(passphrase, &key).map_err(|_| CryptoStoreError::UnpicklingError)?
         } else {
-            let key = StoreCipher::new().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            let key = StoreCipher::new().map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
             let encrypted =
-                key.export(passphrase).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                key.export(passphrase).map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
             database
                 .insert("store_cipher".encode(), encrypted)
-                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
             key
         };
 
@@ -405,7 +404,7 @@ impl SledStore {
 
     async fn load_tracked_users(&self) -> Result<()> {
         for value in &self.tracked_users {
-            let (_, user) = value.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            let (_, user) = value.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
             let user: TrackedUser = self.deserialize_value(&user)?;
 
             self.tracked_users_cache.insert(user.user_id.to_owned());
@@ -426,7 +425,7 @@ impl SledStore {
 
         self.outbound_group_sessions
             .get(self.encode_key(OUTBOUND_GROUP_TABLE_NAME, room_id))
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
             .map(|p| self.deserialize_value(&p))
             .transpose()?
             .map(|p| {
@@ -631,8 +630,8 @@ impl SledStore {
                 },
             );
 
-        ret.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-        self.inner.flush().map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        ret.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
+        self.inner.flush().map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
 
         Ok(())
     }
@@ -641,14 +640,14 @@ impl SledStore {
         let request = self
             .outgoing_secret_requests
             .get(id)
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
             .map(|r| self.deserialize_value(&r))
             .transpose()?;
 
         let request = if request.is_none() {
             self.unsent_secret_requests
                 .get(id)
-                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+                .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
                 .map(|r| self.deserialize_value(&r))
                 .transpose()?
         } else {
@@ -683,7 +682,7 @@ impl SledStore {
             );
         }
 
-        self.tracked_users.apply_batch(batch).map_err(|e| CryptoStoreError::Backend(anyhow!(e)))
+        self.tracked_users.apply_batch(batch).map_err(|e| CryptoStoreError::Backend(Box::new(e)))
     }
 }
 
@@ -693,7 +692,7 @@ impl CryptoStore for SledStore {
         if let Some(pickle) = self
             .account
             .get("account".encode())
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
         {
             let pickle = self.deserialize_value(&pickle)?;
 
@@ -722,7 +721,7 @@ impl CryptoStore for SledStore {
         if let Some(i) = self
             .private_identity
             .get("identity".encode())
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
         {
             let pickle = self.deserialize_value(&i)?;
             Ok(Some(
@@ -747,7 +746,9 @@ impl CryptoStore for SledStore {
                 .sessions
                 .scan_prefix(self.encode_key(SESSIONS_TABLE_NAME, sender_key))
                 .map(|s| {
-                    self.deserialize_value(&s.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                    self.deserialize_value(
+                        &s.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?.1,
+                    )
                 })
                 .map(|p| {
                     Ok(Session::from_pickle(
@@ -775,7 +776,7 @@ impl CryptoStore for SledStore {
         let pickle = self
             .inbound_group_sessions
             .get(&key)
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
             .map(|p| self.deserialize_value(&p));
 
         if let Some(pickle) = pickle {
@@ -790,7 +791,7 @@ impl CryptoStore for SledStore {
             .inbound_group_sessions
             .iter()
             .map(|p| {
-                self.deserialize_value(&p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                self.deserialize_value(&p.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?.1)
             })
             .collect();
 
@@ -802,7 +803,7 @@ impl CryptoStore for SledStore {
             .inbound_group_sessions
             .iter()
             .map(|p| {
-                let item = p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                let item = p.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
                 self.deserialize_value(&item.1)
             })
             .collect::<Result<_>>()?;
@@ -821,7 +822,7 @@ impl CryptoStore for SledStore {
             .inbound_group_sessions
             .iter()
             .map(|p| {
-                let item = p.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+                let item = p.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
                 self.deserialize_value(&item.1)
             })
             .filter_map(|p: Result<PickledInboundGroupSession, CryptoStoreError>| match p {
@@ -892,7 +893,7 @@ impl CryptoStore for SledStore {
         Ok(self
             .devices
             .get(key)
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
             .map(|d| self.deserialize_value(&d))
             .transpose()?)
     }
@@ -905,7 +906,7 @@ impl CryptoStore for SledStore {
         self.devices
             .scan_prefix(key)
             .map(|d| {
-                self.deserialize_value(&d.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                self.deserialize_value(&d.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?.1)
             })
             .map(|d| {
                 let d: ReadOnlyDevice = d?;
@@ -920,7 +921,7 @@ impl CryptoStore for SledStore {
         Ok(self
             .identities
             .get(key)
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
             .map(|i| self.deserialize_value(&i))
             .transpose()?)
     }
@@ -932,7 +933,7 @@ impl CryptoStore for SledStore {
         Ok(self
             .olm_hashes
             .contains_key(serde_json::to_vec(message_hash)?)
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?)
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?)
     }
 
     async fn get_outgoing_secret_requests(
@@ -951,7 +952,7 @@ impl CryptoStore for SledStore {
         let id = self
             .secret_requests_by_info
             .get(self.encode_key(SECRET_REQUEST_BY_INFO_TABLE, key_info))
-            .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+            .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
 
         if let Some(id) = id {
             self.get_outgoing_key_request_helper(&id).await
@@ -965,7 +966,7 @@ impl CryptoStore for SledStore {
             .unsent_secret_requests
             .iter()
             .map(|i| {
-                self.deserialize_value(&i.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?.1)
+                self.deserialize_value(&i.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?.1)
             })
             .collect();
 
@@ -1006,8 +1007,8 @@ impl CryptoStore for SledStore {
                 },
             );
 
-        ret.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
-        self.inner.flush_async().await.map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?;
+        ret.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
+        self.inner.flush_async().await.map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
 
         Ok(())
     }
@@ -1017,14 +1018,14 @@ impl CryptoStore for SledStore {
             let backup_version = self
                 .account
                 .get("backup_version_v1".encode())
-                .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+                .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
                 .map(|v| self.deserialize_value(&v))
                 .transpose()?;
 
             let recovery_key = {
                 self.account
                     .get("recovery_key_v1".encode())
-                    .map_err(|e| CryptoStoreError::Backend(anyhow!(e)))?
+                    .map_err(|e| CryptoStoreError::Backend(Box::new(e)))?
                     .map(|p| self.deserialize_value(&p))
                     .transpose()?
             };
