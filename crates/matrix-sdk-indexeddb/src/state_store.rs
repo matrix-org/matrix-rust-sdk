@@ -23,7 +23,7 @@ use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
-    RoomInfo,
+    MinimalStateEvent, RoomInfo,
 };
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
@@ -557,20 +557,20 @@ impl IndexeddbStore {
                 let profile_changes = changes.profiles.get(room);
 
                 for event in events.values() {
-                    let key = (room, &event.state_key);
+                    let key = (room, event.state_key());
 
-                    match event.content.membership {
+                    match event.membership() {
                         MembershipState::Join => {
                             joined.put_key_val_owned(
                                 &self.encode_key(KEYS::JOINED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?,
+                                &self.serialize_event(event.state_key())?,
                             )?;
                             invited.delete(&self.encode_key(KEYS::INVITED_USER_IDS, key))?;
                         }
                         MembershipState::Invite => {
                             invited.put_key_val_owned(
                                 &self.encode_key(KEYS::INVITED_USER_IDS, key),
-                                &self.serialize_event(&event.state_key)?,
+                                &self.serialize_event(event.state_key())?,
                             )?;
                             joined.delete(&self.encode_key(KEYS::JOINED_USER_IDS, key))?;
                         }
@@ -585,7 +585,7 @@ impl IndexeddbStore {
                         &self.serialize_event(&event)?,
                     )?;
 
-                    if let Some(profile) = profile_changes.and_then(|p| p.get(&event.state_key)) {
+                    if let Some(profile) = profile_changes.and_then(|p| p.get(event.state_key())) {
                         profiles_store.put_key_val_owned(
                             &self.encode_key(KEYS::PROFILES, key),
                             &self.serialize_event(&profile)?,
@@ -888,7 +888,7 @@ impl IndexeddbStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<RoomMemberEventContent>> {
+    ) -> Result<Option<MinimalStateEvent<RoomMemberEventContent>>> {
         self.inner
             .transaction_on_one_with_mode(KEYS::PROFILES, IdbTransactionMode::Readonly)?
             .object_store(KEYS::PROFILES)?
@@ -1335,7 +1335,7 @@ impl StateStore for IndexeddbStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> StoreResult<Option<RoomMemberEventContent>> {
+    ) -> StoreResult<Option<MinimalStateEvent<RoomMemberEventContent>>> {
         self.get_profile(room_id, user_id).await.map_err(|e| e.into())
     }
 

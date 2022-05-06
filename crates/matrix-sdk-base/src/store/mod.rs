@@ -42,9 +42,7 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent},
-        room::member::{
-            OriginalSyncRoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
-        },
+        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
@@ -62,7 +60,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
-    Room, Session,
+    MinimalRoomMemberEvent, Room, Session,
 };
 
 pub(crate) mod ambiguity_map;
@@ -185,7 +183,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<RoomMemberEventContent>>;
+    ) -> Result<Option<MinimalRoomMemberEvent>>;
 
     /// Get the `MemberEvent` for the given state key in the given room id.
     ///
@@ -493,12 +491,11 @@ pub struct StateChanges {
     /// A mapping of `UserId` to `PresenceEvent`.
     pub presence: BTreeMap<OwnedUserId, Raw<PresenceEvent>>,
 
+    /// A mapping of `RoomId` to a map of users and their `SyncRoomMemberEvent`.
+    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, SyncRoomMemberEvent>>,
     /// A mapping of `RoomId` to a map of users and their
-    /// `OriginalRoomMemberEvent`.
-    pub members: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, OriginalSyncRoomMemberEvent>>,
-    /// A mapping of `RoomId` to a map of users and their
-    /// `RoomMemberEventContent`.
-    pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, RoomMemberEventContent>>,
+    /// `MinimalRoomMemberEvent`.
+    pub profiles: BTreeMap<OwnedRoomId, BTreeMap<OwnedUserId, MinimalRoomMemberEvent>>,
 
     /// A mapping of `RoomId` to a map of event type string to a state key and
     /// `AnySyncStateEvent`.

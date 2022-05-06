@@ -28,7 +28,7 @@ use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
-    RoomInfo,
+    MinimalStateEvent, RoomInfo,
 };
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
@@ -459,20 +459,20 @@ impl SledStore {
                         let profile_changes = changes.profiles.get(room);
 
                         for event in events.values() {
-                            let key = (room, &event.state_key);
+                            let key = (room, event.state_key());
 
-                            match event.content.membership {
+                            match event.membership() {
                                 MembershipState::Join => {
                                     joined.insert(
                                         self.encode_key(JOINED_USER_ID, &key),
-                                        event.state_key.as_str(),
+                                        event.state_key().as_str(),
                                     )?;
                                     invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
                                 }
                                 MembershipState::Invite => {
                                     invited.insert(
                                         self.encode_key(INVITED_USER_ID, &key),
-                                        event.state_key.as_str(),
+                                        event.state_key().as_str(),
                                     )?;
                                     joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
                                 }
@@ -489,7 +489,7 @@ impl SledStore {
                             )?;
 
                             if let Some(profile) =
-                                profile_changes.and_then(|p| p.get(&event.state_key))
+                                profile_changes.and_then(|p| p.get(event.state_key()))
                             {
                                 profiles.insert(
                                     self.encode_key(PROFILE, &key),
@@ -730,7 +730,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<RoomMemberEventContent>> {
+    ) -> Result<Option<MinimalStateEvent<RoomMemberEventContent>>> {
         let db = self.clone();
         let key = self.encode_key(PROFILE, (room_id, user_id));
         spawn_blocking(move || db.profiles.get(key)?.map(|p| db.deserialize_event(&p)).transpose())
@@ -1433,7 +1433,7 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> StoreResult<Option<RoomMemberEventContent>> {
+    ) -> StoreResult<Option<MinimalStateEvent<RoomMemberEventContent>>> {
         self.get_profile(room_id, user_id).await.map_err(Into::into)
     }
 

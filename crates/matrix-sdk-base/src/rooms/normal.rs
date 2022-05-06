@@ -813,7 +813,7 @@ mod test {
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{
                     MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                    StrippedRoomMemberEvent,
+                    StrippedRoomMemberEvent, SyncRoomMemberEvent,
                 },
                 name::RoomNameEventContent,
             },
@@ -846,8 +846,8 @@ mod test {
         }
     }
 
-    fn make_member_event(user_id: &UserId, name: &str) -> OriginalSyncRoomMemberEvent {
-        OriginalSyncRoomMemberEvent {
+    fn make_member_event(user_id: &UserId, name: &str) -> SyncRoomMemberEvent {
+        SyncRoomMemberEvent::Original(OriginalSyncRoomMemberEvent {
             content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
                 displayname: Some(name.to_owned())
             }),
@@ -856,7 +856,7 @@ mod test {
             event_id: event_id!("$h29iv0s1:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
             unsigned: StateUnsigned::default(),
-        }
+        })
     }
 
     #[tokio::test]
