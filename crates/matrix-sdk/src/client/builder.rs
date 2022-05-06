@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
-use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName, UserId,
@@ -324,16 +323,23 @@ impl ClientBuilder {
         let homeserver = Arc::new(RwLock::new(Url::parse(&homeserver)?));
         let http_client = mk_http_client(homeserver.clone());
 
-        let server_versions = match self.server_versions {
-            Some(vs) => vs,
-            None => vec![].into(),
+        #[cfg(target_arch = "wasm32")]
+        let server_versions = {
+            let cell = async_once_cell::OnceCell::new();
+            if let Some(server_versions) = self.server_versions {
+                cell.get_or_init(async move { server_versions }).await;
+            }
+            cell
         };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let server_versions = tokio::sync::OnceCell::new_with(self.server_versions);
 
         let inner = Arc::new(ClientInner {
             homeserver,
             http_client,
             base_client,
-            server_versions: Mutex::new(server_versions),
+            server_versions,
             #[cfg(feature = "e2e-encryption")]
             group_session_locks: Default::default(),
             #[cfg(feature = "e2e-encryption")]

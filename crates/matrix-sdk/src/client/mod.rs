@@ -23,6 +23,8 @@ use std::{
 };
 
 use anymap2::any::CloneAnySendSync;
+#[cfg(target_arch = "wasm32")]
+pub use async_once_cell::OnceCell;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
 use matrix_sdk_base::{
@@ -66,6 +68,8 @@ use ruma::{
     ServerName, UInt,
 };
 use serde::de::DeserializeOwned;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::OnceCell;
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
@@ -129,7 +133,7 @@ pub(crate) struct ClientInner {
     /// User session data.
     pub(crate) base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    server_versions: Mutex<Arc<[MatrixVersion]>>,
+    server_versions: OnceCell<Arc<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -1486,28 +1490,35 @@ impl Client {
         self.inner.http_client.send(request, config, self.server_versions().await?).await
     }
 
-    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
-        let mut server_versions = self.inner.server_versions.lock().await;
+    async fn request_server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+        let server_versions: Arc<[MatrixVersion]> = self
+            .inner
+            .http_client
+            .send(
+                get_supported_versions::Request::new(),
+                None,
+                [MatrixVersion::V1_0].into_iter().collect(),
+            )
+            .await?
+            .known_versions()
+            .into_iter()
+            .collect();
 
         if server_versions.is_empty() {
-            // Not initialized before
-            *server_versions = self
-                .inner
-                .http_client
-                .send(
-                    get_supported_versions::Request::new(),
-                    None,
-                    [MatrixVersion::V1_0].into_iter().collect(),
-                )
-                .await?
-                .known_versions()
-                .collect();
-
-            if server_versions.is_empty() {
-                // No known versions, fall back to v1.0 (r0 paths)
-                *server_versions = vec![MatrixVersion::V1_0].into();
-            }
+            Ok(vec![MatrixVersion::V1_0].into())
+        } else {
+            Ok(server_versions)
         }
+    }
+
+    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+        #[cfg(target_arch = "wasm32")]
+        let server_versions =
+            self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let server_versions =
+            self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
 
         Ok(server_versions.clone())
     }
