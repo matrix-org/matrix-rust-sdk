@@ -449,9 +449,8 @@ impl Room {
             .get_users_with_display_name(
                 self.room_id(),
                 member_event
-                    .content()
-                    .displayname
-                    .as_deref()
+                    .original_content()
+                    .and_then(|c| c.displayname.as_deref())
                     .unwrap_or_else(|| user_id.localpart()),
             )
             .await?

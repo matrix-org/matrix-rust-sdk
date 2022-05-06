@@ -51,7 +51,7 @@ impl RoomMember {
         if let Some(p) = self.profile.as_ref() {
             p.displayname.as_deref()
         } else {
-            self.event.content().displayname.as_deref()
+            self.event.original_content()?.displayname.as_deref()
         }
     }
 
@@ -71,7 +71,7 @@ impl RoomMember {
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         match self.profile.as_ref() {
             Some(p) => p.avatar_url.as_deref(),
-            None => self.event.content().avatar_url.as_deref(),
+            None => self.event.original_content()?.avatar_url.as_deref(),
         }
     }
 
@@ -114,7 +114,7 @@ impl RoomMember {
         if let Some(p) = self.profile.as_ref() {
             &p.membership
         } else {
-            &self.event.content().membership
+            self.event.membership()
         }
     }
 }

@@ -747,7 +747,7 @@ impl SledStore {
         let stripped_key = self.encode_key(STRIPPED_ROOM_MEMBER, (room_id, state_key));
         spawn_blocking(move || {
             if let Some(e) = db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()? {
-                Ok(Some(MemberEvent::Original(e)))
+                Ok(Some(MemberEvent::Sync(e)))
             } else if let Some(e) = db
                 .stripped_members
                 .get(stripped_key)?
