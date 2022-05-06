@@ -593,7 +593,8 @@ pub(crate) fn transform_request_path(
                 };
 
                 if let Some(query) = uri.query() {
-                    path.push_str(&format!("?{}", query));
+                    path.push('?');
+                    path.push_str(query);
                 }
 
                 path
