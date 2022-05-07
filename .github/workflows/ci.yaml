@@ -18,8 +18,6 @@ jobs:
           - 1.54.0
         os:
           - ubuntu-latest
-          - windows-latest
-          - macos-latest
         db:
           - postgres
           - mysql
@@ -63,8 +61,44 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test --no-default-features --features rustls,${{ matrix.db }}
+  check-build:
+    name: Run build check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - beta
+          - nightly
+          - 1.54.0
+        os:
+          - windows-latest
+          - macos-latest
+        db:
+          - postgres
+          - mysql
+          - sqlite
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ matrix.os }}-cargo-${{ matrix.rust }}-${{ matrix.db }}-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check --no-default-features --features rustls,${{ matrix.db }}
   coverage:
-    needs: test
+    needs: [test, check-build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
