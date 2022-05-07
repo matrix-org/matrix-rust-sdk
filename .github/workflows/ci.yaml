@@ -60,7 +60,8 @@ jobs:
           override: true
       - uses: actions-rs/cargo@v1
         with:
-          command: test --no-default-features --features rustls,${{ matrix.db }}
+          command: test
+          args: --no-default-features --features rustls,${{ matrix.db }}
   check-build:
     name: Run build check
     runs-on: ${{ matrix.os }}
@@ -96,7 +97,8 @@ jobs:
           override: true
       - uses: actions-rs/cargo@v1
         with:
-          command: check --no-default-features --features rustls,${{ matrix.db }}
+          command: check
+          args: --no-default-features --features rustls,${{ matrix.db }}
   coverage:
     needs: [test, check-build]
     runs-on: ubuntu-latest
