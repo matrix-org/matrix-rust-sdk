@@ -1,8 +1,24 @@
 [package]
-name = "rust-template"
+name = "matrix-sdk-statestore-sql"
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
+authors = ["Charlotte 🦝 Delenk <lotte@chir.rs>"]
+rust-version = "1.54.0"
+description = "SQL-Based State Storage for matrix-sdk"
+readme = "README.md"
+repository = "https://github.com/DarkKirb/matrix-sdk-statestore-sql"
+license = "Apache-2.0"
+keywords = ["matrix", "sql"]
+categories = ["database", "caching"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["native-tls", "postgres"]
+
+native-tls = []
+rustls = []
+
+postgres = []
+mysql = []
+sqlite = []
 
 [dependencies]

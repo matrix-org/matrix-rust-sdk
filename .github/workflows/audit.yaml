@@ -10,7 +10,7 @@ on:
       - "**/Cargo.lock"
   workflow_dispatch: {}
   schedule:
-    - cron: "16 19 * * *"
+    - cron: "51 16 * * *"
 jobs:
   audit:
     runs-on: ubuntu-latest

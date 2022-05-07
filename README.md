@@ -1,65 +1,38 @@
-# Project Title
+# SQL StateStore for matrix-sdk
 
-Simple overview of use/purpose.
+![Build Status](https://img.shields.io/github/workflow/status/DarkKirb/matrix-sdk-statestore-sql/Build%20checks)
+[![Code Coverage](https://img.shields.io/coveralls/github/DarkKirb/matrix-sdk-statestore-sql)](https://coveralls.io/github/DarkKirb/matrix-sdk-statestore-sql)
+[![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Description
 
-An in-depth paragraph about your project and overview of use.
+This crate allows you to use your postgres/mysql/sqlite/mssql database as a state and crypto store for matrix-sdk.
 
-## Getting Started
+## Features
 
-### Dependencies
+- `rustls`: Enables the rustls TLS backend in sqlx and matrix-sdk
+- `native-tls`: Enables the native-tls TLS backend in sqlx and matrix-sdk (enabled by default)
+- `postgres`: Enables support for postgres databases (enabled by default)
+- `mysql`: Enables support for mysql databases
+- `sqlite`: Enables support for sqlite databases
+- `encryption` Enables the CryptoStore
 
-* Describe any prerequisites, libraries, OS version, etc., needed before installing program.
-* ex. Windows 10
+Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres`, `mysql`, `sqlite`, or `mssql` must be enabled.
+## Minimum Supported Rust Version
+The MSRV is currently 1.54.0.
 
-### Installing
-
-* How/where to download your program
-* Any modifications needed to be made to files/folders
-
-### Executing program
-
-* How to run the program
-* Step-by-step bullets
-```
-code blocks for commands
-```
-
-## Help
-
-Any advise for common problems or issues.
-```
-command to run if program contains helper info
-```
-
+Increasing the MSRV is a breaking change. It is expected that the MSRP will rise to 1.60.0 in the next release.
 ## Authors
 
-Contributors names and contact info
-
-ex. Dominique Pizzie
-ex. [@DomPizzie](https://twitter.com/dompizzie)
-
-## Version History
-
-* 0.2
-    * Various bug fixes and optimizations
-    * See [commit change]() or See [release history]()
-* 0.1
-    * Initial Release
+- [Charlotte](https://github.com/DarkKirb)
 
 ## License
 
-This project is licensed under the [NAME HERE] License - see the LICENSE.md file for details
+This project is licensed under the Apache-2.0 License - see the [LICENSE.md](LICENSE.md) file for details
 
 ## Acknowledgments
 
-Inspiration, code snippets, etc.
-* [awesome-readme](https://github.com/matiassingers/awesome-readme)
-* [PurpleBooth](https://gist.github.com/PurpleBooth/109311bb0361f32d87a2)
-* [dbader](https://github.com/dbader/readme-template)
-* [zenorocha](https://gist.github.com/zenorocha/4526327)
-* [fvcproductions](https://gist.github.com/fvcproductions/1bfc2d4aecb01a834b46)
+- [awesome-readme](https://github.com/matiassingers/awesome-readme)
+- [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk)
 
 ## Contributors
 
