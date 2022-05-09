@@ -72,15 +72,15 @@ impl SupportedDatabase for sqlx::mysql::MySql {
         sqlx::query(
             r#"
                 INSERT INTO statestore_kv (kv_key, kv_value)
-                VALUES (?1, ?2)
-                ON DUPLICATE KEY UPDATE kv_value = ?2
+                VALUES (?, ?) AS excluded
+                ON DUPLICATE KEY UPDATE kv_value = excluded.kv_value
             "#,
         )
     }
     fn kv_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                SELECT kv_value FROM statestore_kv WHERE kv_key = ?1
+                SELECT kv_value FROM statestore_kv WHERE kv_key = ?
             "#,
         )
     }
