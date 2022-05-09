@@ -49,22 +49,14 @@ thiserror = "1.0.30"
 tracing = "0.1.34"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies.ruma]
-version = "0.6.1"
-features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ruma = { version = "0.6.1", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834" }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
-features = ["js"]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
-version = "0.6.1"
-features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ruma = { version = "0.6.1", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834", features = ["js"] }
+wasm-bindgen = "0.2.80"
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
