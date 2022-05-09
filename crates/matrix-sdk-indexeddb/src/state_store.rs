@@ -95,7 +95,7 @@ impl From<SerializationError> for StoreError {
                     expected, found
                 )),
             },
-            _ => StoreError::Backend(Box::new(e)),
+            _ => StoreError::backend(e),
         }
     }
 }
