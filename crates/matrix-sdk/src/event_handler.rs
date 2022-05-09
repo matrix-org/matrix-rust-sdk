@@ -494,6 +494,13 @@ mod static_events {
             (EventKind::MessageLike, events::room::redaction::RoomRedactionEventContent::TYPE);
     }
 
+    impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
+        const ID: (EventKind, &'static str) = (
+            EventKind::OriginalMessageLike,
+            events::room::redaction::RoomRedactionEventContent::TYPE,
+        );
+    }
+
     impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
         const ID: (EventKind, &'static str) = (
             EventKind::RedactedMessageLike,
