@@ -202,7 +202,7 @@ impl Common {
         };
 
         #[cfg(feature = "e2e-encryption")]
-        if let Some(ref machine) = self.client.olm_machine().await {
+        if let Some(machine) = self.client.olm_machine().await {
             for event in http_response.chunk {
                 let event =
                     if let Some(event) = EventEnum::from(&event).decrypt(room_id, machine).await {
