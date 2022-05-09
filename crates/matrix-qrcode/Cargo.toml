@@ -29,5 +29,4 @@ ruma-common = "0.9.0"
 thiserror = "1.0.30"
 
 [dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
+version = "0.2.0"
