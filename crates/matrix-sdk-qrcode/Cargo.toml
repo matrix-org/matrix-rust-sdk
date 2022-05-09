@@ -1,5 +1,5 @@
 [package]
-name = "matrix-qrcode"
+name = "matrix-sdk-qrcode"
 description = "Library to encode and decode QR codes for interactive verifications in Matrix land"
 version = "0.2.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]

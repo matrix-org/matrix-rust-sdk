@@ -18,7 +18,7 @@ use std::{
 };
 
 #[cfg(feature = "qrcode")]
-use matrix_qrcode::QrVerificationData;
+use matrix_sdk_qrcode::QrVerificationData;
 use matrix_sdk_common::instant::Instant;
 use ruma::{
     events::{

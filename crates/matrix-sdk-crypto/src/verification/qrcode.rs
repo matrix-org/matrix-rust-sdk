@@ -14,7 +14,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use matrix_qrcode::{
+use matrix_sdk_qrcode::{
     qrcode::QrCode, EncodingError, QrVerificationData, SelfVerificationData,
     SelfVerificationNoMasterKey, VerificationData,
 };
@@ -789,7 +789,7 @@ impl QrState<Reciprocated> {
 mod tests {
     use std::{convert::TryFrom, sync::Arc};
 
-    use matrix_qrcode::QrVerificationData;
+    use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, event_id, room_id, user_id, DeviceId, UserId};
