@@ -2,6 +2,10 @@
 name = "matrix-sdk-sled"
 version = "0.1.0"
 edition = "2021"
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+description = "Skled Storage backend for matrix-sdk for native environments"
+license = "Apache-2.0"
 rust-version = "1.60"
 
 [features]

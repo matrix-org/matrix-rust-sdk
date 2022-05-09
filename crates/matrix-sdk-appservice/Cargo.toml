@@ -2,6 +2,8 @@
 authors = ["Johannes Becker <j.becker@famedly.com>"]
 edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+description = "Appservice SDK based on the matrix-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio", "appservice"]
 license = "Apache-2.0"
 name = "matrix-sdk-appservice"
