@@ -18,10 +18,6 @@ jobs:
           - 1.60.0
         os:
           - ubuntu-latest
-        db:
-          - postgres
-          - mysql
-          - sqlite
     services:
       postgres:
         image: postgres:latest
@@ -54,7 +50,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ matrix.os }}-cargo-${{ matrix.rust }}-${{ matrix.db }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -63,7 +59,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-default-features --features rustls,${{ matrix.db }},ci
+          args: --no-default-features --features rustls,postgres,sqlite,mysql,ci
   check-build:
     name: Run build check
     runs-on: ${{ matrix.os }}
@@ -77,10 +73,6 @@ jobs:
         os:
           - windows-latest
           - macos-latest
-        db:
-          - postgres
-          - mysql
-          - sqlite
     steps:
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
@@ -91,7 +83,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ matrix.os }}-cargo-${{ matrix.rust }}-${{ matrix.db }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -100,7 +92,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --no-default-features --features rustls,${{ matrix.db }},ci
+          args: --no-default-features --features rustls,postgres,sqlite,mysql,ci
   coverage:
     needs: [test, check-build]
     runs-on: ubuntu-latest
@@ -114,7 +106,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ubuntu-latest-cargo-nightly-all-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-latest-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -230,7 +222,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ubuntu-latest-cargo-nightly-all-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-latest-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
