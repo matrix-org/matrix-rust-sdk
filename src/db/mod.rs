@@ -40,7 +40,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'r> Vec<u8>: Decode<'r, DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let row = sqlx::query("SELECT kv_value FROM statestore_kv WHERE kv_key = $1")
+        let row = DB::kv_load_query()
             .bind(key)
             .fetch_optional(&*self.db)
             .await?;

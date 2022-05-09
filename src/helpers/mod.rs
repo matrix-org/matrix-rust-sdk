@@ -41,6 +41,18 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Returns a query for loading from the `statestore_kv` table
+    ///
+    /// # Arguments
+    /// * `$1` - The key to load
+    fn kv_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT kv_value FROM statestore_kv WHERE kv_key = $1
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]
@@ -50,6 +62,7 @@ impl SupportedDatabase for sqlx::postgres::Postgres {
     }
 }
 
+// Fucking mysql
 #[cfg(feature = "mysql")]
 impl SupportedDatabase for sqlx::mysql::MySql {
     fn get_migrator() -> &'static Migrator {
@@ -59,8 +72,15 @@ impl SupportedDatabase for sqlx::mysql::MySql {
         sqlx::query(
             r#"
                 INSERT INTO statestore_kv (kv_key, kv_value)
-                VALUES ($1, $2)
-                ON DUPLICATE KEY UPDATE kv_value = $2
+                VALUES (?1, ?2)
+                ON DUPLICATE KEY UPDATE kv_value = ?2
+            "#,
+        )
+    }
+    fn kv_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT kv_value FROM statestore_kv WHERE kv_key = ?1
             "#,
         )
     }
