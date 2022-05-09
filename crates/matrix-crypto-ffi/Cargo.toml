@@ -48,8 +48,7 @@ default_features = false
 features = ["rt-multi-thread"]
 
 [dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
+version = "0.2.0"
 
 [build-dependencies]
 uniffi_build = { version = "0.17.0", features = ["builtin-bindgen"] }
