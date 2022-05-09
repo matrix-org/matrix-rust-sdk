@@ -7,6 +7,7 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Skled Storage backend for matrix-sdk for native environments"
 license = "Apache-2.0"
 rust-version = "1.60"
+readme = "README.md"
 
 [features]
 default = ["state-store"]

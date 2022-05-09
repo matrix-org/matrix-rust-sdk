@@ -69,6 +69,14 @@ $ cp ../../target/aarch64-linux-android/debug/libmatrix_crypto.so \
      /home/example/matrix-sdk-android/src/main/jniLibs/aarch64/libuniffi_olm.so
 ```
 
+## Minimum Supported Rust Version (MSRV)
+
+These crates are built with the Rust language version 2021 and require a minimum compiler version of `1.60`
+
+## License
+
+[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+
 [Rust]: https://www.rust-lang.org/
 [installer]: https://rustup.rs/
 [targets]: https://doc.rust-lang.org/nightly/rustc/platform-support.html
