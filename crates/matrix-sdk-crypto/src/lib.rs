@@ -26,6 +26,7 @@ mod error;
 mod file_encryption;
 mod gossiping;
 mod identities;
+mod js;
 mod machine;
 pub mod olm;
 mod requests;
@@ -82,6 +83,8 @@ pub use identities::{
     Device, LocalTrust, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
+#[cfg(feature = "js")]
+pub use js::*;
 pub use machine::OlmMachine;
 #[cfg(feature = "qrcode")]
 pub use matrix_qrcode;
