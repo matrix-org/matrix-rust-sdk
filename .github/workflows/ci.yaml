@@ -242,7 +242,7 @@ jobs:
       - run: |
           mkdir public
           mv target/doc public/rust
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
       - name: Deploy to GitHub Pages
         uses: crazy-max/ghaction-github-pages@v2
         with:
@@ -250,7 +250,7 @@ jobs:
           build_dir: public
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        if: (github.ref == 'refs/heads/master') && success()
+        if: (github.ref == 'refs/heads/main') && success()
   update_contributors:
     runs-on: ubuntu-latest
     steps:
