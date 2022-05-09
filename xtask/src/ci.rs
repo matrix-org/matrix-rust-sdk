@@ -185,7 +185,7 @@ fn run_crypto_tests() -> Result<()> {
     )
     .run()?;
     cmd!("rustup run stable cargo test -p matrix-sdk-crypto --features=backups_v1").run()?;
-    cmd!("rustup run stable cargo test -p matrix-crypto-ffi").run()?;
+    cmd!("rustup run stable cargo test -p matrix-sdk-crypto-ffi").run()?;
 
     Ok(())
 }
