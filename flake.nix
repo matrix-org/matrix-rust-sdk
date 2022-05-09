@@ -24,7 +24,7 @@
     rec {
       devShells.default = with pkgs; mkShell {
         buildInputs = [
-          (rust-bin.stable."1.56.0".default.override {
+          (rust-bin.stable."1.60.0".default.override {
             extensions = [ "rust-src" ];
           })
           cargo-fuzz

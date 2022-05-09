@@ -3,9 +3,9 @@
 ![Build Status](https://img.shields.io/github/workflow/status/DarkKirb/matrix-sdk-statestore-sql/Build%20checks)
 [![Code Coverage](https://img.shields.io/coveralls/github/DarkKirb/matrix-sdk-statestore-sql)](https://coveralls.io/github/DarkKirb/matrix-sdk-statestore-sql)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg?style=flat-square)](https://darkkirb.github.io/matrix-sdk-statestore-sql/rust/matrix_sdk_statestore_sql/)
 
-
-This crate allows you to use your postgres/mysql/sqlite/mssql database as a state and crypto store for matrix-sdk.
+This crate allows you to use your postgres/mysql/sqlite database as a state and crypto store for matrix-sdk.
 
 ## Crate Features
 
@@ -16,11 +16,11 @@ This crate allows you to use your postgres/mysql/sqlite/mssql database as a stat
 - `sqlite`: Enables support for sqlite databases
 - `encryption` Enables the CryptoStore
 
-Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres`, `mysql`, `sqlite`, or `mssql` must be enabled.
+Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres`, `mysql`, or `sqlite` must be enabled.
 ## Minimum Supported Rust Version
-The MSRV is currently 1.56.0.
+The MSRV is currently 1.60.0.
 
-Increasing the MSRV is a breaking change. The MSRV will be raised to 1.60 in 0.2.x.
+Increasing the MSRV is a breaking change.
 ## Authors
 
 - [Charlotte](https://github.com/DarkKirb)

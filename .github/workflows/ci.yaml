@@ -15,7 +15,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - 1.56.0
+          - 1.60.0
         os:
           - ubuntu-latest
         db:
@@ -73,7 +73,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - 1.56.0
+          - 1.60.0
         os:
           - windows-latest
           - macos-latest
