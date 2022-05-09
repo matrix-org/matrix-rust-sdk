@@ -205,7 +205,7 @@ impl Common {
         if let Some(machine) = self.client.olm_machine().await {
             for event in http_response.chunk {
                 let event =
-                    if let Some(event) = EventEnum::from(&event).decrypt(room_id, machine).await {
+                    if let Some(event) = EventEnum::from(&event).decrypt(room_id, &machine).await {
                         event
                     } else {
                         RoomEvent { event, encryption_info: None }
