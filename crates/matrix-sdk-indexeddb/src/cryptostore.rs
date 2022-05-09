@@ -120,7 +120,7 @@ impl From<IndexeddbStoreError> for CryptoStoreError {
         match frm {
             IndexeddbStoreError::Json(e) => CryptoStoreError::Serialization(e),
             IndexeddbStoreError::CryptoStoreError(e) => e,
-            _ => CryptoStoreError::Backend(Box::new(frm)),
+            _ => CryptoStoreError::backend(frm),
         }
     }
 }
@@ -217,9 +217,8 @@ impl IndexeddbStore {
             Some(key) => StoreCipher::import(passphrase, &key)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?,
             None => {
-                let key = StoreCipher::new().map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
-                let encrypted =
-                    key.export(passphrase).map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
+                let key = StoreCipher::new().map_err(CryptoStoreError::backend)?;
+                let encrypted = key.export(passphrase).map_err(CryptoStoreError::backend)?;
 
                 let tx: IdbTransaction<'_> = db.transaction_on_one_with_mode(
                     "matrix-sdk-crypto",
@@ -246,8 +245,7 @@ impl IndexeddbStore {
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
         if let Some(key) = &self.store_cipher {
-            let value =
-                key.encrypt_value(value).map_err(|e| CryptoStoreError::Backend(Box::new(e)))?;
+            let value = key.encrypt_value(value).map_err(CryptoStoreError::backend)?;
 
             Ok(JsValue::from_serde(&value)?)
         } else {
@@ -261,7 +259,7 @@ impl IndexeddbStore {
     ) -> Result<T, CryptoStoreError> {
         if let Some(key) = &self.store_cipher {
             let value: Vec<u8> = value.into_serde()?;
-            key.decrypt_value(&value).map_err(|e| CryptoStoreError::Backend(Box::new(e)))
+            key.decrypt_value(&value).map_err(CryptoStoreError::backend)
         } else {
             Ok(value.into_serde()?)
         }
