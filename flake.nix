@@ -24,13 +24,16 @@
     rec {
       devShells.default = with pkgs; mkShell {
         buildInputs = [
-          (rust-bin.stable."1.54.0".default.override {
+          (rust-bin.stable."1.56.0".default.override {
             extensions = [ "rust-src" ];
           })
           cargo-fuzz
           sqlx-cli
           git-cliff
           cargo-release
+          openssl
+          pkg-config
+          cmake
         ];
       };
       nixosModules.default = import ./nixos {

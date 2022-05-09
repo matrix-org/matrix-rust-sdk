@@ -7,7 +7,7 @@
 
 This crate allows you to use your postgres/mysql/sqlite/mssql database as a state and crypto store for matrix-sdk.
 
-## Features
+## Crate Features
 
 - `rustls`: Enables the rustls TLS backend in sqlx and matrix-sdk
 - `native-tls`: Enables the native-tls TLS backend in sqlx and matrix-sdk (enabled by default)
@@ -18,9 +18,9 @@ This crate allows you to use your postgres/mysql/sqlite/mssql database as a stat
 
 Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres`, `mysql`, `sqlite`, or `mssql` must be enabled.
 ## Minimum Supported Rust Version
-The MSRV is currently 1.54.0.
+The MSRV is currently 1.56.0.
 
-Increasing the MSRV is a breaking change. It is expected that the MSRP will rise to 1.60.0 in the next release.
+Increasing the MSRV is a breaking change. The MSRV will be raised to 1.60 in 0.2.x.
 ## Authors
 
 - [Charlotte](https://github.com/DarkKirb)

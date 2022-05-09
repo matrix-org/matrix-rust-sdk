@@ -15,7 +15,6 @@
     "-Wmissing-docs",
     "-Wnoop-method-call",
     "-Wpointer-structural-match",
-    "-Wsingle-use-lifetimes",
     "-Wtrivial-casts",
     "-Wtrivial-numeric-casts",
     "-Wunreachable-pub",
@@ -31,7 +30,7 @@
     "-Wclippy::pedantic",
     "-Wclippy::cargo",
     "-Wclippy::clone_on_ref_ptr",
-    "-Dclippy::default_union_representation",
+    //"-Dclippy::default_union_representation",
     "-Dclippy::expect_used",
     "-Wclippy::get_unwrap",
     "-Wclippy::if_then_some_else_none",
@@ -41,12 +40,19 @@
     "-Wclippy::panic",
     "-Dclippy::panic_in_result_fn",
     "-Wclippy::rc_buffer",
-    "-Dclippy::rc_mutex",
+    //"-Dclippy::rc_mutex",
     "-Wclippy::str_to_string",
     "-Wclippy::try_err",
-    "-Dclippy::undocumented_unsafe_blocks",
+    //"-Dclippy::undocumented_unsafe_blocks",
     "-Dclippy::unwrap_used",
     "-Aclippy::type-repetition-in-bounds",
     "-Aclippy::trait-duplication-in-bounds"
-  ]
+  ],
+  "rust-analyzer.cargo.noDefaultFeatures": true,
+  "rust-analyzer.cargo.features": [
+    "rustls",
+    "postgres",
+    "mysql",
+    "sqlite"
+  ],
 }

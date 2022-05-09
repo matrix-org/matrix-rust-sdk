@@ -3,7 +3,7 @@ name = "matrix-sdk-statestore-sql"
 version = "0.1.0"
 edition = "2018"
 authors = ["Charlotte 🦝 Delenk <lotte@chir.rs>"]
-rust-version = "1.54.0"
+rust-version = "1.56.0"
 description = "SQL-Based State Storage for matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/DarkKirb/matrix-sdk-statestore-sql"
@@ -14,11 +14,26 @@ categories = ["database", "caching"]
 [features]
 default = ["native-tls", "postgres"]
 
-native-tls = []
-rustls = []
+native-tls = ["sqlx/runtime-tokio-native-tls"]
+rustls = ["sqlx/runtime-tokio-rustls"]
 
-postgres = []
-mysql = []
-sqlite = []
+postgres = ["sqlx/postgres"]
+mysql = ["sqlx/mysql"]
+sqlite = ["sqlx/sqlite"]
+
+encryption = ["matrix-sdk-base/encryption"]
+
+# Internal feature used by ci builds
+ci = []
 
 [dependencies]
+anyhow = "1.0.57"
+matrix-sdk-base = "0.4.1"
+
+[dependencies.sqlx]
+version = "0.5.13"
+features = ["migrate", "json"]
+
+[dev-dependencies.tokio]
+version = "1.18.1"
+features = ["macros", "rt-multi-thread"]
