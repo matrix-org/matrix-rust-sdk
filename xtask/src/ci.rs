@@ -61,7 +61,7 @@ enum FeatureSet {
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(clippy::enum_variant_names)]
 enum WasmFeatureSet {
-    MatrixQrcode,
+    MatrixSdkQrcode,
     MatrixSdkNoDefault,
     MatrixSdkBase,
     MatrixSdkCommon,
@@ -199,7 +199,7 @@ fn run_appservice_tests() -> Result<()> {
 
 fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixQrcode, "-p matrix-sdk-qrcode"),
+        (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode"),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk --no-default-features --features rustls-tls",
@@ -260,7 +260,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 
 fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixQrcode, ("matrix-sdk-qrcode", "")),
+        (WasmFeatureSet::MatrixSdkQrcode, ("matrix-sdk-qrcode", "")),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
             ("matrix-sdk", "--no-default-features --features rustls-tls --lib"),
