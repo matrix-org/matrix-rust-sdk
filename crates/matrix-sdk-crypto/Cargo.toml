@@ -20,6 +20,7 @@ default = []
 qrcode = ["matrix-qrcode"]
 backups_v1 = ["olm-rs", "bs58"]
 docsrs = []
+js = []
 
 # Testing helpers for implementations based upon this
 testing = ["http"]
