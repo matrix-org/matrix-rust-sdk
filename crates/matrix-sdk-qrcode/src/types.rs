@@ -91,7 +91,7 @@ impl QrVerificationData {
     ///
     /// # Example
     /// ```no_run
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// use image;
     ///
@@ -115,7 +115,7 @@ impl QrVerificationData {
     ///
     /// # Example
     /// ```no_run
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// use image;
     ///
@@ -145,7 +145,7 @@ impl QrVerificationData {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
@@ -173,7 +173,7 @@ impl QrVerificationData {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
@@ -203,7 +203,7 @@ impl QrVerificationData {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
@@ -416,7 +416,7 @@ impl VerificationData {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x00\x00\x0f\
@@ -519,7 +519,7 @@ impl SelfVerificationData {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x01\x00\x06\
@@ -622,7 +622,7 @@ impl SelfVerificationNoMasterKey {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
+    /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x06\
