@@ -107,6 +107,20 @@ pub enum StoreError {
     #[error("Redaction failed: {0}")]
     Redaction(#[source] ruma::signatures::Error),
 }
+
+impl StoreError {
+    /// Create a new [`Backend`][Self::Backend] error.
+    ///
+    /// Shorthand for `StoreError::Backend(Box::new(error))`.
+    #[inline]
+    pub fn backend<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Backend(Box::new(error))
+    }
+}
+
 /// A `StateStore` specific result type.
 pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 

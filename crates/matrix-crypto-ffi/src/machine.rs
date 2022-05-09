@@ -102,7 +102,7 @@ impl OlmMachine {
                         // this.
                         matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
                         matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
-                            matrix_sdk_crypto::store::CryptoStoreError::Backend(Box::new(s)),
+                            matrix_sdk_crypto::store::CryptoStoreError::backend(s),
                         ),
                         _ => unreachable!(),
                     }

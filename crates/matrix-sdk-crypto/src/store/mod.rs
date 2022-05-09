@@ -628,6 +628,19 @@ pub enum CryptoStoreError {
     Backend(Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl CryptoStoreError {
+    /// Create a new [`Backend`][Self::Backend] error.
+    ///
+    /// Shorthand for `StoreError::Backend(Box::new(error))`.
+    #[inline]
+    pub fn backend<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Backend(Box::new(error))
+    }
+}
+
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
 /// keys.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
