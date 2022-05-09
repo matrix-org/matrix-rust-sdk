@@ -73,7 +73,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - 1.54.0
+          - 1.56.0
         os:
           - windows-latest
           - macos-latest
