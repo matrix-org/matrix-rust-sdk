@@ -496,7 +496,7 @@ mod static_events {
 
     impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
         const ID: (EventKind, &'static str) = (
-            EventKind::OriginalMessageLike,
+            EventKind::RedactedMessageLike,
             events::room::redaction::RoomRedactionEventContent::TYPE,
         );
     }
