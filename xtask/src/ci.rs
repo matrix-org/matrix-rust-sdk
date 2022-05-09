@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, env, path::PathBuf};
 
 use clap::{Args, Subcommand};
 use serde::Deserialize;
-use xshell::{cmd, pushd};
+use xshell::{cmd, Shell};
 
 use crate::{build_docs, DenyWarnings, Result};
 
@@ -75,7 +75,9 @@ enum WasmFeatureSet {
 
 impl CiArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(&workspace_root()?)?;
+        let sh = Shell::new()?;
+
+        let _p = sh.push_dir(&workspace_root()?);
 
         match self.cmd {
             Some(cmd) => match cmd {
@@ -108,20 +110,27 @@ impl CiArgs {
 }
 
 fn check_style() -> Result<()> {
-    cmd!("rustup run nightly cargo fmt -- --check").run()?;
+    let sh = Shell::new()?;
+
+    cmd!(sh, "rustup run nightly cargo fmt -- --check").run()?;
     Ok(())
 }
 
 fn check_typos() -> Result<()> {
+    let sh = Shell::new()?;
+
     // FIXME: Print install instructions if command-not-found (needs an xshell
     //        change: https://github.com/matklad/xshell/issues/46)
-    cmd!("typos").run()?;
+    cmd!(sh, "typos").run()?;
     Ok(())
 }
 
 fn check_clippy() -> Result<()> {
-    cmd!("rustup run nightly cargo clippy --all-targets -- -D warnings").run()?;
+    let sh = Shell::new()?;
+
+    cmd!(sh, "rustup run nightly cargo clippy --all-targets -- -D warnings").run()?;
     cmd!(
+        sh,
         "rustup run nightly cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features --features native-tls,warp
@@ -129,6 +138,7 @@ fn check_clippy() -> Result<()> {
     )
     .run()?;
     cmd!(
+        sh,
         "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
             --no-default-features -- -D warnings"
     )
@@ -141,12 +151,16 @@ fn check_docs() -> Result<()> {
 }
 
 fn run_tests() -> Result<()> {
-    cmd!("rustup run stable cargo test").run()?;
-    cmd!("rustup run beta cargo test").run()?;
+    let sh = Shell::new()?;
+
+    cmd!(sh, "rustup run stable cargo test").run()?;
+    cmd!(sh, "rustup run beta cargo test").run()?;
     Ok(())
 }
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
+    let sh = Shell::new()?;
+
     let args = BTreeMap::from([
         (FeatureSet::NoEncryption, "--no-default-features --features sled,native-tls"),
         (FeatureSet::NoSled, "--no-default-features --features e2e-encryption,native-tls"),
@@ -162,7 +176,9 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     ]);
 
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo test -p matrix-sdk").args(arg_set.split_whitespace()).run()
+        cmd!(sh, "rustup run stable cargo test -p matrix-sdk")
+            .args(arg_set.split_whitespace())
+            .run()
     };
 
     match cmd {
@@ -180,24 +196,31 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
 }
 
 fn run_crypto_tests() -> Result<()> {
+    let sh = Shell::new()?;
+
     cmd!(
+        sh,
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
     )
     .run()?;
-    cmd!("rustup run stable cargo test -p matrix-sdk-crypto --features=backups_v1").run()?;
-    cmd!("rustup run stable cargo test -p matrix-crypto-ffi").run()?;
+    cmd!(sh, "rustup run stable cargo test -p matrix-sdk-crypto --features=backups_v1").run()?;
+    cmd!(sh, "rustup run stable cargo test -p matrix-crypto-ffi").run()?;
 
     Ok(())
 }
 
 fn run_appservice_tests() -> Result<()> {
-    cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
-    cmd!("rustup run stable cargo test -p matrix-sdk-appservice").run()?;
+    let sh = Shell::new()?;
+
+    cmd!(sh, "rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
+    cmd!(sh, "rustup run stable cargo test -p matrix-sdk-appservice").run()?;
 
     Ok(())
 }
 
 fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    let sh = Shell::new()?;
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixQrcode, "-p matrix-qrcode"),
         (
@@ -223,16 +246,16 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     ]);
 
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
+        cmd!(sh, "rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(arg_set.split_whitespace())
             .args(["--", "-D", "warnings"])
             .run()
     };
 
     let test_command_bot = || {
-        let _p = pushd("crates/matrix-sdk/examples/wasm_command_bot");
+        let _p = sh.push_dir("crates/matrix-sdk/examples/wasm_command_bot");
 
-        cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
+        cmd!(sh, "rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(["--", "-D", "warnings", "-A", "clippy::unused-unit"])
             .run()
     };
@@ -259,6 +282,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 }
 
 fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    let sh = Shell::new()?;
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixQrcode, ("matrix-qrcode", "")),
         (
@@ -287,16 +311,16 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     ]);
 
     let run = |(folder, arg_set): (&str, &str)| {
-        let _p = pushd(format!("crates/{}", folder));
-        cmd!("pwd").run()?; // print dir so we know what might have failed
-        cmd!("wasm-pack test --node -- ").args(arg_set.split_whitespace()).run()?;
-        cmd!("wasm-pack test --firefox --headless --").args(arg_set.split_whitespace()).run()
+        let _p = sh.push_dir(format!("crates/{}", folder));
+        cmd!(sh, "pwd").run()?; // print dir so we know what might have failed
+        cmd!(sh, "wasm-pack test --node -- ").args(arg_set.split_whitespace()).run()?;
+        cmd!(sh, "wasm-pack test --firefox --headless --").args(arg_set.split_whitespace()).run()
     };
 
     let test_command_bot = || {
-        let _p = pushd("crates/matrix-sdk/examples/wasm_command_bot");
-        cmd!("wasm-pack test --node").run()?;
-        cmd!("wasm-pack test --firefox --headless").run()
+        let _p = sh.push_dir("crates/matrix-sdk/examples/wasm_command_bot");
+        cmd!(sh, "wasm-pack test --node").run()?;
+        cmd!(sh, "wasm-pack test --firefox --headless").run()
     };
 
     match cmd {
@@ -321,12 +345,13 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
 }
 
 fn workspace_root() -> Result<PathBuf> {
+    let sh = Shell::new()?;
     #[derive(Deserialize)]
     struct Metadata {
         workspace_root: PathBuf,
     }
 
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let metadata_json = cmd!("{cargo} metadata --no-deps --format-version 1").read()?;
+    let metadata_json = cmd!(sh, "{cargo} metadata --no-deps --format-version 1").read()?;
     Ok(serde_json::from_str::<Metadata>(&metadata_json)?.workspace_root)
 }

@@ -4,7 +4,7 @@ mod fixup;
 use ci::CiArgs;
 use clap::{Parser, Subcommand};
 use fixup::FixupArgs;
-use xshell::cmd;
+use xshell::{cmd, Shell};
 
 type Result<T, E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
@@ -45,13 +45,15 @@ fn build_docs(
     extra_args: impl IntoIterator<Item = &'static str>,
     deny_warnings: DenyWarnings,
 ) -> Result<()> {
+    let sh = Shell::new()?;
+
     let mut rustdocflags = "--enable-index-page -Zunstable-options --cfg docsrs".to_owned();
     if let DenyWarnings::Yes = deny_warnings {
         rustdocflags += " -Dwarnings";
     }
 
     // Keep in sync with .github/workflows/docs.yml
-    cmd!("rustup run nightly cargo doc --no-deps --workspace --features docsrs -Zrustdoc-map")
+    cmd!(sh, "rustup run nightly cargo doc --no-deps --workspace --features docsrs -Zrustdoc-map")
         .env("RUSTDOCFLAGS", rustdocflags)
         .args(extra_args)
         .run()?;

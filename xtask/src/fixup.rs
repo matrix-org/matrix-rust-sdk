@@ -2,7 +2,7 @@ use std::{env, path::PathBuf};
 
 use clap::{Args, Subcommand};
 use serde::Deserialize;
-use xshell::{cmd, pushd};
+use xshell::{cmd, Shell};
 
 use crate::Result;
 
@@ -24,18 +24,19 @@ enum FixupCommand {
 
 impl FixupArgs {
     pub fn run(self) -> Result<()> {
-        let _p = pushd(&workspace_root()?)?;
+        let sh = Shell::new()?;
+        let _p = sh.push_dir(&workspace_root(&sh)?);
 
         match self.cmd {
             Some(cmd) => match cmd {
-                FixupCommand::Style => fix_style(),
-                FixupCommand::Typos => fix_typos(),
-                FixupCommand::Clippy => fix_clippy(),
+                FixupCommand::Style => fix_style(&sh),
+                FixupCommand::Typos => fix_typos(&sh),
+                FixupCommand::Clippy => fix_clippy(&sh),
             },
             None => {
-                fix_style()?;
-                fix_typos()?;
-                fix_clippy()?;
+                fix_style(&sh)?;
+                fix_typos(&sh)?;
+                fix_clippy(&sh)?;
 
                 Ok(())
             }
@@ -43,26 +44,28 @@ impl FixupArgs {
     }
 }
 
-fn fix_style() -> Result<()> {
-    cmd!("rustup run nightly cargo fmt").run()?;
+fn fix_style(sh: &Shell) -> Result<()> {
+    cmd!(sh, "rustup run nightly cargo fmt").run()?;
     Ok(())
 }
 
-fn fix_typos() -> Result<()> {
+fn fix_typos(sh: &Shell) -> Result<()> {
     // FIXME: Print install instructions if command-not-found (needs an xshell
     //        change: https://github.com/matklad/xshell/issues/46)
-    cmd!("typos --write-changes").run()?;
+    cmd!(sh, "typos --write-changes").run()?;
     Ok(())
 }
 
-fn fix_clippy() -> Result<()> {
+fn fix_clippy(sh: &Shell) -> Result<()> {
     cmd!(
+        sh,
         "rustup run nightly cargo clippy --all-targets
         --fix --allow-dirty --allow-staged
         -- -D warnings "
     )
     .run()?;
     cmd!(
+        sh,
         "rustup run nightly cargo clippy --workspace --all-targets
             --fix --allow-dirty --allow-staged
             --exclude matrix-sdk-crypto --exclude xtask
@@ -71,6 +74,7 @@ fn fix_clippy() -> Result<()> {
     )
     .run()?;
     cmd!(
+        sh,
         "rustup run nightly cargo clippy --all-targets -p matrix-sdk-crypto
             --allow-dirty --allow-staged --fix
             --no-default-features -- -D warnings"
@@ -79,13 +83,13 @@ fn fix_clippy() -> Result<()> {
     Ok(())
 }
 
-fn workspace_root() -> Result<PathBuf> {
+fn workspace_root(sh: &Shell) -> Result<PathBuf> {
     #[derive(Deserialize)]
     struct Metadata {
         workspace_root: PathBuf,
     }
 
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let metadata_json = cmd!("{cargo} metadata --no-deps --format-version 1").read()?;
+    let metadata_json = cmd!(sh, "{cargo} metadata --no-deps --format-version 1").read()?;
     Ok(serde_json::from_str::<Metadata>(&metadata_json)?.workspace_root)
 }
