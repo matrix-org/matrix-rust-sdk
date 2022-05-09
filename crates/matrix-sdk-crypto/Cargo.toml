@@ -15,6 +15,9 @@ version = "0.4.1"
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lib]
+crate-type = ["cdylib"]
+
 [features]
 default = []
 qrcode = ["matrix-qrcode"]
