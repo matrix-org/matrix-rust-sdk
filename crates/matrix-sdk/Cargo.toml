@@ -68,8 +68,8 @@ futures-core = "0.3.21"
 futures-util = { version = "0.3.21", default-features = false }
 http = "0.2.6"
 matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
-matrix-sdk-indexeddb = { path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
-matrix-sdk-sled = { path = "../matrix-sdk-sled", default-features = false, optional = true }
+matrix-sdk-indexeddb = { version = "0.1.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
+matrix-sdk-sled = { version = "0.1.0", path = "../matrix-sdk-sled", default-features = false, optional = true }
 mime = "0.3.16"
 rand = { version = "0.8.5", optional = true }
 serde = "1.0.136"

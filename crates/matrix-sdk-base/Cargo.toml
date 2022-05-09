@@ -36,7 +36,7 @@ hmac = { version = "0.12.1", optional = true }
 http = { version = "0.2.6", optional = true }
 lru = "0.7.5"
 matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
-matrix-sdk-crypto = { version = "0.4.0", path = "../matrix-sdk-crypto", optional = true }
+matrix-sdk-crypto = { version = "0.4.1", path = "../matrix-sdk-crypto", optional = true }
 pbkdf2 = { version = "0.11.0", default-features = false, optional = true }
 rand = { version = "0.8.5", optional = true }
 serde = { version = "1.0.136", features = ["rc"] }
