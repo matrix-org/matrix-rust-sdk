@@ -24,7 +24,9 @@ use sqlx::{
     Type,
 };
 
+mod custom;
 mod filters;
+mod sync_token;
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Insert a key-value pair into the kv table
@@ -313,7 +315,9 @@ where
     ///
     /// * `key` - The key to fetch data for
     async fn get_custom_value(&self, key: &[u8]) -> StoreResult<Option<Vec<u8>>> {
-        todo!();
+        self.get_custom_value(key)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Put arbitrary data into the custom store
@@ -324,7 +328,14 @@ where
     ///
     /// * `value` - The value to insert
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> StoreResult<Option<Vec<u8>>> {
-        todo!();
+        let old_val = self
+            .get_custom_value(key)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))?;
+        self.set_custom_value(key, value)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))?;
+        Ok(old_val)
     }
 
     /// Add a media file's content in the media store.
