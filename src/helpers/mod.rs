@@ -143,10 +143,11 @@ impl SupportedDatabase for sqlx::mysql::MySql {
     fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
+                SET @media_url = ?;
                 UPDATE statestore_media
                 SET last_access = NOW()
-                WHERE media_url = ?
-                RETURNING media_data
+                WHERE media_url = @media_url;
+                SELECT media_data FROM statestore_media WHERE media_url = @media_url;
             "#,
         )
     }
