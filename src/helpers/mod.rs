@@ -164,10 +164,7 @@ impl SupportedDatabase for sqlx::mysql::MySql {
         sqlx::query(
             r#"
                 DELETE FROM statestore_media
-                WHERE media_url NOT IN
-                    (SELECT media_url FROM statestore_media
-                     WHERE last_access > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-                     ORDER BY last_access DESC)
+                WHERE last_access < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
             "#,
         )
     }
