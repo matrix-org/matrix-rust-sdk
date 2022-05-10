@@ -31,7 +31,7 @@ docs = []
 [dependencies]
 dashmap = "5.2.0"
 http = "0.2.6"
-matrix-sdk = { version = "0.4", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
+matrix-sdk = { version = "0.5.0", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 percent-encoding = "2.1.0"
 regex = "1.5.5"
 ruma = { version = "0.6.1", features = ["client-api-c", "appservice-api-s"] }
