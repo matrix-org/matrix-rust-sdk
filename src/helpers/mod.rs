@@ -89,7 +89,7 @@ pub trait SupportedDatabase: Database + Sealed {
         sqlx::query(
             r#"
                 DELETE FROM statestore_media
-                WHERE media_url NOT EXISTS
+                WHERE media_url NOT IN
                     (SELECT media_url FROM statestore_media
                      ORDER BY last_access DESC
                      LIMIT 100)
@@ -115,6 +115,19 @@ pub trait SupportedDatabase: Database + Sealed {
 impl SupportedDatabase for sqlx::postgres::Postgres {
     fn get_migrator() -> &'static Migrator {
         &sqlx::migrate!("./migrations/postgres")
+    }
+
+    // performance optimization
+    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_media
+                WHERE NOT EXISTS
+                    (SELECT media_url FROM statestore_media
+                     ORDER BY last_access DESC
+                     LIMIT 100)
+            "#,
+        )
     }
 }
 
@@ -192,17 +205,6 @@ impl SupportedDatabase for sqlx::sqlite::Sqlite {
                 INSERT INTO statestore_media (media_url, media_data, last_access)
                 VALUES ($1, $2, datetime(CURRENT_TIMESTAMP, 'localtime'))
                 ON CONFLICT (media_url) DO NOTHING
-            "#,
-        )
-    }
-    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                DELETE FROM statestore_media
-                WHERE media_url NOT IN
-                    (SELECT media_url FROM statestore_media
-                     ORDER BY last_access DESC
-                     LIMIT 100)
             "#,
         )
     }
