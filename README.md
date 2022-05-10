@@ -3,7 +3,7 @@
 ![Build Status](https://img.shields.io/github/workflow/status/DarkKirb/matrix-sdk-statestore-sql/Build%20checks)
 [![Code Coverage](https://img.shields.io/coveralls/github/DarkKirb/matrix-sdk-statestore-sql)](https://coveralls.io/github/DarkKirb/matrix-sdk-statestore-sql)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg?style=flat-square)](https://darkkirb.github.io/matrix-sdk-statestore-sql/rust/matrix_sdk_statestore_sql/)
+[![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg)](https://darkkirb.github.io/matrix-sdk-statestore-sql/rust/matrix_sdk_statestore_sql/)
 
 This crate allows you to use your postgres/mysql/sqlite database as a state and crypto store for matrix-sdk.
 
@@ -14,7 +14,7 @@ This crate allows you to use your postgres/mysql/sqlite database as a state and 
 - `postgres`: Enables support for postgres databases (enabled by default)
 - `mysql`: Enables support for mysql databases
 - `sqlite`: Enables support for sqlite databases
-- `encryption` Enables the CryptoStore
+- `e2e-encryption` Enables the CryptoStore
 
 Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres`, `mysql`, or `sqlite` must be enabled.
 

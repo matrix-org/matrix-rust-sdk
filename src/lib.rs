@@ -1,4 +1,8 @@
 //! SQL State Storage for matrix-sdk
+//!
+//! ## About Trait bounds
+//!
+//! The list of trait bounds may seem daunting, however every implementation of [`SupportedDatabase`] matches the trait bounds specified.
 
 use std::sync::Arc;
 

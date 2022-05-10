@@ -49,6 +49,29 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Ok(())
     }
 
+    /// Insert a key-value pair into the kv table as part of a transaction
+    ///
+    /// # Errors
+    /// This function will return an error if the upsert cannot be performed
+    pub async fn insert_kv_txn<'c>(
+        txn: &mut Transaction<'c, DB>,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'q> Vec<u8>: Encode<'q, DB>,
+        Vec<u8>: Type<DB>,
+    {
+        DB::kv_upsert_query()
+            .bind(key)
+            .bind(value)
+            .execute(txn)
+            .await?;
+        Ok(())
+    }
+
     /// Get a value from the kv table
     ///
     /// # Errors
@@ -74,6 +97,44 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         };
 
         Ok(row.try_get("kv_value")?)
+    }
+
+    /// Save state changes to the database in a transaction
+    ///
+    /// # Errors
+    /// This function will return an error if the database query fails
+    pub async fn save_state_changes_txn<'c>(
+        txn: &mut Transaction<'c, DB>,
+        state_changes: &StateChanges,
+    ) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'q> Vec<u8>: Encode<'q, DB>,
+        Vec<u8>: Type<DB>,
+    {
+        if let Some(sync_token) = &state_changes.sync_token {
+            Self::save_sync_token(txn, sync_token).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Save state changes to the database
+    ///
+    /// # Errors
+    /// This function will return an error if the database query fails
+    pub async fn save_state_changes(&self, state_changes: &StateChanges) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'q> Vec<u8>: Encode<'q, DB>,
+        Vec<u8>: Type<DB>,
+    {
+        let mut txn = self.db.begin().await?;
+        Self::save_state_changes_txn(&mut txn, state_changes).await?;
+        txn.commit().await?;
+        Ok(())
     }
 }
 
@@ -108,7 +169,9 @@ where
 
     /// Save the set of state changes in the store.
     async fn save_changes(&self, changes: &StateChanges) -> StoreResult<()> {
-        todo!();
+        self.save_state_changes(changes)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get the filter id that was stored under the given filter name.
@@ -124,7 +187,9 @@ where
 
     /// Get the last stored sync token.
     async fn get_sync_token(&self) -> StoreResult<Option<String>> {
-        todo!();
+        self.get_sync_token()
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get the stored presence event for the given user.

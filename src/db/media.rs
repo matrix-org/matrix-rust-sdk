@@ -4,8 +4,8 @@ use anyhow::Result;
 use matrix_sdk_base::media::MediaRequest;
 use ruma::{events::room::MediaSource, MxcUri};
 use sqlx::{
-    database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments, Row,
-    Transaction, Type,
+    database::HasArguments, ColumnIndex, Decode, Encode, Executor, IntoArguments, Row, Transaction,
+    Type,
 };
 
 use crate::{StateStore, SupportedDatabase};

@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 use sqlx::{
-    database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments, Type,
+    database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments,
+    Transaction, Type,
 };
 
 use crate::{StateStore, SupportedDatabase};
@@ -12,7 +13,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    async fn save_sync_token(&self, token: &str) -> Result<()>
+    #[cfg(test)]
+    async fn save_sync_token_test(&self, token: &str) -> Result<()>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
@@ -21,6 +23,20 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     {
         self.insert_kv(b"sync_token".to_vec(), token.as_bytes().to_vec())
             .await
+    }
+
+    /// Put a sync token into the sync token store
+    ///
+    /// # Errors
+    /// This function will return an error if the upsert cannot be performed
+    pub async fn save_sync_token<'c>(txn: &mut Transaction<'c, DB>, token: &str) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'q> Vec<u8>: Encode<'q, DB>,
+        Vec<u8>: Type<DB>,
+    {
+        Self::insert_kv_txn(txn, b"sync_token".to_vec(), token.as_bytes().to_vec()).await
     }
 
     /// Get the last stored sync token
@@ -52,7 +68,7 @@ mod tests {
     async fn test_sqlite_sync_token() {
         let store = crate::db::tests::open_sqlite_database().await.unwrap();
         assert_eq!(store.get_sync_token().await.unwrap(), None);
-        store.save_sync_token("test").await.unwrap();
+        store.save_sync_token_test("test").await.unwrap();
         assert_eq!(
             store.get_sync_token().await.unwrap(),
             Some("test".to_owned())
@@ -65,7 +81,7 @@ mod tests {
     async fn test_mysql_sync_token() {
         let store = crate::db::tests::open_mysql_database().await.unwrap();
         assert_eq!(store.get_sync_token().await.unwrap(), None);
-        store.save_sync_token("test").await.unwrap();
+        store.save_sync_token_test("test").await.unwrap();
         assert_eq!(
             store.get_sync_token().await.unwrap(),
             Some("test".to_owned())
@@ -78,7 +94,7 @@ mod tests {
     async fn test_postgres_sync_token() {
         let store = crate::db::tests::open_postgres_database().await.unwrap();
         assert_eq!(store.get_sync_token().await.unwrap(), None);
-        store.save_sync_token("test").await.unwrap();
+        store.save_sync_token_test("test").await.unwrap();
         assert_eq!(
             store.get_sync_token().await.unwrap(),
             Some("test".to_owned())
