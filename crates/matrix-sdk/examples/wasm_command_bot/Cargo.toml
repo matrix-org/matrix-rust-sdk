@@ -1,8 +1,9 @@
 [package]
-name = "wasm"
+name = "wasm-command-bot"
 version = "0.1.0"
 authors = ["stoically <stoically@protonmail.com>"]
 edition = "2018"
+publish = false
 
 # Config mostly pulled from: https://github.com/rustwasm/wasm-bindgen/blob/master/examples/fetch/Cargo.toml
 
