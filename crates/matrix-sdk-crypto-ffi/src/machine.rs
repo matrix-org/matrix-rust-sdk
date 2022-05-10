@@ -10,7 +10,7 @@ use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
     backups::MegolmV1BackupKey as RustBackupKey, decrypt_key_export, encrypt_key_export,
-    matrix_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey,
+    matrix_sdk_qrcode::QrVerificationData, olm::ExportedRoomKey, store::RecoveryKey,
     EncryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentities,
     Verification as RustVerification,
 };
@@ -102,7 +102,7 @@ impl OlmMachine {
                         // this.
                         matrix_sdk_sled::OpenStoreError::Crypto(r) => r.into(),
                         matrix_sdk_sled::OpenStoreError::Sled(s) => CryptoStoreError::CryptoStore(
-                            matrix_sdk_crypto::store::CryptoStoreError::Backend(Box::new(s)),
+                            matrix_sdk_crypto::store::CryptoStoreError::backend(s),
                         ),
                         _ => unreachable!(),
                     }

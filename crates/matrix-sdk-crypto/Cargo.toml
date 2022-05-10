@@ -17,7 +17,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-qrcode = ["matrix-qrcode"]
+qrcode = ["matrix-sdk-qrcode"]
 backups_v1 = ["olm-rs", "bs58"]
 docsrs = []
 
@@ -37,7 +37,7 @@ dashmap = "5.2.0"
 futures-util = { version = "0.3.21", default-features = false, features = ["alloc"] }
 hmac = "0.12.1"
 http = { version = "0.2.6", optional = true } # feature = testing only
-matrix-qrcode = { version = "0.2.0", path = "../matrix-qrcode", optional = true }
+matrix-sdk-qrcode = { version = "0.2.0", path = "../matrix-sdk-qrcode", optional = true }
 matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
 olm-rs = { version = "2.2.0", features = ["serde"], optional = true }
 pbkdf2 = { version = "0.11.0", default-features = false }
@@ -54,8 +54,7 @@ version = "0.6.1"
 features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
+version = "0.2.0"
 features = ["js"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
@@ -63,8 +62,7 @@ version = "0.6.1"
 features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
-git = "https://github.com/matrix-org/vodozemac"
-rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834"
+version = "0.2.0"
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
