@@ -17,6 +17,21 @@ This crate allows you to use your postgres/mysql/sqlite database as a state and 
 - `encryption` Enables the CryptoStore
 
 Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres`, `mysql`, or `sqlite` must be enabled.
+
+### Mysql backend
+
+The mysql backend is very different from the postgres and sqlite backends.
+While it is actively tested to work, it may not behave the same way as other backends.
+This is because mysql does not support some standard SQL database features that even sqlite supports.
+
+#### Media storage
+
+The Media storage caches matrix media so that it doesn’t have to be refetched from the internet.
+
+On postgres and sqlite, the media storage table is used as an LRU cache with a fixed size. Mysql however does not support `LIMIT` in subqueries and therefore it will delete items that have not been accessed in the past 5 minutes.
+
+This means that for large installations it may not be advisable to use mysql, as a large amount of media events (for example due to joining a large room) will massively increase the database size, which will not happen with postgres and sqlite.
+
 ## Minimum Supported Rust Version
 The MSRV is currently 1.60.0.
 

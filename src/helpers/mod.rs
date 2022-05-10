@@ -172,6 +172,18 @@ impl SupportedDatabase for sqlx::mysql::MySql {
             "#,
         )
     }
+    // Thank you oracle
+    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_media
+                WHERE media_url NOT IN
+                    (SELECT media_url FROM statestore_media
+                     WHERE last_access > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                     ORDER BY last_access DESC)
+            "#,
+        )
+    }
     fn media_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
