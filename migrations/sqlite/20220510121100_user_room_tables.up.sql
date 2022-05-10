@@ -40,7 +40,7 @@ CREATE TABLE statestore_receipts (
   PRIMARY KEY (room_id, event_id, user_id)
 );
 CREATE TABLE statestore_notifications (
-  notification_id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  notification_id INTEGER PRIMARY KEY,
   room_id TEXT NOT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE,
   notification_data JSON NOT NULL
 );

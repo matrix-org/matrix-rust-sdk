@@ -5,11 +5,12 @@ CREATE TABLE statestore_rooms (
   room_info JSON NOT NULL
 );
 CREATE TABLE statestore_accountdata (
+  dummy_id_to_appease_the_mysql_gods BIGINT PRIMARY KEY AUTO_INCREMENT,
   room_id VARCHAR(255) NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE, -- NULL means global
   event_type VARCHAR(255) NOT NULL,
-  account_data JSON NOT NULL,
-  PRIMARY KEY (room_id, event_type)
+  account_data JSON NOT NULL
 );
+CREATE UNIQUE INDEX statestore_accountdata_idx ON statestore_accountdata (room_id, event_type);
 CREATE TABLE statestore_presence (
   user_id VARCHAR(255) PRIMARY KEY NOT NULL,
   presence JSON NOT NULL
@@ -40,7 +41,7 @@ CREATE TABLE statestore_receipts (
   PRIMARY KEY (room_id, event_id, user_id)
 );
 CREATE TABLE statestore_notifications (
-  notification_id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  notification_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   room_id VARCHAR(255) NOT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE,
   notification_data JSON NOT NULL
 );
