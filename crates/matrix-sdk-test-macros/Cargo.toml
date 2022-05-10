@@ -9,7 +9,7 @@ name = "matrix-sdk-test-macros"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.60"
-version = "0.1.0"
+version = "0.2.0"
 
 [lib]
 proc-macro = true

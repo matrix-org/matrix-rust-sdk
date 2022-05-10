@@ -35,11 +35,11 @@ features = ["lax_deserialize"]
 
 [dependencies.matrix-sdk-common]
 path = "../matrix-sdk-common"
-version = "0.4.0"
+version = "0.5.0"
 
 [dependencies.matrix-sdk-crypto]
 path = "../matrix-sdk-crypto"
-version = "0.4.1"
+version = "0.5.0"
 features = ["qrcode", "backups_v1"]
 
 [dependencies.matrix-sdk-sled]

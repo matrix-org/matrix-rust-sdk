@@ -8,7 +8,7 @@ publish = false
 atty = "0.2.14"
 clap = "3.1.12"
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
-matrix-sdk-base = { path = "../../crates/matrix-sdk-base" }
+matrix-sdk-base = { path = "../../crates/matrix-sdk-base" , " version" = "0.5.0" }
 matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled" }
 ruma = "0.6.1"
 rustyline = "9.1.2"
