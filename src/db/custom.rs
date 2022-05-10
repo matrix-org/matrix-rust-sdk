@@ -51,7 +51,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
 mod tests {
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_sqlite_filters() {
+    async fn test_sqlite_custom_values() {
         let store = crate::db::tests::open_sqlite_database().await.unwrap();
         assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
         store
@@ -91,7 +91,7 @@ mod tests {
     #[cfg(feature = "mysql")]
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]
-    async fn test_mysql_filters() {
+    async fn test_mysql_custom_values() {
         let store = crate::db::tests::open_mysql_database().await.unwrap();
         assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
         store
@@ -131,7 +131,7 @@ mod tests {
     #[cfg(feature = "postgres")]
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]
-    async fn test_postgres_filters() {
+    async fn test_postgres_custom_values() {
         let store = crate::db::tests::open_postgres_database().await.unwrap();
         assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
         store

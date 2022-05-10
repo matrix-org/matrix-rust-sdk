@@ -21,11 +21,12 @@ use ruma::{
 };
 use sqlx::{
     database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments, Row,
-    Type,
+    Transaction, Type,
 };
 
 mod custom;
 mod filters;
+mod media;
 mod sync_token;
 
 impl<DB: SupportedDatabase> StateStore<DB> {
@@ -84,8 +85,11 @@ impl<DB: SupportedDatabase> matrix_sdk_base::StateStore for StateStore<DB>
 where
     for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
     for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+    for<'a, 'c> &'c mut Transaction<'a, DB>: Executor<'c, Database = DB>,
     for<'q> Vec<u8>: Encode<'q, DB>,
+    for<'q> String: Encode<'q, DB>,
     Vec<u8>: Type<DB>,
+    String: Type<DB>,
     for<'r> Vec<u8>: Decode<'r, DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
@@ -346,7 +350,9 @@ where
     ///
     /// * `content` - The content of the file.
     async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> StoreResult<()> {
-        todo!();
+        self.insert_media(Self::extract_media_url(request), content)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get a media file's content out of the media store.
@@ -355,7 +361,9 @@ where
     ///
     /// * `request` - The `MediaRequest` of the file.
     async fn get_media_content(&self, request: &MediaRequest) -> StoreResult<Option<Vec<u8>>> {
-        todo!();
+        self.get_media(Self::extract_media_url(request))
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Removes a media file's content from the media store.
@@ -364,7 +372,9 @@ where
     ///
     /// * `request` - The `MediaRequest` of the file.
     async fn remove_media_content(&self, request: &MediaRequest) -> StoreResult<()> {
-        todo!();
+        self.delete_media(Self::extract_media_url(request))
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Removes all the media files' content associated to an `MxcUri` from the
@@ -374,7 +384,9 @@ where
     ///
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> StoreResult<()> {
-        todo!();
+        self.delete_media(uri)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Removes a room and all elements associated from the state store.

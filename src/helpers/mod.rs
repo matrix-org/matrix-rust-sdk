@@ -53,6 +53,62 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Returns a query for loading from the `statestore_media` table
+    ///
+    /// # Arguments
+    /// * `$1` - The key to load
+    fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                UPDATE statestore_media
+                SET last_access = NOW()
+                WHERE media_url = $1
+                RETURNING media_data
+            "#,
+        )
+    }
+
+    /// Returns the first query for storing into the `statestore_media` table
+    ///
+    /// # Arguments
+    /// * `$1` - The key to insert
+    /// * `$2` - The value to insert
+    fn media_insert_query_1() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_media (media_url, media_data, last_access)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (media_url) DO NOTHING
+            "#,
+        )
+    }
+
+    /// Returns the second query for storing into the `statestore_media` table
+    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_media
+                WHERE media_url NOT EXISTS
+                    (SELECT media_url FROM statestore_media
+                     ORDER BY last_access DESC
+                     LIMIT 100)
+            "#,
+        )
+    }
+
+    /// Deletes the media with the mxc URL
+    ///
+    /// # Arguments
+    /// * `$1` - The mxc URL
+    fn media_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_media
+                WHERE media_url = $1
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]
@@ -84,11 +140,70 @@ impl SupportedDatabase for sqlx::mysql::MySql {
             "#,
         )
     }
+    fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                UPDATE statestore_media
+                SET last_access = NOW()
+                WHERE media_url = ?
+                RETURNING media_data
+            "#,
+        )
+    }
+    fn media_insert_query_1() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_media (media_url, media_data, last_access)
+                VALUES (?, ?, NOW())
+                ON DUPLICATE KEY UPDATE media_url = media_url
+            "#,
+        )
+    }
+    fn media_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_media
+                WHERE media_url = ?
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "sqlite")]
 impl SupportedDatabase for sqlx::sqlite::Sqlite {
     fn get_migrator() -> &'static Migrator {
         &sqlx::migrate!("./migrations/sqlite")
+    }
+
+    fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                UPDATE statestore_media
+                SET last_access = datetime(CURRENT_TIMESTAMP, 'localtime')
+                WHERE media_url = $1
+                RETURNING media_data
+            "#,
+        )
+    }
+
+    fn media_insert_query_1() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_media (media_url, media_data, last_access)
+                VALUES ($1, $2, datetime(CURRENT_TIMESTAMP, 'localtime'))
+                ON CONFLICT (media_url) DO NOTHING
+            "#,
+        )
+    }
+    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_media
+                WHERE media_url NOT IN
+                    (SELECT media_url FROM statestore_media
+                     ORDER BY last_access DESC
+                     LIMIT 100)
+            "#,
+        )
     }
 }
