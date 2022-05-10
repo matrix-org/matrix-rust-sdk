@@ -47,14 +47,10 @@ use ruma::{
 };
 use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
-#[cfg(feature = "js")]
-use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
-#[cfg(feature = "js")]
-use crate::js;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     gossiping::GossipMachine,
@@ -76,7 +72,6 @@ use crate::{
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
-#[cfg_attr(feature = "js", wasm_bindgen)]
 #[derive(Clone)]
 pub struct OlmMachine {
     /// The unique user id that owns this account.
@@ -1518,26 +1513,6 @@ impl OlmMachine {
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.backup_machine
     }
-}
-
-#[cfg_attr(feature = "js", wasm_bindgen)]
-impl OlmMachine {
-    #[wasm_bindgen(constructor)]
-    pub async fn js_new(user_id: js::UserId, device_id: js::DeviceId) -> js_sys::Promise {
-        js_sys::Promise::new(&mut |resolve, reject| {
-            let user_id = user_id.inner.clone();
-            let device_id = device_id.inner.clone();
-
-            wasm_bindgen_futures::spawn_local(async move {
-                let result = Self::new(user_id.as_ref(), device_id.as_ref()).await;
-
-                resolve
-                    .call1(&wasm_bindgen::JsValue::UNDEFINED, &wasm_bindgen::JsValue::from(result))
-                    .unwrap_throw();
-            })
-        })
-    }
-    //pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
 }
 
 #[cfg(any(feature = "testing", test))]
