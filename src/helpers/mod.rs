@@ -143,20 +143,14 @@ impl SupportedDatabase for sqlx::mysql::MySql {
     fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                SET @media_url := ?;
-                UPDATE statestore_media
-                SET last_access = NOW()
-                WHERE media_url = @media_url;
-                SELECT media_data FROM statestore_media WHERE media_url = @media_url;
+                SELECT media_data FROM statestore_media WHERE media_url = ?;
             "#,
         )
     }
     fn media_insert_query_1() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_media (media_url, media_data, last_access)
-                VALUES (?, ?, NOW())
-                ON DUPLICATE KEY UPDATE media_url = media_url
+                SELECT (1) FROM statestore_media WHERE media_url = ? AND media_data = ?;
             "#,
         )
     }
@@ -164,8 +158,7 @@ impl SupportedDatabase for sqlx::mysql::MySql {
     fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                DELETE FROM statestore_media
-                WHERE last_access < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                SELECT (1) FROM statestore_media;
             "#,
         )
     }

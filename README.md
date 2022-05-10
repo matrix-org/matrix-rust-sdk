@@ -26,11 +26,7 @@ This is because mysql does not support some standard SQL database features that 
 
 #### Media storage
 
-The Media storage caches matrix media so that it doesn’t have to be refetched from the internet.
-
-On postgres and sqlite, the media storage table is used as an LRU cache with a fixed size. Mysql however does not support `LIMIT` in subqueries and therefore it will delete items that have not been accessed in the past 5 minutes.
-
-This means that for large installations it may not be advisable to use mysql, as a large amount of media events (for example due to joining a large room) will massively increase the database size, which will not happen with postgres and sqlite.
+Mysql does not support the media storage because it does not support LIMIT in subqueries and UPDATE with returning affected rows.
 
 ## Minimum Supported Rust Version
 The MSRV is currently 1.60.0.

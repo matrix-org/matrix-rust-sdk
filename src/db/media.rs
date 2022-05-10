@@ -159,36 +159,4 @@ mod tests {
             Some(b"media_1".to_vec())
         );
     }
-
-    #[cfg(feature = "mysql")]
-    #[tokio::test]
-    #[cfg_attr(not(feature = "ci"), ignore)]
-    async fn test_mysql_mediastore() {
-        let store = crate::db::tests::open_mysql_database().await.unwrap();
-        let entry_0 = <&MxcUri>::from("mxc://localhost:8080/media/0");
-        let entry_1 = <&MxcUri>::from("mxc://localhost:8080/media/1");
-
-        store
-            .insert_media(entry_0, b"media_0".to_vec())
-            .await
-            .unwrap();
-        store
-            .insert_media(entry_1, b"media_1".to_vec())
-            .await
-            .unwrap();
-
-        for entry in 2..101 {
-            let entry = OwnedMxcUri::from(format!("mxc://localhost:8080/media/{}", entry));
-            store
-                .insert_media(&entry, b"media_0".to_vec())
-                .await
-                .unwrap();
-        }
-
-        assert_eq!(store.get_media(entry_0).await.unwrap(), None);
-        assert_eq!(
-            store.get_media(entry_1).await.unwrap(),
-            Some(b"media_1".to_vec())
-        );
-    }
 }
