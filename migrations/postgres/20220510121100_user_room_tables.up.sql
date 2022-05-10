@@ -2,7 +2,7 @@
 CREATE TABLE statestore_rooms (
   room_id TEXT PRIMARY KEY NOT NULL,
   is_partial BOOLEAN NOT NULL,
-  room_info JSONB NOT NULL,
+  room_info JSONB NOT NULL
 );
 CREATE TABLE statestore_accountdata (
   room_id TEXT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE, -- NULL means global
