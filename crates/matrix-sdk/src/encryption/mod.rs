@@ -245,9 +245,9 @@ impl Client {
         T: GlobalAccountDataEventContent,
     {
         let own_user =
-            self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+            self.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
-        let request = set_global_account_data::v3::Request::new(&content, &own_user)?;
+        let request = set_global_account_data::v3::Request::new(&content, own_user)?;
 
         Ok(self.send(request, None).await?)
     }

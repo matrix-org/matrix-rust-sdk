@@ -28,6 +28,8 @@ use std::{
     sync::Arc,
 };
 
+use once_cell::sync::OnceCell;
+
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
@@ -380,7 +382,7 @@ pub trait StateStore: AsyncTraitDeps {
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: Arc<dyn StateStore>,
-    pub(crate) session: Arc<RwLock<Option<Session>>>,
+    pub(crate) session: Arc<OnceCell<Session>>,
     pub(crate) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
@@ -423,9 +425,15 @@ impl Store {
         let token = self.get_sync_token().await?;
 
         *self.sync_token.write().await = token;
-        *self.session.write().await = Some(session);
+        self.session.set(session).expect("A session was already set");
 
         Ok(())
+    }
+
+    /// The current [`Session`] containing our user id, device id and access
+    /// token.
+    pub fn session(&self) -> Option<&Session> {
+        self.session.get()
     }
 
     /// Get all the rooms this store knows about.
@@ -458,8 +466,7 @@ impl Store {
     /// Lookup the stripped Room for the given RoomId, or create one, if it
     /// didn't exist yet in the store
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
-        let session = self.session.read().await;
-        let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
+        let user_id = &self.session().expect("Creating room while not being logged in").user_id;
 
         self.stripped_rooms
             .entry(room_id.to_owned())
@@ -474,8 +481,7 @@ impl Store {
             return self.get_or_create_stripped_room(room_id).await;
         }
 
-        let session = self.session.read().await;
-        let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
+        let user_id = &self.session().expect("Creating room while not being logged in").user_id;
 
         self.rooms
             .entry(room_id.to_owned())

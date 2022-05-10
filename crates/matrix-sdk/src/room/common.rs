@@ -809,9 +809,9 @@ impl Common {
         tag: TagName,
         tag_info: TagInfo,
     ) -> HttpResult<create_tag::v3::Response> {
-        let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
+        let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
         let request =
-            create_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref(), tag_info);
+            create_tag::v3::Request::new(user_id, self.inner.room_id(), tag.as_ref(), tag_info);
         self.client.send(request, None).await
     }
 
@@ -822,8 +822,8 @@ impl Common {
     /// # Arguments
     /// * `tag` - The tag to remove.
     pub async fn remove_tag(&self, tag: TagName) -> HttpResult<delete_tag::v3::Response> {
-        let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
-        let request = delete_tag::v3::Request::new(&user_id, self.inner.room_id(), tag.as_ref());
+        let user_id = self.client.user_id().ok_or(HttpError::AuthenticationRequired)?;
+        let request = delete_tag::v3::Request::new(user_id, self.inner.room_id(), tag.as_ref());
         self.client.send(request, None).await
     }
 
@@ -836,11 +836,8 @@ impl Common {
     /// # Arguments
     /// * `is_direct` - Whether to mark this room as direct.
     pub async fn set_is_direct(&self, is_direct: bool) -> Result<()> {
-        let user_id = self
-            .client
-            .user_id()
-            .await
-            .ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let user_id =
+            self.client.user_id().ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
 
         let mut content = self
             .client
@@ -871,7 +868,7 @@ impl Common {
             content.retain(|_, list| !list.is_empty());
         }
 
-        let request = set_global_account_data::v3::Request::new(&content, &user_id)?;
+        let request = set_global_account_data::v3::Request::new(&content, user_id)?;
 
         self.client.send(request, None).await?;
         Ok(())
