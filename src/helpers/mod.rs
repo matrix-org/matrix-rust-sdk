@@ -116,19 +116,6 @@ impl SupportedDatabase for sqlx::postgres::Postgres {
     fn get_migrator() -> &'static Migrator {
         &sqlx::migrate!("./migrations/postgres")
     }
-
-    // performance optimization
-    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                DELETE FROM statestore_media
-                WHERE NOT EXISTS
-                    (SELECT media_url FROM statestore_media
-                     ORDER BY last_access DESC
-                     LIMIT 100)
-            "#,
-        )
-    }
 }
 
 // Fucking mysql
