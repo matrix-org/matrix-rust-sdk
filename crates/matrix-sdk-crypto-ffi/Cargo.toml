@@ -7,6 +7,7 @@ rust-version = "1.60"
 description = "Uniffi based bindings for the Rust SDK crypto crate"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "lib"]
