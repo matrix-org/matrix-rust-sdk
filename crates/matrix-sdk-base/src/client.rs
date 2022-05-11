@@ -376,7 +376,7 @@ impl BaseClient {
                         if event
                             .event
                             .get_field::<OwnedUserId>("sender")?
-                            .map_or(false, |id| id == user_id)
+                            .map_or(false, |id| id != user_id)
                         {
                             let actions = push_rules.get_actions(&event.event, context).to_vec();
 
