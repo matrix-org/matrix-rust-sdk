@@ -1,6 +1,8 @@
 # matrix-sdk-sled
 
-This crate implements a storage backend using sled for native and mobile environments using the matrix-sdk-base primitives. When using **matrix-sdk** this is included by default.
+This crate implements a storage backend using [sled][sled] for native and mobile environments using the matrix-sdk-base primitives. When using **matrix-sdk** this is included by default.
+
+_Note_: the future of [sled][sled] is unclear. While it is currently the default for mobile and native environments for matrix-rust-sdk, [the team is actively looking at replacing it with a different storage backend](https://github.com/matrix-org/matrix-rust-sdk/issues/294).
 
 
 ## Crate Feature Flags
@@ -19,3 +21,6 @@ These crates are built with the Rust language version 2021 and require a minimum
 ## License
 
 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+
+
+[sled]: https://sled.rs/
