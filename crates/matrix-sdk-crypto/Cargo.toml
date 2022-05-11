@@ -26,7 +26,6 @@ testing = ["http"]
 
 [dependencies]
 aes = "0.8.1"
-aes-gcm = "0.9.4"
 atomic = "0.5.1"
 async-trait = "0.1.53"
 base64 = "0.13.0"
