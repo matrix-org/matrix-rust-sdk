@@ -1093,7 +1093,7 @@ mod tests {
 }
 
 // FIXME: the tests pass, if run one by one, but run all together locally,
-//        as well as CI fails...
+//        as well as CI fails... see matrix-org/matrix-rust-sdk#661
 // #[cfg(test)]
 // mod encrypted_tests {
 //     use super::IndexeddbStore;
