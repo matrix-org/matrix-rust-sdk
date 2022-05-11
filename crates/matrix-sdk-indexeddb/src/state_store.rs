@@ -269,8 +269,8 @@ impl IndexeddbStore {
         &self,
         event: &impl Serialize,
     ) -> std::result::Result<JsValue, SerializationError> {
-        Ok(match self.store_cipher {
-            Some(ref cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
+        Ok(match &self.store_cipher {
+            Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
             None => JsValue::from_serde(event)?,
         })
     }
@@ -279,8 +279,8 @@ impl IndexeddbStore {
         &self,
         event: JsValue,
     ) -> std::result::Result<T, SerializationError> {
-        match self.store_cipher {
-            Some(ref cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
+        match &self.store_cipher {
+            Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
             None => Ok(event.into_serde()?),
         }
     }
@@ -289,8 +289,8 @@ impl IndexeddbStore {
     where
         T: SafeEncode,
     {
-        match self.store_cipher {
-            Some(ref cipher) => key.encode_secure(table_name, cipher),
+        match &self.store_cipher {
+            Some(cipher) => key.encode_secure(table_name, cipher),
             None => key.encode(),
         }
     }
@@ -303,8 +303,8 @@ impl IndexeddbStore {
     where
         T: SafeEncode,
     {
-        match self.store_cipher {
-            Some(ref cipher) => key.encode_to_range_secure(table_name, cipher),
+        match &self.store_cipher {
+            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
         .map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e).into())))
@@ -315,8 +315,8 @@ impl IndexeddbStore {
     where
         T: SafeEncode,
     {
-        match self.store_cipher {
-            Some(ref cipher) => key.encode_with_counter_secure(table_name, cipher, i),
+        match &self.store_cipher {
+            Some(cipher) => key.encode_with_counter_secure(table_name, cipher, i),
             None => key.encode_with_counter(i),
         }
     }

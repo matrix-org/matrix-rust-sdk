@@ -192,8 +192,8 @@ impl IndexeddbStore {
     where
         T: SafeEncode,
     {
-        match self.store_cipher {
-            Some(ref cipher) => key.encode_secure(table_name, cipher),
+        match &self.store_cipher {
+            Some(cipher) => key.encode_secure(table_name, cipher),
             None => key.encode(),
         }
     }
@@ -206,8 +206,8 @@ impl IndexeddbStore {
     where
         T: SafeEncode,
     {
-        match self.store_cipher {
-            Some(ref cipher) => key.encode_to_range_secure(table_name, cipher),
+        match &self.store_cipher {
+            Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
         .map_err(|e| IndexeddbStoreError::DomException {
