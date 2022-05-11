@@ -2,8 +2,6 @@ use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::deserialized_responses::SyncRoomEvent;
 use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::TimelineSlice, TimelineStreamError};
@@ -12,8 +10,8 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::api::client::filter::LazyLoadOptions;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnyMessageLikeEvent, AnyRoomEvent,
-    AnySyncMessageLikeEvent, AnySyncRoomEvent, MessageLikeEvent, SyncMessageLikeEvent,
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+    SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{
@@ -204,11 +202,15 @@ impl Common {
         #[cfg(feature = "e2e-encryption")]
         if let Some(machine) = self.client.olm_machine().await {
             for event in http_response.chunk {
-                let decrypted_event = if let Some(encrypted_event) = event.to_encrypted_event()? {
-                    machine.decrypt_room_event(&encrypted_event, room_id).await?
-                } else {
-                    RoomEvent { event, encryption_info: None }
-                };
+                let decrypted_event =
+                    if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                        SyncMessageLikeEvent::Original(encrypted_event),
+                    )) = event.deserialize_as::<AnySyncRoomEvent>()?
+                    {
+                        machine.decrypt_room_event(&encrypted_event, room_id).await?
+                    } else {
+                        RoomEvent { event, encryption_info: None }
+                    };
 
                 response.chunk.push(decrypted_event);
             }
@@ -473,16 +475,17 @@ impl Common {
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
-        let decrypted = if let Some(event) = self.decrypt_event(&event).await? {
-            Ok(event)
+        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+            SyncMessageLikeEvent::Original(encrypted_event),
+        )) = event.deserialize_as::<AnySyncRoomEvent>()?
+        {
+            Ok(self.decrypt_event(&encrypted_event).await?)
         } else {
             Ok(RoomEvent { event, encryption_info: None })
-        };
+        }
 
         #[cfg(not(feature = "e2e-encryption"))]
-        let decrypted = Ok(RoomEvent { event, encryption_info: None });
-
-        decrypted
+        Ok(RoomEvent { event, encryption_info: None })
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
@@ -911,20 +914,11 @@ impl Common {
     /// # Arguments
     /// * `event` - The room event to be decrypted.
     ///
-    /// Returns the decrypted event if it was encrypted else `None`
+    /// Returns the decrypted event.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn decrypt_event<E>(&self, event: &E) -> Result<Option<RoomEvent>>
-    where
-        E: ToEncryptedEvent,
-    {
-        let encrypted_event = if let Some(event) = event.to_encrypted_event()? {
-            event
-        } else {
-            return Ok(None);
-        };
-
+    pub async fn decrypt_event(&self, event: &OriginalSyncRoomEncryptedEvent) -> Result<RoomEvent> {
         if let Some(machine) = self.client.olm_machine().await {
-            Ok(Some(machine.decrypt_room_event(&encrypted_event, self.inner.room_id()).await?))
+            Ok(machine.decrypt_room_event(event, self.inner.room_id()).await?)
         } else {
             Err(Error::NoOlmMachine)
         }
@@ -989,112 +983,5 @@ impl<'a> MessagesOptions<'a> {
             limit: self.limit,
             filter: self.filter,
         })
-    }
-}
-
-/// A trait that is implemented for different rust event types so that
-/// [`decrypt_event`][`crate::room::Common::decrpyt_event`] can take any of them
-/// as input.
-#[cfg(feature = "e2e-encryption")]
-pub trait ToEncryptedEvent {
-    #[doc(hidden)]
-    fn to_encrypted_event(
-        &self,
-    ) -> Result<Option<OriginalSyncRoomEncryptedEvent>, serde_json::Error>;
-}
-
-#[cfg(feature = "e2e-encryption")]
-impl ToEncryptedEvent for Raw<AnySyncRoomEvent> {
-    fn to_encrypted_event(
-        &self,
-    ) -> Result<Option<OriginalSyncRoomEncryptedEvent>, serde_json::Error> {
-        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(event),
-        )) = self.deserialize()?
-        {
-            Ok(Some(event))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[cfg(feature = "e2e-encryption")]
-impl ToEncryptedEvent for SyncRoomEvent {
-    fn to_encrypted_event(
-        &self,
-    ) -> Result<Option<OriginalSyncRoomEncryptedEvent>, serde_json::Error> {
-        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(event),
-        )) = self.event.deserialize()?
-        {
-            Ok(Some(event))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[cfg(feature = "e2e-encryption")]
-impl ToEncryptedEvent for Raw<AnyRoomEvent> {
-    fn to_encrypted_event(
-        &self,
-    ) -> Result<Option<OriginalSyncRoomEncryptedEvent>, serde_json::Error> {
-        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(event),
-        )) = self.deserialize_as::<AnySyncRoomEvent>()?
-        {
-            Ok(Some(event))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[cfg(feature = "e2e-encryption")]
-impl ToEncryptedEvent for RoomEvent {
-    fn to_encrypted_event(
-        &self,
-    ) -> Result<Option<OriginalSyncRoomEncryptedEvent>, serde_json::Error> {
-        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(event),
-        )) = self.event.deserialize_as::<AnySyncRoomEvent>()?
-        {
-            Ok(Some(event))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[cfg(feature = "e2e-encryption")]
-impl ToEncryptedEvent for AnySyncRoomEvent {
-    fn to_encrypted_event(
-        &self,
-    ) -> Result<Option<OriginalSyncRoomEncryptedEvent>, serde_json::Error> {
-        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(event),
-        )) = self
-        {
-            Ok(Some(event.clone()))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[cfg(feature = "e2e-encryption")]
-impl ToEncryptedEvent for AnyRoomEvent {
-    fn to_encrypted_event(
-        &self,
-    ) -> Result<Option<OriginalSyncRoomEncryptedEvent>, serde_json::Error> {
-        if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomEncrypted(
-            MessageLikeEvent::Original(event),
-        )) = self
-        {
-            Ok(Some(event.clone().into()))
-        } else {
-            Ok(None)
-        }
     }
 }
