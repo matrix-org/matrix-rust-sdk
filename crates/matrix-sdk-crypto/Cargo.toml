@@ -15,6 +15,9 @@ version = "0.4.1"
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-Oz']
+
 [lib]
 crate-type = ["cdylib"]
 
