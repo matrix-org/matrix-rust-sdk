@@ -403,7 +403,8 @@ impl IndexeddbStore {
                 let room_id = session.room_id();
                 let sender_key = session.sender_key();
                 let session_id = session.session_id();
-                let key = self.encode_key(KEYS::INBOUND_GROUP_SESSIONS, (room_id, sender_key, session_id));
+                let key = self
+                    .encode_key(KEYS::INBOUND_GROUP_SESSIONS, (room_id, sender_key, session_id));
                 let pickle = session.pickle().await;
 
                 sessions.put_key_val(&key, &self.serialize_value(&pickle)?)?;
