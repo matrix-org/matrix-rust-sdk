@@ -1039,3 +1039,25 @@ mod tests {
 
     cryptostore_integration_tests! { integration }
 }
+
+#[cfg(test)]
+mod encrypted_tests {
+    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use once_cell::sync::Lazy;
+    use tempfile::{tempdir, TempDir};
+
+    use super::SledStore;
+
+    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+
+    async fn get_store(name: String, passphrase: Option<&str>) -> SledStore {
+        let tmpdir_path = TMP_DIR.path().join(name);
+        let pass = passphrase.unwrap_or("default_test_password");
+
+        let store = SledStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), Some(pass))
+            .expect("Can't create a passphrase protected store");
+
+        store
+    }
+    cryptostore_integration_tests! { integration }
+}
