@@ -572,7 +572,7 @@ impl Joined {
 
                 self.preshare_group_session().await?;
 
-                let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
+                let olm = self.client.olm_machine().expect("Olm machine wasn't started");
 
                 let encrypted_content =
                     olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;

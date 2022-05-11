@@ -195,8 +195,8 @@ impl Client {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn olm_machine(&self) -> Option<matrix_sdk_base::crypto::OlmMachine> {
-        self.base_client().olm_machine().await
+    pub(crate) fn olm_machine(&self) -> Option<Arc<matrix_sdk_base::crypto::OlmMachine>> {
+        self.base_client().olm_machine()
     }
 
     #[cfg(feature = "e2e-encryption")]

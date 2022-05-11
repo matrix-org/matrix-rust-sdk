@@ -129,7 +129,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
 
         OlmMachine::with_store(user_id, device_id, store)
             .await
@@ -139,14 +139,13 @@ impl OlmMachine {
     fn new_helper(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Box<dyn CryptoStore>,
+        store: Arc<dyn CryptoStore>,
         account: ReadOnlyAccount,
         user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
         let user_id: Arc<UserId> = user_id.into();
         let user_identity = Arc::new(Mutex::new(user_identity));
 
-        let store: Arc<dyn CryptoStore> = store.into();
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
         let store =
@@ -216,7 +215,7 @@ impl OlmMachine {
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Box<dyn CryptoStore>,
+        store: Arc<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
