@@ -481,14 +481,6 @@ pub mod tests {
         Ok(store)
     }
 
-    #[cfg(feature = "mysql")]
-    pub async fn open_mysql_database() -> Result<StateStore<sqlx::MySql>> {
-        let db =
-            Arc::new(sqlx::MySqlPool::connect("mysql://mysql:mysql@localhost:3306/mysql").await?);
-        let store = StateStore::new(&db).await?;
-        Ok(store)
-    }
-
     #[cfg(feature = "postgres")]
     pub async fn open_postgres_database() -> Result<StateStore<sqlx::Postgres>> {
         let db = Arc::new(
@@ -502,25 +494,6 @@ pub mod tests {
     #[tokio::test]
     async fn test_sqlite_kv_store() {
         let store = open_sqlite_database().await.unwrap();
-        store
-            .insert_kv(b"key".to_vec(), b"value".to_vec())
-            .await
-            .unwrap();
-        let value = store.get_kv(b"key".to_vec()).await.unwrap();
-        assert_eq!(value, Some(b"value".to_vec()));
-        store
-            .insert_kv(b"key".to_vec(), b"value2".to_vec())
-            .await
-            .unwrap();
-        let value = store.get_kv(b"key".to_vec()).await.unwrap();
-        assert_eq!(value, Some(b"value2".to_vec()));
-    }
-
-    #[cfg(feature = "mysql")]
-    #[tokio::test]
-    #[cfg_attr(not(feature = "ci"), ignore)]
-    async fn test_mysql_kv_store() {
-        let store = open_mysql_database().await.unwrap();
         store
             .insert_kv(b"key".to_vec(), b"value".to_vec())
             .await

@@ -75,19 +75,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "mysql")]
-    #[tokio::test]
-    #[cfg_attr(not(feature = "ci"), ignore)]
-    async fn test_mysql_sync_token() {
-        let store = crate::db::tests::open_mysql_database().await.unwrap();
-        assert_eq!(store.get_sync_token().await.unwrap(), None);
-        store.save_sync_token_test("test").await.unwrap();
-        assert_eq!(
-            store.get_sync_token().await.unwrap(),
-            Some("test".to_owned())
-        );
-    }
-
     #[cfg(feature = "postgres")]
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]

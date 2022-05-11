@@ -13,8 +13,6 @@ mod private {
 
     #[cfg(feature = "postgres")]
     impl Sealed for sqlx::postgres::Postgres {}
-    #[cfg(feature = "mysql")]
-    impl Sealed for sqlx::mysql::MySql {}
     #[cfg(feature = "sqlite")]
     impl Sealed for sqlx::sqlite::Sqlite {}
 }
@@ -115,60 +113,6 @@ pub trait SupportedDatabase: Database + Sealed {
 impl SupportedDatabase for sqlx::postgres::Postgres {
     fn get_migrator() -> &'static Migrator {
         &sqlx::migrate!("./migrations/postgres")
-    }
-}
-
-// Fucking mysql
-#[cfg(feature = "mysql")]
-impl SupportedDatabase for sqlx::mysql::MySql {
-    fn get_migrator() -> &'static Migrator {
-        &sqlx::migrate!("./migrations/mysql")
-    }
-    fn kv_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                INSERT INTO statestore_kv (kv_key, kv_value)
-                VALUES (?, ?) AS excluded
-                ON DUPLICATE KEY UPDATE kv_value = excluded.kv_value
-            "#,
-        )
-    }
-    fn kv_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                SELECT kv_value FROM statestore_kv WHERE kv_key = ?
-            "#,
-        )
-    }
-    fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                SELECT media_data FROM statestore_media WHERE media_url = ?;
-            "#,
-        )
-    }
-    fn media_insert_query_1() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                SELECT (1) FROM statestore_media WHERE media_url = ? AND media_data = ?;
-            "#,
-        )
-    }
-    // Thank you oracle
-    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                SELECT (1) FROM statestore_media;
-            "#,
-        )
-    }
-    fn media_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
-        sqlx::query(
-            r#"
-                DELETE FROM statestore_media
-                WHERE media_url = ?
-            "#,
-        )
     }
 }
 

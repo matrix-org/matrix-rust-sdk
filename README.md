@@ -12,21 +12,10 @@ This crate allows you to use your postgres/mysql/sqlite database as a state and 
 - `rustls`: Enables the rustls TLS backend in sqlx and matrix-sdk
 - `native-tls`: Enables the native-tls TLS backend in sqlx and matrix-sdk (enabled by default)
 - `postgres`: Enables support for postgres databases (enabled by default)
-- `mysql`: Enables support for mysql databases
 - `sqlite`: Enables support for sqlite databases
 - `e2e-encryption` Enables the CryptoStore
 
-Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres`, `mysql`, or `sqlite` must be enabled.
-
-### Mysql backend
-
-The mysql backend is very different from the postgres and sqlite backends.
-While it is actively tested to work, it may not behave the same way as other backends.
-This is because mysql does not support some standard SQL database features that even sqlite supports.
-
-#### Media storage
-
-Mysql does not support the media storage because it does not support LIMIT in subqueries and UPDATE with returning affected rows.
+Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `postgres` or `sqlite` must be enabled.
 
 ## Minimum Supported Rust Version
 The MSRV is currently 1.60.0.

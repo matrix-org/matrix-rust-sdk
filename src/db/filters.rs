@@ -83,37 +83,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "mysql")]
-    #[tokio::test]
-    #[cfg_attr(not(feature = "ci"), ignore)]
-    async fn test_mysql_filters() {
-        let store = crate::db::tests::open_mysql_database().await.unwrap();
-        assert_eq!(store.get_filter("test").await.unwrap(), None);
-        store.save_filter("test", "test").await.unwrap();
-        assert_eq!(
-            store.get_filter("test").await.unwrap(),
-            Some("test".to_owned())
-        );
-        store.save_filter("test2", "test3").await.unwrap();
-        assert_eq!(
-            store.get_filter("test2").await.unwrap(),
-            Some("test3".to_owned())
-        );
-        assert_eq!(
-            store.get_filter("test").await.unwrap(),
-            Some("test".to_owned())
-        );
-        store.save_filter("test", "test4").await.unwrap();
-        assert_eq!(
-            store.get_filter("test").await.unwrap(),
-            Some("test4".to_owned())
-        );
-        assert_eq!(
-            store.get_filter("test2").await.unwrap(),
-            Some("test3".to_owned())
-        );
-    }
-
     #[cfg(feature = "postgres")]
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]

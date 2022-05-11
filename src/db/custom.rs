@@ -88,46 +88,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "mysql")]
-    #[tokio::test]
-    #[cfg_attr(not(feature = "ci"), ignore)]
-    async fn test_mysql_custom_values() {
-        let store = crate::db::tests::open_mysql_database().await.unwrap();
-        assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
-        store
-            .save_custom_value(b"test", b"test".to_vec())
-            .await
-            .unwrap();
-        assert_eq!(
-            store.get_custom_value(b"test").await.unwrap(),
-            Some(b"test".to_vec())
-        );
-        store
-            .save_custom_value(b"test2", b"test3".to_vec())
-            .await
-            .unwrap();
-        assert_eq!(
-            store.get_custom_value(b"test2").await.unwrap(),
-            Some(b"test3".to_vec())
-        );
-        assert_eq!(
-            store.get_custom_value(b"test").await.unwrap(),
-            Some(b"test".to_vec())
-        );
-        store
-            .save_custom_value(b"test", b"test4".to_vec())
-            .await
-            .unwrap();
-        assert_eq!(
-            store.get_custom_value(b"test").await.unwrap(),
-            Some(b"test4".to_vec())
-        );
-        assert_eq!(
-            store.get_custom_value(b"test2").await.unwrap(),
-            Some(b"test3".to_vec())
-        );
-    }
-
     #[cfg(feature = "postgres")]
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]

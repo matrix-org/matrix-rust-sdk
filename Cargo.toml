@@ -18,7 +18,6 @@ native-tls = ["sqlx/runtime-tokio-native-tls"]
 rustls = ["sqlx/runtime-tokio-rustls"]
 
 postgres = ["sqlx/postgres"]
-mysql = ["sqlx/mysql"]
 sqlite = ["sqlx/sqlite"]
 
 e2e-encryption = ["matrix-sdk-base/e2e-encryption"]
@@ -39,6 +38,3 @@ features = ["migrate", "json"]
 [dev-dependencies.tokio]
 version = "1.18.1"
 features = ["macros", "rt-multi-thread"]
-
-[patch.crates-io]
-x25519-dalek = { git = "https://github.com/DarkKirb/x25519-dalek" }
