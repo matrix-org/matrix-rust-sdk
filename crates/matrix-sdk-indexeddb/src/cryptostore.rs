@@ -35,9 +35,9 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
+use web_sys::IdbKeyRange;
 
 use crate::safe_encode::SafeEncode;
-use web_sys::IdbKeyRange;
 
 #[allow(non_snake_case)]
 mod KEYS {
