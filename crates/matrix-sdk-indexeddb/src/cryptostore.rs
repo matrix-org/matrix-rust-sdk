@@ -1074,8 +1074,9 @@ impl CryptoStore for IndexeddbStore {
 
 #[cfg(test)]
 mod tests {
-    use super::IndexeddbStore;
     use matrix_sdk_crypto::cryptostore_integration_tests;
+
+    use super::IndexeddbStore;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -1092,20 +1093,21 @@ mod tests {
     cryptostore_integration_tests! { integration }
 }
 
+#[cfg(test)]
+#[rustfmt::skip]
+mod encrypted_tests {
+    use super::IndexeddbStore;
+    use matrix_sdk_crypto::cryptostore_integration_tests;
+
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbStore {
+        let pass = passphrase.unwrap_or_else(|| name.as_str());
+        IndexeddbStore::open_with_passphrase(name.clone(), pass)
+            .await
+            .expect("Can't create a passphrase protected store")
+    }
 // FIXME: the tests pass, if run one by one, but run all together locally,
 //        as well as CI fails... see matrix-org/matrix-rust-sdk#661
-// #[cfg(test)]
-// mod encrypted_tests {
-//     use super::IndexeddbStore;
-//     use matrix_sdk_crypto::cryptostore_integration_tests;
-
-//     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-//     async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbStore {
-//         let pass = passphrase.unwrap_or_else(|| name.as_str());
-//         IndexeddbStore::open_with_passphrase(name.clone(), pass)
-//             .await
-//             .expect("Can't create a passphrase protected store")
-//     }
 //     cryptostore_integration_tests! { integration }
-// }
+}
