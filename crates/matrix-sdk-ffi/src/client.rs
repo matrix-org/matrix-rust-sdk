@@ -164,5 +164,5 @@ impl Client {
 }
 
 pub fn gen_transaction_id() -> String {
-    TransactionId::new().into()
+    TransactionId::new().to_string()
 }

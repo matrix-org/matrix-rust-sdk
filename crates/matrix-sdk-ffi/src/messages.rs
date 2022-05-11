@@ -154,7 +154,7 @@ pub fn sync_event_to_message(sync_event: SyncRoomEvent) -> Option<Arc<AnyMessage
                 body: m.content.body().to_owned(),
                 sender: m.sender.to_string(),
                 origin_server_ts: m.origin_server_ts.as_secs().into(),
-                transaction_id: m.unsigned.transaction_id.map(Into::into),
+                transaction_id: m.unsigned.transaction_id.map(|txn_id| txn_id.to_string()),
             });
 
             match m.content.msgtype {

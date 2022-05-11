@@ -47,7 +47,7 @@ impl Room {
 
     pub fn display_name(&self) -> Result<String> {
         let r = self.room.clone();
-        RUNTIME.block_on(async move { Ok(r.display_name().await?) })
+        RUNTIME.block_on(async move { Ok(r.display_name().await?.to_string()) })
     }
 
     pub fn topic(&self) -> Option<String> {
