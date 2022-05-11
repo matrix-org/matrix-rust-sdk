@@ -911,7 +911,7 @@ impl Common {
     /// # Arguments
     /// * `event` - The room event to be decrypted.
     ///
-    /// Returns:
+    /// Returns the decrypted event if it was encrypted else `None`
     #[cfg(feature = "e2e-encryption")]
     pub async fn decrypt_event<E>(&self, event: &E) -> Result<Option<RoomEvent>>
     where
