@@ -15,21 +15,24 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use aes::{
-    cipher::{generic_array::GenericArray, FromBlockCipher, NewBlockCipher, StreamCipher},
-    Aes256, Aes256Ctr,
+    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
+    Aes256,
 };
 use byteorder::{BigEndian, ReadBytesExt};
-use getrandom::getrandom;
 use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2;
+use rand::{thread_rng, RngCore};
 use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
 use thiserror::Error;
+use zeroize::Zeroize;
 
 use crate::{
     olm::ExportedRoomKey,
     utilities::{decode, encode, DecodeError},
 };
+
+type Aes256Ctr = ctr::Ctr128BE<Aes256>;
 
 const SALT_SIZE: usize = 16;
 const IV_SIZE: usize = 16;
@@ -79,8 +82,8 @@ pub enum KeyExportError {
 /// # use ruma::{device_id, user_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 /// # block_on(async {
+/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
 /// machine.import_keys(exported_keys, false, |_, _| {}).await.unwrap();
@@ -101,7 +104,13 @@ pub fn decrypt_key_export(
     let payload: String =
         x.lines().filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER))).collect();
 
-    Ok(serde_json::from_str(&decrypt_helper(&payload, passphrase)?)?)
+    let mut decrypted = decrypt_helper(&payload, passphrase)?;
+
+    let ret = serde_json::from_str(&decrypted);
+
+    decrypted.zeroize();
+
+    Ok(ret?)
 }
 
 /// Encrypt the list of exported room keys using the given passphrase.
@@ -130,8 +139,8 @@ pub fn decrypt_key_export(
 /// # use ruma::{device_id, user_id, room_id};
 /// # use futures::executor::block_on;
 /// # let alice = user_id!("@alice:example.org");
-/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"));
 /// # block_on(async {
+/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
 /// let exported_keys = machine.export_keys(|s| s.room_id() == room_id).await.unwrap();
 /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
@@ -144,6 +153,9 @@ pub fn encrypt_key_export(
 ) -> Result<String, SerdeError> {
     let mut plaintext = serde_json::to_string(keys)?.into_bytes();
     let ciphertext = encrypt_helper(&mut plaintext, passphrase, rounds);
+
+    plaintext.zeroize();
+
     Ok([HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n"))
 }
 
@@ -152,29 +164,30 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
     let mut iv = [0u8; IV_SIZE];
     let mut derived_keys = [0u8; KEY_SIZE * 2];
 
-    getrandom(&mut salt).expect("Can't generate randomness");
-    getrandom(&mut iv).expect("Can't generate randomness");
+    let mut rng = thread_rng();
+
+    rng.fill_bytes(&mut salt);
+    rng.fill_bytes(&mut iv);
 
     let mut iv = u128::from_be_bytes(iv);
     iv &= !(1 << 63);
+    let iv = iv.to_be_bytes();
 
     pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
     let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
 
-    let key = GenericArray::from_slice(key);
-    let iv = iv.to_be_bytes();
-    let iv = GenericArray::from_slice(&iv);
+    // This is fine because the key is guaranteed to be 32 bytes, derive 64
+    // bytes and split at the middle.
+    let key_array = GenericArray::from_slice(key);
 
-    let aes = Aes256::new(key);
-    let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
-
+    let mut aes = Aes256Ctr::new(key_array, &iv.into());
     aes.apply_keystream(plaintext);
 
     let mut payload: Vec<u8> = vec![];
 
     payload.extend(&VERSION.to_be_bytes());
     payload.extend(&salt);
-    payload.extend(&*iv);
+    payload.extend(&iv);
     payload.extend(&rounds.to_be_bytes());
     payload.extend_from_slice(plaintext);
 
@@ -183,6 +196,8 @@ fn encrypt_helper(plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String
     let mac = hmac.finalize();
 
     payload.extend(mac.into_bytes());
+
+    derived_keys.zeroize();
 
     encode(payload)
 }
@@ -222,15 +237,20 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     hmac.update(&decoded[0..ciphertext_end]);
     hmac.verify_slice(&mac).map_err(|_| KeyExportError::InvalidMac)?;
 
-    let key = GenericArray::from_slice(key);
-    let iv = GenericArray::from_slice(&iv);
+    // This is fine because the key is guaranteed to be 32 bytes, derive 64
+    // bytes and split at the middle.
+    let key_array = GenericArray::from_slice(key);
 
     let ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
-    let aes = Aes256::new(key);
-    let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
+    let mut aes = Aes256Ctr::new(key_array, &iv.into());
     aes.apply_keystream(ciphertext);
 
-    Ok(String::from_utf8(ciphertext.to_owned())?)
+    let ret = String::from_utf8(ciphertext.to_owned());
+
+    derived_keys.zeroize();
+    ciphertext.zeroize();
+
+    Ok(ret?)
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -253,7 +273,7 @@ mod proptests {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         io::Cursor,
@@ -264,7 +284,7 @@ mod test {
     use ruma::room_id;
 
     use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
-    use crate::{error::OlmResult, machine::test::get_prepared_machine, RoomKeyImportResult};
+    use crate::{error::OlmResult, machine::tests::get_prepared_machine, RoomKeyImportResult};
 
     const PASSPHRASE: &str = "1234";
 
@@ -319,7 +339,10 @@ mod test {
         let encrypted = encrypt_key_export(&export, "1234", 1).unwrap();
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
-        assert_eq!(export, decrypted);
+        for (exported, decrypted) in export.iter().zip(decrypted.iter()) {
+            assert_eq!(exported.session_key.to_base64(), decrypted.session_key.to_base64());
+        }
+
         assert_eq!(
             machine.import_keys(decrypted, false, |_, _| {}).await.unwrap(),
             RoomKeyImportResult::new(0, 1, BTreeMap::new())
@@ -346,7 +369,9 @@ mod test {
             )]),
         );
 
-        assert_eq!(machine.import_keys(export.clone(), false, |_, _| {}).await?, keys,);
+        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys,);
+
+        let export = vec![session.export_at_index(10).await];
         assert_eq!(
             machine.import_keys(export, false, |_, _| {}).await?,
             RoomKeyImportResult::new(0, 1, BTreeMap::new())

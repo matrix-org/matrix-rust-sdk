@@ -1,16 +1,15 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    config::{ClientConfig, SyncSettings},
+    config::SyncSettings,
     room::Room,
     ruma::events::room::message::{
-        MessageType, RoomMessageEventContent, SyncRoomMessageEvent, TextMessageEventContent,
+        MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent,
     },
     Client,
 };
-use url::Url;
 
-async fn on_room_message(event: SyncRoomMessageEvent, room: Room) {
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     if let Room::Joined(room) = room {
         let msg_body = match event.content.msgtype {
             MessageType::Text(TextMessageEventContent { body, .. }) => body,
@@ -36,17 +35,26 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
-) -> Result<(), matrix_sdk::Error> {
-    // the location for `JsonStore` to save files to
-    let mut home = dirs::home_dir().expect("no home directory found");
-    home.push("party_bot");
+) -> anyhow::Result<()> {
+    #[allow(unused_mut)]
+    let mut client_builder = Client::builder().homeserver_url(homeserver_url);
 
-    let client_config = ClientConfig::new().store_path(home);
+    #[cfg(feature = "sled")]
+    {
+        // The location to save files to
+        let mut home = dirs::home_dir().expect("no home directory found");
+        home.push("party_bot");
+        let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
+        client_builder = client_builder.state_store(Box::new(state_store));
+    }
 
-    let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    // create a new Client with the given homeserver url and config
-    let client = Client::new_with_config(homeserver_url, client_config).await.unwrap();
+    #[cfg(feature = "indexeddb")]
+    {
+        let state_store = matrix_sdk_indexeddb::StateStore::open();
+        client_builder = client_builder.state_store(Box::new(state_store));
+    }
 
+    let client = client_builder.build().await.unwrap();
     client.login(&username, &password, None, Some("command bot")).await?;
 
     println!("logged in as {}", username);
@@ -70,7 +78,7 @@ async fn login_and_sync(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), matrix_sdk::Error> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let (homeserver_url, username, password) =

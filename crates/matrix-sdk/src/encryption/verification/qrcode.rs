@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::{
-    matrix_qrcode::{qrcode::QrCode, EncodingError},
+    matrix_sdk_qrcode::{qrcode::QrCode, EncodingError},
     CancelInfo, QrVerification as BaseQrVerification,
 };
 use ruma::UserId;
@@ -41,6 +41,11 @@ impl QrVerification {
     /// Has this verification finished.
     pub fn is_done(&self) -> bool {
         self.inner.is_done()
+    }
+
+    /// Whether the QrCode was scanned by the other device.
+    pub fn has_been_scanned(&self) -> bool {
+        self.inner.has_been_scanned()
     }
 
     /// Did we initiate the verification flow.

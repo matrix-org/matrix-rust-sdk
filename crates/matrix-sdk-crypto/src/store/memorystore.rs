@@ -17,9 +17,12 @@ use std::{
     sync::Arc,
 };
 
+use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{async_trait, locks::Mutex};
-use ruma::{DeviceId, RoomId, TransactionId, UserId};
+use matrix_sdk_common::locks::Mutex;
+use ruma::{
+    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -46,13 +49,13 @@ fn encode_key_info(info: &SecretInfo) -> String {
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    tracked_users: Arc<DashSet<Box<UserId>>>,
-    users_for_key_query: Arc<DashSet<Box<UserId>>>,
+    tracked_users: Arc<DashSet<OwnedUserId>>,
+    users_for_key_query: Arc<DashSet<OwnedUserId>>,
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
-    identities: Arc<DashMap<Box<UserId>, ReadOnlyUserIdentities>>,
-    outgoing_key_requests: Arc<DashMap<Box<TransactionId>, GossipRequest>>,
-    key_requests_by_info: Arc<DashMap<String, Box<TransactionId>>>,
+    identities: Arc<DashMap<OwnedUserId, ReadOnlyUserIdentities>>,
+    outgoing_key_requests: Arc<DashMap<OwnedTransactionId, GossipRequest>>,
+    key_requests_by_info: Arc<DashMap<String, OwnedTransactionId>>,
 }
 
 impl Default for MemoryStore {
@@ -132,7 +135,7 @@ impl CryptoStore for MemoryStore {
         for hash in changes.message_hashes {
             self.olm_hashes
                 .entry(hash.sender_key.to_owned())
-                .or_insert_with(DashSet::new)
+                .or_default()
                 .insert(hash.hash.clone());
         }
 
@@ -185,7 +188,7 @@ impl CryptoStore for MemoryStore {
 
     async fn reset_backup_state(&self) -> Result<()> {
         for session in self.get_inbound_group_sessions().await? {
-            session.reset_backup_state()
+            session.reset_backup_state();
         }
 
         Ok(())
@@ -206,11 +209,11 @@ impl CryptoStore for MemoryStore {
         !self.users_for_key_query.is_empty()
     }
 
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>> {
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
         self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
-    fn tracked_users(&self) -> HashSet<Box<UserId>> {
+    fn tracked_users(&self) -> HashSet<OwnedUserId> {
         self.tracked_users.iter().map(|u| u.to_owned()).collect()
     }
 
@@ -247,7 +250,7 @@ impl CryptoStore for MemoryStore {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         Ok(self.devices.user_devices(user_id))
     }
 
@@ -259,7 +262,7 @@ impl CryptoStore for MemoryStore {
         Ok(self
             .olm_hashes
             .entry(message_hash.sender_key.to_owned())
-            .or_insert_with(DashSet::new)
+            .or_default()
             .contains(&message_hash.hash))
     }
 
@@ -306,13 +309,13 @@ impl CryptoStore for MemoryStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
-        identities::device::test::get_device,
-        olm::{test::get_account_and_session, InboundGroupSession, OlmMessageHash},
+        identities::device::testing::get_device,
+        olm::{tests::get_account_and_session, InboundGroupSession, OlmMessageHash},
         store::{memorystore::MemoryStore, Changes, CryptoStore},
     };
 
@@ -326,7 +329,7 @@ mod test {
 
         store.save_sessions(vec![session.clone()]).await;
 
-        let sessions = store.get_sessions(&session.sender_key).await.unwrap().unwrap();
+        let sessions = store.get_sessions(&session.sender_key.to_base64()).await.unwrap().unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -339,18 +342,17 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await.unwrap();
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
         let inbound = InboundGroupSession::new(
             "test_key",
             "test_key",
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = MemoryStore::new();
-        let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;
+        store.save_inbound_group_sessions(vec![inbound.clone()]).await;
 
         let loaded_session =
             store.get_inbound_group_session(room_id, outbound.session_id()).await.unwrap().unwrap();

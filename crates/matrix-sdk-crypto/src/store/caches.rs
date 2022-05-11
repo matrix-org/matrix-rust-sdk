@@ -21,7 +21,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk_common::locks::Mutex;
-use ruma::{DeviceId, RoomId, UserId};
+use ruma::{DeviceId, OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 
 use crate::{
     identities::ReadOnlyDevice,
@@ -45,11 +45,7 @@ impl SessionStore {
     /// Returns true if the session was added, false if the session was
     /// already in the store.
     pub async fn add(&self, session: Session) -> bool {
-        let sessions_lock = self
-            .entries
-            .entry(session.sender_key.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())));
-
+        let sessions_lock = self.entries.entry(session.sender_key.to_base64()).or_default();
         let mut sessions = sessions_lock.lock().await;
 
         if !sessions.contains(&session) {
@@ -75,7 +71,7 @@ impl SessionStore {
 /// In-memory store that holds inbound group sessions.
 pub struct GroupSessionStore {
     #[allow(clippy::type_complexity)]
-    entries: Arc<DashMap<Box<RoomId>, HashMap<String, InboundGroupSession>>>,
+    entries: Arc<DashMap<OwnedRoomId, HashMap<String, InboundGroupSession>>>,
 }
 
 impl GroupSessionStore {
@@ -125,8 +121,7 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
-    #[allow(clippy::type_complexity)]
-    entries: Arc<DashMap<Box<UserId>, DashMap<Box<DeviceId>, ReadOnlyDevice>>>,
+    entries: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ReadOnlyDevice>>>,
 }
 
 impl DeviceStore {
@@ -142,7 +137,7 @@ impl DeviceStore {
         let user_id = device.user_id();
         self.entries
             .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .insert(device.device_id().into(), device)
             .is_none()
     }
@@ -161,10 +156,10 @@ impl DeviceStore {
     }
 
     /// Get a read-only view over all devices of the given user.
-    pub fn user_devices(&self, user_id: &UserId) -> HashMap<Box<DeviceId>, ReadOnlyDevice> {
+    pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, ReadOnlyDevice> {
         self.entries
             .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
+            .or_default()
             .iter()
             .map(|i| (i.key().to_owned(), i.value().clone()))
             .collect()
@@ -172,13 +167,13 @@ impl DeviceStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
     use crate::{
-        identities::device::test::get_device,
-        olm::{test::get_account_and_session, InboundGroupSession},
+        identities::device::testing::get_device,
+        olm::{tests::get_account_and_session, InboundGroupSession},
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
 
@@ -191,7 +186,7 @@ mod test {
         assert!(store.add(session.clone()).await);
         assert!(!store.add(session.clone()).await);
 
-        let sessions = store.get(&session.sender_key).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -204,9 +199,9 @@ mod test {
         let (_, session) = get_account_and_session().await;
 
         let store = SessionStore::new();
-        store.set_for_sender(&session.sender_key, vec![session.clone()]);
+        store.set_for_sender(&session.sender_key.to_base64(), vec![session.clone()]);
 
-        let sessions = store.get(&session.sender_key).unwrap();
+        let sessions = store.get(&session.sender_key.to_base64()).unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -219,7 +214,7 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await.unwrap();
+        let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
@@ -232,8 +227,7 @@ mod test {
             room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        );
 
         let store = GroupSessionStore::new();
         store.add(inbound.clone());

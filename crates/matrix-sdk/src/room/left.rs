@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use ruma::api::client::r0::membership::forget_room;
+use ruma::api::client::membership::forget_room;
 
 use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
@@ -40,7 +40,7 @@ impl Left {
     ///
     /// This communicates to the homeserver that it should forget the room.
     pub async fn forget(&self) -> Result<()> {
-        let request = forget_room::Request::new(self.inner.room_id());
+        let request = forget_room::v3::Request::new(self.inner.room_id());
         let _response = self.client.send(request, None).await?;
         self.client.store().remove_room(self.inner.room_id()).await?;
 

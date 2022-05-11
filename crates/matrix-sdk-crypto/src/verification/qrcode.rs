@@ -14,12 +14,13 @@
 
 use std::sync::{Arc, Mutex};
 
-use matrix_qrcode::{
+use matrix_sdk_qrcode::{
     qrcode::QrCode, EncodingError, QrVerificationData, SelfVerificationData,
     SelfVerificationNoMasterKey, VerificationData,
 };
+use rand::{thread_rng, RngCore};
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             cancel::CancelCode,
@@ -30,13 +31,14 @@ use ruma::{
             },
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceId, DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tracing::trace;
+use vodozemac::Ed25519PublicKey;
 
 use super::{
     event_enums::{CancelContent, DoneContent, OutgoingContent, OwnedStartContent, StartContent},
@@ -45,8 +47,8 @@ use super::{
     VerificationStore,
 };
 use crate::{
-    olm::PrivateCrossSigningIdentity, CryptoStoreError, OutgoingVerificationRequest,
-    ReadOnlyDevice, ReadOnlyUserIdentities, RoomMessageRequest, ToDeviceRequest,
+    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyUserIdentities,
+    RoomMessageRequest, ToDeviceRequest,
 };
 
 const SECRET_SIZE: usize = 16;
@@ -70,11 +72,11 @@ pub enum ScanError {
     /// One of the users that is participating in this verification doesn't have
     /// a valid cross signing identity.
     #[error("The user {0} is missing a valid cross signing identity")]
-    MissingCrossSigningIdentity(Box<UserId>),
+    MissingCrossSigningIdentity(OwnedUserId),
     /// The device of the user that is participating in this verification
     /// doesn't have a valid device key.
     #[error("The user's {0} device {1} is not E2E capable")]
-    MissingDeviceKeys(Box<UserId>, Box<DeviceId>),
+    MissingDeviceKeys(OwnedUserId, OwnedDeviceId),
     /// The ID uniquely identifying this verification flow didn't match to the
     /// one that has been scanned.
     #[error("The unique verification flow id did not match (expected {expected}, found {found})")]
@@ -384,7 +386,7 @@ impl QrVerification {
 
     pub(crate) fn receive_reciprocation(
         &self,
-        content: &StartContent,
+        content: &StartContent<'_>,
     ) -> Option<OutgoingVerificationRequest> {
         let mut state = self.state.lock().unwrap();
 
@@ -431,16 +433,17 @@ impl QrVerification {
     }
 
     fn generate_secret() -> Base64 {
-        let mut shared_secret = [0u8; SECRET_SIZE];
-        getrandom::getrandom(&mut shared_secret)
-            .expect("Can't generate randomness for the shared secret");
-        Base64::new(shared_secret.to_vec())
+        let mut shared_secret = vec![0u8; SECRET_SIZE];
+        let mut rng = thread_rng();
+        rng.fill_bytes(&mut shared_secret);
+
+        Base64::new(shared_secret)
     }
 
     pub(crate) fn new_self(
         flow_id: FlowId,
-        own_master_key: String,
-        other_device_key: String,
+        own_master_key: Ed25519PublicKey,
+        other_device_key: Ed25519PublicKey,
         identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: Option<RequestHandle>,
@@ -461,7 +464,7 @@ impl QrVerification {
     pub(crate) fn new_self_no_master(
         store: VerificationStore,
         flow_id: FlowId,
-        own_master_key: String,
+        own_master_key: Ed25519PublicKey,
         identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: Option<RequestHandle>,
@@ -470,7 +473,7 @@ impl QrVerification {
 
         let inner: QrVerificationData = SelfVerificationNoMasterKey::new(
             flow_id.as_str().to_owned(),
-            store.account.identity_keys().ed25519().to_string(),
+            store.account.identity_keys().ed25519,
             own_master_key,
             secret,
         )
@@ -481,8 +484,8 @@ impl QrVerification {
 
     pub(crate) fn new_cross(
         flow_id: FlowId,
-        own_master_key: String,
-        other_master_key: String,
+        own_master_key: Ed25519PublicKey,
+        other_master_key: Ed25519PublicKey,
         identities: IdentitiesBeingVerified,
         we_started: bool,
         request_handle: Option<RequestHandle>,
@@ -501,12 +504,10 @@ impl QrVerification {
         Self::new_helper(flow_id, inner, identities, we_started, request_handle)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn from_scan(
         store: VerificationStore,
-        private_identity: PrivateCrossSigningIdentity,
-        other_user_id: Box<UserId>,
-        other_device_id: Box<DeviceId>,
+        other_user_id: OwnedUserId,
+        other_device_id: OwnedDeviceId,
         flow_id: FlowId,
         qr_code: QrVerificationData,
         we_started: bool,
@@ -519,18 +520,21 @@ impl QrVerification {
             });
         }
 
-        let own_identity =
-            store.get_user_identity(store.account.user_id()).await?.ok_or_else(|| {
-                ScanError::MissingCrossSigningIdentity(store.account.user_id().to_owned())
-            })?;
-        let other_identity = store
-            .get_user_identity(&other_user_id)
-            .await?
-            .ok_or_else(|| ScanError::MissingCrossSigningIdentity(other_user_id.clone()))?;
         let other_device =
             store.get_device(&other_user_id, &other_device_id).await?.ok_or_else(|| {
                 ScanError::MissingDeviceKeys(other_user_id.clone(), other_device_id.clone())
             })?;
+
+        let identities = store.get_identities(other_device).await?;
+
+        let own_identity = identities.own_identity.as_ref().ok_or_else(|| {
+            ScanError::MissingCrossSigningIdentity(store.account.user_id().to_owned())
+        })?;
+
+        let other_identity = identities
+            .identity_being_verified
+            .as_ref()
+            .ok_or_else(|| ScanError::MissingCrossSigningIdentity(other_user_id.clone()))?;
 
         let check_master_key = |key, identity: &ReadOnlyUserIdentities| {
             let master_key = identity.master_key().get_first_key().ok_or_else(|| {
@@ -539,53 +543,42 @@ impl QrVerification {
 
             if key != master_key {
                 Err(ScanError::KeyMismatch {
-                    expected: master_key.to_owned(),
-                    found: qr_code.first_key().to_owned(),
+                    expected: master_key.to_base64(),
+                    found: qr_code.first_key().to_base64(),
                 })
             } else {
                 Ok(())
             }
         };
 
-        let (device_being_verified, identity_being_verified) = match qr_code {
+        match qr_code {
             QrVerificationData::Verification(_) => {
-                check_master_key(qr_code.first_key(), &other_identity)?;
-                check_master_key(qr_code.second_key(), &own_identity)?;
-
-                (other_device, Some(other_identity))
+                check_master_key(qr_code.first_key(), other_identity)?;
+                check_master_key(qr_code.second_key(), &own_identity.to_owned().into())?;
             }
             QrVerificationData::SelfVerification(_) => {
-                check_master_key(qr_code.first_key(), &other_identity)?;
-                if qr_code.second_key() != store.account.identity_keys().ed25519() {
+                check_master_key(qr_code.first_key(), other_identity)?;
+                if qr_code.second_key() != store.account.identity_keys().ed25519 {
                     return Err(ScanError::KeyMismatch {
-                        expected: store.account.identity_keys().ed25519().to_owned(),
-                        found: qr_code.second_key().to_owned(),
+                        expected: store.account.identity_keys().ed25519.to_base64(),
+                        found: qr_code.second_key().to_base64(),
                     });
                 }
-
-                (other_device, Some(other_identity))
             }
             QrVerificationData::SelfVerificationNoMasterKey(_) => {
                 let device_key =
-                    other_device.get_key(DeviceKeyAlgorithm::Ed25519).ok_or_else(|| {
+                    identities.device_being_verified.ed25519_key().ok_or_else(|| {
                         ScanError::MissingDeviceKeys(other_user_id.clone(), other_device_id.clone())
                     })?;
+
                 if qr_code.first_key() != device_key {
                     return Err(ScanError::KeyMismatch {
-                        expected: device_key.to_owned(),
-                        found: qr_code.first_key().to_owned(),
+                        expected: device_key.to_base64(),
+                        found: qr_code.first_key().to_base64(),
                     });
                 }
-                check_master_key(qr_code.second_key(), &other_identity)?;
-                (other_device, Some(other_identity))
+                check_master_key(qr_code.second_key(), other_identity)?;
             }
-        };
-
-        let identities = IdentitiesBeingVerified {
-            private_identity,
-            store: store.clone(),
-            device_being_verified,
-            identity_being_verified,
         };
 
         let secret = qr_code.secret().to_owned();
@@ -658,7 +651,7 @@ struct Confirmed {}
 
 #[derive(Clone, Debug)]
 struct Reciprocated {
-    own_device_id: Box<DeviceId>,
+    own_device_id: OwnedDeviceId,
     secret: Base64,
 }
 
@@ -708,7 +701,7 @@ impl QrState<Cancelled> {
 impl QrState<Created> {
     fn receive_reciprocate(
         self,
-        content: &StartContent,
+        content: &StartContent<'_>,
     ) -> Result<QrState<Scanned>, QrState<Cancelled>> {
         match content.method() {
             start::StartMethod::ReciprocateV1(m) => {
@@ -737,7 +730,7 @@ impl QrState<Done> {
 impl QrState<Confirmed> {
     fn into_done(
         self,
-        _: &DoneContent,
+        _: &DoneContent<'_>,
         verified_device: Option<&ReadOnlyDevice>,
         verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {
@@ -760,9 +753,9 @@ impl QrState<Confirmed> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
-                    Relation::new(e.to_owned()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationDone(
+                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                ),
             )
                 .into(),
         }
@@ -776,7 +769,7 @@ impl QrState<Reciprocated> {
 
     fn into_done(
         self,
-        _: &DoneContent,
+        _: &DoneContent<'_>,
         verified_device: Option<&ReadOnlyDevice>,
         verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {
@@ -793,10 +786,11 @@ impl QrState<Reciprocated> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{convert::TryFrom, sync::Arc};
 
-    use matrix_qrcode::QrVerificationData;
+    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, event_id, room_id, user_id, DeviceId, UserId};
 
@@ -805,7 +799,7 @@ mod test {
         store::{Changes, CryptoStore, MemoryStore},
         verification::{
             event_enums::{DoneContent, OutgoingContent, StartContent},
-            FlowId, IdentitiesBeingVerified, VerificationStore,
+            FlowId, VerificationStore,
         },
         QrVerification, ReadOnlyDevice,
     };
@@ -827,47 +821,46 @@ mod test {
         let store = memory_store();
         let account = ReadOnlyAccount::new(user_id(), device_id());
 
-        let store = VerificationStore { account: account.clone(), inner: store };
-
         let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
-        let flow_id = FlowId::ToDevice("test_transaction".into());
-
-        let device_key = account.identity_keys().ed25519().to_owned();
         let master_key = private_identity.master_public_key().await.unwrap();
         let master_key = master_key.get_first_key().unwrap().to_owned();
 
+        let store = VerificationStore {
+            account: account.clone(),
+            inner: store,
+            private_identity: Mutex::new(private_identity).into(),
+        };
+
+        let flow_id = FlowId::ToDevice("test_transaction".into());
+
+        let device_key = account.identity_keys.ed25519;
         let alice_device = ReadOnlyDevice::from_account(&account).await;
 
-        let identities = IdentitiesBeingVerified {
-            private_identity,
-            store: store.clone(),
-            device_being_verified: alice_device,
-            identity_being_verified: None,
-        };
+        let identities = store.get_identities(alice_device).await.unwrap();
 
         let verification = QrVerification::new_self_no_master(
             store.clone(),
             flow_id.clone(),
-            master_key.clone(),
+            master_key,
             identities.clone(),
             false,
             None,
         );
 
-        assert_eq!(verification.inner.first_key(), &device_key);
-        assert_eq!(verification.inner.second_key(), &master_key);
+        assert_eq!(verification.inner.first_key(), device_key);
+        assert_eq!(verification.inner.second_key(), master_key);
 
         let verification = QrVerification::new_self(
             flow_id,
-            master_key.clone(),
-            device_key.clone(),
+            master_key,
+            device_key,
             identities.clone(),
             false,
             None,
         );
 
-        assert_eq!(verification.inner.first_key(), &master_key);
-        assert_eq!(verification.inner.second_key(), &device_key);
+        assert_eq!(verification.inner.first_key(), master_key);
+        assert_eq!(verification.inner.second_key(), device_key);
 
         let bob_identity =
             PrivateCrossSigningIdentity::new(user_id!("@bob:example").to_owned()).await;
@@ -877,17 +870,11 @@ mod test {
         let flow_id =
             FlowId::InRoom(room_id!("!test:example").to_owned(), event_id!("$EVENTID").to_owned());
 
-        let verification = QrVerification::new_cross(
-            flow_id,
-            master_key.clone(),
-            bob_master_key.clone(),
-            identities,
-            false,
-            None,
-        );
+        let verification =
+            QrVerification::new_cross(flow_id, master_key, bob_master_key, identities, false, None);
 
-        assert_eq!(verification.inner.first_key(), &master_key);
-        assert_eq!(verification.inner.second_key(), &bob_master_key);
+        assert_eq!(verification.inner.first_key(), master_key);
+        assert_eq!(verification.inner.second_key(), bob_master_key);
     }
 
     #[async_test]
@@ -896,7 +883,13 @@ mod test {
             let alice_account = ReadOnlyAccount::new(user_id(), device_id());
             let store = memory_store();
 
-            let store = VerificationStore { account: alice_account.clone(), inner: store };
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+
+            let store = VerificationStore {
+                account: alice_account.clone(),
+                inner: store,
+                private_identity: Mutex::new(private_identity).into(),
+            };
 
             let bob_account =
                 ReadOnlyAccount::new(alice_account.user_id(), device_id!("BOBDEVICE"));
@@ -915,19 +908,12 @@ mod test {
             changes.devices.new.push(bob_device.clone());
             store.save_changes(changes).await.unwrap();
 
-            let identities = IdentitiesBeingVerified {
-                private_identity: PrivateCrossSigningIdentity::empty(
-                    alice_account.user_id().to_owned(),
-                ),
-                store: store.clone(),
-                device_being_verified: alice_device.clone(),
-                identity_being_verified: Some(identity.clone().into()),
-            };
+            let identities = store.get_identities(alice_device.clone()).await.unwrap();
 
             let alice_verification = QrVerification::new_self_no_master(
                 store,
                 flow_id.clone(),
-                master_key.clone(),
+                master_key,
                 identities,
                 false,
                 None,
@@ -935,7 +921,12 @@ mod test {
 
             let bob_store = memory_store();
 
-            let bob_store = VerificationStore { account: bob_account.clone(), inner: bob_store };
+            let private_identity = PrivateCrossSigningIdentity::new(user_id().to_owned()).await;
+            let bob_store = VerificationStore {
+                account: bob_account.clone(),
+                inner: bob_store,
+                private_identity: Mutex::new(private_identity).into(),
+            };
 
             let mut changes = Changes::default();
             changes.identities.new.push(identity.into());
@@ -947,7 +938,6 @@ mod test {
 
             let bob_verification = QrVerification::from_scan(
                 bob_store,
-                private_identity,
                 alice_account.user_id().to_owned(),
                 alice_account.device_id().to_owned(),
                 flow_id,

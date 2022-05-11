@@ -1,0 +1,56 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmarks:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+    environment: matrix-rust-bot
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: rustfmt
+        profile: minimal
+        override: true
+
+    - name: Run Benchmarks
+      run: cargo bench | tee benchmark-output.txt
+
+    - name: Check benchmark result for PR
+      if: github.event_name == 'pull_request'
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: Rust Benchmark
+        tool: 'cargo'
+        output-file-path: benchmark-output.txt
+        auto-push: false
+        # comment to alert the user this has gone bad
+        github-token: ${{ secrets.MRB_ACCESS_TOKEN }}
+        alert-threshold: '120%'
+        comment-on-alert: true
+        fail-threshold: '150%'
+        fail-on-alert: true
+
+    - name: Store benchmark result
+      if: github.event_name != 'pull_request'
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: Rust Benchmark
+        tool: 'cargo'
+        output-file-path: benchmark-output.txt
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+        # Show alert with commit comment on detecting possible performance regression
+        alert-threshold: '150%'
+        comment-on-alert: true
+        fail-on-alert: true
+        alert-comment-cc-users: '@gnunicornBen,@jplatte,@poljar'

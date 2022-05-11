@@ -24,15 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{instant::Instant, locks::Mutex};
-pub use olm_rs::{
-    account::IdentityKeys,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
-use olm_rs::{
-    errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
-};
+use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
         room::{
@@ -45,23 +37,26 @@ use ruma::{
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, TransactionId, UserId,
+    DeviceId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{debug, error, info};
-
-use super::{
-    super::{deserialize_instant, serialize_instant},
-    GroupSessionKey,
+use vodozemac::Curve25519PublicKey;
+pub use vodozemac::{
+    megolm::{GroupSession, GroupSessionPickle, MegolmMessage, SessionKey},
+    olm::IdentityKeys,
+    PickleError,
 };
+
 use crate::{Device, ToDeviceRequest};
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
 const ROTATION_MESSAGES: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShareState {
+pub(crate) enum ShareState {
     NotShared,
     SharedButChangedSenderKey,
     Shared(u32),
@@ -118,33 +113,31 @@ impl EncryptionSettings {
 /// messages.
 #[derive(Clone)]
 pub struct OutboundGroupSession {
-    inner: Arc<Mutex<OlmOutboundGroupSession>>,
+    inner: Arc<Mutex<GroupSession>>,
     device_id: Arc<DeviceId>,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
     room_id: Arc<RoomId>,
-    pub(crate) creation_time: Arc<Instant>,
+    pub(crate) creation_time: SecondsSinceUnixEpoch,
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    #[allow(clippy::type_complexity)]
-    pub(crate) shared_with_set: Arc<DashMap<Box<UserId>, DashMap<Box<DeviceId>, ShareInfo>>>,
-    #[allow(clippy::type_complexity)]
-    to_share_with_set: Arc<DashMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
+    pub(crate) shared_with_set: Arc<DashMap<OwnedUserId, DashMap<OwnedDeviceId, ShareInfo>>>,
+    to_share_with_set: Arc<DashMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
 }
 
 /// A a map of userid/device it to a `ShareInfo`.
 ///
 /// Holds the `ShareInfo` for all the user/device pairs that will receive the
 /// room key.
-pub type ShareInfoSet = BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>;
+pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>;
 
 /// Struct holding info about the share state of a outbound group session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShareInfo {
     /// The sender key of the device that was used to encrypt the room key.
-    pub sender_key: String,
+    pub sender_key: Curve25519PublicKey,
     /// The message index that the device received.
     pub message_index: u32,
 }
@@ -171,7 +164,7 @@ impl OutboundGroupSession {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> Self {
-        let session = OlmOutboundGroupSession::new();
+        let session = GroupSession::new();
         let session_id = session.session_id();
 
         OutboundGroupSession {
@@ -180,7 +173,7 @@ impl OutboundGroupSession {
             device_id,
             account_identity_keys: identity_keys,
             session_id: session_id.into(),
-            creation_time: Arc::new(Instant::now()),
+            creation_time: SecondsSinceUnixEpoch::now(),
             message_count: Arc::new(AtomicU64::new(0)),
             shared: Arc::new(AtomicBool::new(false)),
             invalidated: Arc::new(AtomicBool::new(false)),
@@ -192,7 +185,7 @@ impl OutboundGroupSession {
 
     pub(crate) fn add_request(
         &self,
-        request_id: Box<TransactionId>,
+        request_id: OwnedTransactionId,
         request: Arc<ToDeviceRequest>,
         share_infos: ShareInfoSet,
     ) {
@@ -225,7 +218,7 @@ impl OutboundGroupSession {
             );
 
             for (user_id, info) in r {
-                self.shared_with_set.entry(user_id).or_insert_with(DashMap::new).extend(info)
+                self.shared_with_set.entry(user_id).or_default().extend(info)
             }
 
             if self.to_share_with_set.is_empty() {
@@ -257,8 +250,8 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
-    pub(crate) async fn encrypt_helper(&self, plaintext: String) -> String {
-        let session = self.inner.lock().await;
+    pub(crate) async fn encrypt_helper(&self, plaintext: String) -> MegolmMessage {
+        let mut session = self.inner.lock().await;
         self.message_count.fetch_add(1, Ordering::SeqCst);
         session.encrypt(&plaintext)
     }
@@ -297,8 +290,8 @@ impl OutboundGroupSession {
         let ciphertext = self.encrypt_helper(plaintext).await;
 
         let encrypted_content = MegolmV1AesSha2ContentInit {
-            ciphertext,
-            sender_key: self.account_identity_keys.curve25519().to_owned(),
+            ciphertext: ciphertext.to_base64(),
+            sender_key: self.account_identity_keys.curve25519.to_base64(),
             session_id: self.session_id().to_owned(),
             device_id: (*self.device_id).to_owned(),
         }
@@ -310,19 +303,32 @@ impl OutboundGroupSession {
         )
     }
 
+    fn elapsed(&self) -> bool {
+        let creation_time = Duration::from_secs(self.creation_time.get().into());
+        let now = Duration::from_secs(SecondsSinceUnixEpoch::now().get().into());
+
+        // Since the encryption settings are provided by users and not
+        // checked someone could set a really low rotation period so
+        // clamp it to an hour.
+        now.checked_sub(creation_time)
+            .map(|elapsed| elapsed >= max(self.settings.rotation_period, Duration::from_secs(3600)))
+            .unwrap_or(true)
+    }
+
     /// Check if the session has expired and if it should be rotated.
     ///
     /// A session will expire after some time or if enough messages have been
     /// encrypted using it.
     pub fn expired(&self) -> bool {
         let count = self.message_count.load(Ordering::SeqCst);
+        // We clamp the rotation period for message counts to be between 1 and
+        // 10000. The Megolm session should be usable for at least 1 message,
+        // and at most 10000 messages. Realistically Megolm uses u32 for it's
+        // internal counter and one could use the Megolm session for up to
+        // u32::MAX messages, but we're staying on the safe side of things.
+        let rotation_period_msgs = self.settings.rotation_period_msgs.clamp(1, 10_000);
 
-        count >= self.settings.rotation_period_msgs
-            || self.creation_time.elapsed()
-                // Since the encryption settings are provided by users and not
-                // checked someone could set a really low rotation period so
-                // clamp it to an hour.
-                >= max(self.settings.rotation_period, Duration::from_secs(3600))
+        count >= rotation_period_msgs || self.elapsed()
     }
 
     /// Has the session been invalidated.
@@ -346,9 +352,9 @@ impl OutboundGroupSession {
     /// Get the session key of this session.
     ///
     /// A session key can be used to to create an `InboundGroupSession`.
-    pub async fn session_key(&self) -> GroupSessionKey {
+    pub async fn session_key(&self) -> SessionKey {
         let session = self.inner.lock().await;
-        GroupSessionKey(session.session_key())
+        session.session_key()
     }
 
     /// Get the room id of the room this session belongs to.
@@ -367,7 +373,7 @@ impl OutboundGroupSession {
     /// message index that will be used for the next encrypted message.
     pub async fn message_index(&self) -> u32 {
         let session = self.inner.lock().await;
-        session.session_message_index()
+        session.message_index()
     }
 
     pub(crate) async fn as_content(&self) -> AnyToDeviceEventContent {
@@ -377,7 +383,7 @@ impl OutboundGroupSession {
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             self.room_id().to_owned(),
             self.session_id().to_owned(),
-            session_key.0.clone(),
+            session_key.to_base64(),
         ))
     }
 
@@ -386,7 +392,7 @@ impl OutboundGroupSession {
         // Check if we shared the session.
         let shared_state = self.shared_with_set.get(device.user_id()).and_then(|d| {
             d.get(device.device_id()).map(|s| {
-                if Some(&s.sender_key) == device.get_key(DeviceKeyAlgorithm::Curve25519) {
+                if Some(s.sender_key) == device.curve25519_key() {
                     ShareState::Shared(s.message_index)
                 } else {
                     ShareState::SharedButChangedSenderKey
@@ -407,8 +413,7 @@ impl OutboundGroupSession {
 
                 share_info.get(device.user_id()).and_then(|d| {
                     d.get(device.device_id()).map(|info| {
-                        if Some(&info.sender_key) == device.get_key(DeviceKeyAlgorithm::Curve25519)
-                        {
+                        if Some(info.sender_key) == device.curve25519_key() {
                             ShareState::Shared(info.message_index)
                         } else {
                             ShareState::SharedButChangedSenderKey
@@ -428,25 +433,27 @@ impl OutboundGroupSession {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         index: u32,
     ) {
-        self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
-            device_id.to_owned(),
-            ShareInfo { sender_key: sender_key.to_owned(), message_index: index },
-        );
+        self.shared_with_set
+            .entry(user_id.to_owned())
+            .or_default()
+            .insert(device_id.to_owned(), ShareInfo { sender_key, message_index: index });
     }
 
     /// Mark the session as shared with the given user/device pair, starting
     /// from the current index.
     #[cfg(test)]
-    pub async fn mark_shared_with(&self, user_id: &UserId, device_id: &DeviceId, sender_key: &str) {
-        self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
+    pub async fn mark_shared_with(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        sender_key: Curve25519PublicKey,
+    ) {
+        self.shared_with_set.entry(user_id.to_owned()).or_default().insert(
             device_id.to_owned(),
-            ShareInfo {
-                sender_key: sender_key.to_owned(),
-                message_index: self.message_index().await,
-            },
+            ShareInfo { sender_key, message_index: self.message_index().await },
         );
     }
 
@@ -457,7 +464,7 @@ impl OutboundGroupSession {
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
-    pub(crate) fn pending_request_ids(&self) -> Vec<Box<TransactionId>> {
+    pub(crate) fn pending_request_ids(&self) -> Vec<OwnedTransactionId> {
         self.to_share_with_set.iter().map(|e| e.key().clone()).collect()
     }
 
@@ -482,9 +489,8 @@ impl OutboundGroupSession {
         device_id: Arc<DeviceId>,
         identity_keys: Arc<IdentityKeys>,
         pickle: PickledOutboundGroupSession,
-        pickling_mode: PicklingMode,
-    ) -> Result<Self, OlmGroupSessionError> {
-        let inner = OlmOutboundGroupSession::unpickle(pickle.pickle.0, pickling_mode)?;
+    ) -> Result<Self, PickleError> {
+        let inner: GroupSession = pickle.pickle.into();
         let session_id = inner.session_id();
 
         Ok(Self {
@@ -493,7 +499,7 @@ impl OutboundGroupSession {
             account_identity_keys: identity_keys,
             session_id: session_id.into(),
             room_id: pickle.room_id,
-            creation_time: pickle.creation_time.into(),
+            creation_time: pickle.creation_time,
             message_count: AtomicU64::from(pickle.message_count).into(),
             shared: AtomicBool::from(pickle.shared).into(),
             invalidated: AtomicBool::from(pickle.invalidated).into(),
@@ -517,15 +523,14 @@ impl OutboundGroupSession {
     /// * `pickle_mode` - The mode that should be used to pickle the group
     ///   session,
     /// either an unencrypted mode or an encrypted using passphrase.
-    pub async fn pickle(&self, pickling_mode: PicklingMode) -> PickledOutboundGroupSession {
-        let pickle: OutboundGroupSessionPickle =
-            self.inner.lock().await.pickle(pickling_mode).into();
+    pub async fn pickle(&self) -> PickledOutboundGroupSession {
+        let pickle = self.inner.lock().await.pickle();
 
         PickledOutboundGroupSession {
             pickle,
             room_id: self.room_id.clone(),
             settings: self.settings.clone(),
-            creation_time: *self.creation_time,
+            creation_time: self.creation_time,
             message_count: self.message_count.load(Ordering::SeqCst),
             shared: self.shared(),
             invalidated: self.invalidated(),
@@ -573,17 +578,17 @@ impl std::fmt::Debug for OutboundGroupSession {
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an InboundGroupSession.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
 pub struct PickledOutboundGroupSession {
     /// The pickle string holding the OutboundGroupSession.
-    pub pickle: OutboundGroupSessionPickle,
+    pub pickle: GroupSessionPickle,
     /// The settings this session adheres to.
     pub settings: Arc<EncryptionSettings>,
     /// The room id this session is used for.
     pub room_id: Arc<RoomId>,
     /// The timestamp when this session was created.
-    #[serde(deserialize_with = "deserialize_instant", serialize_with = "serialize_instant")]
-    pub creation_time: Instant,
+    pub creation_time: SecondsSinceUnixEpoch,
     /// The number of messages this session has already encrypted.
     pub message_count: u64,
     /// Is the session shared.
@@ -591,23 +596,28 @@ pub struct PickledOutboundGroupSession {
     /// Has the session been invalidated.
     pub invalidated: bool,
     /// The set of users the session has been already shared with.
-    pub shared_with_set: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceId>, ShareInfo>>,
+    pub shared_with_set: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
-    pub requests: BTreeMap<Box<TransactionId>, (Arc<ToDeviceRequest>, ShareInfoSet)>,
+    pub requests: BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::time::Duration;
 
+    use atomic::Ordering;
+    use matrix_sdk_test::async_test;
     use ruma::{
+        device_id,
         events::room::{
             encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+            message::RoomMessageEventContent,
         },
-        uint, EventEncryptionAlgorithm,
+        room_id, uint, user_id, EventEncryptionAlgorithm,
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
+    use crate::{MegolmError, ReadOnlyAccount};
 
     #[test]
     fn encryption_settings_conversion() {
@@ -625,5 +635,78 @@ mod test {
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);
+    }
+
+    #[async_test]
+    #[cfg(any(target_os = "linux", target_arch = "wasm32"))]
+    async fn expiration() -> Result<(), MegolmError> {
+        use ruma::SecondsSinceUnixEpoch;
+
+        let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
+
+        let account = ReadOnlyAccount::new(user_id!("@alice:example.org"), device_id!("DEVICEID"));
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        let _ = session
+            .encrypt(
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                "m.room.message",
+            )
+            .await;
+        assert!(session.expired());
+
+        let settings = EncryptionSettings {
+            rotation_period: Duration::from_millis(100),
+            ..Default::default()
+        };
+
+        let (mut session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+
+        let now = SecondsSinceUnixEpoch::now();
+        session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(3600));
+        assert!(session.expired());
+
+        let settings = EncryptionSettings { rotation_period_msgs: 0, ..Default::default() };
+
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+
+        let _ = session
+            .encrypt(
+                serde_json::to_value(RoomMessageEventContent::text_plain("Test message"))?,
+                "m.room.message",
+            )
+            .await;
+        assert!(session.expired());
+
+        let settings = EncryptionSettings { rotation_period_msgs: 100_000, ..Default::default() };
+
+        let (session, _) = account
+            .create_group_session_pair(room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        session.message_count.store(1000, Ordering::SeqCst);
+        assert!(!session.expired());
+        session.message_count.store(9999, Ordering::SeqCst);
+        assert!(!session.expired());
+        session.message_count.store(10_000, Ordering::SeqCst);
+        assert!(session.expired());
+
+        Ok(())
     }
 }

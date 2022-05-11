@@ -8,20 +8,16 @@ license = "Apache-2.0"
 name = "matrix-sdk-test"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = "1.56"
+rust-version = "1.60"
 version = "0.4.0"
 
 [features]
 appservice = []
 
 [dependencies]
-http = "0.2.4"
-lazy_static = "1.4.0"
+http = "0.2.6"
 matrix-sdk-test-macros = { version = "0.1.0", path = "../matrix-sdk-test-macros" }
-serde = "1.0.126"
-serde_json = "1.0.64"
-
-[dependencies.ruma]
-git = "https://github.com/ruma/ruma/"
-rev = "37095f88553b311e7a70adaaabe39976fb8ff71c"
-features = ["client-api-c"]
+once_cell = "1.10.0"
+ruma = { version = "0.6.1", features = ["client-api-c"] }
+serde = "1.0.136"
+serde_json = "1.0.79"

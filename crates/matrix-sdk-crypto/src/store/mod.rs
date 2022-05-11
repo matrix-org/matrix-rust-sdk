@@ -27,11 +27,11 @@
 //! #     store::MemoryStore,
 //! # };
 //! # use ruma::{device_id, user_id};
-//! # let user_id = user_id!("@example:localhost").to_owned();
-//! # let device_id = device_id!("TEST").to_owned();
+//! # let user_id = user_id!("@example:localhost");
+//! # let device_id = device_id!("TEST");
 //! let store = Box::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::new_with_store(user_id, device_id, store);
+//! let machine = OlmMachine::with_store(user_id, device_id, store);
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html
@@ -40,13 +40,11 @@
 pub mod caches;
 mod memorystore;
 mod pickle_key;
-#[cfg(test)]
+
+#[cfg(any(test, feature = "testing"))]
 #[macro_use]
+#[allow(missing_docs)]
 pub mod integration_tests;
-#[cfg(feature = "indexeddb_cryptostore")]
-pub(crate) mod indexeddb;
-#[cfg(feature = "sled_cryptostore")]
-pub(crate) mod sled;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -56,28 +54,22 @@ use std::{
     sync::Arc,
 };
 
-use base64::DecodeError;
-#[cfg(feature = "indexeddb_cryptostore")]
-use indexed_db_futures::web_sys::DomException;
-use matrix_sdk_common::{async_trait, locks::Mutex, AsyncTraitDeps};
+use async_trait::async_trait;
+use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
-use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
-    DeviceKeyAlgorithm, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName, DeviceId, IdParseError, OwnedDeviceId, OwnedUserId,
+    RoomId, TransactionId, UserId,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
+use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroize;
 
-#[cfg(feature = "indexeddb_cryptostore")]
-pub use self::indexeddb::IndexeddbStore;
-#[cfg(feature = "sled_cryptostore")]
-pub use self::sled::SledStore;
 use crate::{
-    error::SessionUnpicklingError,
     identities::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
@@ -86,6 +78,7 @@ use crate::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
+    utilities::encode,
     verification::VerificationMachine,
     CrossSigningStatus,
 };
@@ -102,7 +95,7 @@ pub use crate::gossiping::{GossipRequest, SecretInfo};
 /// generics don't mix let the CryptoStore store strings and this wrapper
 /// adds the generic interface on top.
 #[derive(Debug, Clone)]
-pub(crate) struct Store {
+pub struct Store {
     user_id: Arc<UserId>,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<dyn CryptoStore>,
@@ -114,10 +107,8 @@ pub(crate) struct Store {
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub private_identity: Option<PrivateCrossSigningIdentity>,
-    #[cfg(feature = "backups_v1")]
     pub backup_version: Option<String>,
-    #[cfg(feature = "backups_v1")]
-    pub recovery_key: Option<crate::backups::RecoveryKey>,
+    pub recovery_key: Option<RecoveryKey>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -163,6 +154,40 @@ pub struct DeviceChanges {
     pub deleted: Vec<ReadOnlyDevice>,
 }
 
+/// The private part of a backup key.
+#[derive(Zeroize, Deserialize, Serialize)]
+#[zeroize(drop)]
+#[serde(transparent)]
+pub struct RecoveryKey {
+    pub(crate) inner: Box<[u8; RecoveryKey::KEY_SIZE]>,
+}
+
+impl RecoveryKey {
+    /// The number of bytes the recovery key will hold.
+    pub const KEY_SIZE: usize = 32;
+
+    /// Create a new random recovery key.
+    pub fn new() -> Result<Self, rand::Error> {
+        let mut rng = rand::thread_rng();
+
+        let mut key = Box::new([0u8; Self::KEY_SIZE]);
+        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+
+        Ok(Self { inner: key })
+    }
+
+    /// Export the `RecoveryKey` as a base64 encoded string.
+    pub fn to_base64(&self) -> String {
+        encode(self.inner.as_slice())
+    }
+}
+
+impl Debug for RecoveryKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecoveryKey").finish()
+    }
+}
+
 impl DeviceChanges {
     /// Merge the given `DeviceChanges` into this instance of `DeviceChanges`.
     pub fn extend(&mut self, other: DeviceChanges) {
@@ -189,10 +214,8 @@ pub struct RoomKeyCounts {
 #[derive(Default, Debug)]
 pub struct BackupKeys {
     /// The recovery key, the one used to decrypt backed up room keys.
-    #[cfg(feature = "backups_v1")]
-    pub recovery_key: Option<crate::backups::RecoveryKey>,
+    pub recovery_key: Option<RecoveryKey>,
     /// The version that we are using for backups.
-    #[cfg(feature = "backups_v1")]
     pub backup_version: Option<String>,
 }
 
@@ -223,9 +246,9 @@ impl Debug for CrossSigningKeyExport {
 /// or the key backup key.
 #[derive(Debug, Error)]
 pub enum SecretImportError {
-    /// The seed for the private key wasn't valid base64.
+    /// The key that we tried to import was invalid.
     #[error(transparent)]
-    Base64(#[from] DecodeError),
+    Key(#[from] vodozemac::KeyError),
     /// The public key of the imported private key doesn't match to the public
     /// key that was uploaded to the server.
     #[error(
@@ -239,6 +262,7 @@ pub enum SecretImportError {
 }
 
 impl Store {
+    /// Create a new Store
     pub fn new(
         user_id: Arc<UserId>,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
@@ -248,27 +272,33 @@ impl Store {
         Self { user_id, identity, inner: store, verification_machine }
     }
 
+    /// UserId associated with this store
     pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
+    /// DeviceId associated with this store
     pub fn device_id(&self) -> &DeviceId {
         self.verification_machine.own_device_id()
     }
 
+    /// The Account associated with this store
     pub fn account(&self) -> &ReadOnlyAccount {
         &self.verification_machine.store.account
     }
 
     #[cfg(test)]
+    /// test helper to reset the cross signing identity
     pub async fn reset_cross_signing_identity(&self) {
         self.identity.lock().await.reset().await;
     }
 
+    ///  PrivateCrossSigningIdentity associated with this store
     pub fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
         self.identity.clone()
     }
 
+    /// Save the given Sessions to the store
     pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
@@ -276,6 +306,7 @@ impl Store {
     }
 
     #[cfg(test)]
+    /// Testing helper to allo to save only a set of devices
     pub async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         let changes = Changes {
             devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },
@@ -286,6 +317,7 @@ impl Store {
     }
 
     #[cfg(test)]
+    /// Testing helper to allo to save only a set of InboundGroupSession
     pub async fn save_inbound_group_sessions(
         &self,
         sessions: &[InboundGroupSession],
@@ -301,9 +333,10 @@ impl Store {
             .inner
             .get_device(self.user_id(), self.device_id())
             .await?
-            .and_then(|d| d.display_name().map(|d| d.to_string())))
+            .and_then(|d| d.display_name().map(|d| d.to_owned())))
     }
 
+    /// Get the read-only device associated with `device_id` for `user_id`
     pub async fn get_readonly_device(
         &self,
         user_id: &UserId,
@@ -318,7 +351,7 @@ impl Store {
     pub async fn get_readonly_devices_filtered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.remove(self.device_id());
@@ -333,7 +366,7 @@ impl Store {
     pub async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -345,15 +378,32 @@ impl Store {
         user_id: &UserId,
         curve_key: &str,
     ) -> Result<Option<Device>> {
-        self.get_user_devices(user_id).await.map(|d| {
-            d.devices().find(|d| {
-                d.get_key(DeviceKeyAlgorithm::Curve25519).map_or(false, |k| k == curve_key)
-            })
+        if let Ok(curve_key) = Curve25519PublicKey::from_base64(curve_key) {
+            self.get_user_devices(user_id)
+                .await
+                .map(|d| d.devices().find(|d| d.curve25519_key().map_or(false, |k| k == curve_key)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get all devices associated with the given `user_id`
+    ///
+    /// *Note*: This doesn't return our own device.
+    pub async fn get_user_devices_filtered(&self, user_id: &UserId) -> Result<UserDevices> {
+        self.get_user_devices(user_id).await.map(|mut d| {
+            if user_id == self.user_id() {
+                d.inner.remove(self.device_id());
+            }
+            d
         })
     }
 
+    /// Get all devices associated with the given `user_id`
+    ///
+    /// *Note*: This does also return our own device.
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
-        let devices = self.inner.get_user_devices(user_id).await?;
+        let devices = self.get_readonly_devices_unfiltered(user_id).await?;
 
         let own_identity =
             self.inner.get_user_identity(&self.user_id).await?.and_then(|i| i.own().cloned());
@@ -367,6 +417,7 @@ impl Store {
         })
     }
 
+    /// Get a Device copy associated with `device_id` for `user_id`
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -384,6 +435,7 @@ impl Store {
         }))
     }
 
+    ///  Get the Identity of `user_id`
     pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         // let own_identity =
         // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
@@ -444,12 +496,13 @@ impl Store {
                 None
             }
             name => {
-                warn!(secret =? name, "Unknown secret was requested");
+                warn!(secret = ?name, "Unknown secret was requested");
                 None
             }
         }
     }
 
+    /// Import the Cross Signing Keys
     pub async fn import_cross_signing_keys(
         &self,
         export: CrossSigningKeyExport,
@@ -468,7 +521,7 @@ impl Store {
                 .await?;
 
             let status = identity.status().await;
-            info!(status =? status, "Successfully imported the private cross signing keys");
+            info!(?status, "Successfully imported the private cross signing keys");
 
             let changes =
                 Changes { private_identity: Some(identity.clone()), ..Default::default() };
@@ -479,6 +532,7 @@ impl Store {
         Ok(self.identity.lock().await.status().await)
     }
 
+    /// Import the given `secret` named `secret_name` into the keystore.
     pub async fn import_secret(
         &self,
         secret_name: &SecretName,
@@ -514,7 +568,7 @@ impl Store {
                 // user import it later.
             }
             name => {
-                warn!(secret =? name, "Tried to import an unknown secret");
+                warn!(secret = ?name, "Tried to import an unknown secret");
             }
         }
 
@@ -530,72 +584,60 @@ impl Deref for Store {
     }
 }
 
-#[derive(Debug, Error)]
 /// The crypto store's error type.
+#[derive(Debug, Error)]
 pub enum CryptoStoreError {
     /// The account that owns the sessions, group sessions, and devices wasn't
     /// found.
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
 
-    /// Error in the internal database
-    #[cfg(feature = "sled_cryptostore")]
-    #[error(transparent)]
-    Database(#[from] sled::Error),
-
-    /// Error in the internal database
-    #[cfg(feature = "indexeddb_cryptostore")]
-    #[error("IndexedDB error: {name} ({code}): {message}")]
-    IndexedDatabase {
-        /// DomException code
-        code: u16,
-        /// Specific name of the DomException
-        name: String,
-        /// Message given to the DomException
-        message: String,
-    },
-
     /// An IO error occurred.
     #[error(transparent)]
     Io(#[from] IoError),
-
-    /// The underlying Olm Account operation returned an error.
-    #[error(transparent)]
-    OlmAccount(#[from] OlmAccountError),
-
-    /// The underlying Olm session operation returned an error.
-    #[error(transparent)]
-    OlmSession(#[from] OlmSessionError),
-
-    /// The underlying Olm group session operation returned an error.
-    #[error(transparent)]
-    OlmGroupSession(#[from] OlmGroupSessionError),
-
-    /// A session time-stamp couldn't be loaded.
-    #[error(transparent)]
-    SessionUnpickling(#[from] SessionUnpicklingError),
 
     /// Failed to decrypt an pickled object.
     #[error("An object failed to be decrypted while unpickling")]
     UnpicklingError,
 
+    /// Failed to decrypt an pickled object.
+    #[error(transparent)]
+    Pickle(#[from] vodozemac::PickleError),
+
+    /// The received room key couldn't be converted into a valid Megolm session.
+    #[error(transparent)]
+    SessionCreation(#[from] vodozemac::megolm::SessionKeyDecodeError),
+
     /// A Matrix identifier failed to be validated.
     #[error(transparent)]
-    IdentifierValidation(#[from] IdentifierValidationError),
+    IdentifierValidation(#[from] IdParseError),
 
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]
     Serialization(#[from] SerdeError),
+
+    /// The database format has changed in a backwards incompatible way.
+    #[error(
+        "The database format changed in an incompatible way, current \
+        version: {0}, latest version: {1}"
+    )]
+    UnsupportedDatabaseVersion(usize, usize),
+
+    /// A problem with the underlying database backend
+    #[error(transparent)]
+    Backend(Box<dyn std::error::Error + Send + Sync>),
 }
 
-#[cfg(feature = "indexeddb_cryptostore")]
-impl From<DomException> for CryptoStoreError {
-    fn from(frm: DomException) -> CryptoStoreError {
-        CryptoStoreError::IndexedDatabase {
-            name: frm.name(),
-            message: frm.message(),
-            code: frm.code(),
-        }
+impl CryptoStoreError {
+    /// Create a new [`Backend`][Self::Backend] error.
+    ///
+    /// Shorthand for `StoreError::Backend(Box::new(error))`.
+    #[inline]
+    pub fn backend<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Backend(Box::new(error))
     }
 }
 
@@ -679,10 +721,10 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users.
-    fn users_for_key_query(&self) -> HashSet<Box<UserId>>;
+    fn users_for_key_query(&self) -> HashSet<OwnedUserId>;
 
     /// Get all tracked users we know about.
-    fn tracked_users(&self) -> HashSet<Box<UserId>>;
+    fn tracked_users(&self) -> HashSet<OwnedUserId>;
 
     /// Add an user for tracking.
     ///
@@ -716,7 +758,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>>;
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>>;
 
     /// Get the user identity that is attached to the given user id.
     ///

@@ -1,8 +1,8 @@
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
-lazy_static! {
-    pub static ref SYNC: JsonValue = json!({
+pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -283,11 +283,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref DEFAULT_SYNC_SUMMARY: JsonValue = json!({
+pub static DEFAULT_SYNC_SUMMARY: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -541,11 +541,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref MORE_SYNC: JsonValue = json!({
+pub static MORE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_2",
         "device_lists": {
@@ -697,7 +697,7 @@ lazy_static! {
                                 }
                             },
                         ],
-                        "limited": true,
+                        "limited": false,
                         "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
                     },
                     "unread_notifications": {
@@ -714,11 +714,135 @@ lazy_static! {
         "presence": {
             "events": []
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref INVITE_SYNC: JsonValue = json!({
+pub static MORE_SYNC_2: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "next_batch": "s526_47314_0_7_1_1_1_11444_3",
+        "rooms": {
+            "join": {
+                "!SVkFJHzfwvuaIEawgC:localhost": {
+                    "timeline": {
+                        "events": [
+                            {
+                                "content": {
+                                    "body": "baba",
+                                    "format": "org.matrix.custom.html",
+                                    "formatted_body": "<strong>baba</strong>",
+                                    "msgtype": "m.text"
+                                },
+                                "event_id": "$152037280074GZeOm2:localhost",
+                                "origin_server_ts": 152037280,
+                                "sender": "@example:localhost",
+                                "type": "m.room.message",
+                                "unsigned": {
+                                    "age": 598971425
+                                }
+                            },
+                            {
+                                "content": {
+                                    "body": " * edited message",
+                                    "m.new_content": {
+                                        "body": "edited message",
+                                        "msgtype": "m.text"
+                                    },
+                                    "m.relates_to": {
+                                        "event_id": "$someeventid:localhost",
+                                        "rel_type": "m.replace"
+                                    },
+                                    "msgtype": "m.text"
+                                },
+                                "event_id": "$editevid2:localhost",
+                                "origin_server_ts": 159026265,
+                                "sender": "@alice:matrix.org",
+                                "type": "m.room.message",
+                                "unsigned": {
+                                    "age": 85
+                                }
+                            },
+                            {
+                                "content": {
+                                    "reason": "😀"
+                                },
+                                "event_id": "$151957878228ssqrJ2:localhost",
+                                "origin_server_ts": 151957878,
+                                "sender": "@example:localhost",
+                                "type": "m.room.redaction",
+                                "redacts": "$151957878228ssqrj:localhost",
+                                "unsigned": {
+                                    "age": 85
+                                }
+                            },
+                            {
+                                "content": {},
+                                "event_id": "$15275046980maRLj2:localhost",
+                                "origin_server_ts": 152750469,
+                                "sender": "@example:localhost",
+                                "type": "m.room.message",
+                                "unsigned": {
+                                    "age": 19334,
+                                    "redacted_because": {
+                                        "content": {},
+                                        "event_id": "$15275047031IXQRi:localhost",
+                                        "origin_server_ts": 152750470,
+                                        "redacts": "$15275046980maRLj:localhost",
+                                        "sender": "@example:localhost",
+                                        "type": "m.room.redaction",
+                                        "unsigned": {
+                                            "age": 14523
+                                        }
+                                    },
+                                    "redacted_by": "$15275047031IXQRi:localhost"
+                                }
+                            },
+                            {
+                                "content": {
+                                    "m.relates_to": {
+                                        "event_id": "$15275047031IXQRi:localhost",
+                                        "key": "👍",
+                                        "rel_type": "m.annotation"
+                                    }
+                                },
+                                "event_id": "$15275047031IXQRi2:localhost",
+                                "origin_server_ts": 159027581,
+                                "sender": "@alice:matrix.org",
+                                "type": "m.reaction",
+                                "unsigned": {
+                                    "age": 85
+                                }
+                            },
+                            {
+                                "content": {
+                                    "body": "This is a notice",
+                                    "format": "org.matrix.custom.html",
+                                    "formatted_body": "<em>This is a notice</em>",
+                                    "msgtype": "m.notice"
+                                },
+                                "event_id": "$098237280074GZeOm2:localhost",
+                                "origin_server_ts": 162037280,
+                                "sender": "@bot:localhost",
+                                "type": "m.room.message",
+                                "unsigned": {
+                                    "age": 25
+                                }
+                            },
+                        ],
+                        "limited": false,
+                        "prev_batch": "s526_47314_0_7_1_1_1_11444_2"
+                    },
+                    "unread_notifications": {
+                        "highlight_count": 0,
+                        "notification_count": 11
+                    }
+                }
+            },
+        },
+    })
+});
+
+pub static INVITE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_2",
         "device_lists": {
@@ -773,11 +897,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LEAVE_SYNC: JsonValue = json!({
+pub static LEAVE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -1056,11 +1180,11 @@ lazy_static! {
                 }
             ]
         }
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref LEAVE_SYNC_EVENT: JsonValue = json!({
+pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "account_data": {
             "events": []
         },
@@ -1123,11 +1247,11 @@ lazy_static! {
             "signed_curve25519": 50
         },
         "next_batch": "s1380317562_757269739_1655566_503953763_334052043_1209862_55290918_65705002_101146"
-    });
-}
+    })
+});
 
-lazy_static! {
-    pub static ref VOIP_SYNC: JsonValue = json!({
+pub static VOIP_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -1243,5 +1367,5 @@ lazy_static! {
         "presence": {
             "events": []
         }
-    });
-}
+    })
+});

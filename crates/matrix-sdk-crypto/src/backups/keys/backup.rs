@@ -19,8 +19,9 @@ use std::{
 
 use olm_rs::pk::OlmPkEncryption;
 use ruma::{
-    api::client::r0::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
-    DeviceKeyId, UserId,
+    api::client::backup::{KeyBackupData, KeyBackupDataInit, SessionDataInit},
+    serde::Base64,
+    OwnedDeviceKeyId, OwnedUserId,
 };
 use zeroize::Zeroizing;
 
@@ -30,7 +31,7 @@ use crate::olm::InboundGroupSession;
 #[derive(Debug)]
 struct InnerBackupKey {
     key: [u8; MegolmV1BackupKey::KEY_SIZE],
-    signatures: BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>,
+    signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
     version: Mutex<Option<String>>,
 }
 
@@ -69,7 +70,7 @@ impl MegolmV1BackupKey {
     }
 
     /// Get all the signatures of this `MegolmV1BackupKey`.
-    pub fn signatures(&self) -> BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>> {
+    pub fn signatures(&self) -> BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
         self.inner.signatures.to_owned()
     }
 
@@ -127,9 +128,11 @@ impl MegolmV1BackupKey {
         let message = pk.encrypt(&key);
 
         let session_data = SessionDataInit {
-            ephemeral: message.ephemeral_key,
-            ciphertext: message.ciphertext,
-            mac: message.mac,
+            ephemeral: Base64::parse(message.ephemeral_key)
+                .expect("Can't decode the base64 encoded ephemeral backup key"),
+            ciphertext: Base64::parse(message.ciphertext)
+                .expect("Can't decode a base64 encoded libolm ciphertext"),
+            mac: Base64::parse(message.mac).expect("Can't decode a base64 encoded MAC"),
         }
         .into();
 

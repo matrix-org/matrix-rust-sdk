@@ -36,7 +36,7 @@ use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
 };
 use ruma::{
-    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             cancel::{
@@ -45,9 +45,10 @@ use ruma::{
             },
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent,
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceKeyId, EventId, RoomId, TransactionId, UserId,
+    DeviceId, EventId, OwnedDeviceId, OwnedDeviceKeyId, OwnedEventId, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
@@ -57,12 +58,13 @@ use crate::{
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
     store::{Changes, CryptoStore},
-    CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
+    CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
 
 #[derive(Clone, Debug)]
 pub(crate) struct VerificationStore {
     pub account: ReadOnlyAccount,
+    pub private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<dyn CryptoStore>,
 }
 
@@ -100,6 +102,25 @@ impl VerificationStore {
         self.inner.get_user_identity(user_id).await
     }
 
+    pub async fn get_identities(
+        &self,
+        device_being_verified: ReadOnlyDevice,
+    ) -> Result<IdentitiesBeingVerified, CryptoStoreError> {
+        let identity_being_verified =
+            self.get_user_identity(device_being_verified.user_id()).await?;
+
+        Ok(IdentitiesBeingVerified {
+            private_identity: self.private_identity.lock().await.clone(),
+            store: self.clone(),
+            device_being_verified,
+            own_identity: self
+                .get_user_identity(self.account.user_id())
+                .await?
+                .and_then(|i| i.into_own()),
+            identity_being_verified,
+        })
+    }
+
     pub async fn save_changes(&self, changes: Changes) -> Result<(), CryptoStoreError> {
         self.inner.save_changes(changes).await
     }
@@ -107,7 +128,7 @@ impl VerificationStore {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<Box<DeviceId>, ReadOnlyDevice>, CryptoStoreError> {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>, CryptoStoreError> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -121,7 +142,7 @@ impl VerificationStore {
     /// Get the signatures that have signed our own device.
     pub async fn device_signatures(
         &self,
-    ) -> Result<Option<BTreeMap<Box<UserId>, BTreeMap<Box<DeviceKeyId>, String>>>, CryptoStoreError>
+    ) -> Result<Option<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>>, CryptoStoreError>
     {
         Ok(self
             .inner
@@ -137,11 +158,12 @@ impl VerificationStore {
 
 /// An enum over the different verification types the SDK supports.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(Sas),
-    #[cfg(feature = "qrcode")]
     /// The `m.qr_code.*.v1` verification variant.
+    #[cfg(feature = "qrcode")]
     QrV1(QrVerification),
 }
 
@@ -156,8 +178,8 @@ impl Verification {
         }
     }
 
-    #[cfg(feature = "qrcode")]
     /// Try to deconstruct this verification enum into a QR code verification.
+    #[cfg(feature = "qrcode")]
     pub fn qr_v1(self) -> Option<QrVerification> {
         if let Verification::QrV1(qr) = self {
             Some(qr)
@@ -239,14 +261,15 @@ impl From<QrVerification> for Verification {
 ///
 /// We can now mark the device in our verified devices list as verified and sign
 /// the master keys in the verified devices list.
+#[cfg(feature = "qrcode")]
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
+#[cfg(feature = "qrcode")]
 impl Done {
-    #[cfg(feature = "qrcode")]
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
             FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
@@ -255,9 +278,9 @@ impl Done {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.to_owned(),
-                AnyMessageEventContent::KeyVerificationDone(KeyVerificationDoneEventContent::new(
-                    Relation::new(e.to_owned()),
-                )),
+                AnyMessageLikeEventContent::KeyVerificationDone(
+                    KeyVerificationDoneEventContent::new(Relation::new(e.to_owned())),
+                ),
             )
                 .into(),
         }
@@ -332,7 +355,7 @@ impl Cancelled {
             FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationCancel(
                 ToDeviceKeyVerificationCancelEventContent::new(
                     s.clone(),
-                    self.reason.to_string(),
+                    self.reason.to_owned(),
                     self.cancel_code.clone(),
                 ),
             )
@@ -340,9 +363,9 @@ impl Cancelled {
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AnyMessageEventContent::KeyVerificationCancel(
+                AnyMessageLikeEventContent::KeyVerificationCancel(
                     KeyVerificationCancelEventContent::new(
-                        self.reason.to_string(),
+                        self.reason.to_owned(),
                         self.cancel_code.clone(),
                         Relation::new(e.clone()),
                     ),
@@ -355,8 +378,8 @@ impl Cancelled {
 
 #[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
 pub enum FlowId {
-    ToDevice(Box<TransactionId>),
-    InRoom(Box<RoomId>, Box<EventId>),
+    ToDevice(OwnedTransactionId),
+    InRoom(OwnedRoomId, OwnedEventId),
 }
 
 impl FlowId {
@@ -376,14 +399,14 @@ impl FlowId {
     }
 }
 
-impl From<Box<TransactionId>> for FlowId {
-    fn from(transaction_id: Box<TransactionId>) -> Self {
+impl From<OwnedTransactionId> for FlowId {
+    fn from(transaction_id: OwnedTransactionId) -> Self {
         FlowId::ToDevice(transaction_id)
     }
 }
 
-impl From<(Box<RoomId>, Box<EventId>)> for FlowId {
-    fn from(ids: (Box<RoomId>, Box<EventId>)) -> Self {
+impl From<(OwnedRoomId, OwnedEventId)> for FlowId {
+    fn from(ids: (OwnedRoomId, OwnedEventId)) -> Self {
         FlowId::InRoom(ids.0, ids.1)
     }
 }
@@ -410,6 +433,7 @@ pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
     store: VerificationStore,
     device_being_verified: ReadOnlyDevice,
+    own_identity: Option<ReadOnlyOwnUserIdentity>,
     identity_being_verified: Option<ReadOnlyUserIdentities>,
 }
 
@@ -678,7 +702,7 @@ impl IdentitiesBeingVerified {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use std::convert::TryInto;
 
     use ruma::{

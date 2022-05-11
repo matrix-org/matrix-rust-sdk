@@ -18,13 +18,13 @@ use std::sync::Arc;
 use matrix_sdk_common::instant::Instant;
 use ruma::{
     events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
-    EventId, RoomId, TransactionId, UserId,
+    UserId,
 };
 
 use super::{
     sas_state::{
-        Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
-        WeAccepted,
+        Accepted, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
+        WaitingForDone, WeAccepted,
     },
     FlowId,
 };
@@ -32,7 +32,7 @@ use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
-        Cancelled, Done,
+        Cancelled,
     },
     Emoji, ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
@@ -57,7 +57,8 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
-        transaction_id: Option<Box<TransactionId>>,
+        transaction_id: FlowId,
+        started_from_request: bool,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(
             account,
@@ -65,6 +66,7 @@ impl InnerSas {
             own_identity,
             other_identity,
             transaction_id,
+            started_from_request,
         );
         let content = sas.as_content();
         (InnerSas::Created(sas), content.into())
@@ -133,31 +135,11 @@ impl InnerSas {
         }
     }
 
-    pub fn start_in_room(
-        event_id: Box<EventId>,
-        room_id: Box<RoomId>,
-        account: ReadOnlyAccount,
-        other_device: ReadOnlyDevice,
-        own_identity: Option<ReadOnlyOwnUserIdentity>,
-        other_identity: Option<ReadOnlyUserIdentities>,
-    ) -> (InnerSas, OutgoingContent) {
-        let sas = SasState::<Created>::new_in_room(
-            room_id,
-            event_id,
-            account,
-            other_device,
-            own_identity,
-            other_identity,
-        );
-        let content = sas.as_content();
-        (InnerSas::Created(sas), content.into())
-    }
-
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         flow_id: FlowId,
-        content: &StartContent,
+        content: &StartContent<'_>,
         own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
@@ -255,7 +237,7 @@ impl InnerSas {
     pub fn receive_any_event(
         self,
         sender: &UserId,
-        content: &AnyVerificationContent,
+        content: &AnyVerificationContent<'_>,
     ) -> (Self, Option<OutgoingContent>) {
         match content {
             AnyVerificationContent::Accept(c) => match self {
@@ -377,21 +359,6 @@ impl InnerSas {
             InnerSas::WaitingForDone(s) => s.timed_out(),
             InnerSas::Done(s) => s.timed_out(),
             InnerSas::WeAccepted(s) => s.timed_out(),
-        }
-    }
-
-    pub fn verification_flow_id(&self) -> Arc<FlowId> {
-        match self {
-            InnerSas::Created(s) => s.verification_flow_id.clone(),
-            InnerSas::Started(s) => s.verification_flow_id.clone(),
-            InnerSas::Cancelled(s) => s.verification_flow_id.clone(),
-            InnerSas::Accepted(s) => s.verification_flow_id.clone(),
-            InnerSas::KeyReceived(s) => s.verification_flow_id.clone(),
-            InnerSas::Confirmed(s) => s.verification_flow_id.clone(),
-            InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
-            InnerSas::WaitingForDone(s) => s.verification_flow_id.clone(),
-            InnerSas::Done(s) => s.verification_flow_id.clone(),
-            InnerSas::WeAccepted(s) => s.verification_flow_id.clone(),
         }
     }
 

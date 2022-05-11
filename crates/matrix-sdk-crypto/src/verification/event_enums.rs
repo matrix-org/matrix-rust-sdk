@@ -40,17 +40,18 @@ use ruma::{
             VerificationMethod,
         },
         room::message::{KeyVerificationRequestEventContent, MessageType},
-        AnyMessageEvent, AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        MessageLikeEvent,
     },
     serde::{Base64, CanonicalJsonValue},
-    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, UserId,
 };
 
 use super::FlowId;
 
 #[derive(Debug)]
 pub enum AnyEvent<'a> {
-    Room(&'a AnyMessageEvent),
+    Room(&'a AnyMessageLikeEvent),
     ToDevice(&'a AnyToDeviceEvent),
 }
 
@@ -62,11 +63,11 @@ impl AnyEvent<'_> {
         }
     }
 
-    pub fn timestamp(&self) -> Option<&MilliSecondsSinceUnixEpoch> {
+    pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             AnyEvent::Room(e) => Some(e.origin_server_ts()),
             AnyEvent::ToDevice(e) => match e {
-                AnyToDeviceEvent::KeyVerificationRequest(e) => Some(&e.content.timestamp),
+                AnyToDeviceEvent::KeyVerificationRequest(e) => Some(e.content.timestamp),
                 _ => None,
             },
         }
@@ -76,50 +77,40 @@ impl AnyEvent<'_> {
         matches!(self, AnyEvent::Room(_))
     }
 
-    pub fn verification_content(&self) -> Option<AnyVerificationContent> {
+    pub fn verification_content(&self) -> Option<AnyVerificationContent<'_>> {
         match self {
             AnyEvent::Room(e) => match e {
-                AnyMessageEvent::CallAnswer(_)
-                | AnyMessageEvent::CallInvite(_)
-                | AnyMessageEvent::CallHangup(_)
-                | AnyMessageEvent::CallCandidates(_)
-                | AnyMessageEvent::Reaction(_)
-                | AnyMessageEvent::RoomEncrypted(_)
-                | AnyMessageEvent::RoomMessageFeedback(_)
-                | AnyMessageEvent::RoomRedaction(_)
-                | AnyMessageEvent::Sticker(_) => None,
-                AnyMessageEvent::RoomMessage(m) => {
+                AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(m)) => {
                     if let MessageType::VerificationRequest(v) = &m.content.msgtype {
                         Some(RequestContent::from(v).into())
                     } else {
                         None
                     }
                 }
-                AnyMessageEvent::KeyVerificationReady(e) => {
+                AnyMessageLikeEvent::KeyVerificationReady(MessageLikeEvent::Original(e)) => {
                     Some(ReadyContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationStart(e) => {
+                AnyMessageLikeEvent::KeyVerificationStart(MessageLikeEvent::Original(e)) => {
                     Some(StartContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationCancel(e) => {
+                AnyMessageLikeEvent::KeyVerificationCancel(MessageLikeEvent::Original(e)) => {
                     Some(CancelContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationAccept(e) => {
+                AnyMessageLikeEvent::KeyVerificationAccept(MessageLikeEvent::Original(e)) => {
                     Some(AcceptContent::from(&e.content).into())
                 }
-                AnyMessageEvent::KeyVerificationKey(e) => Some(KeyContent::from(&e.content).into()),
-                AnyMessageEvent::KeyVerificationMac(e) => Some(MacContent::from(&e.content).into()),
-                AnyMessageEvent::KeyVerificationDone(e) => {
+                AnyMessageLikeEvent::KeyVerificationKey(MessageLikeEvent::Original(e)) => {
+                    Some(KeyContent::from(&e.content).into())
+                }
+                AnyMessageLikeEvent::KeyVerificationMac(MessageLikeEvent::Original(e)) => {
+                    Some(MacContent::from(&e.content).into())
+                }
+                AnyMessageLikeEvent::KeyVerificationDone(MessageLikeEvent::Original(e)) => {
                     Some(DoneContent::from(&e.content).into())
                 }
                 _ => None,
             },
             AnyEvent::ToDevice(e) => match e {
-                AnyToDeviceEvent::Dummy(_)
-                | AnyToDeviceEvent::RoomKey(_)
-                | AnyToDeviceEvent::RoomKeyRequest(_)
-                | AnyToDeviceEvent::ForwardedRoomKey(_)
-                | AnyToDeviceEvent::RoomEncrypted(_) => None,
                 AnyToDeviceEvent::KeyVerificationRequest(e) => {
                     Some(RequestContent::from(&e.content).into())
                 }
@@ -150,8 +141,8 @@ impl AnyEvent<'_> {
     }
 }
 
-impl<'a> From<&'a AnyMessageEvent> for AnyEvent<'a> {
-    fn from(e: &'a AnyMessageEvent) -> Self {
+impl<'a> From<&'a AnyMessageLikeEvent> for AnyEvent<'a> {
+    fn from(e: &'a AnyMessageLikeEvent) -> Self {
         Self::Room(e)
     }
 }
@@ -173,40 +164,33 @@ impl TryFrom<&AnyEvent<'_>> for FlowId {
     }
 }
 
-impl TryFrom<&AnyMessageEvent> for FlowId {
+impl TryFrom<&AnyMessageLikeEvent> for FlowId {
     type Error = ();
 
-    fn try_from(value: &AnyMessageEvent) -> Result<Self, Self::Error> {
+    fn try_from(value: &AnyMessageLikeEvent) -> Result<Self, Self::Error> {
         match value {
-            AnyMessageEvent::CallAnswer(_)
-            | AnyMessageEvent::CallInvite(_)
-            | AnyMessageEvent::CallHangup(_)
-            | AnyMessageEvent::CallCandidates(_)
-            | AnyMessageEvent::Reaction(_)
-            | AnyMessageEvent::RoomEncrypted(_)
-            | AnyMessageEvent::RoomMessageFeedback(_)
-            | AnyMessageEvent::RoomRedaction(_)
-            | AnyMessageEvent::Sticker(_) => Err(()),
-            AnyMessageEvent::KeyVerificationReady(e) => {
+            AnyMessageLikeEvent::KeyVerificationReady(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::RoomMessage(e) => Ok(FlowId::from((&*e.room_id, &*e.event_id))),
-            AnyMessageEvent::KeyVerificationStart(e) => {
+            AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(e)) => {
+                Ok(FlowId::from((&*e.room_id, &*e.event_id)))
+            }
+            AnyMessageLikeEvent::KeyVerificationStart(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationCancel(e) => {
+            AnyMessageLikeEvent::KeyVerificationCancel(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationAccept(e) => {
+            AnyMessageLikeEvent::KeyVerificationAccept(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationKey(e) => {
+            AnyMessageLikeEvent::KeyVerificationKey(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationMac(e) => {
+            AnyMessageLikeEvent::KeyVerificationMac(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
-            AnyMessageEvent::KeyVerificationDone(e) => {
+            AnyMessageLikeEvent::KeyVerificationDone(MessageLikeEvent::Original(e)) => {
                 Ok(FlowId::from((&*e.room_id, &*e.content.relates_to.event_id)))
             }
             _ => Err(()),
@@ -219,11 +203,6 @@ impl TryFrom<&AnyToDeviceEvent> for FlowId {
 
     fn try_from(value: &AnyToDeviceEvent) -> Result<Self, Self::Error> {
         match value {
-            AnyToDeviceEvent::Dummy(_)
-            | AnyToDeviceEvent::RoomKey(_)
-            | AnyToDeviceEvent::RoomKeyRequest(_)
-            | AnyToDeviceEvent::ForwardedRoomKey(_)
-            | AnyToDeviceEvent::RoomEncrypted(_) => Err(()),
             AnyToDeviceEvent::KeyVerificationRequest(e) => {
                 Ok(FlowId::from(e.content.transaction_id.to_owned()))
             }
@@ -363,7 +342,7 @@ macro_rules! try_from_outgoing_content {
             fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
                 match value {
                     OutgoingContent::Room(_, c) => {
-                        if let AnyMessageEventContent::$enum_variant(c) = c {
+                        if let AnyMessageLikeEventContent::$enum_variant(c) = c {
                             Ok(Self::Room(c))
                         } else {
                             Err(())
@@ -396,7 +375,7 @@ impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
     fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
         match value {
             OutgoingContent::Room(_, c) => {
-                if let AnyMessageEventContent::RoomMessage(m) = c {
+                if let AnyMessageLikeEventContent::RoomMessage(m) = c {
                     if let MessageType::VerificationRequest(c) = &m.msgtype {
                         Ok(Self::Room(c))
                     } else {
@@ -592,7 +571,7 @@ impl CancelContent<'_> {
 #[derive(Clone, Debug)]
 pub enum OwnedStartContent {
     ToDevice(ToDeviceKeyVerificationStartEventContent),
-    Room(Box<RoomId>, KeyVerificationStartEventContent),
+    Room(OwnedRoomId, KeyVerificationStartEventContent),
 }
 
 impl OwnedStartContent {
@@ -634,8 +613,8 @@ impl OwnedStartContent {
     }
 }
 
-impl From<(Box<RoomId>, KeyVerificationStartEventContent)> for OwnedStartContent {
-    fn from(tuple: (Box<RoomId>, KeyVerificationStartEventContent)) -> Self {
+impl From<(OwnedRoomId, KeyVerificationStartEventContent)> for OwnedStartContent {
+    fn from(tuple: (OwnedRoomId, KeyVerificationStartEventContent)) -> Self {
         Self::Room(tuple.0, tuple.1)
     }
 }
@@ -649,7 +628,7 @@ impl From<ToDeviceKeyVerificationStartEventContent> for OwnedStartContent {
 #[derive(Clone, Debug)]
 pub enum OwnedAcceptContent {
     ToDevice(ToDeviceKeyVerificationAcceptEventContent),
-    Room(Box<RoomId>, KeyVerificationAcceptEventContent),
+    Room(OwnedRoomId, KeyVerificationAcceptEventContent),
 }
 
 impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
@@ -658,8 +637,8 @@ impl From<ToDeviceKeyVerificationAcceptEventContent> for OwnedAcceptContent {
     }
 }
 
-impl From<(Box<RoomId>, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
-    fn from(content: (Box<RoomId>, KeyVerificationAcceptEventContent)) -> Self {
+impl From<(OwnedRoomId, KeyVerificationAcceptEventContent)> for OwnedAcceptContent {
+    fn from(content: (OwnedRoomId, KeyVerificationAcceptEventContent)) -> Self {
         Self::Room(content.0, content.1)
     }
 }
@@ -675,7 +654,7 @@ impl OwnedAcceptContent {
 
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
-    Room(Box<RoomId>, AnyMessageEventContent),
+    Room(OwnedRoomId, AnyMessageLikeEventContent),
     ToDevice(AnyToDeviceEventContent),
 }
 
@@ -683,7 +662,7 @@ impl From<OwnedStartContent> for OutgoingContent {
     fn from(content: OwnedStartContent) -> Self {
         match content {
             OwnedStartContent::Room(r, c) => {
-                (r, AnyMessageEventContent::KeyVerificationStart(c)).into()
+                (r, AnyMessageLikeEventContent::KeyVerificationStart(c)).into()
             }
             OwnedStartContent::ToDevice(c) => {
                 AnyToDeviceEventContent::KeyVerificationStart(c).into()
@@ -698,8 +677,8 @@ impl From<AnyToDeviceEventContent> for OutgoingContent {
     }
 }
 
-impl From<(Box<RoomId>, AnyMessageEventContent)> for OutgoingContent {
-    fn from(content: (Box<RoomId>, AnyMessageEventContent)) -> Self {
+impl From<(OwnedRoomId, AnyMessageLikeEventContent)> for OutgoingContent {
+    fn from(content: (OwnedRoomId, AnyMessageLikeEventContent)) -> Self {
         OutgoingContent::Room(content.0, content.1)
     }
 }
@@ -727,7 +706,7 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
     type Error = String;
 
     fn try_from(request: ToDeviceRequest) -> Result<Self, Self::Error> {
-        use ruma::events::EventType;
+        use ruma::events::ToDeviceEventType;
         use serde_json::Value;
 
         let json: Value = serde_json::from_str(
@@ -742,30 +721,40 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
         .map_err(|e| e.to_string())?;
 
         let content = match request.event_type {
-            EventType::KeyVerificationStart => AnyToDeviceEventContent::KeyVerificationStart(
+            ToDeviceEventType::KeyVerificationStart => {
+                AnyToDeviceEventContent::KeyVerificationStart(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationKey => AnyToDeviceEventContent::KeyVerificationKey(
                 serde_json::from_value(json).map_err(|e| e.to_string())?,
             ),
-            EventType::KeyVerificationKey => AnyToDeviceEventContent::KeyVerificationKey(
+            ToDeviceEventType::KeyVerificationAccept => {
+                AnyToDeviceEventContent::KeyVerificationAccept(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationMac => AnyToDeviceEventContent::KeyVerificationMac(
                 serde_json::from_value(json).map_err(|e| e.to_string())?,
             ),
-            EventType::KeyVerificationAccept => AnyToDeviceEventContent::KeyVerificationAccept(
+            ToDeviceEventType::KeyVerificationCancel => {
+                AnyToDeviceEventContent::KeyVerificationCancel(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationReady => {
+                AnyToDeviceEventContent::KeyVerificationReady(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
+            ToDeviceEventType::KeyVerificationDone => AnyToDeviceEventContent::KeyVerificationDone(
                 serde_json::from_value(json).map_err(|e| e.to_string())?,
             ),
-            EventType::KeyVerificationMac => AnyToDeviceEventContent::KeyVerificationMac(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationCancel => AnyToDeviceEventContent::KeyVerificationCancel(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationReady => AnyToDeviceEventContent::KeyVerificationReady(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationDone => AnyToDeviceEventContent::KeyVerificationDone(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
-            EventType::KeyVerificationRequest => AnyToDeviceEventContent::KeyVerificationRequest(
-                serde_json::from_value(json).map_err(|e| e.to_string())?,
-            ),
+            ToDeviceEventType::KeyVerificationRequest => {
+                AnyToDeviceEventContent::KeyVerificationRequest(
+                    serde_json::from_value(json).map_err(|e| e.to_string())?,
+                )
+            }
             e => return Err(format!("Unsupported event type {}", e)),
         };
 

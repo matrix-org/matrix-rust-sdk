@@ -1,22 +1,59 @@
 mod members;
 mod normal;
 
-use std::cmp::max;
+use std::{cmp::max, collections::HashSet, fmt};
 
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomType};
 use ruma::{
     events::{
         room::{
+            avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            tombstone::RoomTombstoneEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent, name::RoomNameEventContent,
+            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
-        AnyStateEventContent,
+        AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedEventContent,
+        StateEventContent, SyncStateEvent,
     },
-    MxcUri, RoomAliasId, UserId,
+    EventId, OwnedUserId, RoomVersionId,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::MinimalStateEvent;
+
+/// The name of the room, either from the metadata or calculated
+/// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum DisplayName {
+    /// The room has been named explicitly as
+    Named(String),
+    /// The room has a canonical alias that should be used
+    Aliased(String),
+    /// The room has not given an explicit name but a name could be
+    /// calculated
+    Calculated(String),
+    /// The room doesn't have a name right now, but used to have one
+    /// e.g. because it was a DM and everyone has left the room
+    EmptyWas(String),
+    /// No useful name could be calculated or ever found
+    Empty,
+}
+
+impl fmt::Display for DisplayName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DisplayName::Named(s) | DisplayName::Calculated(s) | DisplayName::Aliased(s) => {
+                write!(f, "{}", s)
+            }
+            DisplayName::EmptyWas(s) => write!(f, "Empty Room (was {})", s),
+            DisplayName::Empty => write!(f, "Empty Room"),
+        }
+    }
+}
 
 /// A base room info struct that is the backbone of normal as well as stripped
 /// rooms. Holds all the state events that are important to present a room to
@@ -24,30 +61,30 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub avatar_url: Option<Box<MxcUri>>,
+    avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    pub canonical_alias: Option<Box<RoomAliasId>>,
+    canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
-    pub create: Option<RoomCreateEventContent>,
-    /// The user id this room is sharing the direct message with, if the room is
-    /// a direct message.
-    pub dm_target: Option<Box<UserId>>,
+    create: Option<MinimalStateEvent<RoomCreateEventContent>>,
+    /// A list of user ids this room is considered as direct message, if this
+    /// room is a DM.
+    pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
-    pub encryption: Option<RoomEncryptionEventContent>,
+    pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    pub guest_access: GuestAccess,
+    guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    pub history_visibility: HistoryVisibility,
+    history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    pub join_rule: JoinRule,
+    join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
-    pub max_power_level: i64,
+    pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    pub name: Option<String>,
+    name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    pub tombstone: Option<RoomTombstoneEventContent>,
+    tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
-    pub topic: Option<String>,
+    topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
 }
 
 impl BaseRoomInfo {
@@ -61,7 +98,7 @@ impl BaseRoomInfo {
         joined_member_count: u64,
         invited_member_count: u64,
         heroes: Vec<RoomMember>,
-    ) -> String {
+    ) -> DisplayName {
         calculate_room_name(
             joined_member_count,
             invited_member_count,
@@ -72,74 +109,156 @@ impl BaseRoomInfo {
     /// Handle a state event for this room and update our info accordingly.
     ///
     /// Returns true if the event modified the info, false otherwise.
-    pub fn handle_state_event(&mut self, content: &AnyStateEventContent) -> bool {
-        match content {
-            AnyStateEventContent::RoomEncryption(encryption) => {
-                self.encryption = Some(encryption.clone());
-                true
+    pub fn handle_state_event(&mut self, ev: &AnySyncStateEvent) -> bool {
+        match ev {
+            // No redacted branch - enabling encryption cannot be undone.
+            AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(encryption)) => {
+                self.encryption = Some(encryption.content.clone());
             }
-            AnyStateEventContent::RoomAvatar(a) => {
-                self.avatar_url = a.url.clone();
-                true
+            AnySyncStateEvent::RoomAvatar(a) => {
+                self.avatar = Some(a.into());
             }
-            AnyStateEventContent::RoomName(n) => {
-                self.name = n.name.as_ref().map(|n| n.to_string());
-                true
+            AnySyncStateEvent::RoomName(n) => {
+                self.name = Some(n.into());
             }
-            AnyStateEventContent::RoomCreate(c) => {
-                if self.create.is_none() {
-                    self.create = Some(c.clone());
-                    true
-                } else {
-                    false
-                }
+            AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
+                self.create = Some(c.into());
             }
-            AnyStateEventContent::RoomHistoryVisibility(h) => {
-                self.history_visibility = h.history_visibility.clone();
-                true
+            AnySyncStateEvent::RoomHistoryVisibility(h) => {
+                self.history_visibility = Some(h.into());
             }
-            AnyStateEventContent::RoomGuestAccess(g) => {
-                self.guest_access = g.guest_access.clone();
-                true
+            AnySyncStateEvent::RoomGuestAccess(g) => {
+                self.guest_access = Some(g.into());
             }
-            AnyStateEventContent::RoomJoinRules(c) => {
-                self.join_rule = c.join_rule.clone();
-                true
+            AnySyncStateEvent::RoomJoinRules(c) => {
+                self.join_rules = Some(c.into());
             }
-            AnyStateEventContent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.alias.clone();
-                true
+            AnySyncStateEvent::RoomCanonicalAlias(a) => {
+                self.canonical_alias = Some(a.into());
             }
-            AnyStateEventContent::RoomTopic(t) => {
-                self.topic = Some(t.topic.clone());
-                true
+            AnySyncStateEvent::RoomTopic(t) => {
+                self.topic = Some(t.into());
             }
-            AnyStateEventContent::RoomTombstone(t) => {
-                self.tombstone = Some(t.clone());
-                true
+            AnySyncStateEvent::RoomTombstone(t) => {
+                self.tombstone = Some(t.into());
             }
-            AnyStateEventContent::RoomPowerLevels(p) => {
-                let max_power_level =
-                    p.users.values().fold(self.max_power_level, |acc, p| max(acc, (*p).into()));
-                self.max_power_level = max_power_level;
-                true
+            AnySyncStateEvent::RoomPowerLevels(p) => {
+                self.max_power_level = p
+                    .power_levels()
+                    .users
+                    .values()
+                    .fold(self.max_power_level, |acc, &p| max(acc, p.into()));
             }
-            _ => false,
+            _ => return false,
         }
+
+        true
+    }
+
+    /// Handle a stripped state event for this room and update our info
+    /// accordingly.
+    ///
+    /// Returns true if the event modified the info, false otherwise.
+    pub fn handle_stripped_state_event(&mut self, ev: &AnyStrippedStateEvent) -> bool {
+        match ev {
+            AnyStrippedStateEvent::RoomEncryption(encryption) => {
+                self.encryption = Some(encryption.content.clone());
+            }
+            AnyStrippedStateEvent::RoomAvatar(a) => {
+                self.avatar = Some(a.into());
+            }
+            AnyStrippedStateEvent::RoomName(n) => {
+                self.name = Some(n.into());
+            }
+            AnyStrippedStateEvent::RoomCreate(c) if self.create.is_none() => {
+                self.create = Some(c.into());
+            }
+            AnyStrippedStateEvent::RoomHistoryVisibility(h) => {
+                self.history_visibility = Some(h.into());
+            }
+            AnyStrippedStateEvent::RoomGuestAccess(g) => {
+                self.guest_access = Some(g.into());
+            }
+            AnyStrippedStateEvent::RoomJoinRules(c) => {
+                self.join_rules = Some(c.into());
+            }
+            AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
+                self.canonical_alias = Some(a.into());
+            }
+            AnyStrippedStateEvent::RoomTopic(t) => {
+                self.topic = Some(t.into());
+            }
+            AnyStrippedStateEvent::RoomTombstone(t) => {
+                self.tombstone = Some(t.into());
+            }
+            AnyStrippedStateEvent::RoomPowerLevels(p) => {
+                self.max_power_level = p
+                    .content
+                    .users
+                    .values()
+                    .fold(self.max_power_level, |acc, &p| max(acc, p.into()));
+            }
+            _ => return false,
+        }
+
+        true
+    }
+
+    pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
+        let room_version = self
+            .create
+            .as_ref()
+            .and_then(|ev| Some(ev.as_original()?.content.room_version.to_owned()))
+            .unwrap_or(RoomVersionId::V1);
+
+        // FIXME: Use let chains once available to get rid of unwrap()s
+        if self.avatar.has_event_id(&event.redacts) {
+            self.avatar.as_mut().unwrap().redact(&room_version);
+        } else if self.canonical_alias.has_event_id(&event.redacts) {
+            self.canonical_alias.as_mut().unwrap().redact(&room_version);
+        } else if self.create.has_event_id(&event.redacts) {
+            self.create.as_mut().unwrap().redact(&room_version);
+        } else if self.guest_access.has_event_id(&event.redacts) {
+            self.guest_access.as_mut().unwrap().redact(&room_version);
+        } else if self.history_visibility.has_event_id(&event.redacts) {
+            self.history_visibility.as_mut().unwrap().redact(&room_version);
+        } else if self.join_rules.has_event_id(&event.redacts) {
+            self.join_rules.as_mut().unwrap().redact(&room_version);
+        } else if self.name.has_event_id(&event.redacts) {
+            self.name.as_mut().unwrap().redact(&room_version);
+        } else if self.tombstone.has_event_id(&event.redacts) {
+            self.tombstone.as_mut().unwrap().redact(&room_version);
+        } else if self.topic.has_event_id(&event.redacts) {
+            self.topic.as_mut().unwrap().redact(&room_version);
+        }
+    }
+}
+
+trait OptionExt {
+    fn has_event_id(&self, ev_id: &EventId) -> bool;
+}
+
+impl<C> OptionExt for Option<MinimalStateEvent<C>>
+where
+    C: StateEventContent + RedactContent,
+    C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
+{
+    fn has_event_id(&self, ev_id: &EventId) -> bool {
+        self.as_ref().and_then(|ev| ev.event_id()).map_or(false, |id| id == ev_id)
     }
 }
 
 impl Default for BaseRoomInfo {
     fn default() -> Self {
         Self {
-            avatar_url: None,
+            avatar: None,
             canonical_alias: None,
             create: None,
-            dm_target: None,
+            dm_targets: Default::default(),
             encryption: None,
-            guest_access: GuestAccess::CanJoin,
-            history_visibility: HistoryVisibility::WorldReadable,
-            join_rule: JoinRule::Public,
+            guest_access: None,
+            history_visibility: None,
+            join_rules: None,
             max_power_level: 100,
             name: None,
             tombstone: None,
@@ -148,14 +267,12 @@ impl Default for BaseRoomInfo {
     }
 }
 
-/// Calculate room name according to step 3 of the [naming algorithm.][spec]
-///
-/// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+/// Calculate room name according to step 3 of the [naming algorithm.]
 fn calculate_room_name(
     joined_member_count: u64,
     invited_member_count: u64,
     heroes: Vec<&str>,
-) -> String {
+) -> DisplayName {
     let heroes_count = heroes.len() as u64;
     let invited_joined = invited_member_count + joined_member_count;
     let invited_joined_minus_one = invited_joined.saturating_sub(1);
@@ -173,18 +290,18 @@ fn calculate_room_name(
         // the `else`?
         format!("{}, and {} others", names.join(", "), (invited_joined - heroes_count))
     } else {
-        "".to_string()
+        "".to_owned()
     };
 
     // User is alone.
     if invited_joined <= 1 {
         if names.is_empty() {
-            "Empty room".to_string()
+            DisplayName::Empty
         } else {
-            format!("Empty room (was {})", names)
+            DisplayName::EmptyWas(names)
         }
     } else {
-        names
+        DisplayName::Calculated(names)
     }
 }
 
@@ -195,33 +312,33 @@ mod tests {
 
     fn test_calculate_room_name() {
         let mut actual = calculate_room_name(2, 0, vec!["a"]);
-        assert_eq!("a", actual);
+        assert_eq!(DisplayName::Calculated("a".to_owned()), actual);
 
         actual = calculate_room_name(3, 0, vec!["a", "b"]);
-        assert_eq!("a, b", actual);
+        assert_eq!(DisplayName::Calculated("a, b".to_owned()), actual);
 
         actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
-        assert_eq!("a, b, c", actual);
+        assert_eq!(DisplayName::Calculated("a, b, c".to_owned()), actual);
 
         actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
-        assert_eq!("a, b, c, and 2 others", actual);
+        assert_eq!(DisplayName::Calculated("a, b, c, and 2 others".to_owned()), actual);
 
         actual = calculate_room_name(0, 0, vec![]);
-        assert_eq!("Empty room", actual);
+        assert_eq!(DisplayName::Empty, actual);
 
         actual = calculate_room_name(1, 0, vec![]);
-        assert_eq!("Empty room", actual);
+        assert_eq!(DisplayName::Empty, actual);
 
         actual = calculate_room_name(0, 1, vec![]);
-        assert_eq!("Empty room", actual);
+        assert_eq!(DisplayName::Empty, actual);
 
         actual = calculate_room_name(1, 0, vec!["a"]);
-        assert_eq!("Empty room (was a)", actual);
+        assert_eq!(DisplayName::EmptyWas("a".to_owned()), actual);
 
         actual = calculate_room_name(1, 0, vec!["a", "b"]);
-        assert_eq!("Empty room (was a, b)", actual);
+        assert_eq!(DisplayName::EmptyWas("a, b".to_owned()), actual);
 
         actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
-        assert_eq!("Empty room (was a, b, c)", actual);
+        assert_eq!(DisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
 }

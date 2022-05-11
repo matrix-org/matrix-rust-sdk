@@ -15,38 +15,41 @@
 use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
 use ruma::{
-    api::client::r0::{
-        backup::{add_backup_keys::Response as KeysBackupResponse, RoomKeyBackup},
+    api::client::{
+        backup::{add_backup_keys::v3::Response as KeysBackupResponse, RoomKeyBackup},
         keys::{
-            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-            get_keys::Response as KeysQueryResponse,
-            upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
-            upload_signatures::{
+            claim_keys::v3::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+            get_keys::v3::Response as KeysQueryResponse,
+            upload_keys::v3::{Request as KeysUploadRequest, Response as KeysUploadResponse},
+            upload_signatures::v3::{
                 Request as SignatureUploadRequest, Response as SignatureUploadResponse,
             },
-            upload_signing_keys::Response as SigningKeysUploadResponse,
+            upload_signing_keys::v3::Response as SigningKeysUploadResponse,
         },
-        message::send_message_event::Response as RoomMessageResponse,
-        to_device::send_event_to_device::Response as ToDeviceResponse,
+        message::send_message_event::v3::Response as RoomMessageResponse,
+        to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
-    encryption::CrossSigningKey,
-    events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, EventType},
+    events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent, EventContent, ToDeviceEventType,
+    },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, RoomId, TransactionId, UserId,
+    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::types::CrossSigningKey;
+
 /// Customized version of
-/// `ruma_client_api::r0::to_device::send_event_to_device::Request`
+/// `ruma_client_api::to_device::send_event_to_device::v3::Request`
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
-    pub event_type: EventType,
+    pub event_type: ToDeviceEventType,
 
     /// A request identifier unique to the access token used to send the
     /// request.
-    pub txn_id: Box<TransactionId>,
+    pub txn_id: OwnedTransactionId,
 
     /// A map of users to devices to a content for a message event to be
     /// sent to the user's device. Individual message events can be sent
@@ -55,7 +58,7 @@ pub struct ToDeviceRequest {
     /// release, until then you can create a value using
     /// `serde_json::value::to_raw_value`.
     pub messages:
-        BTreeMap<Box<UserId>, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
+        BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
 }
 
 impl ToDeviceRequest {
@@ -75,19 +78,19 @@ impl ToDeviceRequest {
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
     ) -> Self {
-        Self::new_with_id(recipient, recipient_device, content, TransactionId::new())
+        Self::with_id(recipient, recipient_device, content, TransactionId::new())
     }
 
-    pub(crate) fn new_for_recipients(
+    pub(crate) fn for_recipients(
         recipient: &UserId,
-        recipient_devices: Vec<Box<DeviceId>>,
+        recipient_devices: Vec<OwnedDeviceId>,
         content: AnyToDeviceEventContent,
-        txn_id: Box<TransactionId>,
+        txn_id: OwnedTransactionId,
     ) -> Self {
         if recipient_devices.is_empty() {
             Self::new(recipient, DeviceIdOrAllDevices::AllDevices, content)
         } else {
-            let event_type = content.event_type().into();
+            let event_type = content.event_type();
             let device_messages = recipient_devices
                 .into_iter()
                 .map(|d| {
@@ -102,13 +105,13 @@ impl ToDeviceRequest {
         }
     }
 
-    pub(crate) fn new_with_id(
+    pub(crate) fn with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
-        txn_id: Box<TransactionId>,
+        txn_id: OwnedTransactionId,
     ) -> Self {
-        let event_type = EventType::from(content.event_type());
+        let event_type = content.event_type();
         let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
 
         let user_messages = iter::once((recipient_device.into(), raw_content)).collect();
@@ -144,7 +147,7 @@ pub struct UploadSigningKeysRequest {
 }
 
 /// Customized version of
-/// `ruma_client_api::r0::keys::get_keys::Request`, without any
+/// `ruma_client_api::keys::get_keys::v3::Request`, without any
 /// references.
 #[derive(Clone, Debug)]
 pub struct KeysQueryRequest {
@@ -154,7 +157,7 @@ pub struct KeysQueryRequest {
 
     /// The keys to be downloaded. An empty list indicates all devices for
     /// the corresponding user.
-    pub device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>,
+    pub device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
 
     /// If the client is fetching keys as a result of a device update
     /// received in a sync request, this should be the 'since' token of that
@@ -165,7 +168,7 @@ pub struct KeysQueryRequest {
 }
 
 impl KeysQueryRequest {
-    pub(crate) fn new(device_keys: BTreeMap<Box<UserId>, Vec<Box<DeviceId>>>) -> Self {
+    pub(crate) fn new(device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>) -> Self {
         Self { timeout: None, device_keys, token: None }
     }
 }
@@ -333,7 +336,7 @@ impl<'a> From<&'a SignatureUploadResponse> for IncomingResponse<'a> {
 pub struct OutgoingRequest {
     /// The unique id of a request, needs to be passed when receiving a
     /// response.
-    pub(crate) request_id: Box<TransactionId>,
+    pub(crate) request_id: OwnedTransactionId,
     /// The underlying outgoing request.
     pub(crate) request: Arc<OutgoingRequests>,
 }
@@ -354,17 +357,17 @@ impl OutgoingRequest {
 #[derive(Clone, Debug)]
 pub struct RoomMessageRequest {
     /// The room to send the event to.
-    pub room_id: Box<RoomId>,
+    pub room_id: OwnedRoomId,
 
     /// The transaction ID for this event.
     ///
     /// Clients should generate an ID unique across requests with the
     /// same access token; it will be used by the server to ensure
     /// idempotency of requests.
-    pub txn_id: Box<TransactionId>,
+    pub txn_id: OwnedTransactionId,
 
     /// The event content to send.
-    pub content: AnyMessageEventContent,
+    pub content: AnyMessageLikeEventContent,
 }
 
 /// A request that will back up a batch of room keys to the server.
@@ -374,7 +377,7 @@ pub struct KeysBackupRequest {
     pub version: String,
     /// The map from room id to a backed up room key that we're going to upload
     /// to the server.
-    pub rooms: BTreeMap<Box<RoomId>, RoomKeyBackup>,
+    pub rooms: BTreeMap<OwnedRoomId, RoomKeyBackup>,
 }
 
 /// An enum over the different outgoing verification based requests.

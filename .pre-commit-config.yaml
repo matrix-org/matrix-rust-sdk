@@ -1,10 +1,13 @@
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.2.3
+    rev: v4.2.0
     hooks:
     -   id: check-yaml
+    -   id: check-toml
     -   id: end-of-file-fixer
     -   id: trailing-whitespace
+    -   id: check-merge-conflict
+    -   id: mixed-line-ending
 
 -   repo: local
     hooks:
@@ -16,6 +19,7 @@ repos:
 
       - id: clippy
         name: clippy
+        stages: [push]
         language: system
         types: [file, rust]
         entry: cargo clippy --all-targets --all
@@ -23,7 +27,15 @@ repos:
 
       - id: test
         name: test
+        stages: [push]
         language: system
         files: '\.rs$'
         entry: cargo test --lib
+        pass_filenames: false
+
+      - id: typos
+        name: typos
+        stages: [push]
+        language: system
+        entry: typos
         pass_filenames: false

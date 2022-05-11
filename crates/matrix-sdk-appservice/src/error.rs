@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::api::client::r0::uiaa::UiaaInfo;
+use ruma::api::client::uiaa::UiaaInfo;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -45,7 +45,7 @@ pub enum Error {
     HttpRequest(#[from] ruma::api::error::FromHttpRequestError),
 
     #[error(transparent)]
-    Identifier(#[from] ruma::identifiers::Error),
+    Identifier(#[from] ruma::IdParseError),
 
     #[error(transparent)]
     Http(#[from] http::Error),
@@ -74,7 +74,9 @@ pub enum Error {
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 
-    #[cfg(feature = "warp")]
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
+
     #[error("warp rejection: {0}")]
     WarpRejection(String),
 }
@@ -99,10 +101,8 @@ impl Error {
     }
 }
 
-#[cfg(feature = "warp")]
 impl warp::reject::Reject for Error {}
 
-#[cfg(feature = "warp")]
 impl From<warp::Rejection> for Error {
     fn from(rejection: warp::Rejection) -> Self {
         Self::WarpRejection(format!("{:?}", rejection))

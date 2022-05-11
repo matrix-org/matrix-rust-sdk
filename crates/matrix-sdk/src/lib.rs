@@ -14,17 +14,7 @@
 // limitations under the License.
 
 #![doc = include_str!("../README.md")]
-#![deny(
-    missing_debug_implementations,
-    missing_docs,
-    dead_code,
-    missing_docs,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications
-)]
+#![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(not(any(feature = "native-tls", feature = "rustls-tls",)))]
@@ -33,19 +23,26 @@ compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
 #[cfg(all(feature = "native-tls", feature = "rustls-tls",))]
 compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled");
 
-#[cfg(all(feature = "sso_login", target_arch = "wasm32"))]
-compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
+#[cfg(all(feature = "sso-login", target_arch = "wasm32"))]
+compile_error!("'sso-login' cannot be enabled on 'wasm32' arch");
 
+#[cfg(all(feature = "image-rayon", target_arch = "wasm32"))]
+compile_error!("'image-rayon' cannot be enabled on 'wasm32' arch");
+
+pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    media, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
-    StateChanges, StoreError,
+    media, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
+    Session, StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
 #[doc(no_inline)]
 pub use ruma;
 
+mod account;
+/// Types and traits for attachments.
+pub mod attachment;
 mod client;
 pub mod config;
 mod error;
@@ -54,14 +51,16 @@ mod http_client;
 /// High-level room API
 pub mod room;
 mod room_member;
+pub mod store;
 mod sync;
 
-#[cfg(feature = "encryption")]
+#[cfg(feature = "e2e-encryption")]
 pub mod encryption;
 
-pub use client::{Client, LoopCtrl};
-pub use error::{Error, HttpError, HttpResult, Result};
+pub use account::Account;
+pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl};
+#[cfg(feature = "image-proc")]
+pub use error::ImageError;
+pub use error::{Error, HttpError, HttpResult, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
