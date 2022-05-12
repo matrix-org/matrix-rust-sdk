@@ -3,10 +3,7 @@
 use anyhow::Result;
 use matrix_sdk_base::media::MediaRequest;
 use ruma::{events::room::MediaSource, MxcUri};
-use sqlx::{
-    database::HasArguments, ColumnIndex, Decode, Encode, Executor, IntoArguments, Row, Transaction,
-    Type,
-};
+use sqlx::{database::HasArguments, ColumnIndex, Executor, IntoArguments, Row, Transaction};
 
 use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 

@@ -1,9 +1,7 @@
 //! Database interface for filters
 
 use anyhow::Result;
-use sqlx::{
-    database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments, Type,
-};
+use sqlx::{database::HasArguments, ColumnIndex, Database, Executor, IntoArguments};
 
 use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 

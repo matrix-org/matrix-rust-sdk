@@ -1,10 +1,7 @@
 //! Database interface for sync tokens
 
 use anyhow::Result;
-use sqlx::{
-    database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments,
-    Transaction, Type,
-};
+use sqlx::{database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Transaction};
 
 use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 
@@ -45,9 +42,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> Vec<u8>: Encode<'q, DB>,
-        Vec<u8>: Type<DB>,
-        for<'r> Vec<u8>: Decode<'r, DB>,
+        Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let result = self.get_kv(b"sync_token".to_vec()).await?;

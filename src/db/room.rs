@@ -14,11 +14,11 @@ use ruma::{
     EventId, RoomId, UserId,
 };
 use sqlx::{
-    database::HasArguments, types::Json, ColumnIndex, Database, Decode, Encode, Executor,
-    IntoArguments, Row, Transaction, Type,
+    database::HasArguments, types::Json, ColumnIndex, Database, Executor, IntoArguments, Row,
+    Transaction,
 };
 
-use crate::{StateStore, SupportedDatabase};
+use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Deletes a room from the room store
@@ -29,8 +29,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        String: Type<DB>,
+        String: SqlType<DB>,
     {
         DB::room_remove_query()
             .bind(room_id.to_string())
@@ -51,12 +50,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> Option<String>: Encode<'q, DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<Raw<AnyGlobalAccountDataEvent>>: Encode<'q, DB>,
-        Option<String>: Type<DB>,
-        String: Type<DB>,
-        Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
+        String: SqlType<DB>,
+        Option<String>: SqlType<DB>,
+        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     {
         DB::account_data_upsert_query()
             .bind(None::<String>)
@@ -79,12 +75,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> Option<String>: Encode<'q, DB>,
-        for<'q> String: Encode<'q, DB>,
-        Option<String>: Type<DB>,
-        String: Type<DB>,
-        Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
-        for<'r> Json<Raw<AnyGlobalAccountDataEvent>>: Decode<'r, DB>,
+        String: SqlType<DB>,
+        Option<String>: SqlType<DB>,
+        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::account_data_load_query()
@@ -113,10 +106,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<Raw<PresenceEvent>>: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<Raw<PresenceEvent>>: Type<DB>,
+        String: SqlType<DB>,
+        Json<Raw<PresenceEvent>>: SqlType<DB>,
     {
         DB::presence_upsert_query()
             .bind(user_id.to_string())
@@ -134,10 +125,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<Raw<PresenceEvent>>: Type<DB>,
-        for<'r> Json<Raw<PresenceEvent>>: Decode<'r, DB>,
+        String: SqlType<DB>,
+        Json<Raw<PresenceEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::presence_load_query()
@@ -166,14 +155,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<SyncRoomMemberEvent>: Encode<'q, DB>,
-        for<'q> bool: Encode<'q, DB>,
-        for<'q> Option<String>: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<SyncRoomMemberEvent>: Type<DB>,
-        bool: Type<DB>,
-        Option<String>: Type<DB>,
+        String: SqlType<DB>,
+        Json<SyncRoomMemberEvent>: SqlType<DB>,
+        bool: SqlType<DB>,
+        Option<String>: SqlType<DB>,
     {
         let displayname = member_event
             .as_original()
@@ -202,14 +187,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<StrippedRoomMemberEvent>: Encode<'q, DB>,
-        for<'q> bool: Encode<'q, DB>,
-        for<'q> Option<String>: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<StrippedRoomMemberEvent>: Type<DB>,
-        bool: Type<DB>,
-        Option<String>: Type<DB>,
+        String: SqlType<DB>,
+        Json<StrippedRoomMemberEvent>: SqlType<DB>,
+        bool: SqlType<DB>,
+        Option<String>: SqlType<DB>,
     {
         let displayname = member_event.content.displayname.clone();
         DB::member_upsert_query()
@@ -236,10 +217,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<MinimalRoomMemberEvent>: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<MinimalRoomMemberEvent>: Type<DB>,
+        String: SqlType<DB>,
+        Json<MinimalRoomMemberEvent>: SqlType<DB>,
     {
         DB::member_profile_upsert_query()
             .bind(room_id.to_string())
@@ -264,12 +243,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<Raw<AnySyncStateEvent>>: Encode<'q, DB>,
-        for<'q> bool: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<Raw<AnySyncStateEvent>>: Type<DB>,
-        bool: Type<DB>,
+        String: SqlType<DB>,
+        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+        bool: SqlType<DB>,
     {
         DB::state_upsert_query()
             .bind(room_id.to_string())
@@ -296,12 +272,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<Raw<AnyStrippedStateEvent>>: Encode<'q, DB>,
-        for<'q> bool: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<Raw<AnyStrippedStateEvent>>: Type<DB>,
-        bool: Type<DB>,
+        String: SqlType<DB>,
+        Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
+        bool: SqlType<DB>,
     {
         DB::state_upsert_query()
             .bind(room_id.to_string())
@@ -327,12 +300,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> Option<String>: Encode<'q, DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<Raw<AnyRoomAccountDataEvent>>: Encode<'q, DB>,
-        Option<String>: Type<DB>,
-        String: Type<DB>,
-        Json<Raw<AnyRoomAccountDataEvent>>: Type<DB>,
+        Option<String>: SqlType<DB>,
+        String: SqlType<DB>,
+        Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
+        bool: SqlType<DB>,
     {
         DB::account_data_upsert_query()
             .bind(Some(room_id.to_string()))
@@ -355,12 +326,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<RoomInfo>: Encode<'q, DB>,
-        for<'q> bool: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<RoomInfo>: Type<DB>,
-        bool: Type<DB>,
+        String: SqlType<DB>,
+        Json<RoomInfo>: SqlType<DB>,
+        bool: SqlType<DB>,
     {
         DB::room_upsert_query()
             .bind(room_id.to_string())
@@ -383,12 +351,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<RoomInfo>: Encode<'q, DB>,
-        for<'q> bool: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<RoomInfo>: Type<DB>,
-        bool: Type<DB>,
+        String: SqlType<DB>,
+        Json<RoomInfo>: SqlType<DB>,
+        bool: SqlType<DB>,
     {
         DB::room_upsert_query()
             .bind(room_id.to_string())
@@ -414,10 +379,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        for<'q> Json<Receipt>: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<Receipt>: Type<DB>,
+        String: SqlType<DB>,
+        Json<Receipt>: SqlType<DB>,
     {
         DB::receipt_upsert_query()
             .bind(room_id.to_string())
@@ -443,10 +406,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        String: Type<DB>,
-        Json<Raw<AnySyncStateEvent>>: Type<DB>,
-        for<'r> Json<Raw<AnySyncStateEvent>>: Decode<'r, DB>,
+        String: SqlType<DB>,
+        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::state_load_query()

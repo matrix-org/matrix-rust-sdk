@@ -22,8 +22,8 @@ use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
 use sqlx::{
-    database::HasArguments, types::Json, ColumnIndex, Database, Decode, Encode, Executor,
-    IntoArguments, Row, Transaction, Type,
+    database::HasArguments, types::Json, ColumnIndex, Database, Executor, IntoArguments, Row,
+    Transaction,
 };
 
 mod custom;
