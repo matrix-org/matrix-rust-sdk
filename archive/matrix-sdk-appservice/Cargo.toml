@@ -1,0 +1,13 @@
+[package]
+name = "matrix-sdk-appservice"
+version = "0.0.1-reserved"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+description = "SOON: Appservice SDK based on the matrix-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma", "nio", "appservice"]
+license = "Apache-2.0"
+rust-version = "1.60"
+readme = "README.md"
+
+[dependencies]

@@ -1,0 +1,11 @@
+[package]
+name = "matrix-sdk-crypto-ffi"
+version = "0.0.1-reserved"
+edition = "2021"
+rust-version = "1.60"
+description = "SOON: Uniffi based bindings for the Matrix SDK crypto crate"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+license = "Apache-2.0"
+readme = "README.md"
+
+[dependencies]
