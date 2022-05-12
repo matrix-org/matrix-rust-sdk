@@ -8,7 +8,7 @@ use sqlx::{
     Type,
 };
 
-use crate::{StateStore, SupportedDatabase};
+use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Insert media into the media store
@@ -19,10 +19,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a, 'c> &'c mut Transaction<'a, DB>: Executor<'c, Database = DB>,
-        for<'q> Vec<u8>: Encode<'q, DB>,
-        for<'q> String: Encode<'q, DB>,
-        Vec<u8>: Type<DB>,
-        String: Type<DB>,
+        Vec<u8>: SqlType<DB>,
+        String: SqlType<DB>,
     {
         let mut txn = self.db.begin().await?;
 
@@ -45,8 +43,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        String: Type<DB>,
+        String: SqlType<DB>,
     {
         DB::media_delete_query()
             .bind(url.to_string())
@@ -63,10 +60,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> String: Encode<'q, DB>,
-        String: Type<DB>,
-        Vec<u8>: Type<DB>,
-        for<'r> Vec<u8>: Decode<'r, DB>,
+        Vec<u8>: SqlType<DB>,
+        String: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as sqlx::Database>::Row>,
     {
         let row = DB::media_load_query()

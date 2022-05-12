@@ -6,7 +6,7 @@ use sqlx::{
     Transaction, Type,
 };
 
-use crate::{StateStore, SupportedDatabase};
+use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Put a sync token into the sync token store
@@ -18,8 +18,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> Vec<u8>: Encode<'q, DB>,
-        Vec<u8>: Type<DB>,
+        Vec<u8>: SqlType<DB>,
     {
         self.insert_kv(b"sync_token".to_vec(), token.as_bytes().to_vec())
             .await
@@ -33,8 +32,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'q> Vec<u8>: Encode<'q, DB>,
-        Vec<u8>: Type<DB>,
+        Vec<u8>: SqlType<DB>,
     {
         Self::insert_kv_txn(txn, b"sync_token".to_vec(), token.as_bytes().to_vec()).await
     }

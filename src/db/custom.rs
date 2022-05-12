@@ -5,7 +5,7 @@ use sqlx::{
     database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments, Type,
 };
 
-use crate::{StateStore, SupportedDatabase};
+use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Put arbitrary data into the custom store
@@ -16,8 +16,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> Vec<u8>: Encode<'q, DB>,
-        Vec<u8>: Type<DB>,
+        Vec<u8>: SqlType<DB>,
     {
         let mut key = Vec::with_capacity(7 + key_ref.len());
         key.extend_from_slice(b"custom:");
@@ -34,9 +33,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'q> Vec<u8>: Encode<'q, DB>,
-        Vec<u8>: Type<DB>,
-        for<'r> Vec<u8>: Decode<'r, DB>,
+        Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut key = Vec::with_capacity(7 + key_ref.len());
