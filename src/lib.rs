@@ -1,5 +1,25 @@
 //! SQL State Storage for matrix-sdk
 //!
+//! ## Usage
+//!
+//! ```rust,ignore
+//!
+//! let sql_pool: Arc<sqlx::Pool<DB>> = /* ... */;
+//! // Create the state store, applying migrations if necessary
+//! let state_store = StateStore::new(&sql_pool).await?;
+//!
+//! ```
+//!
+//! After that you can pass it into your client builder as follows:
+//!
+//! ```rust,ignore
+//! let store_config = StoreConfig::new().state_store(Box::new(state_store));
+//!
+//! let client_builder = Client::builder()
+//!                     /* ... */
+//!                      .store_config(store_config)
+//! ```
+//!
 //! ## About Trait bounds
 //!
 //! The list of trait bounds may seem daunting, however every implementation of [`SupportedDatabase`] matches the trait bounds specified.

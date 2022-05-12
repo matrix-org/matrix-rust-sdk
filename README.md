@@ -21,6 +21,29 @@ Exactly one of `rustls` and `native-tls` need to be enabled. At least one of `po
 The MSRV is currently 1.60.0.
 
 Increasing the MSRV is a breaking change.
+
+## Usage
+
+This crate integrates with your existing [SQLx](https://github.com/launchbadge/sqlx) database pool.
+
+```rust
+
+let sql_pool: Arc<sqlx::Pool<DB>> = /* ... */;
+// Create the state store, applying migrations if necessary
+let state_store = StateStore::new(&sql_pool).await?;
+
+```
+
+After that you can pass it into your client builder as follows:
+
+```rust
+let store_config = StoreConfig::new().state_store(Box::new(state_store));
+
+let client_builder = Client::builder()
+                    /* ... */
+                     .store_config(store_config)
+```
+
 ## Authors
 
 - [Charlotte](https://github.com/DarkKirb)
