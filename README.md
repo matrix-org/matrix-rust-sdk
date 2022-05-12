@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg)](https://darkkirb.github.io/matrix-sdk-statestore-sql/rust/matrix_sdk_statestore_sql/)
 
-This crate allows you to use your postgres/mysql/sqlite database as a state and crypto store for matrix-sdk.
+This crate allows you to use your postgres/sqlite database as a state and crypto store for matrix-sdk.
 
 ## Crate Features
 
