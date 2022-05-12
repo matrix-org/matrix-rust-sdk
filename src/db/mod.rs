@@ -20,13 +20,14 @@ use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
 use sqlx::{
-    database::HasArguments, ColumnIndex, Database, Decode, Encode, Executor, IntoArguments, Row,
-    Transaction, Type,
+    database::HasArguments, types::Json, ColumnIndex, Database, Decode, Encode, Executor,
+    IntoArguments, Row, Transaction, Type,
 };
 
 mod custom;
 mod filters;
 mod media;
+mod room;
 mod sync_token;
 
 impl<DB: SupportedDatabase> StateStore<DB> {
@@ -111,10 +112,20 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'q> Vec<u8>: Encode<'q, DB>,
+        for<'q> Option<String>: Encode<'q, DB>,
+        for<'q> String: Encode<'q, DB>,
+        for<'q> Json<Raw<AnyGlobalAccountDataEvent>>: Encode<'q, DB>,
         Vec<u8>: Type<DB>,
+        Option<String>: Type<DB>,
+        String: Type<DB>,
+        Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
     {
         if let Some(sync_token) = &state_changes.sync_token {
             Self::save_sync_token(txn, sync_token).await?;
+        }
+
+        for (event_type, event_data) in &state_changes.account_data {
+            Self::set_global_account_data(txn, event_type, event_data.to_owned()).await?;
         }
 
         Ok(())
@@ -129,7 +140,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'q> Vec<u8>: Encode<'q, DB>,
+        for<'q> Option<String>: Encode<'q, DB>,
+        for<'q> String: Encode<'q, DB>,
+        for<'q> Json<Raw<AnyGlobalAccountDataEvent>>: Encode<'q, DB>,
         Vec<u8>: Type<DB>,
+        Option<String>: Type<DB>,
+        String: Type<DB>,
+        Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
     {
         let mut txn = self.db.begin().await?;
         Self::save_state_changes_txn(&mut txn, state_changes).await?;
@@ -148,10 +165,15 @@ where
     for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
     for<'a, 'c> &'c mut Transaction<'a, DB>: Executor<'c, Database = DB>,
     for<'q> Vec<u8>: Encode<'q, DB>,
+    for<'q> Option<String>: Encode<'q, DB>,
     for<'q> String: Encode<'q, DB>,
+    for<'q> Json<Raw<AnyGlobalAccountDataEvent>>: Encode<'q, DB>,
     Vec<u8>: Type<DB>,
+    Option<String>: Type<DB>,
     String: Type<DB>,
+    Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
     for<'r> Vec<u8>: Decode<'r, DB>,
+    for<'r> Json<Raw<AnyGlobalAccountDataEvent>>: Decode<'r, DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     /// Save the given filter id under the given name.
@@ -319,7 +341,9 @@ where
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> StoreResult<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        todo!();
+        self.get_account_data_event(event_type)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get an event out of the room account data store.
@@ -460,7 +484,9 @@ where
     ///
     /// * `room_id` - The `RoomId` of the room to delete.
     async fn remove_room(&self, room_id: &RoomId) -> StoreResult<()> {
-        todo!();
+        self.remove_room(room_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 }
 

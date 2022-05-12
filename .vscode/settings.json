@@ -52,7 +52,6 @@
   "rust-analyzer.cargo.features": [
     "rustls",
     "postgres",
-    "mysql",
     "sqlite"
   ],
 }

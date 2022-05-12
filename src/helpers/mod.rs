@@ -107,6 +107,52 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Deletes a room given its ID
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    fn room_remove_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_rooms
+                WHERE room_id = $1
+            "#,
+        )
+    }
+
+    /// Upserts account data
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID for the account data, or null
+    /// * `$2` - The account data event type
+    /// * `$3` - The account data event content
+    fn account_data_upsert_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_accountdata
+                    (room_id, event_type, account_data)
+                VALUES ($1, $2, $3)
+                ON CONFLICT(room_id, event_type) DO UPDATE SET account_data = $3
+            "#,
+        )
+    }
+
+    /// Retrieves account data
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID for the account data, or null
+    /// * `$2` - The account data event type
+    fn account_data_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
+    {
+        sqlx::query(
+            r#"
+                SELECT account_data FROM statestore_accountdata
+                WHERE room_id = $1 AND event_type = $2
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]
