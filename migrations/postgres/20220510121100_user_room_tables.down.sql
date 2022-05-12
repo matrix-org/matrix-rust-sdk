@@ -1,4 +1,4 @@
-DROP TABLE statestore_notifications;
+DROP INDEX statestore_receipts_room_event;
 DROP TABLE statestore_receipts;
 DROP TABLE statestore_state;
 DROP TABLE statestore_members;

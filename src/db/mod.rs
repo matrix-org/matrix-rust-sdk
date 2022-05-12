@@ -11,9 +11,11 @@ use matrix_sdk_base::{
 };
 use ruma::{
     events::{
-        presence::PresenceEvent, receipt::Receipt, AnyGlobalAccountDataEvent,
-        AnyRoomAccountDataEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-        RoomAccountDataEventType, StateEventType,
+        presence::PresenceEvent,
+        receipt::Receipt,
+        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -115,17 +117,115 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'q> Option<String>: Encode<'q, DB>,
         for<'q> String: Encode<'q, DB>,
         for<'q> Json<Raw<AnyGlobalAccountDataEvent>>: Encode<'q, DB>,
+        for<'q> Json<Raw<PresenceEvent>>: Encode<'q, DB>,
+        for<'q> Json<SyncRoomMemberEvent>: Encode<'q, DB>,
+        for<'q> Json<MinimalRoomMemberEvent>: Encode<'q, DB>,
+        for<'q> bool: Encode<'q, DB>,
+        for<'q> Json<Raw<AnySyncStateEvent>>: Encode<'q, DB>,
+        for<'q> Json<Raw<AnyRoomAccountDataEvent>>: Encode<'q, DB>,
+        for<'q> Json<RoomInfo>: Encode<'q, DB>,
+        for<'q> Json<Receipt>: Encode<'q, DB>,
+        for<'q> Json<Raw<AnyStrippedStateEvent>>: Encode<'q, DB>,
+        for<'q> Json<StrippedRoomMemberEvent>: Encode<'q, DB>,
         Vec<u8>: Type<DB>,
         Option<String>: Type<DB>,
         String: Type<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
+        Json<Raw<PresenceEvent>>: Type<DB>,
+        Json<SyncRoomMemberEvent>: Type<DB>,
+        bool: Type<DB>,
+        Json<MinimalRoomMemberEvent>: Type<DB>,
+        Json<Raw<AnySyncStateEvent>>: Type<DB>,
+        Json<Raw<AnyRoomAccountDataEvent>>: Type<DB>,
+        Json<RoomInfo>: Type<DB>,
+        Json<Receipt>: Type<DB>,
+        Json<Raw<AnyStrippedStateEvent>>: Type<DB>,
+        Json<StrippedRoomMemberEvent>: Type<DB>,
     {
         if let Some(sync_token) = &state_changes.sync_token {
             Self::save_sync_token(txn, sync_token).await?;
         }
 
         for (event_type, event_data) in &state_changes.account_data {
-            Self::set_global_account_data(txn, event_type, event_data.to_owned()).await?;
+            Self::set_global_account_data(txn, event_type, event_data.clone()).await?;
+        }
+
+        for (user_id, presence) in &state_changes.presence {
+            Self::set_presence_event(txn, user_id, presence.clone()).await?;
+        }
+
+        for (room_id, room_info) in &state_changes.room_infos {
+            Self::set_room_info(txn, room_id, room_info.clone()).await?;
+        }
+        for (room_id, room_info) in &state_changes.stripped_room_infos {
+            Self::set_stripped_room_info(txn, room_id, room_info.clone()).await?;
+        }
+
+        for (room_id, members) in &state_changes.members {
+            for (user_id, member_event) in members {
+                Self::set_room_membership(txn, room_id, user_id, member_event.clone()).await?;
+            }
+        }
+
+        for (room_id, members) in &state_changes.stripped_members {
+            for (user_id, member_event) in members {
+                Self::set_stripped_room_membership(txn, room_id, user_id, member_event.clone())
+                    .await?;
+            }
+        }
+
+        for (room_id, profiles) in &state_changes.profiles {
+            for (user_id, profile) in profiles {
+                Self::set_room_profile(txn, room_id, user_id, profile.clone()).await?;
+            }
+        }
+
+        for (room_id, state_events) in &state_changes.state {
+            for (event_type, event_data) in state_events {
+                for (state_key, event_data) in event_data {
+                    Self::set_room_state(txn, room_id, event_type, state_key, event_data.clone())
+                        .await?;
+                }
+            }
+        }
+
+        for (room_id, state_events) in &state_changes.stripped_state {
+            for (event_type, event_data) in state_events {
+                for (state_key, event_data) in event_data {
+                    Self::set_stripped_room_state(
+                        txn,
+                        room_id,
+                        event_type,
+                        state_key,
+                        event_data.clone(),
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        for (room_id, account_data) in &state_changes.room_account_data {
+            for (event_type, event_data) in account_data {
+                Self::set_room_account_data(txn, room_id, event_type, event_data.clone()).await?;
+            }
+        }
+
+        for (room_id, receipt) in &state_changes.receipts {
+            for (event_id, receipt) in &receipt.0 {
+                for (receipt_type, receipt) in receipt {
+                    for (user_id, receipt) in receipt {
+                        Self::set_receipt(
+                            txn,
+                            room_id,
+                            event_id,
+                            receipt_type,
+                            user_id,
+                            receipt.clone(),
+                        )
+                        .await?;
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -143,10 +243,30 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'q> Option<String>: Encode<'q, DB>,
         for<'q> String: Encode<'q, DB>,
         for<'q> Json<Raw<AnyGlobalAccountDataEvent>>: Encode<'q, DB>,
+        for<'q> Json<Raw<PresenceEvent>>: Encode<'q, DB>,
+        for<'q> Json<SyncRoomMemberEvent>: Encode<'q, DB>,
+        for<'q> Json<MinimalRoomMemberEvent>: Encode<'q, DB>,
+        for<'q> bool: Encode<'q, DB>,
+        for<'q> Json<Raw<AnySyncStateEvent>>: Encode<'q, DB>,
+        for<'q> Json<Raw<AnyRoomAccountDataEvent>>: Encode<'q, DB>,
+        for<'q> Json<RoomInfo>: Encode<'q, DB>,
+        for<'q> Json<Receipt>: Encode<'q, DB>,
+        for<'q> Json<Raw<AnyStrippedStateEvent>>: Encode<'q, DB>,
+        for<'q> Json<StrippedRoomMemberEvent>: Encode<'q, DB>,
         Vec<u8>: Type<DB>,
         Option<String>: Type<DB>,
         String: Type<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
+        Json<Raw<PresenceEvent>>: Type<DB>,
+        Json<SyncRoomMemberEvent>: Type<DB>,
+        bool: Type<DB>,
+        Json<MinimalRoomMemberEvent>: Type<DB>,
+        Json<Raw<AnySyncStateEvent>>: Type<DB>,
+        Json<Raw<AnyRoomAccountDataEvent>>: Type<DB>,
+        Json<RoomInfo>: Type<DB>,
+        Json<Receipt>: Type<DB>,
+        Json<Raw<AnyStrippedStateEvent>>: Type<DB>,
+        Json<StrippedRoomMemberEvent>: Type<DB>,
     {
         let mut txn = self.db.begin().await?;
         Self::save_state_changes_txn(&mut txn, state_changes).await?;
@@ -168,12 +288,33 @@ where
     for<'q> Option<String>: Encode<'q, DB>,
     for<'q> String: Encode<'q, DB>,
     for<'q> Json<Raw<AnyGlobalAccountDataEvent>>: Encode<'q, DB>,
+    for<'q> Json<Raw<PresenceEvent>>: Encode<'q, DB>,
+    for<'q> Json<SyncRoomMemberEvent>: Encode<'q, DB>,
+    for<'q> Json<MinimalRoomMemberEvent>: Encode<'q, DB>,
+    for<'q> bool: Encode<'q, DB>,
+    for<'q> Json<Raw<AnySyncStateEvent>>: Encode<'q, DB>,
+    for<'q> Json<Raw<AnyRoomAccountDataEvent>>: Encode<'q, DB>,
+    for<'q> Json<RoomInfo>: Encode<'q, DB>,
+    for<'q> Json<Receipt>: Encode<'q, DB>,
+    for<'q> Json<Raw<AnyStrippedStateEvent>>: Encode<'q, DB>,
+    for<'q> Json<StrippedRoomMemberEvent>: Encode<'q, DB>,
     Vec<u8>: Type<DB>,
     Option<String>: Type<DB>,
     String: Type<DB>,
     Json<Raw<AnyGlobalAccountDataEvent>>: Type<DB>,
+    Json<Raw<PresenceEvent>>: Type<DB>,
+    Json<SyncRoomMemberEvent>: Type<DB>,
+    bool: Type<DB>,
+    Json<MinimalRoomMemberEvent>: Type<DB>,
+    Json<Raw<AnySyncStateEvent>>: Type<DB>,
+    Json<Raw<AnyRoomAccountDataEvent>>: Type<DB>,
+    Json<RoomInfo>: Type<DB>,
+    Json<Receipt>: Type<DB>,
+    Json<Raw<AnyStrippedStateEvent>>: Type<DB>,
+    Json<StrippedRoomMemberEvent>: Type<DB>,
     for<'r> Vec<u8>: Decode<'r, DB>,
     for<'r> Json<Raw<AnyGlobalAccountDataEvent>>: Decode<'r, DB>,
+    for<'r> Json<Raw<PresenceEvent>>: Decode<'r, DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     /// Save the given filter id under the given name.
@@ -224,7 +365,9 @@ where
         &self,
         user_id: &UserId,
     ) -> StoreResult<Option<Raw<PresenceEvent>>> {
-        todo!();
+        self.get_presence_event(user_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get a state event out of the state store.
@@ -552,4 +695,34 @@ pub mod tests {
         let value = store.get_kv(b"key".to_vec()).await.unwrap();
         assert_eq!(value, Some(b"value2".to_vec()));
     }
+}
+
+#[allow(clippy::redundant_pub_crate)]
+#[cfg(all(test, feature = "sqlite"))]
+mod sqlite_integration_test {
+    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+
+    use super::StoreResult;
+    async fn get_store() -> StoreResult<impl StateStore> {
+        super::tests::open_sqlite_database()
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
+    }
+
+    statestore_integration_tests! { integration }
+}
+
+#[allow(clippy::redundant_pub_crate)]
+#[cfg(all(test, feature = "postgres", feature = "ci"))]
+mod postgres_integration_test {
+    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+
+    use super::StoreResult;
+    async fn get_store() -> StoreResult<impl StateStore> {
+        super::tests::open_postgres_database()
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
+    }
+
+    statestore_integration_tests! { integration }
 }

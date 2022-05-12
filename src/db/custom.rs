@@ -12,7 +12,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn save_custom_value(&self, key_ref: &[u8], val: Vec<u8>) -> Result<()>
+    pub async fn set_custom_value(&self, key_ref: &[u8], val: Vec<u8>) -> Result<()>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
@@ -55,7 +55,7 @@ mod tests {
         let store = crate::db::tests::open_sqlite_database().await.unwrap();
         assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
         store
-            .save_custom_value(b"test", b"test".to_vec())
+            .set_custom_value(b"test", b"test".to_vec())
             .await
             .unwrap();
         assert_eq!(
@@ -63,7 +63,7 @@ mod tests {
             Some(b"test".to_vec())
         );
         store
-            .save_custom_value(b"test2", b"test3".to_vec())
+            .set_custom_value(b"test2", b"test3".to_vec())
             .await
             .unwrap();
         assert_eq!(
@@ -75,7 +75,7 @@ mod tests {
             Some(b"test".to_vec())
         );
         store
-            .save_custom_value(b"test", b"test4".to_vec())
+            .set_custom_value(b"test", b"test4".to_vec())
             .await
             .unwrap();
         assert_eq!(
@@ -95,7 +95,7 @@ mod tests {
         let store = crate::db::tests::open_postgres_database().await.unwrap();
         assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
         store
-            .save_custom_value(b"test", b"test".to_vec())
+            .set_custom_value(b"test", b"test".to_vec())
             .await
             .unwrap();
         assert_eq!(
@@ -103,7 +103,7 @@ mod tests {
             Some(b"test".to_vec())
         );
         store
-            .save_custom_value(b"test2", b"test3".to_vec())
+            .set_custom_value(b"test2", b"test3".to_vec())
             .await
             .unwrap();
         assert_eq!(
@@ -115,7 +115,7 @@ mod tests {
             Some(b"test".to_vec())
         );
         store
-            .save_custom_value(b"test", b"test4".to_vec())
+            .set_custom_value(b"test", b"test4".to_vec())
             .await
             .unwrap();
         assert_eq!(

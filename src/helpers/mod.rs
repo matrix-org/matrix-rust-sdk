@@ -153,6 +153,127 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Upserts user presence data
+    ///
+    /// # Arguments
+    /// * `$1` - The user ID
+    /// * `$2` - The presence data
+    fn presence_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_presence
+                    (user_id, presence)
+                VALUES ($1, $2)
+                ON CONFLICT(user_id) DO UPDATE SET presence = $2
+            "#,
+        )
+    }
+
+    /// Retrieves user presence data
+    ///
+    /// # Arguments
+    /// * `$1` - The user ID
+    fn presence_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT presence FROM statestore_presence
+                WHERE user_id = $1
+            "#,
+        )
+    }
+
+    /// Upserts room membership information
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The user ID
+    /// * `$3` - Whether or not the membership event is stripped
+    /// * `$4` - The membership event content
+    /// * `$5` - The display name of the user
+    fn member_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_memberships
+                    (room_id, user_id, is_stripped, member_event, displayname)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT(room_id, user_id) DO UPDATE SET is_stripped = $3, member_event = $4, displayname = $5
+            "#,
+        )
+    }
+
+    /// Upserts user profile information
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The user ID
+    /// * `$3` - The profile event content
+    fn member_profile_upsert_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_profiles
+                    (room_id, user_id, is_partial, profile_event)
+                VALUES ($1, $2, 0, $3)
+                ON CONFLICT(room_id, user_id) DO UPDATE SET profile_event = $3
+            "#,
+        )
+    }
+
+    /// Upserts a state event
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The event type
+    /// * `$3` - The state key
+    /// * `$4` - Whether or not the state is partial
+    /// * `$5` - The event content
+    fn state_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_state
+                    (room_id, event_type, state_key, is_partial, state_event)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT(room_id, event_type, state_key) DO UPDATE SET is_partial = $4, state_event = $5
+            "#,
+        )
+    }
+
+    /// Upserts room information
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - Whether or not the state is partial
+    /// * `$3` - The room info
+    fn room_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_rooms
+                    (room_id, is_partial, room_info)
+                VALUES ($1, $2, $3)
+                ON CONFLICT(room_id) DO UPDATE SET is_partial = $2, room_info = $3
+            "#,
+        )
+    }
+
+    /// Upserts an event receipt
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The event ID
+    /// * `$3` - The receipt type
+    /// * `$4` - The user id
+    /// * `$5` - The receipt content
+    fn receipt_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO statestore_receipts
+                    (room_id, event_id, receipt_type, user_id, receipt)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT(room_id, user_id) DO UPDATE SET event_id = $2, receipt_type = $3, receipt = $5
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]

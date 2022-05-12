@@ -37,10 +37,6 @@ CREATE TABLE statestore_receipts (
   receipt_type TEXT NOT NULL,
   user_id TEXT NOT NULL,
   receipt JSON NOT NULL,
-  PRIMARY KEY (room_id, event_id, user_id)
+  PRIMARY KEY (room_id, user_id)
 );
-CREATE TABLE statestore_notifications (
-  notification_id INTEGER PRIMARY KEY,
-  room_id TEXT NOT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE,
-  notification_data JSON NOT NULL
-);
+CREATE INDEX statestore_receipts_room_event ON statestore_receipts (room_id, event_id);
