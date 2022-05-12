@@ -60,7 +60,7 @@ async fn login_and_sync(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    client.login(&username, &password, None, Some("command bot")).await?;
+    client.login_with_password(&username, &password, None, Some("command bot")).await?;
 
     client.sync_once(SyncSettings::default()).await.unwrap();
 

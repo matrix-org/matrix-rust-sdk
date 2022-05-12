@@ -662,20 +662,23 @@ impl Client {
         }
     }
 
-    /// Login to the server.
+    /// Login to the server using a password.
     ///
     /// This can be used for the first login as well as for subsequent logins,
-    /// note that if the device id isn't provided a new device will be created.
+    /// note that if the device id isn't provided a new device will be
+    /// created.
     ///
-    /// If this isn't the first login a device id should be provided to restore
-    /// the correct stores.
+    /// If this isn't the first login a device id should be provided to
+    /// restore the correct stores.
     ///
     /// Alternatively the [`restore_login`] method can be used to restore a
     /// logged in client without the password.
     ///
     /// # Arguments
     ///
-    /// * `user` - The user that should be logged in to the homeserver.
+    /// * `user` - A [`UserIdentifier`] (or `Into<UserIdentifier>`) for the
+    ///   user that will be logged in. This can be a Matrix ID, but it can
+    ///   also be things such as email addresses or phone numbers.
     ///
     /// * `password` - The password of the user.
     ///
@@ -686,18 +689,17 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let homeserver = url::Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     /// use matrix_sdk::Client;
+    /// use matrix_sdk::ruma::user_id;
     ///
+    /// let user = user_id!("@alice:example.com");
     /// let client = Client::new(homeserver).await?;
-    /// let user = "example";
     ///
     /// let response = client
-    ///     .login(user, "wordpass", None, Some("My bot")).await?;
+    ///     .login_with_password(user, "wordpass", None, Some("My bot")).await?;
     ///
     /// println!(
     ///     "Logged in as {}, got device_id {} and access_token {}",
@@ -708,20 +710,38 @@ impl Client {
     ///
     /// [`restore_login`]: #method.restore_login
     #[instrument(skip(self, user, password))]
-    pub async fn login(
+    pub async fn login_with_password(
         &self,
-        user: impl AsRef<str>,
+        user: impl Into<UserIdentifier<'_>>,
+        password: impl AsRef<str>,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::v3::Response> {
+        self.login_with_password_impl(
+            user.into(),
+            password.as_ref(),
+            device_id,
+            initial_device_display_name,
+        )
+        .await
+    }
+
+    async fn login_with_password_impl(
+        &self,
+        user: UserIdentifier<'_>,
         password: &str,
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::v3::Response> {
         let homeserver = self.homeserver().await;
-        info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in");
+        info!(
+            homeserver = homeserver.as_str(),
+            user = format!("{:?}", user).as_str(),
+            "Logging in"
+        );
 
-        let login_info = login::v3::LoginInfo::Password(login::v3::Password::new(
-            UserIdentifier::UserIdOrLocalpart(user.as_ref()),
-            password,
-        ));
+        let login_info =
+            login::v3::LoginInfo::Password(login::v3::Password::new(user, password.as_ref()));
 
         let request = assign!(login::v3::Request::new(login_info), {
             device_id: device_id.map(|d| d.into()),
@@ -732,6 +752,24 @@ impl Client {
         self.receive_login_response(&response).await?;
 
         Ok(response)
+    }
+
+    #[doc(hidden)]
+    #[instrument(skip(self, user, password))]
+    pub async fn login(
+        &self,
+        user: impl AsRef<str>,
+        password: &str,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::v3::Response> {
+        self.login_with_password(
+            UserIdentifier::UserIdOrLocalpart(user.as_ref()),
+            password,
+            device_id,
+            initial_device_display_name,
+        )
+        .await
     }
 
     /// Login to the server via Single Sign-On.
@@ -1088,7 +1126,7 @@ impl Client {
     /// let client = Client::new(homeserver).await?;
     ///
     /// let session: Session = client
-    ///     .login("example", "my-password", None, None)
+    ///     .login_with_password("example", "my-password", None, None)
     ///     .await?
     ///     .into();
     ///
@@ -1676,7 +1714,7 @@ impl Client {
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_with_password(username, password, None, None).await?;
     ///
     /// // Sync once so we receive the client state and old messages.
     /// client.sync_once(SyncSettings::default()).await?;
@@ -1781,7 +1819,7 @@ impl Client {
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_with_password(username, password, None, None).await?;
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
@@ -1907,7 +1945,7 @@ impl Client {
     /// use matrix_sdk::{Client, config::SyncSettings};
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_with_password(username, password, None, None).await?;
     ///
     /// let mut sync_stream = Box::pin(client.sync_stream(SyncSettings::default()).await);
     ///
@@ -2405,7 +2443,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_with_password("example", "wordpass", None, None).await.unwrap();
 
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
@@ -2422,7 +2460,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN_WITH_DISCOVERY.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_with_password("example", "wordpass", None, None).await.unwrap();
 
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
@@ -2439,7 +2477,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_with_password("example", "wordpass", None, None).await.unwrap();
 
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
@@ -2624,7 +2662,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN_RESPONSE_ERR.to_string())
             .create();
 
-        if let Err(err) = client.login("example", "wordpass", None, None).await {
+        if let Err(err) = client.login_with_password("example", "wordpass", None, None).await {
             if let crate::Error::Http(HttpError::Api(FromHttpResponseError::Server(
                 ServerError::Known(RumaApiError::ClientApi(client_api::Error {
                     kind,
@@ -3548,7 +3586,7 @@ pub(crate) mod tests {
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_with_password("example", "wordpass", None, None).await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
@@ -3570,7 +3608,7 @@ pub(crate) mod tests {
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_with_password("example", "wordpass", None, None).await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
@@ -3584,7 +3622,7 @@ pub(crate) mod tests {
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_with_password("example", "wordpass", None, None).await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")

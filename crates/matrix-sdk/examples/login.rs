@@ -40,7 +40,7 @@ async fn login(
 
     client.register_event_handler(on_room_message).await;
 
-    client.login(username, password, None, Some("rust-sdk")).await?;
+    client.login_with_password(username, password, None, Some("rust-sdk")).await?;
     client.sync(SyncSettings::new()).await;
 
     Ok(())

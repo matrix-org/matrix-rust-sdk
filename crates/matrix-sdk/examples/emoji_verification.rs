@@ -73,7 +73,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    client.login(username, password, None, Some("rust-sdk")).await?;
+    client.login_with_password(username, password, None, Some("rust-sdk")).await?;
 
     let client_ref = &client;
     let initial_sync = Arc::new(AtomicBool::from(true));
