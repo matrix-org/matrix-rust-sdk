@@ -55,7 +55,6 @@ impl OlmMachine {
                 Some((key, value))
             })
             .collect();
-
         let unused_fallback_keys: Option<Vec<DeviceKeyAlgorithm>> = Some(
             unused_fallback_keys
                 .values()
@@ -79,6 +78,24 @@ impl OlmMachine {
                     .unwrap(),
                 )
                 .unwrap(),
+            ))
+        })
+    }
+
+    pub fn outgoing_requests(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(JsValue::from(
+                me.outgoing_requests()
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .map(TryFrom::try_from)
+                    .collect::<Result<Vec<JsValue>, _>>()
+                    .unwrap()
+                    .into_iter()
+                    .collect::<Array>(),
             ))
         })
     }

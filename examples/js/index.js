@@ -23,6 +23,10 @@ async function run_example() {
         unused_fallback_keys,
     );
     console.log(JSON.parse(decrypted_to_device));
+
+    const outgoing_requests = await olm_machine.outgoing_requests();
+    console.log(outgoing_requests);
+    console.log(JSON.parse(outgoing_requests[0].body));
 }
 
 run_example();
