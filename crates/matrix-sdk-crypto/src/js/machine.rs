@@ -8,12 +8,6 @@ use wasm_bindgen_futures::future_to_promise;
 use crate::js::{errors::any_error_to_jsvalue, identifiers, sync_events};
 
 #[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: String);
-}
-
-#[wasm_bindgen]
 #[derive(Debug)]
 pub struct OlmMachine {
     inner: Arc<crate::OlmMachine>,
@@ -44,7 +38,9 @@ impl OlmMachine {
     }
 
     ///// Get the public parts of our Olm identity keys.
-    //pub fn identity_keys(&self) ->
+    pub fn identity_keys(&self) -> IdentityKeys {
+        self.inner.identity_keys().into()
+    }
 
     /// Get the display name of our own device.
     pub fn display_name(&self) -> Promise {
@@ -120,5 +116,33 @@ impl OlmMachine {
                     .collect::<Array>(),
             ))
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+#[wasm_bindgen]
+pub struct Ed25519PublicKey {
+    inner: vodozemac::Ed25519PublicKey,
+}
+
+#[derive(Debug, Clone)]
+#[wasm_bindgen]
+pub struct Curve25519PublicKey {
+    inner: vodozemac::Curve25519PublicKey,
+}
+
+#[derive(Debug)]
+#[wasm_bindgen(getter_with_clone)]
+pub struct IdentityKeys {
+    pub ed25519: Ed25519PublicKey,
+    pub curve25519: Curve25519PublicKey,
+}
+
+impl From<crate::olm::IdentityKeys> for IdentityKeys {
+    fn from(value: crate::olm::IdentityKeys) -> Self {
+        Self {
+            ed25519: Ed25519PublicKey { inner: value.ed25519 },
+            curve25519: Curve25519PublicKey { inner: value.curve25519 },
+        }
     }
 }

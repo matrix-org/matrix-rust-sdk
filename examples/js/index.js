@@ -9,6 +9,7 @@ async function run_example() {
     console.log('olm_machine.user_id().localpart() =', olm_machine.user_id().localpart());
     console.log('olm_machine.device_id =', olm_machine.device_id());
     console.log('olm_machine.display_name =', await olm_machine.display_name());
+    console.log('olm_machine.identity_keys =', olm_machine.identity_keys());
 
     const to_device_events =  '{}';
     const changed_devices = new DeviceLists();
