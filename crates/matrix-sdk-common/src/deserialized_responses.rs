@@ -10,8 +10,8 @@ use ruma::{
     },
     events::{
         room::member::{
-            OriginalRoomMemberEvent, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-            StrippedRoomMemberEvent,
+            MembershipState, RoomMemberEvent, RoomMemberEventContent, StrippedRoomMemberEvent,
+            SyncRoomMemberEvent,
         },
         AnyRoomEvent, AnySyncRoomEvent,
     },
@@ -300,36 +300,33 @@ impl TimelineSlice {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MemberEvent {
+    Sync(SyncRoomMemberEvent),
     Stripped(StrippedRoomMemberEvent),
-    Original(OriginalSyncRoomMemberEvent),
 }
 
 impl MemberEvent {
     /// The inner Content of the wrapped Event
-    pub fn content(&self) -> &RoomMemberEventContent {
-        match &*self {
-            MemberEvent::Stripped(e) => &e.content,
-            MemberEvent::Original(e) => &e.content,
+    pub fn original_content(&self) -> Option<&RoomMemberEventContent> {
+        match self {
+            MemberEvent::Sync(e) => e.as_original().map(|e| &e.content),
+            MemberEvent::Stripped(e) => Some(&e.content),
+        }
+    }
+
+    /// The membership state of the user
+    pub fn membership(&self) -> &MembershipState {
+        match self {
+            MemberEvent::Sync(e) => e.membership(),
+            MemberEvent::Stripped(e) => &e.content.membership,
         }
     }
 
     /// The user id associated to this member event
     pub fn user_id(&self) -> &UserId {
-        match &*self {
+        match self {
+            MemberEvent::Sync(e) => e.state_key(),
             MemberEvent::Stripped(e) => &e.state_key,
-            MemberEvent::Original(e) => &e.state_key,
         }
-    }
-}
-
-impl From<StrippedRoomMemberEvent> for MemberEvent {
-    fn from(other: StrippedRoomMemberEvent) -> Self {
-        MemberEvent::Stripped(other)
-    }
-}
-impl From<OriginalSyncRoomMemberEvent> for MemberEvent {
-    fn from(other: OriginalSyncRoomMemberEvent) -> Self {
-        MemberEvent::Original(other)
     }
 }
 
@@ -339,7 +336,7 @@ impl From<OriginalSyncRoomMemberEvent> for MemberEvent {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MembersResponse {
     /// The list of members events.
-    pub chunk: Vec<OriginalRoomMemberEvent>,
+    pub chunk: Vec<RoomMemberEvent>,
     /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
 }

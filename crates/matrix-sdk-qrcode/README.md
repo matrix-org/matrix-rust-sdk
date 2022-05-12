@@ -1,4 +1,4 @@
-**matrix-qrcode** is a crate to easily generate and parse QR codes for
+**matrix-sdk-qrcode** is a crate to easily generate and parse QR codes for
 interactive verification using [QR codes] in Matrix.
 
 ## Usage
@@ -12,7 +12,7 @@ If you still want to play with QR codes, here are a couple of helpful examples.
 
 ```rust,no_run
 use image;
-use matrix_qrcode::{QrVerificationData, DecodingError};
+use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
 
 fn main() -> Result<(), DecodingError> {
     let image = image::open("/path/to/my/image.png").unwrap();
@@ -25,7 +25,7 @@ fn main() -> Result<(), DecodingError> {
 ### Encode into a QR code
 
 ```rust,no_run
-use matrix_qrcode::{QrVerificationData, DecodingError};
+use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
 use image::Luma;
 
 fn main() -> Result<(), DecodingError> {

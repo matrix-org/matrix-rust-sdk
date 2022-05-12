@@ -165,7 +165,7 @@ impl OutboundGroupSession {
         settings: EncryptionSettings,
     ) -> Self {
         let session = GroupSession::new();
-        let session_id = session.session_id().to_owned();
+        let session_id = session.session_id();
 
         OutboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
@@ -491,7 +491,7 @@ impl OutboundGroupSession {
         pickle: PickledOutboundGroupSession,
     ) -> Result<Self, PickleError> {
         let inner: GroupSession = pickle.pickle.into();
-        let session_id = inner.session_id().to_owned();
+        let session_id = inner.session_id();
 
         Ok(Self {
             inner: Arc::new(Mutex::new(inner)),

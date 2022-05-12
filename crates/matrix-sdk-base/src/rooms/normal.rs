@@ -33,7 +33,7 @@ use ruma::{
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            tombstone::RoomTombstoneEventContent,
+            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
@@ -41,8 +41,8 @@ use ruma::{
     },
     receipt::ReceiptType,
     room::RoomType as CreateRoomType,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomId, RoomVersionId,
-    UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
+    RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -50,6 +50,7 @@ use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore},
+    MinimalStateEvent,
 };
 #[cfg(feature = "experimental-timeline")]
 use crate::{
@@ -150,10 +151,7 @@ impl Room {
 
     /// Whether this room's [`RoomType`](CreateRoomType) is `m.space`.
     pub fn is_space(&self) -> bool {
-        match self.inner.read().unwrap().base_info.create.as_ref() {
-            Some(create) => create.room_type == Some(CreateRoomType::Space),
-            None => false,
-        }
+        self.inner.read().unwrap().room_type().map_or(false, |t| *t == CreateRoomType::Space)
     }
 
     /// Get the unread notification counts.
@@ -179,12 +177,12 @@ impl Room {
 
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        self.inner.read().unwrap().base_info.avatar_url.clone()
+        self.inner.read().unwrap().base_info.avatar.as_ref()?.as_original()?.content.url.clone()
     }
 
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<OwnedRoomAliasId> {
-        self.inner.read().unwrap().base_info.canonical_alias.clone()
+        self.inner.read().unwrap().canonical_alias().map(ToOwned::to_owned)
     }
 
     /// Get the `m.room.create` content of this room.
@@ -192,8 +190,11 @@ impl Room {
     /// This usually isn't optional but some servers might not send an
     /// `m.room.create` event as the first event for a given room, thus this can
     /// be optional.
+    ///
+    /// It can also be redacted in current room versions, leaving only the
+    /// `creator` field.
     pub fn create_content(&self) -> Option<RoomCreateEventContent> {
-        self.inner.read().unwrap().base_info.create.clone()
+        Some(self.inner.read().unwrap().base_info.create.as_ref()?.as_original()?.content.clone())
     }
 
     /// Is this room considered a direct message.
@@ -224,12 +225,12 @@ impl Room {
 
     /// Get the guest access policy of this room.
     pub fn guest_access(&self) -> GuestAccess {
-        self.inner.read().unwrap().base_info.guest_access.clone()
+        self.inner.read().unwrap().guest_access().clone()
     }
 
     /// Get the history visibility policy of this room.
     pub fn history_visibility(&self) -> HistoryVisibility {
-        self.inner.read().unwrap().base_info.history_visibility.clone()
+        self.inner.read().unwrap().history_visibility().clone()
     }
 
     /// Is the room considered to be public.
@@ -239,7 +240,7 @@ impl Room {
 
     /// Get the join rule policy of this room.
     pub fn join_rule(&self) -> JoinRule {
-        self.inner.read().unwrap().base_info.join_rule.clone()
+        self.inner.read().unwrap().join_rule().clone()
     }
 
     /// Get the maximum power level that this room contains.
@@ -252,7 +253,7 @@ impl Room {
 
     /// Get the `m.room.name` of this room.
     pub fn name(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.name.clone()
+        self.inner.read().unwrap().name().map(ToOwned::to_owned)
     }
 
     /// Has the room been tombstoned.
@@ -262,12 +263,12 @@ impl Room {
 
     /// Get the `m.room.tombstone` content of this room if there is one.
     pub fn tombstone(&self) -> Option<RoomTombstoneEventContent> {
-        self.inner.read().unwrap().base_info.tombstone.clone()
+        self.inner.read().unwrap().tombstone().cloned()
     }
 
     /// Get the topic of the room.
     pub fn topic(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.topic.clone()
+        self.inner.read().unwrap().topic().map(ToOwned::to_owned)
     }
 
     /// Calculate the canonical display name of the room, taking into account
@@ -342,10 +343,10 @@ impl Room {
         let summary = {
             let inner = self.inner.read().unwrap();
 
-            if let Some(name) = &inner.base_info.name {
+            if let Some(name) = &inner.name() {
                 let name = name.trim();
                 return Ok(DisplayName::Named(name.to_owned()));
-            } else if let Some(alias) = &inner.base_info.canonical_alias {
+            } else if let Some(alias) = inner.canonical_alias() {
                 let alias = alias.alias().trim();
                 return Ok(DisplayName::Aliased(alias.to_owned()));
             }
@@ -428,15 +429,8 @@ impl Room {
             self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
         let max_power_level = self.max_power_level();
-        let is_room_creator = self
-            .inner
-            .read()
-            .unwrap()
-            .base_info
-            .create
-            .as_ref()
-            .map(|c| c.creator == user_id)
-            .unwrap_or(false);
+        let is_room_creator =
+            self.inner.read().unwrap().creator().map(|c| c == user_id).unwrap_or(false);
 
         let power =
             self.store
@@ -456,9 +450,8 @@ impl Room {
             .get_users_with_display_name(
                 self.room_id(),
                 member_event
-                    .content()
-                    .displayname
-                    .as_deref()
+                    .original_content()
+                    .and_then(|c| c.displayname.as_deref())
                     .unwrap_or_else(|| user_id.localpart()),
             )
             .await?
@@ -702,6 +695,13 @@ impl RoomInfo {
         self.base_info.handle_stripped_state_event(event)
     }
 
+    /// Handle the given redaction.
+    ///
+    /// Returns true if the event modified the info, false otherwise.
+    pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
+        self.base_info.handle_redaction(event);
+    }
+
     /// Update the notifications count
     pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
         self.notification_counts = notification_counts;
@@ -740,6 +740,11 @@ impl RoomInfo {
         self.summary.joined_member_count.saturating_add(self.summary.invited_member_count)
     }
 
+    /// Get the canonical alias of this room.
+    pub fn canonical_alias(&self) -> Option<&RoomAliasId> {
+        self.base_info.canonical_alias.as_ref()?.as_original()?.content.alias.as_deref()
+    }
+
     /// Get the room ID of this room.
     pub fn room_id(&self) -> &RoomId {
         &self.room_id
@@ -747,7 +752,52 @@ impl RoomInfo {
 
     /// Get the room version of this room.
     pub fn room_version(&self) -> Option<&RoomVersionId> {
-        self.base_info.create.as_ref().map(|c| &c.room_version)
+        Some(&self.base_info.create.as_ref()?.as_original()?.content.room_version)
+    }
+
+    /// Get the room type of this room.
+    pub fn room_type(&self) -> Option<&CreateRoomType> {
+        self.base_info.create.as_ref()?.as_original()?.content.room_type.as_ref()
+    }
+
+    fn creator(&self) -> Option<&UserId> {
+        Some(match self.base_info.create.as_ref()? {
+            MinimalStateEvent::Original(ev) => &ev.content.creator,
+            MinimalStateEvent::Redacted(ev) => &ev.content.creator,
+        })
+    }
+
+    fn guest_access(&self) -> &GuestAccess {
+        match &self.base_info.guest_access {
+            Some(MinimalStateEvent::Original(ev)) => &ev.content.guest_access,
+            _ => &GuestAccess::Forbidden,
+        }
+    }
+
+    fn history_visibility(&self) -> &HistoryVisibility {
+        match &self.base_info.history_visibility {
+            Some(MinimalStateEvent::Original(ev)) => &ev.content.history_visibility,
+            _ => &HistoryVisibility::WorldReadable,
+        }
+    }
+
+    fn join_rule(&self) -> &JoinRule {
+        match &self.base_info.join_rules {
+            Some(MinimalStateEvent::Original(ev)) => &ev.content.join_rule,
+            _ => &JoinRule::Public,
+        }
+    }
+
+    fn name(&self) -> Option<&str> {
+        Some(self.base_info.name.as_ref()?.as_original()?.content.name.as_ref()?.as_ref())
+    }
+
+    fn tombstone(&self) -> Option<&RoomTombstoneEventContent> {
+        Some(&self.base_info.tombstone.as_ref()?.as_original()?.content)
+    }
+
+    fn topic(&self) -> Option<&str> {
+        Some(&self.base_info.topic.as_ref()?.as_original()?.content.topic)
     }
 }
 
@@ -759,17 +809,24 @@ mod test {
     use ruma::{
         event_id,
         events::{
-            room::member::{
-                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                StrippedRoomMemberEvent,
+            room::{
+                canonical_alias::RoomCanonicalAliasEventContent,
+                member::{
+                    MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
+                    StrippedRoomMemberEvent, SyncRoomMemberEvent,
+                },
+                name::RoomNameEventContent,
             },
             StateUnsigned,
         },
-        room_id, user_id, MilliSecondsSinceUnixEpoch, RoomAliasId,
+        room_alias_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
     };
 
     use super::*;
-    use crate::store::{MemoryStore, StateChanges};
+    use crate::{
+        store::{MemoryStore, StateChanges},
+        MinimalStateEvent, OriginalMinimalStateEvent,
+    };
 
     fn make_room(room_type: RoomType) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
@@ -789,8 +846,8 @@ mod test {
         }
     }
 
-    fn make_member_event(user_id: &UserId, name: &str) -> OriginalSyncRoomMemberEvent {
-        OriginalSyncRoomMemberEvent {
+    fn make_member_event(user_id: &UserId, name: &str) -> SyncRoomMemberEvent {
+        SyncRoomMemberEvent::Original(OriginalSyncRoomMemberEvent {
             content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
                 displayname: Some(name.to_owned())
             }),
@@ -799,7 +856,7 @@ mod test {
             event_id: event_id!("$h29iv0s1:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
             unsigned: StateUnsigned::default(),
-        }
+        })
     }
 
     #[tokio::test]
@@ -808,25 +865,35 @@ mod test {
         let (_, room) = make_room(RoomType::Joined);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
+        let canonical_alias_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: assign!(RoomCanonicalAliasEventContent::new(), {
+                alias: Some(room_alias_id!("#test:example.com").to_owned()),
+            }),
+            event_id: None,
+        });
+
+        let name_event = MinimalStateEvent::Original(OriginalMinimalStateEvent {
+            content: RoomNameEventContent::new(Some("Test Room".try_into().unwrap())),
+            event_id: None,
+        });
+
         // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias =
-            Some(RoomAliasId::parse("#test:example.com").unwrap());
+        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event.clone());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
 
         // has precedence
-        room.inner.write().unwrap().base_info.name = Some("Test Room".to_owned());
+        room.inner.write().unwrap().base_info.name = Some(name_event.clone());
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
 
         let (_, room) = make_room(RoomType::Invited);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Empty);
 
         // has precedence
-        room.inner.write().unwrap().base_info.canonical_alias =
-            Some(RoomAliasId::parse("#test:example.com").unwrap());
+        room.inner.write().unwrap().base_info.canonical_alias = Some(canonical_alias_event);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Aliased("test".to_owned()));
 
         // has precedence
-        room.inner.write().unwrap().base_info.name = Some("Test Room".to_owned());
+        room.inner.write().unwrap().base_info.name = Some(name_event);
         assert_eq!(room.display_name().await.unwrap(), DisplayName::Named("Test Room".to_owned()));
     }
 

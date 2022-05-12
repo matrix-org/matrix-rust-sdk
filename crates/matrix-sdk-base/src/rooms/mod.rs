@@ -8,17 +8,24 @@ pub use normal::{Room, RoomInfo, RoomType};
 use ruma::{
     events::{
         room::{
+            avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
-            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
-            tombstone::RoomTombstoneEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent, name::RoomNameEventContent,
+            redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedEventContent,
+        StateEventContent, SyncStateEvent,
     },
-    OwnedMxcUri, OwnedRoomAliasId, OwnedUserId,
+    EventId, OwnedUserId, RoomVersionId,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-/// The name of the room, either from the metadata or calculaetd
+use crate::MinimalStateEvent;
+
+/// The name of the room, either from the metadata or calculated
 /// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DisplayName {
@@ -54,30 +61,30 @@ impl fmt::Display for DisplayName {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub(crate) avatar_url: Option<OwnedMxcUri>,
+    avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    pub(crate) canonical_alias: Option<OwnedRoomAliasId>,
+    canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
-    pub(crate) create: Option<RoomCreateEventContent>,
+    create: Option<MinimalStateEvent<RoomCreateEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedUserId>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    pub(crate) guest_access: GuestAccess,
+    guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    pub(crate) history_visibility: HistoryVisibility,
+    history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    pub(crate) join_rule: JoinRule,
+    join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The `m.room.name` of this room.
-    pub(crate) name: Option<String>,
+    name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    pub(crate) tombstone: Option<RoomTombstoneEventContent>,
+    tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
-    pub(crate) topic: Option<String>,
+    topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
 }
 
 impl BaseRoomInfo {
@@ -109,34 +116,31 @@ impl BaseRoomInfo {
                 self.encryption = Some(encryption.content.clone());
             }
             AnySyncStateEvent::RoomAvatar(a) => {
-                self.avatar_url = a.as_original().and_then(|a| a.content.url.clone());
+                self.avatar = Some(a.into());
             }
             AnySyncStateEvent::RoomName(n) => {
-                self.name =
-                    n.as_original().and_then(|n| n.content.name.as_ref().map(|n| n.to_string()));
+                self.name = Some(n.into());
             }
-            AnySyncStateEvent::RoomCreate(SyncStateEvent::Original(c)) if self.create.is_none() => {
-                self.create = Some(c.content.clone());
+            AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
+                self.create = Some(c.into());
             }
             AnySyncStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = h.history_visibility().clone();
+                self.history_visibility = Some(h.into());
             }
             AnySyncStateEvent::RoomGuestAccess(g) => {
-                self.guest_access = g
-                    .as_original()
-                    .map_or(GuestAccess::Forbidden, |g| g.content.guest_access.clone());
+                self.guest_access = Some(g.into());
             }
             AnySyncStateEvent::RoomJoinRules(c) => {
-                self.join_rule = c.join_rule().clone();
+                self.join_rules = Some(c.into());
             }
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.as_original().and_then(|a| a.content.alias.clone());
+                self.canonical_alias = Some(a.into());
             }
             AnySyncStateEvent::RoomTopic(t) => {
-                self.topic = t.as_original().map(|t| t.content.topic.clone());
+                self.topic = Some(t.into());
             }
             AnySyncStateEvent::RoomTombstone(t) => {
-                self.tombstone = t.as_original().map(|t| t.content.clone());
+                self.tombstone = Some(t.into());
             }
             AnySyncStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p
@@ -161,31 +165,31 @@ impl BaseRoomInfo {
                 self.encryption = Some(encryption.content.clone());
             }
             AnyStrippedStateEvent::RoomAvatar(a) => {
-                self.avatar_url = a.content.url.clone();
+                self.avatar = Some(a.into());
             }
             AnyStrippedStateEvent::RoomName(n) => {
-                self.name = n.content.name.as_ref().map(|n| n.to_string());
+                self.name = Some(n.into());
             }
             AnyStrippedStateEvent::RoomCreate(c) if self.create.is_none() => {
-                self.create = Some(c.content.clone());
+                self.create = Some(c.into());
             }
             AnyStrippedStateEvent::RoomHistoryVisibility(h) => {
-                self.history_visibility = h.content.history_visibility.clone();
+                self.history_visibility = Some(h.into());
             }
             AnyStrippedStateEvent::RoomGuestAccess(g) => {
-                self.guest_access = g.content.guest_access.clone();
+                self.guest_access = Some(g.into());
             }
             AnyStrippedStateEvent::RoomJoinRules(c) => {
-                self.join_rule = c.content.join_rule.clone();
+                self.join_rules = Some(c.into());
             }
             AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.content.alias.clone();
+                self.canonical_alias = Some(a.into());
             }
             AnyStrippedStateEvent::RoomTopic(t) => {
-                self.topic = Some(t.content.topic.clone());
+                self.topic = Some(t.into());
             }
             AnyStrippedStateEvent::RoomTombstone(t) => {
-                self.tombstone = Some(t.content.clone());
+                self.tombstone = Some(t.into());
             }
             AnyStrippedStateEvent::RoomPowerLevels(p) => {
                 self.max_power_level = p
@@ -199,19 +203,62 @@ impl BaseRoomInfo {
 
         true
     }
+
+    pub fn handle_redaction(&mut self, event: &OriginalSyncRoomRedactionEvent) {
+        let room_version = self
+            .create
+            .as_ref()
+            .and_then(|ev| Some(ev.as_original()?.content.room_version.to_owned()))
+            .unwrap_or(RoomVersionId::V1);
+
+        // FIXME: Use let chains once available to get rid of unwrap()s
+        if self.avatar.has_event_id(&event.redacts) {
+            self.avatar.as_mut().unwrap().redact(&room_version);
+        } else if self.canonical_alias.has_event_id(&event.redacts) {
+            self.canonical_alias.as_mut().unwrap().redact(&room_version);
+        } else if self.create.has_event_id(&event.redacts) {
+            self.create.as_mut().unwrap().redact(&room_version);
+        } else if self.guest_access.has_event_id(&event.redacts) {
+            self.guest_access.as_mut().unwrap().redact(&room_version);
+        } else if self.history_visibility.has_event_id(&event.redacts) {
+            self.history_visibility.as_mut().unwrap().redact(&room_version);
+        } else if self.join_rules.has_event_id(&event.redacts) {
+            self.join_rules.as_mut().unwrap().redact(&room_version);
+        } else if self.name.has_event_id(&event.redacts) {
+            self.name.as_mut().unwrap().redact(&room_version);
+        } else if self.tombstone.has_event_id(&event.redacts) {
+            self.tombstone.as_mut().unwrap().redact(&room_version);
+        } else if self.topic.has_event_id(&event.redacts) {
+            self.topic.as_mut().unwrap().redact(&room_version);
+        }
+    }
+}
+
+trait OptionExt {
+    fn has_event_id(&self, ev_id: &EventId) -> bool;
+}
+
+impl<C> OptionExt for Option<MinimalStateEvent<C>>
+where
+    C: StateEventContent + RedactContent,
+    C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
+{
+    fn has_event_id(&self, ev_id: &EventId) -> bool {
+        self.as_ref().and_then(|ev| ev.event_id()).map_or(false, |id| id == ev_id)
+    }
 }
 
 impl Default for BaseRoomInfo {
     fn default() -> Self {
         Self {
-            avatar_url: None,
+            avatar: None,
             canonical_alias: None,
             create: None,
             dm_targets: Default::default(),
             encryption: None,
-            guest_access: GuestAccess::Forbidden,
-            history_visibility: HistoryVisibility::WorldReadable,
-            join_rule: JoinRule::Public,
+            guest_access: None,
+            history_visibility: None,
+            join_rules: None,
             max_power_level: 100,
             name: None,
             tombstone: None,

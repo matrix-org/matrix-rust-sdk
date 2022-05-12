@@ -53,8 +53,8 @@ macro_rules! statestore_integration_tests {
                         presence::PresenceEvent,
                         room::{
                             member::{
-                                MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                                StrippedRoomMemberEvent,
+                                MembershipState, OriginalSyncRoomMemberEvent, SyncRoomMemberEvent,
+                                RoomMemberEventContent, StrippedRoomMemberEvent,
                             },
                             power_levels::RoomPowerLevelsEventContent,
                             MediaSource,
@@ -173,14 +173,15 @@ macro_rules! statestore_integration_tests {
                     let mut room_members = BTreeMap::new();
 
                     let member_json: &JsonValue = &test_json::MEMBER;
-                    let member_event: OriginalSyncRoomMemberEvent =
+                    let member_event: SyncRoomMemberEvent =
                         serde_json::from_value(member_json.clone()).unwrap();
-                    let member_event_content = member_event.content.clone();
+                    let displayname =
+                        member_event.as_original().unwrap().content.displayname.clone().unwrap();
                     room_ambiguity_map.insert(
-                        member_event_content.displayname.clone().unwrap(),
+                        displayname.clone(),
                         BTreeSet::from([user_id.to_owned()]),
                     );
-                    room_profiles.insert(user_id.to_owned(), member_event.content.clone());
+                    room_profiles.insert(user_id.to_owned(), (&member_event).into());
                     room_members.insert(user_id.to_owned(), member_event);
 
                     let member_state_raw =
@@ -190,13 +191,13 @@ macro_rules! statestore_integration_tests {
 
                     let invited_member_json: &JsonValue = &test_json::MEMBER_INVITE;
                     // FIXME: Should be stripped room member event
-                    let invited_member_event: OriginalSyncRoomMemberEvent =
+                    let invited_member_event: SyncRoomMemberEvent =
                         serde_json::from_value(invited_member_json.clone()).unwrap();
                     room_ambiguity_map
-                        .entry(member_event_content.displayname.clone().unwrap())
+                        .entry(displayname)
                         .or_default()
                         .insert(invited_user_id.to_owned());
-                    room_profiles.insert(invited_user_id.to_owned(), invited_member_event.content.clone());
+                    room_profiles.insert(invited_user_id.to_owned(), (&invited_member_event).into());
                     room_members.insert(invited_user_id.to_owned(), invited_member_event);
 
                     let invited_member_state_raw =
@@ -279,22 +280,22 @@ macro_rules! statestore_integration_tests {
                     }
                 }
 
-                fn membership_event() -> OriginalSyncRoomMemberEvent {
+                fn membership_event() -> SyncRoomMemberEvent {
                     custom_membership_event(user_id(), event_id!("$h29iv0s8:example.com").to_owned())
                 }
 
                 fn custom_membership_event(
                     user_id: &UserId,
                     event_id: OwnedEventId,
-                ) -> OriginalSyncRoomMemberEvent {
-                    OriginalSyncRoomMemberEvent {
+                ) -> SyncRoomMemberEvent {
+                    SyncRoomMemberEvent::Original(OriginalSyncRoomMemberEvent {
                         event_id,
                         content: RoomMemberEventContent::new(MembershipState::Join),
                         sender: user_id.to_owned(),
                         origin_server_ts: MilliSecondsSinceUnixEpoch(198u32.into()),
                         state_key: user_id.to_owned(),
                         unsigned: StateUnsigned::default(),
-                    }
+                    })
                 }
 
                 #[async_test]

@@ -32,8 +32,8 @@ compile_error!("'image-rayon' cannot be enabled on 'wasm32' arch");
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    media, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
-    StateChanges, StoreError,
+    media, DisplayName, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
+    Session, StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
