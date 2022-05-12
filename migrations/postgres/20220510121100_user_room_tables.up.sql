@@ -5,7 +5,7 @@ CREATE TABLE statestore_rooms (
   room_info JSONB NOT NULL
 );
 CREATE TABLE statestore_accountdata (
-  room_id TEXT NULL, -- NULL means global
+  room_id TEXT NOT NULL,
   event_type TEXT NOT NULL,
   account_data JSONB NOT NULL,
   PRIMARY KEY (room_id, event_type)
@@ -21,7 +21,7 @@ CREATE TABLE statestore_members (
   member_event JSONB,
   user_profile JSONB,
   displayname TEXT,
-  joined BOOLEAN NOT NULL DEFAULT 0,
+  joined BOOLEAN NOT NULL DEFAULT '0',
   PRIMARY KEY (room_id, user_id)
 );
 CREATE TABLE statestore_state (

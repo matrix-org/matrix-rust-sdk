@@ -5,7 +5,7 @@ CREATE TABLE statestore_rooms (
   room_info JSON NOT NULL
 );
 CREATE TABLE statestore_accountdata (
-  room_id TEXT NULL, -- NULL means global
+  room_id TEXT NOT NULL,
   event_type TEXT NOT NULL,
   account_data JSON NOT NULL,
   PRIMARY KEY (room_id, event_type)

@@ -139,7 +139,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// Upserts account data
     ///
     /// # Arguments
-    /// * `$1` - The room ID for the account data, or null
+    /// * `$1` - The room ID for the account data
     /// * `$2` - The account data event type
     /// * `$3` - The account data event content
     fn account_data_upsert_query(
@@ -157,7 +157,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// Retrieves account data
     ///
     /// # Arguments
-    /// * `$1` - The room ID for the account data, or null
+    /// * `$1` - The room ID for the account data
     /// * `$2` - The account data event type
     fn account_data_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
     {
@@ -301,7 +301,7 @@ pub trait SupportedDatabase: Database + Sealed {
         sqlx::query(
             r#"
                 SELECT state_event FROM statestore_state
-                WHERE room_id = $1 AND event_type = $2 AND state_key = $3 AND is_partial = 0
+                WHERE room_id = $1 AND event_type = $2 AND state_key = $3 AND is_partial = '0'
             "#,
         )
     }
@@ -315,7 +315,7 @@ pub trait SupportedDatabase: Database + Sealed {
         sqlx::query(
             r#"
                 SELECT state_event FROM statestore_state
-                WHERE room_id = $1 AND event_type = $2 AND is_partial = 0
+                WHERE room_id = $1 AND event_type = $2 AND is_partial = '0'
             "#,
         )
     }

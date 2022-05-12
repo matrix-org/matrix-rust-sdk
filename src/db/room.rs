@@ -54,11 +54,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         String: SqlType<DB>,
-        Option<String>: SqlType<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     {
         DB::account_data_upsert_query()
-            .bind(None::<String>)
+            .bind("".to_owned())
             .bind(event_type.to_string())
             .bind(Json(event_data))
             .execute(txn)
@@ -79,12 +78,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
         String: SqlType<DB>,
-        Option<String>: SqlType<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::account_data_load_query()
-            .bind(None::<String>)
+            .bind("".to_owned())
             .bind(event_type.to_string())
             .fetch_optional(&*self.db)
             .await?;
@@ -110,12 +108,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
         String: SqlType<DB>,
-        Option<String>: SqlType<DB>,
         Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::account_data_load_query()
-            .bind(Some(room_id.to_string()))
+            .bind(room_id.to_string())
             .bind(event_type.to_string())
             .fetch_optional(&*self.db)
             .await?;
@@ -368,13 +365,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Option<String>: SqlType<DB>,
         String: SqlType<DB>,
         Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
         bool: SqlType<DB>,
     {
         DB::account_data_upsert_query()
-            .bind(Some(room_id.to_string()))
+            .bind(room_id.to_string())
             .bind(event_type.to_string())
             .bind(Json(event_data))
             .execute(txn)
