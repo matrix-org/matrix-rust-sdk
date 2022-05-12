@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-sql"
-version = "0.0.0"
+version = "0.1.0-beta.1"
 edition = "2021"
 authors = ["Charlotte 🦝 Delenk <lotte@chir.rs>"]
 rust-version = "1.60.0"
