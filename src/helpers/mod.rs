@@ -127,8 +127,11 @@ pub trait SupportedDatabase: Database + Sealed {
     fn room_remove_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                DELETE FROM statestore_rooms
-                WHERE room_id = $1
+                DELETE FROM statestore_rooms WHERE room_id = $1;
+                DELETE FROM statestore_accountdata WHERE room_id = $1;
+                DELETE FROM statestore_members WHERE room_id = $1;
+                DELETE FROM statestore_state WHERE room_id = $1;
+                DELETE FROM statestore_receipts WHERE room_id = $1;
             "#,
         )
     }

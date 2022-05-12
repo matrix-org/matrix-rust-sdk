@@ -5,7 +5,7 @@ CREATE TABLE statestore_rooms (
   room_info JSONB NOT NULL
 );
 CREATE TABLE statestore_accountdata (
-  room_id TEXT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE, -- NULL means global
+  room_id TEXT NULL, -- NULL means global
   event_type TEXT NOT NULL,
   account_data JSONB NOT NULL,
   PRIMARY KEY (room_id, event_type)
@@ -15,7 +15,7 @@ CREATE TABLE statestore_presence (
   presence JSONB NOT NULL
 );
 CREATE TABLE statestore_members (
-  room_id TEXT NOT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE,
+  room_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   is_partial BOOLEAN NOT NULL,
   member_event JSONB,
@@ -24,7 +24,7 @@ CREATE TABLE statestore_members (
   PRIMARY KEY (room_id, user_id)
 );
 CREATE TABLE statestore_state (
-  room_id TEXT NOT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE,
+  room_id TEXT NOT NULL,
   event_type TEXT NOT NULL,
   state_key TEXT NOT NULL,
   is_partial BOOLEAN NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE statestore_state (
   PRIMARY KEY (room_id, event_type, state_key)
 );
 CREATE TABLE statestore_receipts (
-  room_id TEXT NOT NULL REFERENCES statestore_rooms (room_id) ON DELETE CASCADE,
+  room_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
   receipt_type TEXT NOT NULL,
   user_id TEXT NOT NULL,
