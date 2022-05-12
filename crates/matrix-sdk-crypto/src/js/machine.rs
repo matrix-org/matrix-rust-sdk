@@ -5,7 +5,7 @@ use ruma::{DeviceKeyAlgorithm, UInt};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 
-use crate::js::{identifiers, sync_events};
+use crate::js::{errors::any_error_to_jsvalue, identifiers, sync_events};
 
 #[wasm_bindgen]
 extern "C" {
@@ -39,8 +39,8 @@ impl OlmMachine {
         changed_devices: &sync_events::DeviceLists,
         one_time_key_counts: &Map,
         unused_fallback_keys: &Set,
-    ) -> Promise {
-        let to_device_events = serde_json::from_str(to_device_events).unwrap();
+    ) -> Result<Promise, JsError> {
+        let to_device_events = serde_json::from_str(to_device_events)?;
         let changed_devices = changed_devices.inner.clone();
         let one_time_key_counts: BTreeMap<DeviceKeyAlgorithm, UInt> = one_time_key_counts
             .entries()
@@ -65,7 +65,7 @@ impl OlmMachine {
 
         let me = self.inner.clone();
 
-        future_to_promise(async move {
+        Ok(future_to_promise(async move {
             Ok(JsValue::from(
                 serde_json::to_string(
                     &me.receive_sync_changes(
@@ -75,11 +75,11 @@ impl OlmMachine {
                         unused_fallback_keys.as_deref(),
                     )
                     .await
-                    .unwrap(),
+                    .map_err(any_error_to_jsvalue)?,
                 )
-                .unwrap(),
+                .map_err(any_error_to_jsvalue)?,
             ))
-        })
+        }))
     }
 
     pub fn outgoing_requests(&self) -> Promise {
@@ -89,11 +89,11 @@ impl OlmMachine {
             Ok(JsValue::from(
                 me.outgoing_requests()
                     .await
-                    .unwrap()
+                    .map_err(any_error_to_jsvalue)?
                     .into_iter()
                     .map(TryFrom::try_from)
                     .collect::<Result<Vec<JsValue>, _>>()
-                    .unwrap()
+                    .map_err(any_error_to_jsvalue)?
                     .into_iter()
                     .collect::<Array>(),
             ))
