@@ -33,6 +33,28 @@ impl OlmMachine {
         })
     }
 
+    /// The unique user ID that owns this `OlmMachine` instance.
+    pub fn user_id(&self) -> identifiers::UserId {
+        identifiers::UserId { inner: self.inner.user_id().to_owned() }
+    }
+
+    /// The unique device ID that identifies this `OlmMachine`.
+    pub fn device_id(&self) -> identifiers::DeviceId {
+        identifiers::DeviceId { inner: self.inner.device_id().to_owned() }
+    }
+
+    ///// Get the public parts of our Olm identity keys.
+    //pub fn identity_keys(&self) ->
+
+    /// Get the display name of our own device.
+    pub fn display_name(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise(async move {
+            Ok(JsValue::from(me.display_name().await.map_err(any_error_to_jsvalue)?))
+        })
+    }
+
     pub fn receive_sync_changes(
         &self,
         to_device_events: &str,

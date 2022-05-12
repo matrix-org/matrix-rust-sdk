@@ -6,6 +6,9 @@ async function run_example() {
 
     const olm_machine = await new OlmMachine(user_id, device_id);
     console.log(olm_machine);
+    console.log('olm_machine.user_id().localpart() =', olm_machine.user_id().localpart());
+    console.log('olm_machine.device_id =', olm_machine.device_id());
+    console.log('olm_machine.display_name =', await olm_machine.display_name());
 
     const to_device_events =  '{}';
     const changed_devices = new DeviceLists();
@@ -26,7 +29,7 @@ async function run_example() {
 
     const outgoing_requests = await olm_machine.outgoing_requests();
     console.log(outgoing_requests);
-    console.log(JSON.parse(outgoing_requests[0].body));
+    //console.log(JSON.parse(outgoing_requests[0].body));
 }
 
 run_example();
