@@ -24,7 +24,7 @@ cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-darwi
 cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-darwin"
 
 # iOS Simulator
-cargo +nightly build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
 cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
 # Mac Catalyst
