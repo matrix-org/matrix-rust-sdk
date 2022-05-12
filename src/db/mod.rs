@@ -689,18 +689,3 @@ mod sqlite_integration_test {
 
     statestore_integration_tests! { integration }
 }
-
-#[allow(clippy::redundant_pub_crate)]
-#[cfg(all(test, feature = "postgres", feature = "ci"))]
-mod postgres_integration_test {
-    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
-
-    use super::StoreResult;
-    async fn get_store() -> StoreResult<impl StateStore> {
-        super::tests::open_postgres_database()
-            .await
-            .map_err(|e| StoreError::Backend(e.into()))
-    }
-
-    statestore_integration_tests! { integration }
-}
