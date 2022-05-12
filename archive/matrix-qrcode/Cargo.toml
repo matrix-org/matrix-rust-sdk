@@ -1,0 +1,22 @@
+[package]
+name = "matrix-qrcode"
+description = "DEPRECATED. Library to encode and decode QR codes for interactive verifications in Matrix land"
+version = "0.3.0"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = []
+license = "Apache-2.0"
+readme = "README.md"
+rust-version = "1.60"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+matrix-sdk-qrcode = "0.3.0"
+
+[features]
+default = ["decode_image"]
+decode_image = ["matrix-sdk-qrcode/decode_image"]
