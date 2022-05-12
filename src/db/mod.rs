@@ -315,6 +315,7 @@ where
     for<'r> Vec<u8>: Decode<'r, DB>,
     for<'r> Json<Raw<AnyGlobalAccountDataEvent>>: Decode<'r, DB>,
     for<'r> Json<Raw<PresenceEvent>>: Decode<'r, DB>,
+    for<'r> Json<Raw<AnySyncStateEvent>>: Decode<'r, DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     /// Save the given filter id under the given name.
@@ -383,7 +384,9 @@ where
         event_type: StateEventType,
         state_key: &str,
     ) -> StoreResult<Option<Raw<AnySyncStateEvent>>> {
-        todo!();
+        self.get_state_event(room_id, event_type, state_key)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get a list of state events for a given room and `StateEventType`.

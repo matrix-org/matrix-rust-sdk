@@ -1,6 +1,8 @@
 //! Various helper functionality
 
-use sqlx::{database::HasArguments, migrate::Migrator, query::Query, Database};
+use sqlx::{
+    database::HasArguments, migrate::Migrator, query::Query, Database, Decode, Encode, Type,
+};
 
 use self::private::Sealed;
 
@@ -15,6 +17,16 @@ mod private {
     impl Sealed for sqlx::postgres::Postgres {}
     #[cfg(feature = "sqlite")]
     impl Sealed for sqlx::sqlite::Sqlite {}
+}
+
+/// Helper trait that marks an SQL-Compatible type
+pub trait SqlType<DB: Database>:
+    for<'a> Encode<'a, DB> + for<'a> Decode<'a, DB> + Type<DB>
+{
+}
+impl<DB: Database, T> SqlType<DB> for T where
+    T: for<'a> Encode<'a, DB> + for<'a> Decode<'a, DB> + Type<DB>
+{
 }
 
 /// Supported Database trait
@@ -271,6 +283,35 @@ pub trait SupportedDatabase: Database + Sealed {
                     (room_id, event_id, receipt_type, user_id, receipt)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT(room_id, user_id) DO UPDATE SET event_id = $2, receipt_type = $3, receipt = $5
+            "#,
+        )
+    }
+
+    /// Retrieves a state event
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The event type
+    /// * `$3` - The state key
+    fn state_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT state_event FROM statestore_state
+                WHERE room_id = $1 AND event_type = $2 AND state_key = $3 AND is_partial = 0
+            "#,
+        )
+    }
+
+    /// Retrieves all state events by type in room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The event type
+    fn states_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT state_event FROM statestore_state
+                WHERE room_id = $1 AND event_type = $2 AND is_partial = 0
             "#,
         )
     }

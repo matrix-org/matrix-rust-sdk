@@ -429,4 +429,38 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .await?;
         Ok(())
     }
+
+    /// Retrieves a state event in room by event type and state key
+    ///
+    /// # Errors
+    /// This function will return an error if the the query fails
+    pub async fn get_state_event(
+        &self,
+        room_id: &RoomId,
+        event_type: StateEventType,
+        state_key: &str,
+    ) -> Result<Option<Raw<AnySyncStateEvent>>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'q> String: Encode<'q, DB>,
+        String: Type<DB>,
+        Json<Raw<AnySyncStateEvent>>: Type<DB>,
+        for<'r> Json<Raw<AnySyncStateEvent>>: Decode<'r, DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let row = DB::state_load_query()
+            .bind(room_id.to_string())
+            .bind(event_type.to_string())
+            .bind(state_key.to_owned())
+            .fetch_optional(&*self.db)
+            .await?;
+        let row = if let Some(row) = row {
+            row
+        } else {
+            return Ok(None);
+        };
+        let row: Json<Raw<AnySyncStateEvent>> = row.try_get("state_event")?;
+        Ok(Some(row.0))
+    }
 }
