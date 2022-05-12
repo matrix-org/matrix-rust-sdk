@@ -28,8 +28,9 @@ ci = []
 [dependencies]
 async-trait = "0.1.53"
 anyhow = "1.0.57"
-ruma = "0.6.2"
+futures = "0.3.21"
 matrix-sdk-base = "0.5.0"
+ruma = "0.6.2"
 
 [dependencies.sqlx]
 version = "0.5.13"

@@ -21,6 +21,7 @@ CREATE TABLE statestore_members (
   member_event JSON,
   user_profile JSON,
   displayname TEXT,
+  joined BOOLEAN NOT NULL DEFAULT 0,
   PRIMARY KEY (room_id, user_id)
 );
 CREATE TABLE statestore_state (
@@ -37,6 +38,6 @@ CREATE TABLE statestore_receipts (
   receipt_type TEXT NOT NULL,
   user_id TEXT NOT NULL,
   receipt JSON NOT NULL,
-  PRIMARY KEY (room_id, user_id)
+  PRIMARY KEY (room_id, receipt_type, user_id)
 );
-CREATE INDEX statestore_receipts_room_event ON statestore_receipts (room_id, event_id);
+CREATE INDEX statestore_receipts_room_event ON statestore_receipts (room_id, receipt_type, event_id);

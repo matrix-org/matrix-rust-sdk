@@ -34,6 +34,7 @@
           openssl
           pkg-config
           cmake
+          gdb
         ];
       };
       nixosModules.default = import ./nixos {

@@ -266,6 +266,7 @@ where
     Json<Receipt>: SqlType<DB>,
     Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
     Json<StrippedRoomMemberEvent>: SqlType<DB>,
+    Json<MemberEvent>: SqlType<DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     /// Save the given filter id under the given name.
@@ -351,7 +352,9 @@ where
         room_id: &RoomId,
         event_type: StateEventType,
     ) -> StoreResult<Vec<Raw<AnySyncStateEvent>>> {
-        todo!();
+        self.get_state_events(room_id, event_type)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get the current profile for the given user in the given room.
@@ -366,7 +369,9 @@ where
         room_id: &RoomId,
         user_id: &UserId,
     ) -> StoreResult<Option<MinimalRoomMemberEvent>> {
-        todo!();
+        self.get_profile(room_id, user_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get the `MemberEvent` for the given state key in the given room id.
@@ -381,35 +386,47 @@ where
         room_id: &RoomId,
         state_key: &UserId,
     ) -> StoreResult<Option<MemberEvent>> {
-        todo!();
+        self.get_member_event(room_id, state_key)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get all the user ids of members for a given room, for stripped and
     /// regular rooms alike.
     async fn get_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        todo!();
+        self.get_user_ids(room_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get all the user ids of members that are in the invited state for a
     /// given room, for stripped and regular rooms alike.
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        todo!();
+        self.get_invited_user_ids(room_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get all the user ids of members that are in the joined state for a
     /// given room, for stripped and regular rooms alike.
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> StoreResult<Vec<OwnedUserId>> {
-        todo!();
+        self.get_joined_user_ids(room_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get all the pure `RoomInfo`s the store knows about.
     async fn get_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
-        todo!();
+        self.get_room_infos()
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get all the pure `RoomInfo`s the store knows about.
     async fn get_stripped_room_infos(&self) -> StoreResult<Vec<RoomInfo>> {
-        todo!();
+        self.get_stripped_room_infos()
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get all the users that use the given display name in the given room.
@@ -425,7 +442,9 @@ where
         room_id: &RoomId,
         display_name: &str,
     ) -> StoreResult<BTreeSet<OwnedUserId>> {
-        todo!();
+        self.get_users_with_display_name(room_id, display_name)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get an event out of the account data store.
@@ -456,7 +475,9 @@ where
         room_id: &RoomId,
         event_type: RoomAccountDataEventType,
     ) -> StoreResult<Option<Raw<AnyRoomAccountDataEvent>>> {
-        todo!();
+        self.get_room_account_data_event(room_id, event_type)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get an event out of the user room receipt store.
@@ -475,7 +496,9 @@ where
         receipt_type: ReceiptType,
         user_id: &UserId,
     ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        todo!();
+        self.get_user_room_receipt_event(room_id, receipt_type, user_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get events out of the event room receipt store.
@@ -495,7 +518,9 @@ where
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
-        todo!();
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id)
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
     }
 
     /// Get arbitrary data from the custom store

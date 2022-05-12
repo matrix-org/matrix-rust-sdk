@@ -206,13 +206,14 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$3` - Whether or not the membership event is stripped
     /// * `$4` - The membership event content
     /// * `$5` - The display name of the user
+    /// * `$6` - Whether or not the user has joined
     fn member_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_memberships
-                    (room_id, user_id, is_stripped, member_event, displayname)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT(room_id, user_id) DO UPDATE SET is_stripped = $3, member_event = $4, displayname = $5
+                INSERT INTO statestore_members
+                    (room_id, user_id, is_partial, member_event, displayname, joined)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT(room_id, user_id) DO UPDATE SET is_partial = $3, member_event = $4, displayname = $5, joined = $6
             "#,
         )
     }
@@ -227,10 +228,10 @@ pub trait SupportedDatabase: Database + Sealed {
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_profiles
-                    (room_id, user_id, is_partial, profile_event)
+                INSERT INTO statestore_members
+                    (room_id, user_id, is_partial, user_profile)
                 VALUES ($1, $2, 0, $3)
-                ON CONFLICT(room_id, user_id) DO UPDATE SET profile_event = $3
+                ON CONFLICT(room_id, user_id) DO UPDATE SET user_profile = $3
             "#,
         )
     }
@@ -285,7 +286,7 @@ pub trait SupportedDatabase: Database + Sealed {
                 INSERT INTO statestore_receipts
                     (room_id, event_id, receipt_type, user_id, receipt)
                 VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT(room_id, user_id) DO UPDATE SET event_id = $2, receipt_type = $3, receipt = $5
+                ON CONFLICT(room_id, receipt_type, user_id) DO UPDATE SET event_id = $2, receipt_type = $3, receipt = $5
             "#,
         )
     }
@@ -315,6 +316,135 @@ pub trait SupportedDatabase: Database + Sealed {
             r#"
                 SELECT state_event FROM statestore_state
                 WHERE room_id = $1 AND event_type = $2 AND is_partial = 0
+            "#,
+        )
+    }
+
+    /// Retrieves the user profile event for a user in a room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The user ID
+    fn profile_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT user_profile FROM statestore_members
+                WHERE room_id = $1 AND user_id = $2 AND user_profile IS NOT NULL
+            "#,
+        )
+    }
+
+    /// Removes a member from a room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The user ID
+    fn member_remove_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM statestore_memberships
+                WHERE room_id = $1 AND user_id = $2
+            "#,
+        )
+    }
+
+    /// List all users in a room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    fn members_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT user_id FROM statestore_members
+                WHERE room_id = $1
+            "#,
+        )
+    }
+
+    /// List all users in a room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - Whether or not the user has joined
+    fn members_load_query_with_join_status(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT user_id FROM statestore_members
+                WHERE room_id = $1 AND joined = $2
+            "#,
+        )
+    }
+
+    /// Get specific member event
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The user ID
+    fn member_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT is_partial, member_event FROM statestore_members
+                WHERE room_id = $1 AND user_id = $2 AND member_event IS NOT NULL
+            "#,
+        )
+    }
+
+    /// Get room infos
+    ///
+    /// # Arguments
+    /// * `$1` - Whether or not the info is partial
+    fn room_info_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT room_info FROM statestore_rooms
+                WHERE is_partial = $1
+            "#,
+        )
+    }
+
+    /// Get users with display name in room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The display name
+    fn users_with_display_name_load_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT user_id FROM statestore_members
+                WHERE room_id = $1 AND displayname = $2
+            "#,
+        )
+    }
+
+    /// Get latest receipt for user in room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The receipt type
+    /// * `$3` - The user ID
+    fn receipt_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT event_id, receipt FROM statestore_receipts
+                WHERE room_id = $1 AND receipt_type = $2 AND user_id = $3
+            "#,
+        )
+    }
+
+    /// Get all receipts for event in room
+    ///
+    /// # Arguments
+    /// * `$1` - The room ID
+    /// * `$2` - The receipt type
+    /// * `$3` - The event ID
+    fn event_receipt_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
+    {
+        sqlx::query(
+            r#"
+                SELECT user_id, receipt FROM statestore_receipts
+                WHERE room_id = $1 AND receipt_type = $2 AND event_id = $3
             "#,
         )
     }
