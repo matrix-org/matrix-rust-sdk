@@ -4,7 +4,10 @@ use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 use futures_core::stream::Stream;
 use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
 #[cfg(feature = "experimental-timeline")]
-use matrix_sdk_base::{deserialized_responses::TimelineSlice, TimelineStreamError};
+use matrix_sdk_base::{
+    deserialized_responses::{SyncRoomEvent, TimelineSlice},
+    TimelineStreamError,
+};
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "experimental-timeline")]
 use ruma::api::client::filter::LazyLoadOptions;
