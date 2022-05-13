@@ -92,7 +92,9 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_sqlite_mediastore() {
-        let store = crate::statestore::tests::open_sqlite_database().await.unwrap();
+        let store = crate::statestore::tests::open_sqlite_database()
+            .await
+            .unwrap();
         let entry_0 = <&MxcUri>::from("mxc://localhost:8080/media/0");
         let entry_1 = <&MxcUri>::from("mxc://localhost:8080/media/1");
 
@@ -124,7 +126,9 @@ mod tests {
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]
     async fn test_postgres_mediastore() {
-        let store = crate::statestore::tests::open_postgres_database().await.unwrap();
+        let store = crate::statestore::tests::open_postgres_database()
+            .await
+            .unwrap();
         let entry_0 = <&MxcUri>::from("mxc://localhost:8080/media/0");
         let entry_1 = <&MxcUri>::from("mxc://localhost:8080/media/1");
 
