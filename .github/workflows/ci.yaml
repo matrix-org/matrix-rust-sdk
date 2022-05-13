@@ -49,7 +49,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-default-features --features rustls,postgres,sqlite,ci
+          args: --no-default-features --features rustls,postgres,sqlite,ci,e2e-encryption
   check-build:
     name: Run build check
     runs-on: ${{ matrix.os }}
@@ -82,7 +82,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --no-default-features --features rustls,postgres,sqlite,ci
+          args: --no-default-features --features rustls,postgres,sqlite,ci,e2e-encryption
   coverage:
     needs: [test, check-build]
     runs-on: ubuntu-latest
@@ -104,7 +104,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-fail-fast --no-default-features --features rustls,postgres,sqlite,ci
+          args: --no-fail-fast --no-default-features --features rustls,postgres,sqlite,ci,e2e-encryption
         env:
           CARGO_INCREMENTAL: "0"
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"
@@ -210,7 +210,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: doc
-          args: --no-default-features --features rustls,postgres,sqlite,ci
+          args: --no-default-features --features rustls,postgres,sqlite,ci,e2e-encryption
       - run: |
           mkdir public
           mv target/doc public/rust

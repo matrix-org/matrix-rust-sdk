@@ -24,21 +24,37 @@
 //!
 //! The list of trait bounds may seem daunting, however every implementation of [`SupportedDatabase`] matches the trait bounds specified.
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use anyhow::Result;
 
+#[cfg(feature = "e2e-encryption")]
+use helpers::SqlType;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_store_encryption::StoreCipher;
+
 pub mod helpers;
 pub use helpers::SupportedDatabase;
+#[cfg(feature = "e2e-encryption")]
+use sqlx::{database::HasArguments, ColumnIndex, Executor, IntoArguments};
 use sqlx::{migrate::Migrate, Database, Pool};
+mod cryptostore;
 mod statestore;
 
 /// SQL State Storage for matrix-sdk
-#[derive(Clone, Debug)]
 #[allow(single_use_lifetimes)]
 pub struct StateStore<DB: SupportedDatabase> {
     /// The database connection
     db: Arc<Pool<DB>>,
+    #[cfg(feature = "e2e-encryption")]
+    /// The store cipher
+    cipher: Option<StoreCipher>,
+}
+
+impl<DB: SupportedDatabase + fmt::Debug> fmt::Debug for StateStore<DB> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StateStore").field("db", &self.db).finish()
+    }
 }
 
 #[allow(single_use_lifetimes)]
@@ -54,6 +70,63 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         let db = Arc::clone(db);
         let migrator = DB::get_migrator();
         migrator.run(&*db).await?;
-        Ok(Self { db })
+        #[cfg(not(feature = "e2e-encryption"))]
+        {
+            Ok(Self { db })
+        }
+        #[cfg(feature = "e2e-encryption")]
+        {
+            Ok(Self { db, cipher: None })
+        }
+    }
+
+    /// Returns a reference to the cipher
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) fn ensure_cipher(&self) -> Result<&StoreCipher> {
+        self.cipher
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No cipher set"))
+    }
+
+    /// Unlocks the e2e encryption database
+    /// # Errors
+    /// This function will fail if the passphrase is not `hunter2`
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn unlock(&mut self) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        self.unlock_with_passphrase("hunter2").await
+    }
+
+    /// Unlocks the e2e encryption database with password
+    /// # Errors
+    /// This function will fail if the passphrase is wrong
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn unlock_with_passphrase(&mut self, passphrase: &str) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        // Try to read the store cipher
+        let cipher_export = self.get_kv(b"cipher".to_vec()).await?;
+        if let Some(cipher) = cipher_export {
+            self.cipher = Some(StoreCipher::import(passphrase, &cipher)?);
+        } else {
+            // Store the cipher in the database
+            let cipher = StoreCipher::new()?;
+            self.insert_kv(b"cipher".to_vec(), cipher.export(passphrase)?)
+                .await?;
+            self.cipher = Some(cipher);
+        }
+        Ok(())
     }
 }
