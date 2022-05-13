@@ -51,7 +51,7 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_sqlite_filters() {
-        let store = crate::db::tests::open_sqlite_database().await.unwrap();
+        let store = crate::statestore::tests::open_sqlite_database().await.unwrap();
         assert_eq!(store.get_filter("test").await.unwrap(), None);
         store.save_filter("test", "test").await.unwrap();
         assert_eq!(
@@ -82,7 +82,7 @@ mod tests {
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]
     async fn test_postgres_filters() {
-        let store = crate::db::tests::open_postgres_database().await.unwrap();
+        let store = crate::statestore::tests::open_postgres_database().await.unwrap();
         assert_eq!(store.get_filter("test").await.unwrap(), None);
         store.save_filter("test", "test").await.unwrap();
         assert_eq!(

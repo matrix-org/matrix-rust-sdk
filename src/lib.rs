@@ -31,7 +31,7 @@ use anyhow::Result;
 pub mod helpers;
 pub use helpers::SupportedDatabase;
 use sqlx::{migrate::Migrate, Database, Pool};
-mod db;
+mod statestore;
 
 /// SQL State Storage for matrix-sdk
 #[derive(Clone, Debug)]

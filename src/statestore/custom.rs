@@ -47,7 +47,7 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_sqlite_custom_values() {
-        let store = crate::db::tests::open_sqlite_database().await.unwrap();
+        let store = crate::statestore::tests::open_sqlite_database().await.unwrap();
         assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
         store
             .set_custom_value(b"test", b"test".to_vec())
@@ -87,7 +87,7 @@ mod tests {
     #[tokio::test]
     #[cfg_attr(not(feature = "ci"), ignore)]
     async fn test_postgres_custom_values() {
-        let store = crate::db::tests::open_postgres_database().await.unwrap();
+        let store = crate::statestore::tests::open_postgres_database().await.unwrap();
         assert_eq!(store.get_custom_value(b"test").await.unwrap(), None);
         store
             .set_custom_value(b"test", b"test".to_vec())
