@@ -39,7 +39,6 @@
 
 pub mod caches;
 mod memorystore;
-mod pickle_key;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -57,7 +56,6 @@ use std::{
 use async_trait::async_trait;
 use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
-pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
     events::secret::request::SecretName, DeviceId, IdParseError, OwnedDeviceId, OwnedUserId,
     RoomId, TransactionId, UserId,
@@ -625,7 +623,20 @@ pub enum CryptoStoreError {
 
     /// A problem with the underlying database backend
     #[error(transparent)]
-    Backend(#[from] Box<dyn std::error::Error + Send + Sync>),
+    Backend(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl CryptoStoreError {
+    /// Create a new [`Backend`][Self::Backend] error.
+    ///
+    /// Shorthand for `StoreError::Backend(Box::new(error))`.
+    #[inline]
+    pub fn backend<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Backend(Box::new(error))
+    }
 }
 
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
