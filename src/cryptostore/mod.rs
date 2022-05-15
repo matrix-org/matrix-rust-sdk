@@ -8,6 +8,7 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 use educe::Educe;
+use futures::TryStreamExt;
 use matrix_sdk_base::locks::{Mutex, RwLock};
 use matrix_sdk_crypto::{
     olm::{
@@ -23,7 +24,9 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
-use sqlx::{database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Transaction};
+use sqlx::{
+    database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Row, Transaction,
+};
 
 use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 
@@ -268,12 +271,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("statestore_session:user_id", session.user_id.as_bytes());
-        let device_id =
-            cipher.hash_key("statestore_session:device_id", session.device_id.as_bytes());
+        let sender_key = cipher.hash_key(
+            "cryptostore_session:sender_key",
+            session.sender_key().to_base64().as_bytes(),
+        );
         DB::session_store_query()
-            .bind(user_id)
-            .bind(device_id)
+            .bind(sender_key)
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
@@ -320,7 +323,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     {
         let cipher = self.ensure_cipher()?;
         let session_id = cipher.hash_key(
-            "statestore_inbound_group_session:session_id",
+            "cryptostore_inbound_group_session:session_id",
             session.session_id.as_bytes(),
         );
         DB::inbound_group_session_store_query()
@@ -350,7 +353,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     {
         let cipher = self.ensure_cipher()?;
         let session_id = cipher.hash_key(
-            "statestore_inbound_group_session:session_id",
+            "cryptostore_inbound_group_session:session_id",
             session.session_id().as_bytes(),
         );
         DB::inbound_group_session_store_query()
@@ -380,15 +383,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     {
         let cipher = self.ensure_cipher()?;
         let recipient_id = cipher.hash_key(
-            "statestore_gossip_request:recipient_id",
+            "cryptostore_gossip_request:recipient_id",
             request.request_recipient.as_bytes(),
         );
         let request_id = cipher.hash_key(
-            "statestore_gossip_request:request_id",
+            "cryptostore_gossip_request:request_id",
             request.request_id.as_bytes(),
         );
         let info_key = cipher.hash_key(
-            "statestore_gossip_request:info_key",
+            "cryptostore_gossip_request:info_key",
             request.info.as_key().as_bytes(),
         );
         DB::gossip_request_store_query()
@@ -420,7 +423,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     {
         let cipher = self.ensure_cipher()?;
         let user_id = cipher.hash_key(
-            "statestore_crypto_identity:user_id",
+            "cryptostore_crypto_identity:user_id",
             identity.user_id().as_bytes(),
         );
         DB::identity_upsert_query()
@@ -448,9 +451,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("statestore_device:user_id", device.user_id().as_bytes());
-        let device_id =
-            cipher.hash_key("statestore_device:device_id", device.device_id().as_bytes());
+        let user_id = cipher.hash_key("cryptostore_device:user_id", device.user_id().as_bytes());
+        let device_id = cipher.hash_key(
+            "cryptostore_device:device_id",
+            device.device_id().as_bytes(),
+        );
         DB::device_upsert_query()
             .bind(user_id)
             .bind(device_id)
@@ -478,9 +483,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("statestore_device:user_id", device.user_id().as_bytes());
-        let device_id =
-            cipher.hash_key("statestore_device:device_id", device.device_id().as_bytes());
+        let user_id = cipher.hash_key("cryptostore_device:user_id", device.user_id().as_bytes());
+        let device_id = cipher.hash_key(
+            "cryptostore_device:device_id",
+            device.device_id().as_bytes(),
+        );
         DB::device_delete_query()
             .bind(user_id)
             .bind(device_id)
@@ -581,6 +588,50 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         txn.commit().await?;
         Ok(())
     }
+
+    /// Retrieve the sessions for a sender key
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        if let Some(v) = self.ensure_e2e()?.sessions.get(sender_key) {
+            Ok(Some(v))
+        } else {
+            let account_info = self.ensure_e2e()?.account.read().await;
+            let account_info = account_info
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No account info"))?;
+            // try fetching from the database
+            let cipher = self.ensure_cipher()?;
+            let user_id = cipher.hash_key("cryptostore_session:sender_key", sender_key.as_bytes());
+            let mut rows = DB::sessions_for_user_query().bind(user_id).fetch(&*self.db);
+            let mut sessions = Vec::new();
+            while let Some(row) = rows.try_next().await? {
+                let data: Vec<u8> = row.try_get("session_data")?;
+                let session = cipher.decrypt_value(&data)?;
+                let session = Session::from_pickle(
+                    Arc::clone(&account_info.user_id),
+                    Arc::clone(&account_info.device_id),
+                    Arc::clone(&account_info.identity_keys),
+                    session,
+                );
+                self.ensure_e2e()?.sessions.add(session.clone()).await;
+                sessions.push(session);
+            }
+            Ok(self.ensure_e2e()?.sessions.get(sender_key))
+        }
+    }
 }
 
 #[async_trait]
@@ -619,7 +670,9 @@ where
         &self,
         sender_key: &str,
     ) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
-        todo!();
+        self.get_sessions(sender_key)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_inbound_group_session(
         &self,

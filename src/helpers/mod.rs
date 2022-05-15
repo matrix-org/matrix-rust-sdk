@@ -452,15 +452,14 @@ pub trait SupportedDatabase: Database + Sealed {
     /// Stores a cryptostore session
     ///
     /// # Arguments
-    /// * `$1` - The hashed user ID
-    /// * `$2` - The hashed device ID
-    /// * `$3` - The encrypted session data
+    /// * `$1` - The hashed sender key
+    /// * `$2` - The encrypted session data
     #[cfg(feature = "e2e-encryption")]
     fn session_store_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_session (user_id, device_id, session_data)
-                VALUES ($1, $2, $3)
+                INSERT INTO cryptostore_session (sender_key, session_data)
+                VALUES ($1, $2)
             "#,
         )
     }
@@ -475,7 +474,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_olm_message_hash (sender_key, message_hash)
+                INSERT INTO cryptostore_olm_message_hash (sender_key, message_hash)
                 VALUES ($1, $2)
             "#,
         )
@@ -491,7 +490,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_inbound_group_session (session_id, session_data)
+                INSERT INTO cryptostore_inbound_group_session (session_id, session_data)
                 VALUES ($1, $2)
             "#,
         )
@@ -507,7 +506,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_outbound_group_session (session_id, session_data)
+                INSERT INTO cryptostore_outbound_group_session (session_id, session_data)
                 VALUES ($1, $2)
             "#,
         )
@@ -526,7 +525,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_gossip_request (recipient_id, request_id, secret_request_info, sent, request_data)
+                INSERT INTO cryptostore_gossip_request (recipient_id, request_id, secret_request_info, sent, request_data)
                 VALUES ($1, $2, $3, $4, $5)
             "#,
         )
@@ -541,7 +540,7 @@ pub trait SupportedDatabase: Database + Sealed {
     fn identity_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_identity (user_id, identity_data)
+                INSERT INTO cryptostore_identity (user_id, identity_data)
                 VALUES ($1, $2)
                 ON CONFLICT (user_id) DO UPDATE SET identity_data = $2
             "#,
@@ -558,7 +557,7 @@ pub trait SupportedDatabase: Database + Sealed {
     fn device_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO statestore_device (user_id, device_id, device_data)
+                INSERT INTO cryptostore_device (user_id, device_id, device_data)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (user_id, device_id) DO UPDATE SET device_data = $3
             "#,
@@ -574,8 +573,23 @@ pub trait SupportedDatabase: Database + Sealed {
     fn device_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                DELETE FROM statestore_device
+                DELETE FROM cryptostore_device
                 WHERE user_id = $1 AND device_id = $2
+            "#,
+        )
+    }
+
+    /// Query to get all sessions for a sender key
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed sender key
+    #[cfg(feature = "e2e-encryption")]
+    fn sessions_for_user_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
+    {
+        sqlx::query(
+            r#"
+                SELECT session_data FROM cryptostore_session
+                WHERE sender_key = $1
             "#,
         )
     }

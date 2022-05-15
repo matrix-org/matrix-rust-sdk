@@ -1,9 +1,9 @@
 CREATE TABLE cryptostore_session (
-    user_id BLOB NOT NULL,
-    device_id BLOB NOT NULL,
-    session_data BLOB NOT NULL,
-    PRIMARY KEY (user_id, device_id)
+    session_id INTEGER PRIMARY KEY,
+    sender_key BYTEA NOT NULL,
+    session_data BYTEA NOT NULL
 );
+CREATE INDEX cryptostore_session_sender_key_idx ON cryptostore_session (session_id, sender_key);
 CREATE TABLE cryptostore_message_hash (
     sender_key TEXT NOT NULL,
     message_hash TEXT NOT NULL,

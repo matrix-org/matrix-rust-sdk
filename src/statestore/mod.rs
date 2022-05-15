@@ -622,8 +622,7 @@ pub mod tests {
     };
     use std::sync::Arc;
     #[cfg(feature = "sqlite")]
-    pub async fn open_sqlite_database() -> Result<StateStore<sqlx::Sqlite>>
-    {
+    pub async fn open_sqlite_database() -> Result<StateStore<sqlx::Sqlite>> {
         let db = Arc::new(sqlx::SqlitePool::connect("sqlite://:memory:").await?);
         let store = StateStore::new(&db).await?;
         Ok(store)

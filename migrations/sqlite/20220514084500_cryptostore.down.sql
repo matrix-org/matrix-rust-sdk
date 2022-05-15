@@ -7,4 +7,5 @@ DROP TABLE cryptostore_gossip_request;
 DROP TABLE cryptostore_outbound_group_session;
 DROP TABLE cryptostore_inbound_group_session;
 DROP TABLE cryptostore_message_hash;
+DROP INDEX cryptostore_session_sender_key_idx;
 DROP TABLE cryptostore_session;

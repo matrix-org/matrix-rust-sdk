@@ -81,6 +81,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         }
     }
 
+    /// Returns a reference to the cryptostore specific data if the store has been unlocked
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked
     #[cfg(feature = "e2e-encryption")]
     pub(crate) fn ensure_e2e(&self) -> Result<&CryptostoreData> {
         self.cryptostore
