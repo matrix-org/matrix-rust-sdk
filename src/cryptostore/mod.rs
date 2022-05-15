@@ -322,11 +322,21 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
+        let room_id = cipher.hash_key(
+            "cryptostore_inbound_group_session:room_id",
+            session.room_id().as_bytes(),
+        );
+        let sender_key = cipher.hash_key(
+            "cryptostore_inbound_group_session:sender_key",
+            session.sender_key().as_bytes(),
+        );
         let session_id = cipher.hash_key(
             "cryptostore_inbound_group_session:session_id",
-            session.session_id.as_bytes(),
+            session.session_id().as_bytes(),
         );
         DB::inbound_group_session_store_query()
+            .bind(room_id)
+            .bind(sender_key)
             .bind(session_id)
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
@@ -605,7 +615,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        if let Some(v) = self.ensure_e2e()?.sessions.get(sender_key) {
+        let sessions = &self.ensure_e2e()?.sessions;
+        if let Some(v) = sessions.get(sender_key) {
             Ok(Some(v))
         } else {
             let account_info = self.ensure_e2e()?.account.read().await;
@@ -616,7 +627,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             let cipher = self.ensure_cipher()?;
             let user_id = cipher.hash_key("cryptostore_session:sender_key", sender_key.as_bytes());
             let mut rows = DB::sessions_for_user_query().bind(user_id).fetch(&*self.db);
-            let mut sessions = Vec::new();
+            let mut sess = Vec::new();
             while let Some(row) = rows.try_next().await? {
                 let data: Vec<u8> = row.try_get("session_data")?;
                 let session = cipher.decrypt_value(&data)?;
@@ -626,10 +637,63 @@ impl<DB: SupportedDatabase> StateStore<DB> {
                     Arc::clone(&account_info.identity_keys),
                     session,
                 );
-                self.ensure_e2e()?.sessions.add(session.clone()).await;
-                sessions.push(session);
+                sessions.add(session.clone()).await;
+                sess.push(session);
             }
-            Ok(self.ensure_e2e()?.sessions.get(sender_key))
+            Ok(sessions.get(sender_key))
+        }
+    }
+
+    /// Retrieve an incoming group session
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    async fn get_inbound_group_session(
+        &self,
+        room_id: &RoomId,
+        sender_key: &str,
+        session_id: &str,
+    ) -> Result<Option<InboundGroupSession>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let sessions = &self.ensure_e2e()?.group_sessions;
+        if let Some(v) = sessions.get(room_id, sender_key, session_id) {
+            Ok(Some(v))
+        } else {
+            let cipher = self.ensure_cipher()?;
+            let room_id = cipher.hash_key(
+                "cryptostore_inbound_group_session:room_id",
+                room_id.as_bytes(),
+            );
+            let sender_key = cipher.hash_key(
+                "cryptostore_inbound_group_session:sender_key",
+                sender_key.as_bytes(),
+            );
+            let session_id = cipher.hash_key(
+                "cryptostore_inbound_group_session:session_id",
+                session_id.as_bytes(),
+            );
+            let row = DB::inbound_group_session_fetch_query()
+                .bind(room_id)
+                .bind(sender_key)
+                .bind(session_id)
+                .fetch_optional(&*self.db)
+                .await?;
+            if let Some(row) = row {
+                let data: Vec<u8> = row.try_get("session_data")?;
+                let session = cipher.decrypt_value(&data)?;
+                let session = InboundGroupSession::from_pickle(session)?;
+                sessions.add(session.clone());
+                Ok(Some(session))
+            } else {
+                Ok(None)
+            }
         }
     }
 }
@@ -680,7 +744,9 @@ where
         sender_key: &str,
         session_id: &str,
     ) -> StoreResult<Option<InboundGroupSession>> {
-        todo!();
+        self.get_inbound_group_session(room_id, sender_key, session_id)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_inbound_group_sessions(&self) -> StoreResult<Vec<InboundGroupSession>> {
         todo!();

@@ -483,15 +483,18 @@ pub trait SupportedDatabase: Database + Sealed {
     /// Stores an inbound group session
     ///
     /// # Arguments
-    /// * `$1` - The hashed session id
-    /// * `$2` - The encrypted session data
+    /// * `$1` - The hashed room ID
+    /// * `$2` - The hashed sender key
+    /// * `$3` - The hashed session id
+    /// * `$4` - The encrypted session data
     #[cfg(feature = "e2e-encryption")]
     fn inbound_group_session_store_query(
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO cryptostore_inbound_group_session (session_id, session_data)
-                VALUES ($1, $2)
+                INSERT INTO cryptostore_inbound_group_session
+                    (room_id, sender_key, session_id, session_data)
+                VALUES ($1, $2, $3, $4)
             "#,
         )
     }
@@ -590,6 +593,23 @@ pub trait SupportedDatabase: Database + Sealed {
             r#"
                 SELECT session_data FROM cryptostore_session
                 WHERE sender_key = $1
+            "#,
+        )
+    }
+
+    /// Fetch an inbound group session
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed room ID
+    /// * `$2` - The hashed sender key
+    /// * `$3` - The hashed session id
+    #[cfg(feature = "e2e-encryption")]
+    fn inbound_group_session_fetch_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT session_data FROM cryptostore_inbound_group_session
+                WHERE room_id = $1 AND sender_key = $2 AND session_id = $3
             "#,
         )
     }

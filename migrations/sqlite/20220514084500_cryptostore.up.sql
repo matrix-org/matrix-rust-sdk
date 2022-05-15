@@ -10,8 +10,11 @@ CREATE TABLE cryptostore_message_hash (
     PRIMARY KEY (sender_key, message_hash)
 );
 CREATE TABLE cryptostore_inbound_group_session (
-    session_id BLOB PRIMARY KEY NOT NULL,
-    session_data BLOB NOT NULL
+    room_id BLOB NOT NULL,
+    sender_key BLOB NOT NULL,
+    session_id BLOB NOT NULL,
+    session_data BLOB NOT NULL,
+    PRIMARY KEY (room_id, sender_key, session_id)
 );
 CREATE TABLE cryptostore_outbound_group_session (
     session_id BLOB PRIMARY KEY NOT NULL,
