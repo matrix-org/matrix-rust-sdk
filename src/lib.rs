@@ -24,14 +24,14 @@
 //!
 //! The list of trait bounds may seem daunting, however every implementation of [`SupportedDatabase`] matches the trait bounds specified.
 
-use std::{fmt, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 
 #[cfg(feature = "e2e-encryption")]
-use helpers::SqlType;
+use cryptostore::CryptostoreData;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::locks::RwLock;
+use helpers::SqlType;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_store_encryption::StoreCipher;
 
@@ -46,30 +46,13 @@ mod statestore;
 
 /// SQL State Storage for matrix-sdk
 #[allow(single_use_lifetimes)]
+#[derive(Debug)]
 pub struct StateStore<DB: SupportedDatabase> {
     /// The database connection
     db: Arc<Pool<DB>>,
     #[cfg(feature = "e2e-encryption")]
-    /// The store cipher
-    cipher: Option<StoreCipher>,
-    #[cfg(feature = "e2e-encryption")]
-    /// Loaded account information
-    account: RwLock<Option<cryptostore::AccountInfo>>,
-}
-
-impl<DB: SupportedDatabase + fmt::Debug> fmt::Debug for StateStore<DB> {
-    #[cfg(feature = "e2e-encryption")]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StateStore")
-            .field("db", &self.db)
-            .field("account", &self.account)
-            .finish()
-    }
-
-    #[cfg(not(feature = "e2e-encryption"))]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StateStore").field("db", &self.db).finish()
-    }
+    /// Extra cryptostore data
+    cryptostore: Option<CryptostoreData>,
 }
 
 #[allow(single_use_lifetimes)]
@@ -93,10 +76,16 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         {
             Ok(Self {
                 db,
-                cipher: None,
-                account: RwLock::new(None),
+                cryptostore: None,
             })
         }
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) fn ensure_e2e(&self) -> Result<&CryptostoreData> {
+        self.cryptostore
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Not unlocked"))
     }
 
     /// Returns a reference to the cipher
@@ -105,9 +94,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// This function will return an error if the database has not been unlocked
     #[cfg(feature = "e2e-encryption")]
     pub(crate) fn ensure_cipher(&self) -> Result<&StoreCipher> {
-        self.cipher
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No cipher set"))
+        Ok(&self.ensure_e2e()?.cipher)
     }
 
     /// Unlocks the e2e encryption database
@@ -138,13 +125,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         // Try to read the store cipher
         let cipher_export = self.get_kv(b"cipher".to_vec()).await?;
         if let Some(cipher) = cipher_export {
-            self.cipher = Some(StoreCipher::import(passphrase, &cipher)?);
+            self.cryptostore = Some(CryptostoreData::new(StoreCipher::import(
+                passphrase, &cipher,
+            )?));
         } else {
             // Store the cipher in the database
             let cipher = StoreCipher::new()?;
             self.insert_kv(b"cipher".to_vec(), cipher.export(passphrase)?)
                 .await?;
-            self.cipher = Some(cipher);
+            self.cryptostore = Some(CryptostoreData::new(cipher));
         }
         Ok(())
     }

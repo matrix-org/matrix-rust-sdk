@@ -1,5 +1,6 @@
 //! Crypto store implementation
 
+use core::fmt;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -7,7 +8,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use matrix_sdk_base::locks::Mutex;
+use matrix_sdk_base::locks::{Mutex, RwLock};
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -17,6 +18,7 @@ use matrix_sdk_crypto::{
     CryptoStoreError, GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
     SecretInfo,
 };
+use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use sqlx::{database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Transaction};
 
@@ -24,6 +26,32 @@ use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 
 /// Store Result type
 type StoreResult<T> = Result<T, CryptoStoreError>;
+
+/// Cryptostore data
+pub(crate) struct CryptostoreData {
+    /// Encryption cipher
+    pub(crate) cipher: StoreCipher,
+    /// Account info
+    pub(crate) account: RwLock<Option<AccountInfo>>,
+}
+
+impl CryptostoreData {
+    /// Create a new cryptostore data
+    pub(crate) fn new(cipher: StoreCipher) -> Self {
+        Self {
+            cipher,
+            account: RwLock::new(None),
+        }
+    }
+}
+
+impl fmt::Debug for CryptostoreData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CryptostoreData")
+            .field("account", &self.account)
+            .finish()
+    }
+}
 
 /// Account information
 #[derive(Clone, Debug)]
@@ -58,7 +86,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
                     device_id: Arc::clone(&account.device_id),
                     identity_keys: Arc::clone(&account.identity_keys),
                 };
-                *(self.account.write().await) = Some(account_info);
+                *(self.ensure_e2e()?.account.write().await) = Some(account_info);
 
                 Some(account)
             }
@@ -106,7 +134,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             device_id: Arc::clone(&account.device_id),
             identity_keys: Arc::clone(&account.identity_keys),
         };
-        *(self.account.write().await) = Some(account_info);
+        *(self.ensure_e2e()?.account.write().await) = Some(account_info);
         Self::insert_kv_txn(
             txn,
             b"e2e_account".to_vec(),
