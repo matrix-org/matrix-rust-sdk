@@ -14,7 +14,10 @@ use matrix_sdk_crypto::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PrivateCrossSigningIdentity, Session,
     },
-    store::{BackupKeys, Changes, CryptoStore, RecoveryKey, RoomKeyCounts},
+    store::{
+        caches::{DeviceStore, GroupSessionStore, SessionStore},
+        BackupKeys, Changes, CryptoStore, RecoveryKey, RoomKeyCounts,
+    },
     CryptoStoreError, GossipRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentities,
     SecretInfo,
 };
@@ -37,6 +40,12 @@ pub(crate) struct CryptostoreData {
     pub(crate) cipher: StoreCipher,
     /// Account info
     pub(crate) account: RwLock<Option<AccountInfo>>,
+    /// In-Memory session store
+    pub(crate) sessions: SessionStore,
+    /// In-Memory group session store
+    pub(crate) group_sessions: GroupSessionStore,
+    /// In-Memory device store
+    pub(crate) devices: DeviceStore,
 }
 
 impl CryptostoreData {
@@ -45,6 +54,9 @@ impl CryptostoreData {
         Self {
             cipher,
             account: RwLock::new(None),
+            sessions: SessionStore::new(),
+            group_sessions: GroupSessionStore::new(),
+            devices: DeviceStore::new(),
         }
     }
 }
@@ -265,6 +277,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
+        self.ensure_e2e()?.sessions.add(session).await;
         Ok(())
     }
 
@@ -315,6 +328,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
+        self.ensure_e2e()?.group_sessions.add(session);
         Ok(())
     }
 
@@ -443,6 +457,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .bind(cipher.encrypt_value(&device)?)
             .execute(txn)
             .await?;
+        self.ensure_e2e()?.devices.add(device);
         Ok(())
     }
 
@@ -469,6 +484,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .bind(device_id)
             .execute(txn)
             .await?;
+        self.ensure_e2e()?
+            .devices
+            .remove(device.user_id(), device.device_id());
         Ok(())
     }
 
