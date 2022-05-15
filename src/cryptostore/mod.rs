@@ -696,6 +696,31 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             }
         }
     }
+
+    /// Fetch all inbound group sessions
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher()?;
+        let mut rows = DB::inbound_group_sessions_fetch_query().fetch(&*self.db);
+        let mut sessions = Vec::new();
+        while let Some(row) = rows.try_next().await? {
+            let data: Vec<u8> = row.try_get("session_data")?;
+            let session = cipher.decrypt_value(&data)?;
+            let session = InboundGroupSession::from_pickle(session)?;
+            sessions.push(session);
+        }
+        Ok(sessions)
+    }
 }
 
 #[async_trait]
@@ -749,7 +774,9 @@ where
             .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_inbound_group_sessions(&self) -> StoreResult<Vec<InboundGroupSession>> {
-        todo!();
+        self.get_inbound_group_sessions()
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn inbound_group_session_counts(&self) -> StoreResult<RoomKeyCounts> {
         todo!();

@@ -613,6 +613,17 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Fetch all inbound group sessions
+    #[cfg(feature = "e2e-encryption")]
+    fn inbound_group_sessions_fetch_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT session_data FROM cryptostore_inbound_group_session
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]
