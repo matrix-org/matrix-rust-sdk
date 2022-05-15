@@ -1,4 +1,3 @@
-DROP INDEX cryptostore_device_user_id_idx;
 DROP TABLE cryptostore_device;
 DROP TABLE cryptostore_identity;
 DROP INDEX cryptostore_gossip_request_sent_out_idx;

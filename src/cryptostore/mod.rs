@@ -478,9 +478,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
+        let user_id = cipher.hash_key("statestore_device:user_id", device.user_id().as_bytes());
         let device_id =
             cipher.hash_key("statestore_device:device_id", device.device_id().as_bytes());
         DB::device_delete_query()
+            .bind(user_id)
             .bind(device_id)
             .execute(txn)
             .await?;

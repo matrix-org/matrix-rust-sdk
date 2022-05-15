@@ -560,7 +560,7 @@ pub trait SupportedDatabase: Database + Sealed {
             r#"
                 INSERT INTO statestore_device (user_id, device_id, device_data)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (device_id) DO UPDATE SET user_id = $1, device_data = $3
+                ON CONFLICT (user_id, device_id) DO UPDATE SET device_data = $3
             "#,
         )
     }
@@ -568,13 +568,14 @@ pub trait SupportedDatabase: Database + Sealed {
     /// Deletes a device
     ///
     /// # Arguments
-    /// * `$1` - The hashed device ID
+    /// * `$1` - The hashed user ID
+    /// * `$2` - The hashed device ID
     #[cfg(feature = "e2e-encryption")]
     fn device_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
                 DELETE FROM statestore_device
-                WHERE device_id = $1
+                WHERE user_id = $1 AND device_id = $2
             "#,
         )
     }

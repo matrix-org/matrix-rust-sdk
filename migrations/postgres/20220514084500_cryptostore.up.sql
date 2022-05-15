@@ -33,7 +33,7 @@ CREATE TABLE cryptostore_identity (
 );
 CREATE TABLE cryptostore_device (
     user_id BYTEA NOT NULL,
-    device_id BYTEA PRIMARY KEY NOT NULL,
-    device_info BYTEA NOT NULL
+    device_id BYTEA NOT NULL,
+    device_info BYTEA NOT NULL,
+    PRIMARY KEY (user_id, device_id)
 );
-CREATE INDEX cryptostore_device_user_id_idx ON cryptostore_device (user_id);
