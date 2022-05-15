@@ -21,6 +21,7 @@ postgres = ["sqlx/postgres"]
 sqlite = ["sqlx/sqlite"]
 
 e2e-encryption = [
+    "educe",
     "matrix-sdk-base/e2e-encryption",
     "matrix-sdk-crypto",
     "matrix-sdk-store-encryption",
@@ -37,6 +38,12 @@ matrix-sdk-base = "0.5.0"
 matrix-sdk-crypto = { version = "0.5.0", optional = true }
 matrix-sdk-store-encryption = { version = "0.1.0", optional = true }
 ruma = "0.6.2"
+
+[dependencies.educe]
+version = "0.4.19"
+default-features = false
+features = ["Debug"]
+optional = true
 
 [dependencies.sqlx]
 version = "0.5.13"

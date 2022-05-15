@@ -1,6 +1,5 @@
 //! Crypto store implementation
 
-use core::fmt;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -8,6 +7,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use educe::Educe;
 use matrix_sdk_base::locks::{Mutex, RwLock};
 use matrix_sdk_crypto::{
     olm::{
@@ -28,8 +28,12 @@ use crate::{helpers::SqlType, StateStore, SupportedDatabase};
 type StoreResult<T> = Result<T, CryptoStoreError>;
 
 /// Cryptostore data
+#[derive(Educe)]
+#[educe(Debug)]
+#[allow(clippy::redundant_pub_crate)]
 pub(crate) struct CryptostoreData {
     /// Encryption cipher
+    #[educe(Debug(ignore))]
     pub(crate) cipher: StoreCipher,
     /// Account info
     pub(crate) account: RwLock<Option<AccountInfo>>,
@@ -44,15 +48,6 @@ impl CryptostoreData {
         }
     }
 }
-
-impl fmt::Debug for CryptostoreData {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CryptostoreData")
-            .field("account", &self.account)
-            .finish()
-    }
-}
-
 /// Account information
 #[derive(Clone, Debug)]
 #[allow(clippy::redundant_pub_crate)]
