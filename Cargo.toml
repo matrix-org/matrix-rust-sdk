@@ -22,6 +22,7 @@ sqlite = ["sqlx/sqlite"]
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
+    "matrix-sdk-crypto",
     "matrix-sdk-store-encryption",
 ]
 
@@ -33,6 +34,7 @@ async-trait = "0.1.53"
 anyhow = "1.0.57"
 futures = "0.3.21"
 matrix-sdk-base = "0.5.0"
+matrix-sdk-crypto = { version = "0.5.0", optional = true }
 matrix-sdk-store-encryption = { version = "0.1.0", optional = true }
 ruma = "0.6.2"
 

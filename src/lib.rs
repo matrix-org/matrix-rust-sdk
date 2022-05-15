@@ -31,6 +31,8 @@ use anyhow::Result;
 #[cfg(feature = "e2e-encryption")]
 use helpers::SqlType;
 #[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::locks::RwLock;
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_store_encryption::StoreCipher;
 
 pub mod helpers;
@@ -38,6 +40,7 @@ pub use helpers::SupportedDatabase;
 #[cfg(feature = "e2e-encryption")]
 use sqlx::{database::HasArguments, ColumnIndex, Executor, IntoArguments};
 use sqlx::{migrate::Migrate, Database, Pool};
+#[cfg(feature = "e2e-encryption")]
 mod cryptostore;
 mod statestore;
 
@@ -49,9 +52,21 @@ pub struct StateStore<DB: SupportedDatabase> {
     #[cfg(feature = "e2e-encryption")]
     /// The store cipher
     cipher: Option<StoreCipher>,
+    #[cfg(feature = "e2e-encryption")]
+    /// Loaded account information
+    account: RwLock<Option<cryptostore::AccountInfo>>,
 }
 
 impl<DB: SupportedDatabase + fmt::Debug> fmt::Debug for StateStore<DB> {
+    #[cfg(feature = "e2e-encryption")]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StateStore")
+            .field("db", &self.db)
+            .field("account", &self.account)
+            .finish()
+    }
+
+    #[cfg(not(feature = "e2e-encryption"))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StateStore").field("db", &self.db).finish()
     }
@@ -76,7 +91,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         }
         #[cfg(feature = "e2e-encryption")]
         {
-            Ok(Self { db, cipher: None })
+            Ok(Self {
+                db,
+                cipher: None,
+                account: RwLock::new(None),
+            })
         }
     }
 

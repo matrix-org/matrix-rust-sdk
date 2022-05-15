@@ -2,8 +2,9 @@
 
 ![Build Status](https://img.shields.io/github/workflow/status/DarkKirb/matrix-sdk-statestore-sql/Build%20checks)
 [![Code Coverage](https://img.shields.io/coveralls/github/DarkKirb/matrix-sdk-statestore-sql)](https://coveralls.io/github/DarkKirb/matrix-sdk-statestore-sql)
-[![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/crates/l/matrix-sdk-sql)](https://opensource.org/licenses/Apache-2.0)
 [![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg)](https://darkkirb.github.io/matrix-sdk-statestore-sql/rust/matrix_sdk_statestore_sql/)
+[![Version](https://img.shields.io/crates/v/matrix-sdk-sql)](https://crates.io/crates/matrix-sdk-sql)
 
 This crate allows you to use your postgres/sqlite database as a state and crypto store for matrix-sdk.
 
@@ -42,6 +43,18 @@ let store_config = StoreConfig::new().state_store(Box::new(state_store));
 let client_builder = Client::builder()
                     /* ... */
                      .store_config(store_config)
+```
+
+### CryptoStore
+
+Enabling the `e2e-encryption` feature enables cryptostore functionality. To protect encryption session information, the contents of the tables are encrypted in the same manner as in `matrix-sdk-sled`.
+
+Before you can use cryptostore functionality, you need to unlock the cryptostore:
+
+```rust
+let mut state_store = /* as above */;
+
+state_store.unlock_with_passphrase(std::env::var("MYAPP_SECRET_KEY")?).await?;
 ```
 
 ## Authors
