@@ -1,5 +1,5 @@
 CREATE TABLE cryptostore_session (
-    session_id GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    session_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     sender_key BYTEA NOT NULL,
     session_data BYTEA NOT NULL
 );
