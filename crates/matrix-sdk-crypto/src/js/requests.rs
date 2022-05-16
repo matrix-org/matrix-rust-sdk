@@ -134,7 +134,7 @@ pub struct KeysBackupRequest {
 }
 
 // JavaScript has no complex enums like Rust. To return structs of
-// different type, we have no choice that hidding everything behind a
+// different types, we have no choice that hidding everything behind a
 // `JsValue`.
 impl TryFrom<OutgoingRequest> for JsValue {
     type Error = serde_json::Error;
@@ -230,4 +230,17 @@ impl TryFrom<OutgoingRequest> for JsValue {
             }
         })
     }
+}
+
+/// Represent the type of a request.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub enum RequestType {
+    KeysUpload,
+    KeysQuery,
+    KeysClaim,
+    ToDevice,
+    SignatureUpload,
+    RoomMessage,
+    KeysBackup,
 }

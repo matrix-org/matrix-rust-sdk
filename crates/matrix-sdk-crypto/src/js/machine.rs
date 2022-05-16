@@ -1,10 +1,18 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use js_sys::{Array, Map, Promise, Set};
-use ruma::{DeviceKeyAlgorithm, UInt};
+use ruma::{
+    api::IncomingResponse as RumaIncomingResponse, DeviceKeyAlgorithm, OwnedTransactionId, UInt,
+};
 use wasm_bindgen::prelude::*;
 
-use crate::js::{future::future_to_promise, identifiers, sync_events};
+use crate::js::{
+    future::future_to_promise,
+    identifiers,
+    requests::RequestType,
+    responses::{self, response_from_string},
+    sync_events,
+};
 
 #[wasm_bindgen]
 #[derive(Debug)]
@@ -53,6 +61,8 @@ impl OlmMachine {
     }
 
     /// Get all the tracked users of our own device.
+    ///
+    /// Returns a `Set<UserId>`.
     #[wasm_bindgen(js_name = "trackedUsers")]
     pub fn tracked_users(&self) -> Set {
         let set = Set::new(&JsValue::UNDEFINED);
@@ -114,6 +124,20 @@ impl OlmMachine {
         }))
     }
 
+    /// Get the outgoing requests that need to be sent out.
+    ///
+    /// This returns a list of `JsValue` to represent either:
+    ///   * `KeysUploadRequest`,
+    ///   * `KeysQueryRequest`,
+    ///   * `KeysClaimRequest`,
+    ///   * `ToDeviceRequest`,
+    ///   * `SignatureUploadRequest`,
+    ///   * `RoomMessageRequest` or
+    ///   * `KeysBackupRequest`.
+    ///
+    /// Those requests need to be sent out to the server and the
+    /// responses need to be passed back to the state machine using
+    /// `mark_request_as_sent`.
     #[wasm_bindgen(js_name = "outgoingRequests")]
     pub fn outgoing_requests(&self) -> Promise {
         let me = self.inner.clone();
@@ -128,6 +152,63 @@ impl OlmMachine {
                 .into_iter()
                 .collect::<Array>())
         })
+    }
+
+    /// Mark the request with the given request ID as sent (see
+    /// `outgoing_requests`).
+    ///
+    /// `request_id` represents the unique ID of the request that was
+    /// sent out. This is needed to couple the response with the now
+    /// sent out request. `response_type` represents the type of the
+    /// request that was sent out. `response` represents the response
+    /// that was received from the server after the outgoing request
+    /// was sent out. `
+    #[wasm_bindgen(js_name = "markRequestAsSent")]
+    pub fn mark_request_as_sent(
+        &self,
+        request_id: &str,
+        request_type: RequestType,
+        response: &str,
+    ) -> Result<Promise, JsError> {
+        let transaction_id = OwnedTransactionId::from(request_id);
+        let response = response_from_string(response).map_err(JsError::from)?;
+
+        let incoming_response: responses::OwnedResponse = match request_type {
+            RequestType::KeysUpload => {
+                responses::KeysUploadResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::KeysQuery => {
+                responses::KeysQueryResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::KeysClaim => {
+                responses::KeysClaimResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::ToDevice => {
+                responses::ToDeviceResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::SignatureUpload => {
+                responses::SignatureUploadResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::RoomMessage => {
+                responses::RoomMessageResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::KeysBackup => {
+                responses::KeysBackupResponse::try_from_http_response(response).map(Into::into)
+            }
+        }
+        .map_err(JsError::from)?;
+
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            Ok(me.mark_request_as_sent(&transaction_id, &incoming_response).await.map(|_| true)?)
+        }))
     }
 }
 

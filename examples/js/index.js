@@ -6,10 +6,11 @@ async function run_example() {
 
     const olm_machine = await new OlmMachine(user_id, device_id);
     console.log(olm_machine);
-    console.log('olm_machine.user_id().localpart() =', olm_machine.user_id().localpart());
-    console.log('olm_machine.device_id =', olm_machine.device_id());
-    console.log('olm_machine.display_name =', await olm_machine.display_name());
-    console.log('olm_machine.identity_keys =', olm_machine.identity_keys());
+    console.log('olm_machine.userId().localpart() =', olm_machine.userId().localpart());
+    console.log('olm_machine.deviceId() =', olm_machine.deviceId());
+    console.log('olm_machine.displayName() =', await olm_machine.displayName());
+    console.log('olm_machine.identityKeys() =', olm_machine.identityKeys());
+    console.log('olm_machine.trackedUsers() = ', olm_machine.trackedUsers());
 
     const to_device_events =  '{}';
     const changed_devices = new DeviceLists(
@@ -24,7 +25,7 @@ async function run_example() {
     unused_fallback_keys.add('baz');
     unused_fallback_keys.add('qux');
 
-    const decrypted_to_device = await olm_machine.receive_sync_changes(
+    const decrypted_to_device = await olm_machine.receiveSyncChanges(
         to_device_events,
         changed_devices,
         one_time_key_counts,
@@ -32,7 +33,7 @@ async function run_example() {
     );
     console.log(JSON.parse(decrypted_to_device));
 
-    const outgoing_requests = await olm_machine.outgoing_requests();
+    const outgoing_requests = await olm_machine.outgoingRequests();
     console.log(outgoing_requests);
     //console.log(JSON.parse(outgoing_requests[0].body));
 }
