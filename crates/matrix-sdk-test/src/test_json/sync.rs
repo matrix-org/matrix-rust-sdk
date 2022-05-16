@@ -210,30 +210,6 @@ pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
                                     "replaces_state": "$152034819067QWJxM:localhost"
                                 }
                             },
-                            {
-                                "content": {
-                                "membership": "leave",
-                                "reason": "offline",
-                                "avatar_url": "mxc://avatar.com/d0dV9jLpe",
-                                "displayname": "example"
-                                },
-                                "event_id": "$1585345508297748AIUBh:matrix.org",
-                                "origin_server_ts": 158534550,
-                                "sender": "@example:localhost",
-                                "state_key": "@example:localhost",
-                                "type": "m.room.member",
-                                "unsigned": {
-                                "replaces_state": "$1585345354296486IGZfp:localhost",
-                                "prev_content": {
-                                    "avatar_url": "mxc://avatar.com/d0dV9jLpe",
-                                    "displayname": "example",
-                                    "membership": "join"
-                                },
-                                "prev_sender": "@example2:localhost",
-                                "age": 6992
-                                },
-                                "room_id": "!roomid:room.com"
-                            }
                         ]
                     },
                     "timeline": {
