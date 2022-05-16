@@ -8,8 +8,10 @@ pub(crate) use ruma::api::client::{
     message::send_message_event::v3::Response as RoomMessageResponse,
     to_device::send_event_to_device::v3::Response as ToDeviceResponse,
 };
+use ruma::api::IncomingResponse as RumaIncomingResponse;
+use wasm_bindgen::prelude::*;
 
-use crate::IncomingResponse;
+use crate::{js::requests::RequestType, IncomingResponse};
 
 pub(crate) fn response_from_string(body: &str) -> http::Result<http::Response<Vec<u8>>> {
     http::Response::builder().status(200).body(body.as_bytes().to_vec())
@@ -66,6 +68,45 @@ impl From<RoomMessageResponse> for OwnedResponse {
 impl From<KeysBackupResponse> for OwnedResponse {
     fn from(r: KeysBackupResponse) -> Self {
         Self::KeysBackup(r)
+    }
+}
+
+impl TryFrom<(RequestType, http::Response<Vec<u8>>)> for OwnedResponse {
+    type Error = JsError;
+
+    fn try_from(
+        (request_type, response): (RequestType, http::Response<Vec<u8>>),
+    ) -> Result<Self, Self::Error> {
+        match request_type {
+            RequestType::KeysUpload => {
+                KeysUploadResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::KeysQuery => {
+                KeysQueryResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::KeysClaim => {
+                KeysClaimResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::ToDevice => {
+                ToDeviceResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::SignatureUpload => {
+                SignatureUploadResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::RoomMessage => {
+                RoomMessageResponse::try_from_http_response(response).map(Into::into)
+            }
+
+            RequestType::KeysBackup => {
+                KeysBackupResponse::try_from_http_response(response).map(Into::into)
+            }
+        }
+        .map_err(JsError::from)
     }
 }
 

@@ -4,7 +4,7 @@ use js_sys::Promise;
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use wasm_bindgen_futures::spawn_local;
 
-pub fn future_to_promise<F, T>(future: F) -> Promise
+pub(crate) fn future_to_promise<F, T>(future: F) -> Promise
 where
     F: Future<Output = Result<T, anyhow::Error>> + 'static,
     T: Into<JsValue>,

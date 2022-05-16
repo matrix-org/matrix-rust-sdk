@@ -1,9 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use js_sys::{Array, Map, Promise, Set};
-use ruma::{
-    api::IncomingResponse as RumaIncomingResponse, DeviceKeyAlgorithm, OwnedTransactionId, UInt,
-};
+use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use wasm_bindgen::prelude::*;
 
 use crate::js::{
@@ -172,37 +170,7 @@ impl OlmMachine {
     ) -> Result<Promise, JsError> {
         let transaction_id = OwnedTransactionId::from(request_id);
         let response = response_from_string(response).map_err(JsError::from)?;
-
-        let incoming_response: responses::OwnedResponse = match request_type {
-            RequestType::KeysUpload => {
-                responses::KeysUploadResponse::try_from_http_response(response).map(Into::into)
-            }
-
-            RequestType::KeysQuery => {
-                responses::KeysQueryResponse::try_from_http_response(response).map(Into::into)
-            }
-
-            RequestType::KeysClaim => {
-                responses::KeysClaimResponse::try_from_http_response(response).map(Into::into)
-            }
-
-            RequestType::ToDevice => {
-                responses::ToDeviceResponse::try_from_http_response(response).map(Into::into)
-            }
-
-            RequestType::SignatureUpload => {
-                responses::SignatureUploadResponse::try_from_http_response(response).map(Into::into)
-            }
-
-            RequestType::RoomMessage => {
-                responses::RoomMessageResponse::try_from_http_response(response).map(Into::into)
-            }
-
-            RequestType::KeysBackup => {
-                responses::KeysBackupResponse::try_from_http_response(response).map(Into::into)
-            }
-        }
-        .map_err(JsError::from)?;
+        let incoming_response = responses::OwnedResponse::try_from((request_type, response))?;
 
         let me = self.inner.clone();
 
