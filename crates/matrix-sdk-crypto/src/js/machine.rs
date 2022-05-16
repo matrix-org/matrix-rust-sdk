@@ -27,27 +27,32 @@ impl OlmMachine {
     }
 
     /// The unique user ID that owns this `OlmMachine` instance.
+    #[wasm_bindgen(js_name = "userId")]
     pub fn user_id(&self) -> identifiers::UserId {
         identifiers::UserId { inner: self.inner.user_id().to_owned() }
     }
 
     /// The unique device ID that identifies this `OlmMachine`.
+    #[wasm_bindgen(js_name = "deviceId")]
     pub fn device_id(&self) -> identifiers::DeviceId {
         identifiers::DeviceId { inner: self.inner.device_id().to_owned() }
     }
 
     ///// Get the public parts of our Olm identity keys.
+    #[wasm_bindgen(js_name = "identityKeys")]
     pub fn identity_keys(&self) -> IdentityKeys {
         self.inner.identity_keys().into()
     }
 
     /// Get the display name of our own device.
+    #[wasm_bindgen(js_name = "displayName")]
     pub fn display_name(&self) -> Promise {
         let me = self.inner.clone();
 
         future_to_promise(async move { Ok(me.display_name().await?) })
     }
 
+    #[wasm_bindgen(js_name = "receiveSyncChanges")]
     pub fn receive_sync_changes(
         &self,
         to_device_events: &str,
@@ -93,6 +98,7 @@ impl OlmMachine {
         }))
     }
 
+    #[wasm_bindgen(js_name = "outgoingRequests")]
     pub fn outgoing_requests(&self) -> Promise {
         let me = self.inner.clone();
 
