@@ -15,9 +15,49 @@ pub struct DeviceLists {
 #[wasm_bindgen]
 impl DeviceLists {
     /// Create an empty `DeviceLists`.
+    ///
+    /// `changed` and `left` must be an array of strings representing
+    /// a user ID, otherwise invalid entries will be filtered out with
+    /// an error.
     #[wasm_bindgen(constructor)]
-    pub fn new() -> DeviceLists {
-        Self { inner: Default::default() }
+    pub fn new(changed: Array, left: Array) -> Result<DeviceLists, JsError> {
+        let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
+
+        inner.changed = changed
+            .iter()
+            .map(|user| {
+                let user = user
+                    .as_string()
+                    .ok_or_else(|| JsError::new("Given user ID is not a string"))?;
+                let user = ruma::UserId::parse(&user).map_err(|error| {
+                    JsError::new(&format!(
+                        "Given user ID `{}` has an invalid syntax: {}",
+                        user, error,
+                    ))
+                })?;
+
+                Ok(user)
+            })
+            .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
+
+        inner.left = left
+            .iter()
+            .map(|user| {
+                let user = user
+                    .as_string()
+                    .ok_or_else(|| JsError::new("Given user ID is not a string"))?;
+                let user = ruma::UserId::parse(&user).map_err(|error| {
+                    JsError::new(&format!(
+                        "Given user ID `{}` has an invalid syntax: {}",
+                        user, error,
+                    ))
+                })?;
+
+                Ok(user)
+            })
+            .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
+
+        Ok(Self { inner })
     }
 
     /// Returns true if there are no device list updates.

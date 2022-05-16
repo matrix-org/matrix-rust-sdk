@@ -12,7 +12,11 @@ async function run_example() {
     console.log('olm_machine.identity_keys =', olm_machine.identity_keys());
 
     const to_device_events =  '{}';
-    const changed_devices = new DeviceLists();
+    const changed_devices = new DeviceLists(
+        ['@foo:matrix.org', '@bar:matrix.org'],
+        ['@baz:matrix.org', '@qux:matrix.org'],
+    );
+    console.log(changed_devices);
     const one_time_key_counts = new Map();
     one_time_key_counts.set('foo', 42);
     one_time_key_counts.set('bar', 153);
