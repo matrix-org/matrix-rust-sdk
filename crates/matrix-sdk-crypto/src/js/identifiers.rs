@@ -25,6 +25,12 @@ impl UserId {
         self.inner.localpart().to_owned()
     }
 
+    /// Returns the server name of the user ID.
+    #[wasm_bindgen(js_name = "serverName")]
+    pub fn server_name(&self) -> ServerName {
+        ServerName { inner: self.inner.server_name().to_owned() }
+    }
+
     /// Whether this user ID is a historical one.
     ///
     /// A historical user ID is one that doesn't conform to the latest
@@ -52,5 +58,46 @@ impl DeviceId {
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> DeviceId {
         Self { inner: id.into() }
+    }
+}
+
+/// A Matrix-spec compliant [server name].
+///
+/// It consists of a host and an optional port (separated by a colon if
+/// present).
+///
+/// [server name]: https://spec.matrix.org/v1.2/appendices/#server-name
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct ServerName {
+    inner: ruma::OwnedServerName,
+}
+
+#[wasm_bindgen]
+impl ServerName {
+    /// Parse/validate and create a new `ServerName`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(name: &str) -> Result<ServerName, JsError> {
+        Ok(Self { inner: ruma::ServerName::parse(name)? })
+    }
+
+    /// Returns the host of the server name.
+    ///
+    /// That is: Return the part of the server before `:<port>` or the
+    /// full server name if there is no port.
+    pub fn host(&self) -> String {
+        self.inner.host().to_owned()
+    }
+
+    /// Returns the port of the server name if any.
+    pub fn port(&self) -> Option<u16> {
+        self.inner.port()
+    }
+
+    /// Returns true if and only if the server name is an IPv4 or IPv6
+    /// address.
+    #[wasm_bindgen(js_name = "isIpLiteral")]
+    pub fn is_ip_literal(&self) -> bool {
+        self.inner.is_ip_literal()
     }
 }
