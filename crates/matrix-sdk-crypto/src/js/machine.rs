@@ -52,6 +52,22 @@ impl OlmMachine {
         future_to_promise(async move { Ok(me.display_name().await?) })
     }
 
+    /// Get all the tracked users of our own device.
+    #[wasm_bindgen(js_name = "trackedUsers")]
+    pub fn tracked_users(&self) -> Set {
+        let set = Set::new(&JsValue::UNDEFINED);
+
+        self.inner
+            .tracked_users()
+            .into_iter()
+            .map(|user| identifiers::UserId { inner: user })
+            .for_each(|user| {
+                set.add(&user.into());
+            });
+
+        set
+    }
+
     #[wasm_bindgen(js_name = "receiveSyncChanges")]
     pub fn receive_sync_changes(
         &self,
