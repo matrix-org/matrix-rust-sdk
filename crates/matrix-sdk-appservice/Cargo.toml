@@ -2,6 +2,8 @@
 authors = ["Johannes Becker <j.becker@famedly.com>"]
 edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+description = "Appservice SDK based on the matrix-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio", "appservice"]
 license = "Apache-2.0"
 name = "matrix-sdk-appservice"
@@ -29,7 +31,7 @@ docs = []
 [dependencies]
 dashmap = "5.2.0"
 http = "0.2.6"
-matrix-sdk = { version = "0.4", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
+matrix-sdk = { version = "0.5.0", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 percent-encoding = "2.1.0"
 regex = "1.5.5"
 ruma = { version = "0.6.1", features = ["client-api-c", "appservice-api-s"] }
@@ -42,7 +44,7 @@ url = "2.2.2"
 warp = { version = "0.3.2", default-features = false }
 
 [dev-dependencies]
-matrix-sdk-test = { version = "0.4", path = "../matrix-sdk-test", features = ["appservice"] }
+matrix-sdk-test = { version = "0.5.0", path = "../matrix-sdk-test", features = ["appservice"] }
 mockito = "0.31.0"
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.3.11"

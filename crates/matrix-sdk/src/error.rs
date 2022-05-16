@@ -122,6 +122,11 @@ pub enum Error {
     #[error("The olm machine has already been initialized")]
     BadCryptoStoreState,
 
+    /// Attempting to access the olm-machine but it is not yet available.
+    #[cfg(feature = "e2e-encryption")]
+    #[error("The olm machine isn't yet available")]
+    NoOlmMachine,
+
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]
     SerdeJson(#[from] JsonError),
