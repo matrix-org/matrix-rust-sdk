@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use matrix_sdk::{
     config::SyncSettings,
+    SlidingSyncBuilder,
+    UpdateSummary as MatrixUpdateSummary,
+    SlidingSync as MatrixSlidingSync,
     media::{MediaFormat, MediaRequest},
     ruma::{
         api::client::{
@@ -13,6 +16,7 @@ use matrix_sdk::{
     },
     Client as MatrixClient, LoopCtrl,
 };
+use futures_util::{StreamExt, pin_mut};
 use parking_lot::RwLock;
 
 use super::{room::Room, ClientState, RestoreToken, RUNTIME};
@@ -24,8 +28,67 @@ impl std::ops::Deref for Client {
     }
 }
 
+pub struct UpdateSummary {
+    /// The views (according to their name), which have seen an update
+    pub views: Vec<String>,
+    pub rooms: Vec<String>,
+}
+impl From<MatrixUpdateSummary> for UpdateSummary {
+    fn from(other: MatrixUpdateSummary) -> UpdateSummary {
+        UpdateSummary {
+            views: other.views,
+            rooms: other.rooms.into_iter().map(|r| r.as_str().to_owned()).collect()
+        }
+    }
+}
+
+
+pub trait SlidingSyncDelegate: Sync + Send {
+    fn did_receive_sync_update(&self, summary: UpdateSummary);
+}
+
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_sync_update(&self);
+}
+
+pub struct SlidingSync {
+    inner: MatrixSlidingSync,
+    delegate: Arc<RwLock<Option<Box<dyn SlidingSyncDelegate>>>>,
+}
+
+
+impl SlidingSync {
+
+    pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
+        *self.delegate.write() = delegate;
+    }
+
+    pub fn start_sync(&self) {
+        let inner = self.inner.clone();
+        let delegate = self.delegate.clone();
+
+        RUNTIME.spawn(async move {
+            let (_cancel, stream) = inner.stream().expect("Doesn't fail.");
+            pin_mut!(stream);
+            for update in stream.next().await {
+                let update = match update {
+                    Ok(u) => u,
+                    Err(e) => {
+                        // FIXME: send this over the FFI
+                        println!("Sliding Sync failure: {:?}", e);
+                        continue
+                    }
+                };
+                if let Some(ref delegate) = *delegate.read() {
+                    delegate.did_receive_sync_update(update.into());
+                } else {
+                    // when the delegate has been removed
+                    // we cancel the loop
+                    break
+                }
+            }
+        });
+    }
 }
 
 #[derive(Clone)]
@@ -46,6 +109,12 @@ impl Client {
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
         *self.delegate.write() = delegate;
+    }
+
+    pub fn full_sliding_sync(&self) -> anyhow::Result<Arc<SlidingSync>> {
+        let mut builder = self.client.sliding_sync();
+        let inner = builder.add_fullsync_view().build()?;
+        Ok(Arc::new(SlidingSync { inner, delegate: Arc::new(RwLock::new(None))}))
     }
 
     pub fn start_sync(&self) {

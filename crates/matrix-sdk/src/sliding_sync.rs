@@ -195,7 +195,7 @@ use derive_builder::Builder;
 #[derive(Debug, Clone)]
 pub struct UpdateSummary {
     /// The views (according to their name), which have seen an update
-    pub views: Option<Vec<String>>,
+    pub views: Vec<String>,
     pub rooms: Vec<OwnedRoomId>,
 }
 
@@ -342,8 +342,6 @@ impl SlidingSync {
             }
         }
 
-        let views = if updated_views.is_empty() { None } else { Some(updated_views) };
-
         let rooms  = if let Some(subs) = &resp.room_subscriptions {
             let mut updated = Vec::new();
             let mut rooms = self.rooms.lock_mut();
@@ -362,7 +360,7 @@ impl SlidingSync {
         };
 
 
-        Ok(UpdateSummary { views, rooms })
+        Ok(UpdateSummary { views: updated_views, rooms })
     }
 
     /// Create the inner stream for the view

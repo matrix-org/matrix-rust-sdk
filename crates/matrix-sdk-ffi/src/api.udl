@@ -13,6 +13,8 @@ namespace sdk {
     string gen_transaction_id();
 };
 
+
+
 [Error]
 interface ClientError {
     Generic(string msg);
@@ -20,6 +22,25 @@ interface ClientError {
 
 callback interface ClientDelegate {
     void did_receive_sync_update();
+};
+
+
+dictionary UpdateSummary {
+    sequence<string> views;
+    sequence<string> rooms;
+};
+
+
+callback interface SlidingSyncDelegate {
+    void did_receive_sync_update(UpdateSummary summary);
+};
+
+
+interface SlidingSync {
+
+    void on_update(SlidingSyncDelegate? update);
+
+    void start_sync();
 };
 
 interface Client {
@@ -52,6 +73,9 @@ interface Client {
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);
+
+    [Throws=ClientError]
+    SlidingSync full_sliding_sync(); 
 };
 
 callback interface RoomDelegate {
