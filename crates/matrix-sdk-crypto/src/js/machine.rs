@@ -3,9 +3,8 @@ use std::{collections::BTreeMap, sync::Arc};
 use js_sys::{Array, Map, Promise, Set};
 use ruma::{DeviceKeyAlgorithm, UInt};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::future_to_promise;
 
-use crate::js::{errors::any_error_to_jsvalue, identifiers, sync_events};
+use crate::js::{future::future_to_promise, identifiers, sync_events};
 
 #[wasm_bindgen]
 #[derive(Debug)]
@@ -21,9 +20,9 @@ impl OlmMachine {
         let device_id = device_id.inner.clone();
 
         future_to_promise(async move {
-            Ok(JsValue::from(OlmMachine {
+            Ok(OlmMachine {
                 inner: Arc::new(crate::OlmMachine::new(user_id.as_ref(), device_id.as_ref()).await),
-            }))
+            })
         })
     }
 
@@ -46,9 +45,7 @@ impl OlmMachine {
     pub fn display_name(&self) -> Promise {
         let me = self.inner.clone();
 
-        future_to_promise(async move {
-            Ok(JsValue::from(me.display_name().await.map_err(any_error_to_jsvalue)?))
-        })
+        future_to_promise(async move { Ok(me.display_name().await?) })
     }
 
     pub fn receive_sync_changes(
@@ -84,19 +81,15 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(JsValue::from(
-                serde_json::to_string(
-                    &me.receive_sync_changes(
-                        to_device_events,
-                        &changed_devices,
-                        &one_time_key_counts,
-                        unused_fallback_keys.as_deref(),
-                    )
-                    .await
-                    .map_err(any_error_to_jsvalue)?,
+            Ok(serde_json::to_string(
+                &me.receive_sync_changes(
+                    to_device_events,
+                    &changed_devices,
+                    &one_time_key_counts,
+                    unused_fallback_keys.as_deref(),
                 )
-                .map_err(any_error_to_jsvalue)?,
-            ))
+                .await?,
+            )?)
         }))
     }
 
@@ -104,17 +97,14 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         future_to_promise(async move {
-            Ok(JsValue::from(
-                me.outgoing_requests()
-                    .await
-                    .map_err(any_error_to_jsvalue)?
-                    .into_iter()
-                    .map(TryFrom::try_from)
-                    .collect::<Result<Vec<JsValue>, _>>()
-                    .map_err(any_error_to_jsvalue)?
-                    .into_iter()
-                    .collect::<Array>(),
-            ))
+            Ok(me
+                .outgoing_requests()
+                .await?
+                .into_iter()
+                .map(TryFrom::try_from)
+                .collect::<Result<Vec<JsValue>, _>>()?
+                .into_iter()
+                .collect::<Array>())
         })
     }
 }

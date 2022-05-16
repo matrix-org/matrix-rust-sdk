@@ -1,6 +1,6 @@
 //! Additional API that can be useful from JavaScript.
 
-mod errors;
+mod future;
 pub mod identifiers;
 pub mod machine;
 pub mod requests;
