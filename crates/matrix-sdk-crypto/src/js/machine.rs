@@ -354,9 +354,22 @@ impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
     }
 }
 
+impl Into<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
+    fn into(self) -> EncryptionAlgorithm {
+        use EncryptionAlgorithm::*;
+
+        match self {
+            Self::OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2,
+            Self::MegolmV1AesSha2 => MegolmV1AesSha2,
+            _ => unreachable!("Unknown variant"),
+        }
+    }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Debug, Clone)]
 pub struct EncryptionSettings {
+    /// The algorith, see `EncryptionAlgorithm`.
     pub algorithm: EncryptionAlgorithm,
 
     /// A duration expressed in microseconds.
@@ -368,6 +381,22 @@ pub struct EncryptionSettings {
 
     #[wasm_bindgen(js_name = "historyVisibility")]
     pub history_visibility: events::HistoryVisibility,
+}
+
+#[wasm_bindgen]
+impl EncryptionSettings {
+    /// Create a new `EncryptionSettings` with default values.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> EncryptionSettings {
+        let default = crate::olm::EncryptionSettings::default();
+
+        Self {
+            algorithm: default.algorithm.into(),
+            rotation_period: default.rotation_period.as_micros().try_into().unwrap(),
+            rotation_period_messages: default.rotation_period_msgs,
+            history_visibility: default.history_visibility.into(),
+        }
+    }
 }
 
 impl From<&EncryptionSettings> for crate::olm::EncryptionSettings {

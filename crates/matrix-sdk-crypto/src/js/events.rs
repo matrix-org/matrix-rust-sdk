@@ -44,3 +44,17 @@ impl From<HistoryVisibility> for ruma::events::room::history_visibility::History
         }
     }
 }
+
+impl Into<HistoryVisibility> for ruma::events::room::history_visibility::HistoryVisibility {
+    fn into(self) -> HistoryVisibility {
+        use HistoryVisibility::*;
+
+        match self {
+            Self::Invited => Invited,
+            Self::Joined => Joined,
+            Self::Shared => Shared,
+            Self::WorldReadable => WorldReadable,
+            _ => unreachable!("Unkonwn variant"),
+        }
+    }
+}
