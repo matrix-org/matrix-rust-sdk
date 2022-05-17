@@ -93,8 +93,9 @@ pub struct BaseClient {
     /// The store used for encryption
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<dyn CryptoStore>,
-    /// The olm-machine that is created once the [`Session`][crate::session::Session] is
-    /// set via [`BaseClient::restore_login`]
+    /// The olm-machine that is created once the
+    /// [`Session`][crate::session::Session] is set via [`BaseClient::
+    /// restore_login`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
 }
