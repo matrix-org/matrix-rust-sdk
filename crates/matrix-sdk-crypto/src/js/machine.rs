@@ -224,6 +224,7 @@ impl OlmMachine {
     ///
     /// Returns true if a session was invalidated, false if there was
     /// no session to invalidate.
+    #[wasm_bindgen(js_name = "invalidateGroupSession")]
     pub fn invalidate_group_session(&self, room_id: &identifiers::RoomId) -> Promise {
         let room_id = room_id.inner.clone();
         let me = self.inner.clone();
