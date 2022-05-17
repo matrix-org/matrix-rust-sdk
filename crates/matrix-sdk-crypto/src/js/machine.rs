@@ -186,10 +186,36 @@ pub struct Ed25519PublicKey {
     inner: vodozemac::Ed25519PublicKey,
 }
 
+#[wasm_bindgen]
+impl Ed25519PublicKey {
+    #[wasm_bindgen(getter)]
+    pub fn length(&self) -> usize {
+        vodozemac::Ed25519PublicKey::LENGTH
+    }
+
+    #[wasm_bindgen(js_name = "toBase64")]
+    pub fn to_base64(&self) -> String {
+        self.inner.to_base64()
+    }
+}
+
 #[derive(Debug, Clone)]
 #[wasm_bindgen]
 pub struct Curve25519PublicKey {
     inner: vodozemac::Curve25519PublicKey,
+}
+
+#[wasm_bindgen]
+impl Curve25519PublicKey {
+    #[wasm_bindgen(getter)]
+    pub fn length(&self) -> usize {
+        vodozemac::Curve25519PublicKey::LENGTH
+    }
+
+    #[wasm_bindgen(js_name = "toBase64")]
+    pub fn to_base64(&self) -> String {
+        self.inner.to_base64()
+    }
 }
 
 #[derive(Debug)]
