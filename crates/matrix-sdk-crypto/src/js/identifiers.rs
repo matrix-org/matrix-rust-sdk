@@ -40,6 +40,12 @@ impl UserId {
     pub fn is_historical(&self) -> bool {
         self.inner.is_historical()
     }
+
+    /// Return the user ID as a string.
+    #[wasm_bindgen(js_name = "toString")]
+    pub fn to_string(&self) -> String {
+        self.inner.as_str().to_owned()
+    }
 }
 
 /// A Matrix key ID.
@@ -58,6 +64,12 @@ impl DeviceId {
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> DeviceId {
         Self { inner: id.into() }
+    }
+
+    /// Return the device ID as a string.
+    #[wasm_bindgen(js_name = "toString")]
+    pub fn to_string(&self) -> String {
+        self.inner.as_str().to_owned()
     }
 }
 
@@ -87,6 +99,12 @@ impl RoomId {
     #[wasm_bindgen(js_name = "serverName")]
     pub fn server_name(&self) -> ServerName {
         ServerName { inner: self.inner.server_name().to_owned() }
+    }
+
+    /// Return the device ID as a string.
+    #[wasm_bindgen(js_name = "toString")]
+    pub fn to_string(&self) -> String {
+        self.inner.as_str().to_owned()
     }
 }
 
