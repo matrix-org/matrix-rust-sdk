@@ -480,7 +480,7 @@ pub trait SupportedDatabase: Database + Sealed {
         )
     }
 
-    /// Stores an inbound group session
+    /// Upserts an inbound group session
     ///
     /// # Arguments
     /// * `$1` - The hashed room ID
@@ -488,13 +488,15 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$3` - The hashed session id
     /// * `$4` - The encrypted session data
     #[cfg(feature = "e2e-encryption")]
-    fn inbound_group_session_store_query(
+    fn inbound_group_session_upsert_query(
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_inbound_group_session
                     (room_id, sender_key, session_id, session_data)
                 VALUES ($1, $2, $3, $4)
+                ON CONFLICT (room_id, sender_key, session_id)
+                DO UPDATE SET session_data = $4
             "#,
         )
     }

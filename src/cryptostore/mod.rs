@@ -334,7 +334,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             "cryptostore_inbound_group_session:session_id",
             session.session_id().as_bytes(),
         );
-        DB::inbound_group_session_store_query()
+        DB::inbound_group_session_upsert_query()
             .bind(room_id)
             .bind(sender_key)
             .bind(session_id)
@@ -366,7 +366,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             "cryptostore_inbound_group_session:session_id",
             session.session_id().as_bytes(),
         );
-        DB::inbound_group_session_store_query()
+        DB::inbound_group_session_upsert_query()
             .bind(session_id)
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
@@ -726,6 +726,38 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             }))
     }
 
+    /// Fetch all inbound group sessions in a transaction
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked.
+    pub(crate) fn get_inbound_group_session_stream_txn<'r, 'c>(
+        &self,
+        txn: &'r mut Transaction<'c, DB>,
+    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + 'r>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        &'r mut Transaction<'c, DB>: Executor<'r, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher_arc()?;
+        Ok(Box::pin(
+            DB::inbound_group_sessions_fetch_query()
+                .fetch(txn)
+                .map_err(Into::into)
+                .and_then(move |row| {
+                    let cipher = Arc::clone(&cipher);
+                    async move {
+                        let data: Vec<u8> = row.try_get("session_data")?;
+                        let session = cipher.decrypt_value(&data)?;
+                        let session = InboundGroupSession::from_pickle(session)?;
+                        Ok(session)
+                    }
+                }),
+        ))
+    }
+
     /// Fetch all inbound group sessions
     ///
     /// # Errors
@@ -784,8 +816,34 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     {
         self.get_inbound_group_session_stream()?
             .try_filter(|v| futures::future::ready(!v.backed_up()))
+            .take(limit)
             .try_collect()
             .await
+    }
+
+    /// Resets the backup state of all inbound group sessions
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn reset_backup_state(&self) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let mut txn = self.db.begin().await?;
+        let sessions: Vec<_> = self
+            .get_inbound_group_session_stream_txn(&mut txn)?
+            .try_collect()
+            .await?;
+        for session in sessions {
+            session.reset_backup_state();
+            self.save_inbound_group_session(&mut txn, session).await?;
+        }
+        Ok(())
     }
 }
 
@@ -858,7 +916,9 @@ where
             .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn reset_backup_state(&self) -> StoreResult<()> {
-        todo!();
+        self.reset_backup_state()
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn load_backup_keys(&self) -> StoreResult<BackupKeys> {
         todo!();
