@@ -12,9 +12,6 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
-[features]
-default = ["with-runtime"]
-with-runtime = ["tokio"]
 
 [build-dependencies]
 uniffi_build = { version = "0.17.0", features = ["builtin-bindgen"] }
@@ -31,7 +28,7 @@ sanitize-filename-reader-friendly = "2.2.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = "1.0.30"
-tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.8"
 tracing = "0.1.32"
 uniffi = "0.17.0"
