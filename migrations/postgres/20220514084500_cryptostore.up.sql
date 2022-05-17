@@ -17,7 +17,7 @@ CREATE TABLE cryptostore_inbound_group_session (
     PRIMARY KEY (room_id, sender_key, session_id)
 );
 CREATE TABLE cryptostore_outbound_group_session (
-    session_id BYTEA PRIMARY KEY NOT NULL,
+    room_id BYTEA PRIMARY KEY NOT NULL,
     session_data BYTEA NOT NULL
 );
 CREATE TABLE cryptostore_gossip_request (

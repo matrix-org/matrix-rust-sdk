@@ -362,12 +362,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
-        let session_id = cipher.hash_key(
-            "cryptostore_inbound_group_session:session_id",
-            session.session_id().as_bytes(),
+        let room_id = cipher.hash_key(
+            "cryptostore_inbound_group_session:room_id",
+            session.room_id().as_bytes(),
         );
         DB::inbound_group_session_upsert_query()
-            .bind(session_id)
+            .bind(room_id)
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
@@ -874,6 +874,49 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             backup_version,
         })
     }
+
+    /// Retrieve an outbound group session
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_outbound_group_sessions(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher()?;
+        let account_info = self.ensure_e2e()?.account.read().await;
+        let account_info = account_info
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No account info"))?;
+        let room_id = cipher.hash_key(
+            "cryptostore_inbound_group_session:room_id",
+            room_id.as_bytes(),
+        );
+        let row = DB::outbound_group_session_load_query()
+            .bind(room_id)
+            .fetch_optional(&*self.db)
+            .await?;
+        if let Some(row) = row {
+            let data: Vec<u8> = row.try_get("session_data")?;
+            let session = cipher.decrypt_value(&data)?;
+            let session = OutboundGroupSession::from_pickle(
+                Arc::clone(&account_info.device_id),
+                Arc::clone(&account_info.identity_keys),
+                session,
+            )?;
+            Ok(Some(session))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[async_trait]
@@ -958,7 +1001,9 @@ where
         &self,
         room_id: &RoomId,
     ) -> StoreResult<Option<OutboundGroupSession>> {
-        todo!();
+        self.get_outbound_group_sessions(room_id)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
         todo!();

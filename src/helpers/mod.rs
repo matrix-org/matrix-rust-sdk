@@ -504,14 +504,14 @@ pub trait SupportedDatabase: Database + Sealed {
     /// Stores an outbound group session
     ///
     /// # Arguments
-    /// * `$1` - The hashed session id
+    /// * `$1` - The hashed room id
     /// * `$2` - The encrypted session data
     #[cfg(feature = "e2e-encryption")]
     fn outbound_group_session_store_query(
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO cryptostore_outbound_group_session (session_id, session_data)
+                INSERT INTO cryptostore_outbound_group_session (room_id, session_data)
                 VALUES ($1, $2)
             "#,
         )
@@ -623,6 +623,21 @@ pub trait SupportedDatabase: Database + Sealed {
         sqlx::query(
             r#"
                 SELECT session_data FROM cryptostore_inbound_group_session
+            "#,
+        )
+    }
+
+    /// Load the outbound group session for a room
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed room ID
+    #[cfg(feature = "e2e-encryption")]
+    fn outbound_group_session_load_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT session_data FROM cryptostore_outbound_group_session
+                WHERE room_id = $1
             "#,
         )
     }
