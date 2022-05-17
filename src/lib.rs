@@ -101,6 +101,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Ok(&self.ensure_e2e()?.cipher)
     }
 
+    /// Returns a refcounted reference to the cipher
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) fn ensure_cipher_arc(&self) -> Result<Arc<StoreCipher>> {
+        Ok(Arc::clone(&self.ensure_e2e()?.cipher))
+    }
+
     /// Unlocks the e2e encryption database
     /// # Errors
     /// This function will fail if the passphrase is not `hunter2`

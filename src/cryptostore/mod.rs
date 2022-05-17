@@ -8,7 +8,7 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 use educe::Educe;
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStream, TryStreamExt};
 use matrix_sdk_base::locks::{Mutex, RwLock};
 use matrix_sdk_crypto::{
     olm::{
@@ -40,7 +40,7 @@ type StoreResult<T> = Result<T, CryptoStoreError>;
 pub(crate) struct CryptostoreData {
     /// Encryption cipher
     #[educe(Debug(ignore))]
-    pub(crate) cipher: StoreCipher,
+    pub(crate) cipher: Arc<StoreCipher>,
     /// Account info
     pub(crate) account: RwLock<Option<AccountInfo>>,
     /// In-Memory session store
@@ -55,7 +55,7 @@ impl CryptostoreData {
     /// Create a new cryptostore data
     pub(crate) fn new(cipher: StoreCipher) -> Self {
         Self {
-            cipher,
+            cipher: Arc::new(cipher),
             account: RwLock::new(None),
             sessions: SessionStore::new(),
             group_sessions: GroupSessionStore::new(),
@@ -700,6 +700,35 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// Fetch all inbound group sessions
     ///
     /// # Errors
+    /// This function will return an error if the database has not been unlocked.
+    pub(crate) fn get_inbound_group_session_stream(
+        &self,
+    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher_arc()?;
+        Ok(DB::inbound_group_sessions_fetch_query()
+            .fetch(&*self.db)
+            .map_err(Into::into)
+            .and_then(move |row| {
+                let cipher = Arc::clone(&cipher);
+                async move {
+                    let data: Vec<u8> = row.try_get("session_data")?;
+                    let session = cipher.decrypt_value(&data)?;
+                    let session = InboundGroupSession::from_pickle(session)?;
+                    Ok(session)
+                }
+            }))
+    }
+
+    /// Fetch all inbound group sessions
+    ///
+    /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
     pub(crate) async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>
@@ -710,16 +739,53 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
-        let mut rows = DB::inbound_group_sessions_fetch_query().fetch(&*self.db);
-        let mut sessions = Vec::new();
-        while let Some(row) = rows.try_next().await? {
-            let data: Vec<u8> = row.try_get("session_data")?;
-            let session = cipher.decrypt_value(&data)?;
-            let session = InboundGroupSession::from_pickle(session)?;
-            sessions.push(session);
-        }
-        Ok(sessions)
+        self.get_inbound_group_session_stream()?.try_collect().await
+    }
+
+    /// Fetch inbound session counts
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        self.get_inbound_group_session_stream()?
+            .try_fold(RoomKeyCounts::default(), |mut counts, session| async move {
+                counts.total += 1;
+                if session.backed_up() {
+                    counts.backed_up += 1;
+                }
+                Ok(counts)
+            })
+            .await
+    }
+
+    /// Fetch inbound group sessions for backup
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn inbound_group_sessions_for_backup(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<InboundGroupSession>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        self.get_inbound_group_session_stream()?
+            .try_filter(|v| futures::future::ready(!v.backed_up()))
+            .try_collect()
+            .await
     }
 }
 
@@ -779,13 +845,17 @@ where
             .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn inbound_group_session_counts(&self) -> StoreResult<RoomKeyCounts> {
-        todo!();
+        self.inbound_group_session_counts()
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn inbound_group_sessions_for_backup(
         &self,
         limit: usize,
     ) -> StoreResult<Vec<InboundGroupSession>> {
-        todo!();
+        self.inbound_group_sessions_for_backup(limit)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn reset_backup_state(&self) -> StoreResult<()> {
         todo!();
