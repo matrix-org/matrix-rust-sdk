@@ -3,7 +3,7 @@
 use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
-use crate::js::identifiers;
+use crate::js::{downcast, identifiers};
 
 /// Information on E2E device updates.
 #[wasm_bindgen]
@@ -17,44 +17,21 @@ impl DeviceLists {
     /// Create an empty `DeviceLists`.
     ///
     /// `changed` and `left` must be an array of strings representing
-    /// a user ID, otherwise invalid entries will be filtered out with
-    /// an error.
+    /// a user ID. Ideally, we should pass a `UserId` object instance,
+    /// but it's a limitation of `wasm-bindgen` (a workaround is
+    /// possible but it will slow down performance).
     #[wasm_bindgen(constructor)]
     pub fn new(changed: Array, left: Array) -> Result<DeviceLists, JsError> {
         let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
 
         inner.changed = changed
             .iter()
-            .map(|user| {
-                let user = user
-                    .as_string()
-                    .ok_or_else(|| JsError::new("Given user ID is not a string"))?;
-                let user = ruma::UserId::parse(&user).map_err(|error| {
-                    JsError::new(&format!(
-                        "Given user ID `{}` has an invalid syntax: {}",
-                        user, error,
-                    ))
-                })?;
-
-                Ok(user)
-            })
+            .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
             .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
 
         inner.left = left
             .iter()
-            .map(|user| {
-                let user = user
-                    .as_string()
-                    .ok_or_else(|| JsError::new("Given user ID is not a string"))?;
-                let user = ruma::UserId::parse(&user).map_err(|error| {
-                    JsError::new(&format!(
-                        "Given user ID `{}` has an invalid syntax: {}",
-                        user, error,
-                    ))
-                })?;
-
-                Ok(user)
-            })
+            .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
             .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
 
         Ok(Self { inner })
