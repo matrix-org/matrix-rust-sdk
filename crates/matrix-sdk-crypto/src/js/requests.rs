@@ -74,7 +74,7 @@ pub struct ToDeviceRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```
-    /// {"event_type": …, "transaction_id": …, "messages": …}
+    /// {"event_type": …, "txn_id": …, "messages": …}
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
@@ -93,7 +93,7 @@ pub struct SignatureUploadRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```
-    /// {"signed_keys": …, "transaction_id": …, "messages": …}
+    /// {"signed_keys": …, "txn_id": …, "messages": …}
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
@@ -110,7 +110,7 @@ pub struct RoomMessageRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```
-    /// {"room_id": …, "transaction_id": …, "content": …}
+    /// {"room_id": …, "txn_id": …, "content": …}
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
@@ -183,7 +183,7 @@ impl TryFrom<OutgoingRequest> for JsValue {
             OutgoingRequests::ToDeviceRequest(request) => {
                 let body = json!({
                     "event_type": request.event_type,
-                    "transaction_id": request.txn_id,
+                    "txn_id": request.txn_id,
                     "messages": request.messages,
                 });
 
@@ -207,7 +207,7 @@ impl TryFrom<OutgoingRequest> for JsValue {
             OutgoingRequests::RoomMessage(request) => {
                 let body = json!({
                     "room_id": request.room_id,
-                    "transaction_id": request.txn_id,
+                    "txn_id": request.txn_id,
                     "content": request.content,
                 });
 
