@@ -39,7 +39,6 @@
 
 pub mod caches;
 mod memorystore;
-mod pickle_key;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -57,7 +56,6 @@ use std::{
 use async_trait::async_trait;
 use matrix_sdk_common::{locks::Mutex, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
-pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
     events::secret::request::SecretName, DeviceId, IdParseError, OwnedDeviceId, OwnedUserId,
     RoomId, TransactionId, UserId,

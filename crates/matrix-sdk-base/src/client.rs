@@ -344,19 +344,25 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        let actions = push_rules.get_actions(&event.event, context).to_vec();
+                        if event
+                            .event
+                            .get_field::<OwnedUserId>("sender")?
+                            .map_or(false, |id| id != user_id)
+                        {
+                            let actions = push_rules.get_actions(&event.event, context).to_vec();
 
-                        if actions.iter().any(|a| matches!(a, Action::Notify)) {
-                            changes.add_notification(
-                                room_id,
-                                Notification::new(
-                                    actions,
-                                    event.event.clone(),
-                                    false,
-                                    room_id.to_owned(),
-                                    MilliSecondsSinceUnixEpoch::now(),
-                                ),
-                            );
+                            if actions.iter().any(|a| matches!(a, Action::Notify)) {
+                                changes.add_notification(
+                                    room_id,
+                                    Notification::new(
+                                        actions,
+                                        event.event.clone(),
+                                        false,
+                                        room_id.to_owned(),
+                                        MilliSecondsSinceUnixEpoch::now(),
+                                    ),
+                                );
+                            }
                         }
                         // TODO if there is an
                         // Action::SetTweak(Tweak::Highlight) we need to store
