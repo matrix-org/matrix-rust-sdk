@@ -2,3 +2,5 @@
 members = ["benchmarks", "crates/*", "labs/*", "xtask"]
 # xtask and labs should only be compiled when invoked explicitly
 default-members = ["benchmarks", "crates/*"]
+
+resolver = "2"
