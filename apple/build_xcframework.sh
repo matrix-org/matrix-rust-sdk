@@ -17,19 +17,19 @@ REL_TYPE_DIR="release"
 # Build static libs for all the different architectures
 
 # iOS
-cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios"
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios"
 
 # MacOS
-cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-darwin"
-cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-darwin"
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-darwin"
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-darwin"
 
 # iOS Simulator
-cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
-cargo build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
 # Mac Catalyst
-cargo +nightly build --locked -Z build-std -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-macabi"
-cargo +nightly build --locked -Z build-std -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios-macabi"
+cargo +nightly build -Z build-std -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-macabi"
+cargo +nightly build -Z build-std -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios-macabi"
 
 # Lipo together the libraries for the same platform
 
