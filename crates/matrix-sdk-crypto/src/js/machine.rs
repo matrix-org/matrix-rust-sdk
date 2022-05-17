@@ -233,6 +233,11 @@ impl OlmMachine {
         future_to_promise(async move { Ok(me.invalidate_group_session(&room_id).await?) })
     }
 
+    /// Get to-device requests to share a group session with users in a room.
+    ///
+    /// `room_id` is the room ID. `users` is an array of strings
+    /// representing user IDs. `encryption_settings` are an
+    /// `EncryptionSettings` object.
     #[wasm_bindgen(js_name = "shareGroupSession")]
     pub fn share_group_session(
         &self,
