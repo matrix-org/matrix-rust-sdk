@@ -187,7 +187,7 @@ impl TryFrom<OutgoingRequest> for JsValue {
                     "messages": request.messages,
                 });
 
-                JsValue::from(KeysClaimRequest {
+                JsValue::from(ToDeviceRequest {
                     request_id,
                     body: serde_json::to_string(&body)?.into(),
                 })
