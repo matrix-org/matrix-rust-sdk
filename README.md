@@ -1,4 +1,4 @@
-# .github
-Default metadata files for repos in this org.
+# Matrix rust components kotlin
 
-If you're seeing this readme in your project, your project is configured wrong.
+This project will probably move to the [matrix-rust-sdk repository.](https://github.com/matrix-org/matrix-rust-sdk)
+For now it only builds the matrix-sdk-crypto-ffi crate, generate the android bindings and wraps that as a aar lib distributed on maven.
