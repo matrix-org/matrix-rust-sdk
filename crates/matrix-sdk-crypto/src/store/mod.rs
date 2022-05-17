@@ -22,6 +22,7 @@
 //! `wasm-unknown-unknown` an indexeddb store would be needed
 //!
 //! ```
+//! # use std::sync::Arc;
 //! # use matrix_sdk_crypto::{
 //! #     OlmMachine,
 //! #     store::MemoryStore,
@@ -29,7 +30,7 @@
 //! # use ruma::{device_id, user_id};
 //! # let user_id = user_id!("@example:localhost");
 //! # let device_id = device_id!("TEST");
-//! let store = Box::new(MemoryStore::new());
+//! let store = Arc::new(MemoryStore::new());
 //!
 //! let machine = OlmMachine::with_store(user_id, device_id, store);
 //! ```
