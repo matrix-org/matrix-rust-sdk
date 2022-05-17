@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use js_sys::{Array, Map, Promise, Set};
 use ruma::{
@@ -9,6 +9,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::js::{
+    events,
     future::future_to_promise,
     identifiers,
     requests::RequestType,
@@ -231,10 +232,50 @@ impl OlmMachine {
 
         future_to_promise(async move { Ok(me.invalidate_group_session(&room_id).await?) })
     }
+
+    #[wasm_bindgen(js_name = "shareGroupSession")]
+    pub fn share_group_session(
+        &self,
+        room_id: &identifiers::RoomId,
+        users: &Array,
+        encryption_settings: &EncryptionSettings,
+    ) -> Result<Promise, JsError> {
+        let room_id = room_id.inner.clone();
+        let users = users
+            .iter()
+            .map(|user| {
+                let user = user
+                    .as_string()
+                    .ok_or_else(|| JsError::new("Given user ID is not a string"))?;
+                let user = ruma::UserId::parse(&user).map_err(|error| {
+                    JsError::new(&format!(
+                        "Given user ID `{}` has an invalid syntax: {}",
+                        user, error
+                    ))
+                })?;
+
+                Ok(user)
+            })
+            .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
+        let encryption_settings = crate::olm::EncryptionSettings::from(encryption_settings);
+
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            Ok(serde_json::to_string(
+                &me.share_group_session(
+                    &room_id,
+                    users.iter().by_ref().map(AsRef::as_ref),
+                    encryption_settings,
+                )
+                .await?,
+            )?)
+        }))
+    }
 }
 
-#[derive(Debug, Clone)]
 #[wasm_bindgen]
+#[derive(Debug, Clone)]
 pub struct Ed25519PublicKey {
     inner: vodozemac::Ed25519PublicKey,
 }
@@ -252,8 +293,8 @@ impl Ed25519PublicKey {
     }
 }
 
-#[derive(Debug, Clone)]
 #[wasm_bindgen]
+#[derive(Debug, Clone)]
 pub struct Curve25519PublicKey {
     inner: vodozemac::Curve25519PublicKey,
 }
@@ -271,8 +312,8 @@ impl Curve25519PublicKey {
     }
 }
 
-#[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Debug)]
 pub struct IdentityKeys {
     pub ed25519: Ed25519PublicKey,
     pub curve25519: Curve25519PublicKey,
@@ -283,6 +324,54 @@ impl From<crate::olm::IdentityKeys> for IdentityKeys {
         Self {
             ed25519: Ed25519PublicKey { inner: value.ed25519 },
             curve25519: Curve25519PublicKey { inner: value.curve25519 },
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub enum EncryptionAlgorithm {
+    /// Olm version 1 using Curve25519, AES-256, and SHA-256.
+    OlmV1Curve25519AesSha2,
+
+    /// Megolm version 1 using AES-256 and SHA-256.
+    MegolmV1AesSha2,
+}
+
+impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
+    fn from(value: EncryptionAlgorithm) -> Self {
+        use EncryptionAlgorithm::*;
+
+        match value {
+            OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
+            MegolmV1AesSha2 => Self::MegolmV1AesSha2,
+        }
+    }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Debug, Clone)]
+pub struct EncryptionSettings {
+    pub algorithm: EncryptionAlgorithm,
+
+    /// A duration expressed in microseconds.
+    #[wasm_bindgen(js_name = "rotationPeriod")]
+    pub rotation_period: u64,
+
+    #[wasm_bindgen(js_name = "rotationPeriodMessages")]
+    pub rotation_period_messages: u64,
+
+    #[wasm_bindgen(js_name = "historyVisibility")]
+    pub history_visibility: events::HistoryVisibility,
+}
+
+impl From<&EncryptionSettings> for crate::olm::EncryptionSettings {
+    fn from(value: &EncryptionSettings) -> Self {
+        Self {
+            algorithm: value.algorithm.clone().into(),
+            rotation_period: Duration::from_micros(value.rotation_period),
+            rotation_period_msgs: value.rotation_period_messages,
+            history_visibility: value.history_visibility.clone().into(),
         }
     }
 }
