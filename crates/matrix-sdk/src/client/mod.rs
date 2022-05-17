@@ -195,7 +195,7 @@ impl Client {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn olm_machine(&self) -> Option<Arc<matrix_sdk_base::crypto::OlmMachine>> {
+    pub(crate) fn olm_machine(&self) -> Option<&matrix_sdk_base::crypto::OlmMachine> {
         self.base_client().olm_machine()
     }
 
@@ -2406,7 +2406,7 @@ pub(crate) mod tests {
 
         client.login("example", "wordpass", None, None).await.unwrap();
 
-        let logged_in = client.logged_in().await;
+        let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
 
         assert_eq!(client.homeserver().await, homeserver);
@@ -2423,7 +2423,7 @@ pub(crate) mod tests {
 
         client.login("example", "wordpass", None, None).await.unwrap();
 
-        let logged_in = client.logged_in().await;
+        let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
 
         assert_eq!(client.homeserver().await.as_str(), "https://example.org/");
@@ -2440,7 +2440,7 @@ pub(crate) mod tests {
 
         client.login("example", "wordpass", None, None).await.unwrap();
 
-        let logged_in = client.logged_in().await;
+        let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
 
         assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
@@ -2484,7 +2484,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let logged_in = client.logged_in().await;
+        let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
     }
 
@@ -2516,7 +2516,7 @@ pub(crate) mod tests {
 
         client.login_with_token("averysmalltoken", None, None).await.unwrap();
 
-        let logged_in = client.logged_in().await;
+        let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
     }
 
@@ -2542,7 +2542,7 @@ pub(crate) mod tests {
             .create();
 
         let client = logged_in_client().await;
-        let session = client.session().await.unwrap();
+        let session = client.session().unwrap().clone();
 
         let room = client.get_joined_room(room_id);
         assert!(room.is_none());

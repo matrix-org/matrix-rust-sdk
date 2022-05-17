@@ -635,7 +635,7 @@ impl OlmMachine {
     /// Encrypt a room message for the given room.
     ///
     /// Beware that a group session needs to be shared before this method can be
-    /// called using the [`share_group_session`] method.
+    /// called using the [`OlmMachine::share_group_session`] method.
     ///
     /// # Arguments
     ///

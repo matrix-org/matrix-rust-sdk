@@ -93,10 +93,10 @@ pub struct BaseClient {
     /// The store used for encryption
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<dyn CryptoStore>,
-    /// The olm-machine that is created once the [`matrix_sdk::Session`] is set
-    /// via [`BaseClient::restore_login`]
+    /// The olm-machine that is created once the [`crate::session::Session`] is
+    /// set via [`BaseClient::restore_login`]
     #[cfg(feature = "e2e-encryption")]
-    olm_machine: OnceCell<Arc<OlmMachine>>,
+    olm_machine: OnceCell<OlmMachine>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -140,8 +140,8 @@ impl BaseClient {
     /// Get the user login session.
     ///
     /// If the client is currently logged in, this will return a
-    /// [`matrix_sdk::Session`] object which can later be given to
-    /// `restore_login`.
+    /// [`crate::session::Session`] object which can later be given to
+    /// [`BaseClient::restore_login`].
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
     /// `None`.
@@ -197,7 +197,7 @@ impl BaseClient {
             .await
             .map_err(OlmError::from)?;
 
-            if self.olm_machine.set(Arc::new(olm_machine)).is_err() {
+            if self.olm_machine.set(olm_machine).is_err() {
                 return Err(Error::BadCryptoStoreState);
             }
         }
@@ -1150,8 +1150,8 @@ impl BaseClient {
 
     /// Get the olm machine.
     #[cfg(feature = "e2e-encryption")]
-    pub fn olm_machine(&self) -> Option<Arc<OlmMachine>> {
-        self.olm_machine.get().cloned()
+    pub fn olm_machine(&self) -> Option<&OlmMachine> {
+        self.olm_machine.get()
     }
 
     /// Get the push rules.

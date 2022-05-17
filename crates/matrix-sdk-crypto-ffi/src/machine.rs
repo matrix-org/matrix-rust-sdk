@@ -3,6 +3,7 @@ use std::{
     convert::TryInto,
     io::Cursor,
     ops::Deref,
+    sync::Arc,
 };
 
 use base64::{decode_config, encode, STANDARD_NO_PAD};
@@ -92,7 +93,7 @@ impl OlmMachine {
         let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
-        let store = Box::new(
+        let store = Arc::new(
             matrix_sdk_sled::CryptoStore::open_with_passphrase(path, passphrase.as_deref())
                 .map_err(|e| {
                     match e {
