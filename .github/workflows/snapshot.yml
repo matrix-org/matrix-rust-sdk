@@ -3,7 +3,7 @@ name: Build & Publish snapshot
 on:
   workflow_dispatch:
     inputs:
-      checkout-ref
+      rust-checkout-ref
 
 jobs:
   build_native:
@@ -25,7 +25,7 @@ jobs:
         with:
           repository: matrix-org/matrix-rust-sdk
           path: rust-sdk
-          ref: ${{ github.event.inputs.checkout-ref }}"
+          ref: '${{ github.event.inputs.rust-checkout-ref }}'
     
       - name: Install android sdk
         uses: malinskiy/action-android/install-sdk@release/0.1.2
