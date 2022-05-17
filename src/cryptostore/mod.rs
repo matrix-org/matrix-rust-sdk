@@ -845,6 +845,35 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         }
         Ok(())
     }
+
+    /// Loads the saved backup keys
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn load_backup_keys(&self) -> Result<BackupKeys>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher()?;
+        let backup_version = self
+            .get_kv(b"backup_version".to_vec())
+            .await?
+            .map(|v| cipher.decrypt_value(&v).map_err(anyhow::Error::from))
+            .transpose()?;
+        let recovery_key = self
+            .get_kv(b"recovery_key".to_vec())
+            .await?
+            .map(|v| cipher.decrypt_value(&v).map_err(anyhow::Error::from))
+            .transpose()?;
+        Ok(BackupKeys {
+            recovery_key,
+            backup_version,
+        })
+    }
 }
 
 #[async_trait]
@@ -921,7 +950,9 @@ where
             .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn load_backup_keys(&self) -> StoreResult<BackupKeys> {
-        todo!();
+        self.load_backup_keys()
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_outbound_group_sessions(
         &self,
