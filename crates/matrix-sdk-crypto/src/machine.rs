@@ -638,11 +638,6 @@ impl OlmMachine {
     /// Beware that a group session needs to be shared before this method can be
     /// called using the [`share_group_session`] method.
     ///
-    /// Since group sessions can expire or become invalid if the room membership
-    /// changes client authors should check with the
-    /// [`should_share_group_session`] method if a new group session needs to
-    /// be shared.
-    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
@@ -654,9 +649,6 @@ impl OlmMachine {
     /// # Panics
     ///
     /// Panics if a group session for the given room wasn't shared beforehand.
-    ///
-    /// [`should_share_group_session`]: #method.should_share_group_session
-    /// [`share_group_session`]: #method.share_group_session
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
