@@ -93,7 +93,7 @@ pub struct BaseClient {
     /// The store used for encryption
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<dyn CryptoStore>,
-    /// The olm-machine that is created once the [`crate::session::Session`] is
+    /// The olm-machine that is created once the [`Session`][crate::session::Session] is
     /// set via [`BaseClient::restore_login`]
     #[cfg(feature = "e2e-encryption")]
     olm_machine: OnceCell<OlmMachine>,
@@ -140,7 +140,7 @@ impl BaseClient {
     /// Get the user login session.
     ///
     /// If the client is currently logged in, this will return a
-    /// [`crate::session::Session`] object which can later be given to
+    /// [`Session`][crate::session::Session] object which can later be given to
     /// [`BaseClient::restore_login`].
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
