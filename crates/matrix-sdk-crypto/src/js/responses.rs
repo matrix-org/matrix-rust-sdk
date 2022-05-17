@@ -1,3 +1,5 @@
+//! Types related to responses.
+
 pub(crate) use ruma::api::client::{
     backup::add_backup_keys::v3::Response as KeysBackupResponse,
     keys::{
