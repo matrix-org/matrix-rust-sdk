@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 set -eEu
 
-cd "$(dirname "$0")"
+IS_CI=false
+
+if [ $# -eq 1 ]; then
+  IS_CI=true
+  echo "Running CI build"
+else
+  echo "Running debug build"
+fi
 
 # Path to the repo root
-SRC_ROOT=../..
+SRC_ROOT=..
 
 TARGET_DIR="${SRC_ROOT}/target"
 
@@ -51,8 +58,12 @@ xcodebuild -create-xcframework \
 if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
 if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
 
-# Debug -> Copy generated files over to ../../../matrix-rust-components-swift
-echo "$(echo "import MatrixSDKFFIWrapper\n"; cat "${SWIFT_DIR}/sdk.swift")" > "${SWIFT_DIR}/sdk.swift"
+if [ "$IS_CI" = false ] ; then
+  echo "Preparing matrix-rust-components-swift"
 
-rsync -a --delete "${GENERATED_DIR}/MatrixSDKFFI.xcframework" "../../../matrix-rust-components-swift/"
-rsync -a --delete "${GENERATED_DIR}/swift/" "../../../matrix-rust-components-swift/Sources/MatrixRustSDK"
+  # Debug -> Copy generated files over to ../../../matrix-rust-components-swift
+  echo "$(echo "import MatrixSDKFFIWrapper\n"; cat "${SWIFT_DIR}/sdk.swift")" > "${SWIFT_DIR}/sdk.swift"
+
+  rsync -a --delete "${GENERATED_DIR}/MatrixSDKFFI.xcframework" "${SRC_ROOT}/../matrix-rust-components-swift/"
+  rsync -a --delete "${GENERATED_DIR}/swift/" "${SRC_ROOT}/../matrix-rust-components-swift/Sources/MatrixRustSDK"
+fi
