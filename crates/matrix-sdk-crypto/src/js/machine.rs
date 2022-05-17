@@ -1,7 +1,11 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use js_sys::{Array, Map, Promise, Set};
-use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
+use ruma::{
+    events::{AnyMessageLikeEventContent, EventContent},
+    DeviceKeyAlgorithm, OwnedTransactionId, UInt,
+};
+use serde_json::value::RawValue as RawJsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::js::{
@@ -177,6 +181,54 @@ impl OlmMachine {
         Ok(future_to_promise(async move {
             Ok(me.mark_request_as_sent(&transaction_id, &incoming_response).await.map(|_| true)?)
         }))
+    }
+
+    /// Encrypt a room message for the given room.
+    ///
+    /// Beware that a group session needs to be shared before this
+    /// method can be called using the `share_group_session` method.
+    ///
+    /// Since group sessions can expire or become invalid if the room
+    /// membership changes, client authors should check with the
+    /// `should_share_group_session` method if a new group session
+    /// needs to be shared.
+    ///
+    /// `room_id` is the ID of the room for which the message should
+    /// be encrypted. `event_type` is the type of the event. `content`
+    /// is the plaintext content of the message that should be
+    /// encrypted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a group session for the given room wasn't shared beforehand.
+    pub fn encrypt(
+        &self,
+        room_id: &identifiers::RoomId,
+        event_type: &str,
+        content: &str,
+    ) -> Result<Promise, JsError> {
+        let room_id = room_id.inner.clone();
+        let content: Box<RawJsonValue> = serde_json::from_str(content).map_err(JsError::from)?;
+        let content =
+            AnyMessageLikeEventContent::from_parts(event_type, &content).map_err(JsError::from)?;
+
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            Ok(serde_json::to_string(&me.encrypt(&room_id, content).await?)?)
+        }))
+    }
+
+    /// Invalidate the currently active outbound group session for the
+    /// given room.
+    ///
+    /// Returns true if a session was invalidated, false if there was
+    /// no session to invalidate.
+    pub fn invalidate_group_session(&self, room_id: &identifiers::RoomId) -> Promise {
+        let room_id = room_id.inner.clone();
+        let me = self.inner.clone();
+
+        future_to_promise(async move { Ok(me.invalidate_group_session(&room_id).await?) })
     }
 }
 
