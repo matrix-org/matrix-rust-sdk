@@ -3,7 +3,10 @@ name: Build & Publish snapshot
 on:
   workflow_dispatch:
     inputs:
-      rust-checkout-ref
+      rust-checkout-ref:
+        description: 'The branch, tag or SHA to checkout on the rust sdk.'     
+        required: true
+        default: 'main'
 
 jobs:
   build_native:
