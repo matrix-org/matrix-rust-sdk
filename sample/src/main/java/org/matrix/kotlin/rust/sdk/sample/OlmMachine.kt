@@ -7,8 +7,6 @@ class OlmMachine(
     device_id: String,
     path: File,
 ) {
-    private val inner: uniffi.olm.OlmMachine = uniffi.olm.OlmMachine(user_id, device_id, path.absolutePath)
-
-
+    private val inner: uniffi.olm.OlmMachine = uniffi.olm.OlmMachine(user_id, device_id, path.absolutePath,null)
 
 }

@@ -7,7 +7,7 @@ class SampleApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        OlmMachine("", "", File("sample"))
+        OlmMachine("@ganfra146:matrix.org", "DEWRCMENGS", File(filesDir, "sample"))
     }
 
 }
