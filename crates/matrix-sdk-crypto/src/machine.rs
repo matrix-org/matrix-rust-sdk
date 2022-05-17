@@ -650,7 +650,7 @@ impl OlmMachine {
     ///
     /// Panics if a group session for the given room wasn't shared beforehand.
     ///
-    /// [`share_group_session`]: #method.share_group_session
+    /// [`share_group_session`]: Self::share_group_session
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
