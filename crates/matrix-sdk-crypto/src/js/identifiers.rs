@@ -61,6 +61,35 @@ impl DeviceId {
     }
 }
 
+/// A Matrix [room ID].
+///
+/// [room ID]: https://spec.matrix.org/v1.2/appendices/#room-ids-and-event-ids
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct RoomId {
+    pub(crate) inner: ruma::OwnedRoomId,
+}
+
+#[wasm_bindgen]
+impl RoomId {
+    /// Parse/validate and create a new `UserId`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: &str) -> Result<RoomId, JsError> {
+        Ok(Self { inner: ruma::RoomId::parse(id)? })
+    }
+
+    /// Returns the user's localpart.
+    pub fn localpart(&self) -> String {
+        self.inner.localpart().to_owned()
+    }
+
+    /// Returns the server name of the user ID.
+    #[wasm_bindgen(js_name = "serverName")]
+    pub fn server_name(&self) -> ServerName {
+        ServerName { inner: self.inner.server_name().to_owned() }
+    }
+}
+
 /// A Matrix-spec compliant [server name].
 ///
 /// It consists of a host and an optional port (separated by a colon if
