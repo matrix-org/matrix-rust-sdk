@@ -478,12 +478,15 @@ impl Common {
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
-        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(encrypted_event),
-        )) = event.deserialize_as::<AnySyncRoomEvent>()?
         {
-            Ok(self.decrypt_event(&encrypted_event).await?)
-        } else {
+            if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                SyncMessageLikeEvent::Original(encrypted_event),
+            ))) = event.deserialize_as::<AnySyncRoomEvent>()
+            {
+                if let Ok(event) = self.decrypt_event(&encrypted_event).await {
+                    return Ok(event);
+                }
+            }
             Ok(RoomEvent { event, encryption_info: None })
         }
 
