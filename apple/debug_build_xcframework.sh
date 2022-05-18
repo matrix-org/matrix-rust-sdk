@@ -3,8 +3,17 @@ set -eEu
 
 cd "$(dirname "$0")"
 
+IS_CI=false
+
+if [ $# -eq 1 ]; then
+  IS_CI=true
+  echo "Running CI build"
+else
+  echo "Running debug build"
+fi
+
 # Path to the repo root
-SRC_ROOT=../..
+SRC_ROOT=..
 
 TARGET_DIR="${SRC_ROOT}/target"
 
@@ -15,11 +24,12 @@ mkdir -p ${GENERATED_DIR}
 REL_FLAG="--release"
 REL_TYPE_DIR="release"
 
-# Build static the lib for aarch64 simulator
-
-cargo +nightly build --locked -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+# iOS Simulator
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
 lipo -create \
+  "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
 
@@ -48,11 +58,15 @@ xcodebuild -create-xcframework \
 
 # Cleanup
 
-if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
-if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
+# if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
+# if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
 
-# Debug -> Copy generated files over to ../../../matrix-rust-components-swift
-echo "$(echo "import MatrixSDKFFIWrapper\n"; cat "${SWIFT_DIR}/sdk.swift")" > "${SWIFT_DIR}/sdk.swift"
+if [ "$IS_CI" = false ] ; then
+  echo "Preparing matrix-rust-components-swift"
 
-rsync -a --delete "${GENERATED_DIR}/MatrixSDKFFI.xcframework" "../../../matrix-rust-components-swift/"
-rsync -a --delete "${GENERATED_DIR}/swift/" "../../../matrix-rust-components-swift/Sources/MatrixRustSDK"
+  # Debug -> Copy generated files over to ../../../matrix-rust-components-swift
+  echo "$(echo "import MatrixSDKFFIWrapper\n"; cat "${SWIFT_DIR}/sdk.swift")" > "${SWIFT_DIR}/sdk.swift"
+
+  rsync -a --delete "${GENERATED_DIR}/MatrixSDKFFI.xcframework" "${SRC_ROOT}/../matrix-rust-components-swift/"
+  rsync -a --delete "${GENERATED_DIR}/swift/" "${SRC_ROOT}/../matrix-rust-components-swift/Sources/MatrixRustSDK"
+fi
