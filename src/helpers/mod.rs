@@ -713,6 +713,21 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Checks whether a message is known
+    ///
+    /// # Arguments
+    /// * `$1` - The sender key
+    /// * `$2` - The message hash
+    #[cfg(feature = "e2e-encryption")]
+    fn message_known_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT 1 FROM cryptostore_message_hash
+                WHERE sender_key = $1 AND message_hash = $2
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]

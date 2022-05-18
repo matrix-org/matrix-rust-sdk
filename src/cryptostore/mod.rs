@@ -1098,6 +1098,24 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             Ok(None)
         }
     }
+
+    /// Check if a message hash is known
+    ///
+    /// # Errors
+    /// This function will return an error if the query fails
+    pub(crate) async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        String: SqlType<DB>,
+    {
+        let row = DB::message_known_query()
+            .bind(message_hash.sender_key.clone())
+            .bind(message_hash.hash.clone())
+            .fetch_optional(&*self.db)
+            .await?;
+        Ok(row.is_some())
+    }
 }
 
 #[async_trait]
@@ -1237,7 +1255,9 @@ where
             .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> StoreResult<bool> {
-        todo!();
+        self.is_message_known(message_hash)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_outgoing_secret_requests(
         &self,
