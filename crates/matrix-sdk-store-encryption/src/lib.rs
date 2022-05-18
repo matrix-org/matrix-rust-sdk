@@ -25,7 +25,7 @@ use displaydoc::Display;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{thread_rng, Error as RandomError, Fill};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::Zeroize;
 
@@ -393,7 +393,7 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
     /// ```
-    pub fn decrypt_value<T: for<'b> Deserialize<'b>>(&self, value: &[u8]) -> Result<T, Error> {
+    pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
         let value: EncryptedValue = serde_json::from_slice(value)?;
         self.decrypt_value_typed(value)
     }
@@ -429,7 +429,7 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # Result::<_, anyhow::Error>::Ok(()) };
     /// ```
-    pub fn decrypt_value_typed<T: for<'b> Deserialize<'b>>(
+    pub fn decrypt_value_typed<T: DeserializeOwned>(
         &self,
         value: EncryptedValue,
     ) -> Result<T, Error> {

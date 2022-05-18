@@ -33,7 +33,7 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -284,7 +284,7 @@ impl IndexeddbStore {
         }
     }
 
-    fn deserialize_value<T: for<'b> Deserialize<'b>>(
+    fn deserialize_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
     ) -> Result<T, CryptoStoreError> {
