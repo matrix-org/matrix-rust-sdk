@@ -76,7 +76,7 @@ pub enum Error {
 /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
 ///
 /// assert_eq!(value, decrypted);
-/// # Result::<_, anyhow::Error>::Ok(()) };
+/// # anyhow::Ok(()) };
 /// ```
 #[allow(missing_debug_implementations)]
 pub struct StoreCipher {
@@ -115,7 +115,7 @@ impl StoreCipher {
     /// let export = store_cipher.export("secret-passphrase");
     ///
     /// // Save the export in your key/value store.
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn export(&self, passphrase: &str) -> Result<Vec<u8>, Error> {
         let mut rng = thread_rng();
@@ -171,7 +171,7 @@ impl StoreCipher {
     /// let imported = StoreCipher::import("secret-passphrase", &export)?;
     ///
     /// // Save the export in your key/value store.
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
         let encrypted: EncryptedStoreCipher = serde_json::from_slice(encrypted)?;
@@ -245,7 +245,7 @@ impl StoreCipher {
     /// let hashed_key = store_cipher.hash_key("list-of-pokemon", key.as_ref());
     ///
     /// // It's now safe to insert the key into our key/value store.
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn hash_key(&self, table_name: &str, key: &[u8]) -> [u8; 32] {
         let mac_key = self.inner.get_mac_key_for_table(table_name);
@@ -281,7 +281,7 @@ impl StoreCipher {
     /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
         Ok(serde_json::to_vec(&self.encrypt_value_typed(value)?)?)
@@ -351,7 +351,7 @@ impl StoreCipher {
     /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value_data(&self, mut data: Vec<u8>) -> Result<EncryptedValue, Error> {
         let nonce = Keys::get_nonce()?;
@@ -391,7 +391,7 @@ impl StoreCipher {
     /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
         let value: EncryptedValue = serde_json::from_slice(value)?;
@@ -427,7 +427,7 @@ impl StoreCipher {
     /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn decrypt_value_typed<T: DeserializeOwned>(
         &self,
@@ -467,7 +467,7 @@ impl StoreCipher {
     /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn decrypt_value_data(&self, value: EncryptedValue) -> Result<Vec<u8>, Error> {
         if value.version != VERSION {
