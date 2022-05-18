@@ -983,6 +983,40 @@ impl<DB: SupportedDatabase> StateStore<DB> {
 
         Ok(already_added)
     }
+
+    /// Fetch a device
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher()?;
+        let user_id = cipher.hash_key("cryptostore_device:user_id", user_id.as_bytes());
+        let device_id = cipher.hash_key("cryptostore_device:device_id", device_id.as_bytes());
+        let row = DB::device_fetch_query()
+            .bind(user_id)
+            .bind(device_id)
+            .fetch_optional(&*self.db)
+            .await?;
+        if let Some(row) = row {
+            let data: Vec<u8> = row.try_get("device_data")?;
+            let device = cipher.decrypt_value(&data)?;
+            Ok(Some(device))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[async_trait]
@@ -1102,7 +1136,9 @@ where
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> StoreResult<Option<ReadOnlyDevice>> {
-        todo!();
+        self.get_device(user_id, device_id)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_user_devices(
         &self,

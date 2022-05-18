@@ -658,6 +658,21 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Fetch a device
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed user ID
+    /// * `$2` - The hashed device ID
+    #[cfg(feature = "e2e-encryption")]
+    fn device_fetch_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT device_data FROM cryptostore_device
+                WHERE user_id = $1 AND device_id = $2
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]
