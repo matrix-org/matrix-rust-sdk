@@ -36,14 +36,15 @@ jobs:
           rustup target add aarch64-apple-ios-sim
           rustup target add x86_64-apple-ios
 
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
       - name: Install Uniffi
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: uniffi_bindgen
 
-      - name: Load cache
-        uses: Swatinem/rust-cache@v1
 
       - name: Generate .xcframework
         run: sh bindings/apple/debug_build_xcframework.sh ci
