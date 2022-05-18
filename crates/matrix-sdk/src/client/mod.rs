@@ -238,7 +238,7 @@ impl Client {
     ///     // Change password
     /// }
     ///
-    /// # Result::<_, anyhow::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new(), None).await?;
