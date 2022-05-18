@@ -148,6 +148,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
                 .await?;
             self.cryptostore = Some(CryptostoreData::new(cipher));
         }
+        self.load_tracked_users().await?;
         Ok(())
     }
 }

@@ -75,18 +75,50 @@ impl CryptostoreData {
 #[derive(Clone, Debug)]
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) struct AccountInfo {
+    /// User ID of the current user
     user_id: Arc<UserId>,
+    /// Device ID of the current device
     device_id: Arc<DeviceId>,
+    /// Identity keys for the current user
     identity_keys: Arc<IdentityKeys>,
 }
 
+/// Tracked users
 #[derive(Debug, Serialize, Deserialize)]
 struct TrackedUser {
+    /// User ID of tracked user
     user_id: OwnedUserId,
+    /// Whether or not keys for the user need to be queried
     dirty: bool,
 }
 
 impl<DB: SupportedDatabase> StateStore<DB> {
+    /// Loads tracked users
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn load_tracked_users(&self) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher()?;
+        let e2e = self.ensure_e2e()?;
+        let mut rows = DB::tracked_users_fetch_query().fetch(&*self.db);
+        while let Some(row) = rows.try_next().await? {
+            let user: Vec<u8> = row.try_get("tracked_user_data")?;
+            let user: TrackedUser = cipher.decrypt_value(&user)?;
+            e2e.tracked_users.insert(user.user_id.clone());
+            if user.dirty {
+                e2e.users_for_key_query.insert(user.user_id.clone());
+            }
+        }
+        Ok(())
+    }
+
     /// Loads a previously stored account
     ///
     /// # Errors

@@ -688,6 +688,17 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Retrieves all tracked users
+    #[cfg(feature = "e2e-encryption")]
+    fn tracked_users_fetch_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT tracked_user_data FROM cryptostore_tracked_user
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]
