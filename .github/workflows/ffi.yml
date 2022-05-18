@@ -52,7 +52,7 @@ jobs:
       - name: Run XCTests
         run: |
           xcodebuild test \
-            -project bindings/apple/MatrixRustSDK/MatrixRustSDK.xcodeproj \
+            -project bindings/apple/MatrixRustSDK.xcodeproj \
             -scheme MatrixRustSDK \
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPhone 13,OS=15.4'
