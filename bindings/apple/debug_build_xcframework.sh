@@ -13,7 +13,7 @@ else
 fi
 
 # Path to the repo root
-SRC_ROOT=..
+SRC_ROOT=../..
 
 TARGET_DIR="${SRC_ROOT}/target"
 
