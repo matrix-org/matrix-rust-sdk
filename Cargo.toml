@@ -21,10 +21,12 @@ postgres = ["sqlx/postgres"]
 sqlite = ["sqlx/sqlite"]
 
 e2e-encryption = [
+    "dashmap",
     "educe",
     "matrix-sdk-base/e2e-encryption",
     "matrix-sdk-crypto",
     "matrix-sdk-store-encryption",
+    "serde",
 ]
 
 # Internal feature used by ci builds
@@ -33,11 +35,13 @@ ci = []
 [dependencies]
 async-trait = "0.1.53"
 anyhow = "1.0.57"
+dashmap = { version = "5.2.0", optional = true }
 futures = "0.3.21"
 matrix-sdk-base = "0.5.0"
 matrix-sdk-crypto = { version = "0.5.0", optional = true }
 matrix-sdk-store-encryption = { version = "0.1.0", optional = true }
 ruma = "0.6.2"
+serde = { version = "1.0.137", features = ["derive"], optional = true }
 
 [dependencies.educe]
 version = "0.4.19"

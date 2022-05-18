@@ -40,3 +40,7 @@ CREATE TABLE cryptostore_device (
     device_info BLOB NOT NULL,
     PRIMARY KEY (user_id, device_id)
 );
+CREATE TABLE cryptostore_tracked_user (
+    user_id BLOB PRIMARY KEY NOT NULL,
+    tracked_user_data BLOB NOT NULL
+);

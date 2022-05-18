@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use dashmap::DashSet;
 use educe::Educe;
 use futures::{StreamExt, TryStream, TryStreamExt};
 use matrix_sdk_base::locks::{Mutex, RwLock};
@@ -24,6 +25,7 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use serde::{Deserialize, Serialize};
 use sqlx::{
     database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Row, Transaction,
 };
@@ -49,6 +51,10 @@ pub(crate) struct CryptostoreData {
     pub(crate) group_sessions: GroupSessionStore,
     /// In-Memory device store
     pub(crate) devices: DeviceStore,
+    /// In-Memory tracked users cache
+    pub(crate) tracked_users: Arc<DashSet<OwnedUserId>>,
+    /// In-Memory key query cache
+    pub(crate) users_for_key_query: Arc<DashSet<OwnedUserId>>,
 }
 
 impl CryptostoreData {
@@ -60,6 +66,8 @@ impl CryptostoreData {
             sessions: SessionStore::new(),
             group_sessions: GroupSessionStore::new(),
             devices: DeviceStore::new(),
+            tracked_users: Arc::new(DashSet::new()),
+            users_for_key_query: Arc::new(DashSet::new()),
         }
     }
 }
@@ -70,6 +78,12 @@ pub(crate) struct AccountInfo {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
     identity_keys: Arc<IdentityKeys>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TrackedUser {
+    user_id: OwnedUserId,
+    dirty: bool,
 }
 
 impl<DB: SupportedDatabase> StateStore<DB> {
@@ -917,6 +931,58 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             Ok(None)
         }
     }
+
+    /// Saves a tracked user in a transaction
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn save_tracked_user(&self, tracked_user: &UserId, dirty: bool) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+    {
+        let cipher = self.ensure_cipher()?;
+        let user_id = cipher.hash_key("cryptostore_tracked_user:user_id", tracked_user.as_bytes());
+        let tracked_user = TrackedUser {
+            user_id: tracked_user.into(),
+            dirty,
+        };
+        DB::tracked_user_upsert_query()
+            .bind(user_id)
+            .bind(cipher.encrypt_value(&tracked_user)?)
+            .execute(&*self.db)
+            .await?;
+        Ok(())
+    }
+
+    /// Update a tracked user
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+    {
+        let e2e = self.ensure_e2e()?;
+        let already_added = e2e.tracked_users.insert(user.to_owned());
+
+        if dirty {
+            e2e.users_for_key_query.insert(user.to_owned());
+        } else {
+            e2e.users_for_key_query.remove(user);
+        }
+
+        self.save_tracked_user(user, dirty).await?;
+
+        Ok(already_added)
+    }
 }
 
 #[async_trait]
@@ -1006,19 +1072,29 @@ where
             .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
-        todo!();
+        self.ensure_e2e()
+            .map(|e2e| e2e.tracked_users.contains(user_id))
+            .unwrap_or(false)
     }
     fn has_users_for_key_query(&self) -> bool {
-        todo!();
+        self.ensure_e2e()
+            .map(|e2e| !e2e.users_for_key_query.is_empty())
+            .unwrap_or(false)
     }
     fn users_for_key_query(&self) -> HashSet<OwnedUserId> {
-        todo!();
+        self.ensure_e2e()
+            .map(|e2e| e2e.users_for_key_query.iter().map(|u| u.clone()).collect())
+            .unwrap_or_default()
     }
     fn tracked_users(&self) -> HashSet<OwnedUserId> {
-        todo!();
+        self.ensure_e2e()
+            .map(|e2e| e2e.tracked_users.iter().map(|u| u.clone()).collect())
+            .unwrap_or_default()
     }
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> StoreResult<bool> {
-        todo!();
+        self.update_tracked_user(user, dirty)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
 
     async fn get_device(

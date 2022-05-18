@@ -641,6 +641,23 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Upserts a tracked user
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed user ID
+    /// * `$2` - The encrypted tracked user data
+    #[cfg(feature = "e2e-encryption")]
+    fn tracked_user_upsert_query(
+    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                INSERT INTO cryptostore_tracked_user (user_id, tracked_user_data)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id) DO UPDATE SET tracked_user_data = $2
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]
