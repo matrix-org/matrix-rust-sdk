@@ -123,7 +123,7 @@ default-features = false
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-async-once-cell = "0.3.0"
+async-once-cell = "0.3.1"
 wasm-timer = "0.2.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
