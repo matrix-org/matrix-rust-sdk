@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use dashmap::DashSet;
 use educe::Educe;
 use futures::{StreamExt, TryStream, TryStreamExt};
-use matrix_sdk_base::locks::{Mutex, RwLock};
+use matrix_sdk_base::locks::Mutex;
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -24,6 +24,7 @@ use matrix_sdk_crypto::{
     SecretInfo,
 };
 use matrix_sdk_store_encryption::StoreCipher;
+use parking_lot::RwLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -93,6 +94,13 @@ struct TrackedUser {
 }
 
 impl<DB: SupportedDatabase> StateStore<DB> {
+    /// Returns account info, if it exists
+    #[cfg(test)]
+    pub(crate) fn get_account_info(&self) -> Option<AccountInfo> {
+        self.ensure_e2e()
+            .map(|e| e.account.read().clone())
+            .unwrap_or_default()
+    }
     /// Loads tracked users
     ///
     /// # Errors
@@ -142,7 +150,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
                     device_id: Arc::clone(&account.device_id),
                     identity_keys: Arc::clone(&account.identity_keys),
                 };
-                *(self.ensure_e2e()?.account.write().await) = Some(account_info);
+                *(self.ensure_e2e()?.account.write()) = Some(account_info);
 
                 Some(account)
             }
@@ -190,7 +198,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             device_id: Arc::clone(&account.device_id),
             identity_keys: Arc::clone(&account.identity_keys),
         };
-        *(self.ensure_e2e()?.account.write().await) = Some(account_info);
+        *(self.ensure_e2e()?.account.write()) = Some(account_info);
         Self::insert_kv_txn(
             txn,
             b"e2e_account".to_vec(),
@@ -313,7 +321,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
@@ -322,7 +329,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             session.sender_key().to_base64().as_bytes(),
         );
         DB::session_store_query()
-            .bind(sender_key)
+            .bind(sender_key.to_vec())
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
@@ -364,7 +371,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
@@ -381,9 +387,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             session.session_id().as_bytes(),
         );
         DB::inbound_group_session_upsert_query()
-            .bind(room_id)
-            .bind(sender_key)
-            .bind(session_id)
+            .bind(room_id.to_vec())
+            .bind(sender_key.to_vec())
+            .bind(session_id.to_vec())
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
@@ -404,7 +410,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
@@ -412,8 +417,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             "cryptostore_inbound_group_session:room_id",
             session.room_id().as_bytes(),
         );
-        DB::inbound_group_session_upsert_query()
-            .bind(room_id)
+        DB::outbound_group_session_store_query()
+            .bind(room_id.to_vec())
             .bind(cipher.encrypt_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
@@ -433,7 +438,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         bool: SqlType<DB>,
     {
@@ -451,9 +455,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             request.info.as_key().as_bytes(),
         );
         DB::gossip_request_store_query()
-            .bind(recipient_id)
-            .bind(request_id)
-            .bind(info_key)
+            .bind(recipient_id.to_vec())
+            .bind(request_id.to_vec())
+            .bind(info_key.to_vec())
             .bind(request.sent_out)
             .bind(cipher.encrypt_value(&request)?)
             .execute(txn)
@@ -474,7 +478,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
@@ -483,7 +486,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             identity.user_id().as_bytes(),
         );
         DB::identity_upsert_query()
-            .bind(user_id)
+            .bind(user_id.to_vec())
             .bind(cipher.encrypt_value(&identity)?)
             .execute(txn)
             .await?;
@@ -503,7 +506,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
@@ -513,8 +515,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             device.device_id().as_bytes(),
         );
         DB::device_upsert_query()
-            .bind(user_id)
-            .bind(device_id)
+            .bind(user_id.to_vec())
+            .bind(device_id.to_vec())
             .bind(cipher.encrypt_value(&device)?)
             .execute(txn)
             .await?;
@@ -535,7 +537,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
@@ -545,8 +546,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             device.device_id().as_bytes(),
         );
         DB::device_delete_query()
-            .bind(user_id)
-            .bind(device_id)
+            .bind(user_id.to_vec())
+            .bind(device_id.to_vec())
             .execute(txn)
             .await?;
         self.ensure_e2e()?
@@ -568,7 +569,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         String: SqlType<DB>,
         bool: SqlType<DB>,
@@ -634,7 +634,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         String: SqlType<DB>,
         bool: SqlType<DB>,
@@ -657,7 +656,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -665,14 +663,16 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         if let Some(v) = sessions.get(sender_key) {
             Ok(Some(v))
         } else {
-            let account_info = self.ensure_e2e()?.account.read().await;
+            let account_info = self.ensure_e2e()?.account.read().clone();
             let account_info = account_info
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("No account info"))?;
             // try fetching from the database
             let cipher = self.ensure_cipher()?;
             let user_id = cipher.hash_key("cryptostore_session:sender_key", sender_key.as_bytes());
-            let mut rows = DB::sessions_for_user_query().bind(user_id).fetch(&*self.db);
+            let mut rows = DB::sessions_for_user_query()
+                .bind(user_id.to_vec())
+                .fetch(&*self.db);
             let mut sess = Vec::new();
             while let Some(row) = rows.try_next().await? {
                 let data: Vec<u8> = row.try_get("session_data")?;
@@ -704,7 +704,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -726,9 +725,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
                 session_id.as_bytes(),
             );
             let row = DB::inbound_group_session_fetch_query()
-                .bind(room_id)
-                .bind(sender_key)
-                .bind(session_id)
+                .bind(room_id.to_vec())
+                .bind(sender_key.to_vec())
+                .bind(session_id.to_vec())
                 .fetch_optional(&*self.db)
                 .await?;
             if let Some(row) = row {
@@ -753,7 +752,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -783,7 +781,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         &'r mut Transaction<'c, DB>: Executor<'r, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -813,7 +810,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -829,7 +825,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -856,7 +851,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -876,7 +870,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -933,12 +926,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let cipher = self.ensure_cipher()?;
-        let account_info = self.ensure_e2e()?.account.read().await;
+        let account_info = self.ensure_e2e()?.account.read().clone();
         let account_info = account_info
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No account info"))?;
@@ -947,7 +939,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             room_id.as_bytes(),
         );
         let row = DB::outbound_group_session_load_query()
-            .bind(room_id)
+            .bind(room_id.to_vec())
             .fetch_optional(&*self.db)
             .await?;
         if let Some(row) = row {
@@ -973,7 +965,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let cipher = self.ensure_cipher()?;
@@ -983,7 +974,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             dirty,
         };
         DB::tracked_user_upsert_query()
-            .bind(user_id)
+            .bind(user_id.to_vec())
             .bind(cipher.encrypt_value(&tracked_user)?)
             .execute(&*self.db)
             .await?;
@@ -999,7 +990,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
     {
         let e2e = self.ensure_e2e()?;
@@ -1029,7 +1019,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -1037,12 +1026,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         let user_id = cipher.hash_key("cryptostore_device:user_id", user_id.as_bytes());
         let device_id = cipher.hash_key("cryptostore_device:device_id", device_id.as_bytes());
         let row = DB::device_fetch_query()
-            .bind(user_id)
-            .bind(device_id)
+            .bind(user_id.to_vec())
+            .bind(device_id.to_vec())
             .fetch_optional(&*self.db)
             .await?;
         if let Some(row) = row {
-            let data: Vec<u8> = row.try_get("device_data")?;
+            let data: Vec<u8> = row.try_get("device_info")?;
             let device = cipher.decrypt_value(&data)?;
             Ok(Some(device))
         } else {
@@ -1062,16 +1051,17 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let cipher = self.ensure_cipher()?;
         let user_id = cipher.hash_key("cryptostore_device:user_id", user_id.as_bytes());
-        let mut rows = DB::devices_for_user_query().bind(user_id).fetch(&*self.db);
+        let mut rows = DB::devices_for_user_query()
+            .bind(user_id.to_vec())
+            .fetch(&*self.db);
         let mut devices = HashMap::new();
         while let Some(row) = rows.try_next().await? {
-            let data: Vec<u8> = row.try_get("device_data")?;
+            let data: Vec<u8> = row.try_get("device_info")?;
             let device: ReadOnlyDevice = cipher.decrypt_value(&data)?;
             let device_id = device.device_id().to_owned();
             devices.insert(device_id, device);
@@ -1091,14 +1081,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        [u8; 32]: SqlType<DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let cipher = self.ensure_cipher()?;
         let user_id = cipher.hash_key("cryptostore_identity:user_id", user_id.as_bytes());
         let row = DB::identity_fetch_query()
-            .bind(user_id)
+            .bind(user_id.to_vec())
             .fetch_optional(&*self.db)
             .await?;
         if let Some(row) = row {
@@ -1117,7 +1106,6 @@ where
     for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
     for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
     for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-    [u8; 32]: SqlType<DB>,
     Vec<u8>: SqlType<DB>,
     String: SqlType<DB>,
     bool: SqlType<DB>,
@@ -1269,4 +1257,48 @@ where
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> StoreResult<()> {
         todo!();
     }
+}
+
+#[allow(clippy::redundant_pub_crate)]
+#[cfg(all(test, feature = "sqlite"))]
+mod sqlite_integration_test {
+    use std::sync::Arc;
+
+    use crate::StateStore;
+
+    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use once_cell::sync::Lazy;
+    use sqlx::migrate::MigrateDatabase;
+    use tempfile::{tempdir, TempDir};
+
+    #[allow(clippy::unwrap_used)]
+    static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
+
+    async fn get_store_anyhow(
+        name: String,
+        passphrase: Option<&str>,
+    ) -> anyhow::Result<StateStore<sqlx::sqlite::Sqlite>> {
+        let tmpdir_path = TMP_DIR.path().join(name + ".db");
+        let db_url = format!("sqlite://{}", tmpdir_path.to_string_lossy());
+        if !sqlx::Sqlite::database_exists(&db_url).await? {
+            sqlx::Sqlite::create_database(&db_url).await?;
+        }
+        let pass = passphrase.unwrap_or("default_test_password");
+        let db = Arc::new(sqlx::SqlitePool::connect(&db_url).await?);
+        let mut store = StateStore::new(&db).await?;
+        store.unlock_with_passphrase(pass).await?;
+        Ok(store)
+    }
+
+    #[allow(clippy::panic)]
+    async fn get_store(name: String, passphrase: Option<&str>) -> StateStore<sqlx::sqlite::Sqlite> {
+        match get_store_anyhow(name, passphrase).await {
+            Ok(v) => v,
+            Err(e) => {
+                panic!("Could not open database: {:#?}", e);
+            }
+        }
+    }
+
+    cryptostore_integration_tests! { integration }
 }

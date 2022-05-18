@@ -474,7 +474,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO cryptostore_olm_message_hash (sender_key, message_hash)
+                INSERT INTO cryptostore_message_hash (sender_key, message_hash)
                 VALUES ($1, $2)
             "#,
         )
@@ -562,9 +562,9 @@ pub trait SupportedDatabase: Database + Sealed {
     fn device_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO cryptostore_device (user_id, device_id, device_data)
+                INSERT INTO cryptostore_device (user_id, device_id, device_info)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (user_id, device_id) DO UPDATE SET device_data = $3
+                ON CONFLICT (user_id, device_id) DO UPDATE SET device_info = $3
             "#,
         )
     }
@@ -668,7 +668,7 @@ pub trait SupportedDatabase: Database + Sealed {
     fn device_fetch_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
         sqlx::query(
             r#"
-                SELECT device_data FROM cryptostore_device
+                SELECT device_info FROM cryptostore_device
                 WHERE user_id = $1 AND device_id = $2
             "#,
         )
@@ -683,7 +683,7 @@ pub trait SupportedDatabase: Database + Sealed {
     {
         sqlx::query(
             r#"
-                SELECT device_data FROM cryptostore_device
+                SELECT device_info FROM cryptostore_device
                 WHERE user_id = $1
             "#,
         )
