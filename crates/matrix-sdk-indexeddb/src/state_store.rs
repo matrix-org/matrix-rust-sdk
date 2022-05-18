@@ -27,7 +27,9 @@ use matrix_sdk_base::{
 };
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
-use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
+use matrix_sdk_store_encryption::{
+    Error as EncryptionError, SerializationError as StoreSerializationError, StoreCipher,
+};
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -84,7 +86,12 @@ impl From<SerializationError> for StoreError {
             SerializationError::StoreError(e) => e,
             SerializationError::Encryption(e) => match e {
                 EncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
-                EncryptionError::Serialization(e) => StoreError::Json(e),
+                EncryptionError::Serialization(StoreSerializationError::Json(e)) => {
+                    StoreError::Json(e)
+                }
+                // Causes a warning if store-encryption has bincode disabled.
+                #[allow(unreachable_patterns)]
+                EncryptionError::Serialization(e) => StoreError::Encryption(e.to_string()),
                 EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
                 EncryptionError::Version(found, expected) => StoreError::Encryption(format!(
                     "Bad Database Encryption Version: expected {} found {}",

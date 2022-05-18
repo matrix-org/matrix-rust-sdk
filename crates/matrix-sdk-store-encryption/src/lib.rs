@@ -39,11 +39,22 @@ const KDF_ROUNDS: u32 = 1000;
 
 type MacKeySeed = [u8; 32];
 
+/// Error type for serialization errors
+#[derive(Debug, Display, thiserror::Error)]
+#[non_exhaustive]
+pub enum SerializationError {
+    /// Failed to serialize or deserialize a JSON value {0}
+    Json(#[from] serde_json::Error),
+    /// Failed to serialize or deserialize a bincode value {0}
+    #[cfg(feature = "bincode")]
+    Bincode(#[from] bincode::Error),
+}
+
 /// Error type for the `StoreCipher` operations.
 #[derive(Debug, Display, thiserror::Error)]
 pub enum Error {
     /// Failed to serialize or deserialize a value {0}
-    Serialization(#[from] serde_json::Error),
+    Serialization(#[from] SerializationError),
     /// Error encrypting or decrypting a value {0}
     Encryption(#[from] EncryptionError),
     /// Coulnd't generate enough randomness for a cryptographic operation: {0}
@@ -52,6 +63,36 @@ pub enum Error {
     Version(u8, u8),
     /// The ciphertext had an invalid length, expected {0}, got {1}
     Length(usize, usize),
+}
+
+#[cfg(not(feature = "bincode"))]
+fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, SerializationError> {
+    Ok(serde_json::to_vec(value)?)
+}
+
+#[cfg(feature = "bincode")]
+fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, SerializationError> {
+    Ok(bincode::serialize(value)?)
+}
+
+#[cfg(not(feature = "bincode"))]
+fn deserialize<T>(value: &[u8]) -> Result<T, SerializationError>
+where
+    T: DeserializeOwned,
+{
+    Ok(serde_json::from_slice(value)?)
+}
+
+#[cfg(feature = "bincode")]
+fn deserialize<T>(value: &[u8]) -> Result<T, SerializationError>
+where
+    T: DeserializeOwned,
+{
+    if let Ok(v) = serde_json::from_slice(value) {
+        Ok(v)
+    } else {
+        Ok(bincode::deserialize(value)?)
+    }
 }
 
 /// An encryption key that can be used to encrypt data for key/value stores.
@@ -143,7 +184,7 @@ impl StoreCipher {
             ciphertext_info: CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext },
         };
 
-        Ok(serde_json::to_vec(&store_cipher).expect("Can't serialize the store cipher"))
+        Ok(serialize(&store_cipher).expect("Can't serialize the store cipher"))
     }
 
     /// Restore a store cipher from an encrypted export.
@@ -174,7 +215,7 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
-        let encrypted: EncryptedStoreCipher = serde_json::from_slice(encrypted)?;
+        let encrypted: EncryptedStoreCipher = deserialize(encrypted)?;
 
         let key = match encrypted.kdf_info {
             KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds, kdf_salt } => {
@@ -284,7 +325,7 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
-        Ok(serde_json::to_vec(&self.encrypt_value_typed(value)?)?)
+        Ok(serialize(&self.encrypt_value_typed(value)?)?)
     }
 
     /// Encrypt a value before it is inserted into the key/value store.
@@ -321,7 +362,7 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value_typed(&self, value: &impl Serialize) -> Result<EncryptedValue, Error> {
-        let data = serde_json::to_vec(value)?;
+        let data = serde_json::to_vec(value).map_err(SerializationError::Json)?;
         self.encrypt_value_data(data)
     }
 
@@ -393,8 +434,8 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
-        let value: EncryptedValue = serde_json::from_slice(value)?;
+    pub fn decrypt_value<T: for<'b> Deserialize<'b>>(&self, value: &[u8]) -> Result<T, Error> {
+        let value: EncryptedValue = deserialize(value)?;
         self.decrypt_value_typed(value)
     }
 
@@ -436,7 +477,7 @@ impl StoreCipher {
         let mut plaintext = self.decrypt_value_data(value)?;
         let ret = serde_json::from_slice(&plaintext);
         plaintext.zeroize();
-        Ok(ret?)
+        Ok(ret.map_err(SerializationError::Json)?)
     }
 
     /// Decrypt a value after it was fetchetd from the key/value store.
@@ -651,6 +692,19 @@ mod tests {
         let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
 
         assert_eq!(event, decrypted);
+
+        Ok(())
+    }
+
+    #[test]
+    fn decrypt_json() -> Result<(), Error> {
+        let export = br#"{"kdf_info":{"Pbkdf2ToChaCha20Poly1305":{"rounds":1000,"kdf_salt":[50,30,66,29,39,52,224,46,244,126,69,183,242,125,215,237,218,195,24,16,15,145,219,57,2,23,96,12,123,40,64,111]}},"ciphertext_info":{"ChaCha20Poly1305":{"nonce":[103,221,233,246,136,226,188,49,19,27,208,250,15,20,15,193,210,211,48,42,124,135,208,48],"ciphertext":[79,140,189,255,241,28,183,175,55,7,160,205,44,104,70,25,94,120,140,211,3,139,194,57,225,12,186,46,146,69,207,218,242,164,14,97,110,35,14,225,37,214,206,88,244,71,21,76,192,214,16,106,38,109,142,181,250,186,54,2,45,233,100,110,225,17,165,49,163,248,42,227,164,166,200,25,251,54,190,152]}}}"#;
+        let encrypted_data = br#"{"version":1,"ciphertext":[245,54,29,38,223,210,55,153,166,69,1,211,204,155,207,2,185,209,109,222,10,16,45,117,97,195,206,187,212,174,220],"nonce":[245,137,202,220,228,236,127,84,166,1,207,246,75,47,183,253,250,27,194,11,247,100,109,95]}"#;
+        let expected_data = json!({"test": "test"});
+        let cipher = StoreCipher::import("hunter2", export)?;
+
+        let decrypted: Value = cipher.decrypt_value(encrypted_data)?;
+        assert_eq!(expected_data, decrypted);
 
         Ok(())
     }
