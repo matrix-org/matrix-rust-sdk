@@ -479,7 +479,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     {
         let cipher = self.ensure_cipher()?;
         let user_id = cipher.hash_key(
-            "cryptostore_crypto_identity:user_id",
+            "cryptostore_identity:user_id",
             identity.user_id().as_bytes(),
         );
         DB::identity_upsert_query()
@@ -1078,6 +1078,37 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         }
         Ok(devices)
     }
+
+    /// Fetch cryptographic identity of a user
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<ReadOnlyUserIdentities>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        [u8; 32]: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let cipher = self.ensure_cipher()?;
+        let user_id = cipher.hash_key("cryptostore_identity:user_id", user_id.as_bytes());
+        let row = DB::identity_fetch_query()
+            .bind(user_id)
+            .fetch_optional(&*self.db)
+            .await?;
+        if let Some(row) = row {
+            let data: Vec<u8> = row.try_get("identity_data")?;
+            let identity = cipher.decrypt_value(&data)?;
+            Ok(Some(identity))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[async_trait]
@@ -1213,7 +1244,9 @@ where
         &self,
         user_id: &UserId,
     ) -> StoreResult<Option<ReadOnlyUserIdentities>> {
-        todo!();
+        self.get_user_identity(user_id)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> StoreResult<bool> {
         todo!();

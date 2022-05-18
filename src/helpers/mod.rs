@@ -699,6 +699,20 @@ pub trait SupportedDatabase: Database + Sealed {
             "#,
         )
     }
+
+    /// Retrieves the cryptographic identity of a user
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed user ID
+    #[cfg(feature = "e2e-encryption")]
+    fn identity_fetch_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT identity_data FROM cryptostore_identity
+                WHERE user_id = $1
+            "#,
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]

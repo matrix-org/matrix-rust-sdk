@@ -32,7 +32,7 @@ CREATE INDEX cryptostore_gossip_request_info_key_idx ON cryptostore_gossip_reque
 CREATE INDEX cryptostore_gossip_request_sent_out_idx ON cryptostore_gossip_request (sent_out);
 CREATE TABLE cryptostore_identity (
     user_id BYTEA PRIMARY KEY NOT NULL,
-    identity BYTEA NOT NULL
+    identity_data BYTEA NOT NULL
 );
 CREATE TABLE cryptostore_device (
     user_id BYTEA NOT NULL,

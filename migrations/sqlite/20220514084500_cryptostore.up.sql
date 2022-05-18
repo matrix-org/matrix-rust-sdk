@@ -32,7 +32,7 @@ CREATE INDEX cryptostore_gossip_request_info_key_idx ON cryptostore_gossip_reque
 CREATE INDEX cryptostore_gossip_request_sent_out_idx ON cryptostore_gossip_request (sent_out);
 CREATE TABLE cryptostore_identity (
     user_id BLOB PRIMARY KEY NOT NULL,
-    identity BLOB NOT NULL
+    identity_data BLOB NOT NULL
 );
 CREATE TABLE cryptostore_device (
     user_id BLOB NOT NULL,
