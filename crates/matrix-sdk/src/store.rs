@@ -16,12 +16,12 @@
 //! The re-exports present here depend on the store-related features that are
 //! enabled:
 //!
-//! 1. `sled` provides a `StateStore`, and a `CryptoStore` for encryption data
-//! if `e2e-encryption` is enabled. This is the default persistent store
-//! implementation for non-WebAssembly targets.
-//! 2. `indexeddb`, too, provides a `StateStore` and a `CryptoStore` if
-//! `encryption` is also enabled. This is the default persistent store
-//! implementation for WebAssembly targets.
+//! 1. The `sled` feature provides a `StateStore` for storing state and
+//!    a `CryptoStore` for E2EE data (if `e2e-encryption` is enabled). This is
+//!    the default persistent store implementation for non-WebAssembly targets.
+//! 2. The `indexeddb` feature also provides a `StateStore` for storing state
+//!    and a `CryptoStore` (if `e2e-encryption` is enabled). This is the default
+//!    persistent store implementation for WebAssembly targets.
 //!
 //! Both options provide a `make_store_config` convenience method to create a
 //! [`StoreConfig`] for [`ClientBuilder::store_config()`].
