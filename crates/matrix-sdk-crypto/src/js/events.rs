@@ -54,7 +54,7 @@ impl Into<HistoryVisibility> for ruma::events::room::history_visibility::History
             Self::Joined => Joined,
             Self::Shared => Shared,
             Self::WorldReadable => WorldReadable,
-            _ => unreachable!("Unkonwn variant"),
+            _ => unreachable!("Unknown variant"),
         }
     }
 }
