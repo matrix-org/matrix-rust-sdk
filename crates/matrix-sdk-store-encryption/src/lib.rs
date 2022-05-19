@@ -363,7 +363,7 @@ impl StoreCipher {
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
     }
 
-    /// Decrypt a value after it was fetchetd from the key/value store.
+    /// Decrypt a value after it was fetched from the key/value store.
     ///
     /// A value can be encrypted using the [`StoreCipher::encrypt_value()`]
     /// method.
@@ -398,7 +398,7 @@ impl StoreCipher {
         self.decrypt_value_typed(value)
     }
 
-    /// Decrypt a value after it was fetchetd from the key/value store.
+    /// Decrypt a value after it was fetched from the key/value store.
     ///
     /// A value can be encrypted using the
     /// [`StoreCipher::encrypt_value_typed()`] method. Lower level method to
@@ -439,7 +439,7 @@ impl StoreCipher {
         Ok(ret?)
     }
 
-    /// Decrypt a value after it was fetchetd from the key/value store.
+    /// Decrypt a value after it was fetched from the key/value store.
     ///
     /// A value can be encrypted using the [`StoreCipher::encrypt_value_data()`]
     /// method. Lower level method to [`StoreCipher::decrypt_value()`].
