@@ -1,4 +1,4 @@
-const { HistoryVisibility } = require('../../pkg/matrix_sdk_crypto');
+const { HistoryVisibility } = require('../../js/pkg/matrix_sdk_crypto');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 

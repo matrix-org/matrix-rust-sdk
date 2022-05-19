@@ -1,4 +1,4 @@
-const { UserId, DeviceId, RoomId, ServerName } = require('../../pkg/matrix_sdk_crypto');
+const { UserId, DeviceId, RoomId, ServerName } = require('../../js/pkg/matrix_sdk_crypto');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 

@@ -1,4 +1,4 @@
-const { EncryptionAlgorithm, EncryptionSettings, HistoryVisibility, UserId, DeviceId, OlmMachine, DeviceLists, KeysUploadRequest, KeysQueryRequest } = require('../../pkg/matrix_sdk_crypto');
+const { EncryptionAlgorithm, EncryptionSettings, HistoryVisibility, UserId, DeviceId, OlmMachine, DeviceLists, KeysUploadRequest, KeysQueryRequest } = require('../../js/pkg/matrix_sdk_crypto');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 

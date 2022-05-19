@@ -1,4 +1,4 @@
-const { RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, ToDeviceRequest, SignatureUploadRequest, RoomMessageRequest, KeysBackupRequest } = require('../../pkg/matrix_sdk_crypto');
+const { RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, ToDeviceRequest, SignatureUploadRequest, RoomMessageRequest, KeysBackupRequest } = require('../../js/pkg/matrix_sdk_crypto');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
