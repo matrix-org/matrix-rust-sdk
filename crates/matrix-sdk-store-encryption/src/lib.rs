@@ -630,9 +630,9 @@ struct EncryptedStoreCipher {
 }
 
 mod base64_array {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
     use super::XNONCE_SIZE;
-    use serde::{Deserialize, Serialize};
-    use serde::{Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(v: &[u8; XNONCE_SIZE], s: S) -> Result<S::Ok, S::Error> {
         let base64 = base64::encode(v);
@@ -648,8 +648,7 @@ mod base64_array {
 }
 
 mod base64 {
-    use serde::{Deserialize, Serialize};
-    use serde::{Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     pub fn serialize<S: Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
         let base64 = base64::encode(v);
