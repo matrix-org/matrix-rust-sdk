@@ -45,7 +45,7 @@ async fn login(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), matrix_sdk::Error> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let (homeserver_url, username, password) =
