@@ -113,7 +113,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Create a new `ClientConfig` with the given [`StoreConfig`].
+    /// Create a new `ClientBuilder` with the given [`StoreConfig`].
     ///
     /// The easiest way to get a [`StoreConfig`] is to use the
     /// [`make_store_config`] method from the [`store`] module or directly from
