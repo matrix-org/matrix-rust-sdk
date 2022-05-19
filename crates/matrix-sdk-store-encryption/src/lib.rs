@@ -29,7 +29,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::Zeroize;
 
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 const KDF_SALT_SIZE: usize = 32;
 const XNONCE_SIZE: usize = 24;
 #[cfg(not(test))]
@@ -394,7 +394,23 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
-        let value: EncryptedValue = serde_json::from_slice(value)?;
+        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        struct VersionHelper {
+            version: u8,
+        }
+
+        let version_helper: VersionHelper = serde_json::from_slice(value)?;
+        let version = version_helper.version;
+
+        let value = if version == 1 {
+            let value: EncryptedValueV1 = serde_json::from_slice(value)?;
+            value.into()
+        } else if version == 2 {
+            serde_json::from_slice(value)?
+        } else {
+            return Err(Error::Version(version, VERSION));
+        };
+
         self.decrypt_value_typed(value)
     }
 
@@ -470,13 +486,14 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn decrypt_value_data(&self, value: EncryptedValue) -> Result<Vec<u8>, Error> {
-        if value.version != VERSION {
-            return Err(Error::Version(VERSION, value.version));
+        match value.version {
+            1 | 2 => {
+                let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
+                let nonce = XNonce::from_slice(&value.nonce);
+                Ok(cipher.decrypt(nonce, value.ciphertext.as_ref())?)
+            }
+            _ => Err(Error::Version(VERSION, value.version)),
         }
-
-        let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
-        let nonce = XNonce::from_slice(&value.nonce);
-        Ok(cipher.decrypt(nonce, value.ciphertext.as_ref())?)
     }
 
     /// Expand the given passphrase into a KEY_SIZE long key.
@@ -503,8 +520,25 @@ impl MacKey {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct EncryptedValue {
     version: u8,
+    #[serde(with = "base64")]
+    ciphertext: Vec<u8>,
+    #[serde(with = "base64_array")]
+    nonce: [u8; XNONCE_SIZE],
+}
+
+/// Encrypted value, ready for storage, as created by the
+/// [`StoreCipher::encrypt_value_data()`]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct EncryptedValueV1 {
+    version: u8,
     ciphertext: Vec<u8>,
     nonce: [u8; XNONCE_SIZE],
+}
+
+impl From<EncryptedValueV1> for EncryptedValue {
+    fn from(v: EncryptedValueV1) -> Self {
+        Self { version: v.version, ciphertext: v.ciphertext, nonce: v.nonce }
+    }
 }
 
 #[derive(Zeroize)]
@@ -595,6 +629,39 @@ struct EncryptedStoreCipher {
     pub ciphertext_info: CipherTextInfo,
 }
 
+mod base64_array {
+    use super::XNONCE_SIZE;
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &[u8; XNONCE_SIZE], s: S) -> Result<S::Ok, S::Error> {
+        let base64 = base64::encode(v);
+        String::serialize(&base64, s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; XNONCE_SIZE], D::Error> {
+        let base64 = String::deserialize(d)?;
+        let nonce = base64::decode(base64.as_bytes()).map_err(serde::de::Error::custom)?;
+
+        nonce.try_into().map_err(|_| serde::de::Error::custom("XNonce has an invalid length"))
+    }
+}
+
+mod base64 {
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
+        let base64 = base64::encode(v);
+        String::serialize(&base64, s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let base64 = String::deserialize(d)?;
+        base64::decode(base64.as_bytes()).map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{json, Value};
@@ -669,6 +736,71 @@ mod tests {
         assert_ne!(first, third);
         assert_eq!(third, fourth);
         assert_ne!(fourth, fifth);
+
+        Ok(())
+    }
+
+    #[test]
+    fn decrypt_v1_value() -> Result<(), Error> {
+        let passphrase = "it's a secret to everybody";
+
+        let value = [
+            123, 34, 118, 101, 114, 115, 105, 111, 110, 34, 58, 49, 44, 34, 99, 105, 112, 104, 101,
+            114, 116, 101, 120, 116, 34, 58, 91, 49, 52, 51, 44, 49, 49, 54, 44, 53, 55, 44, 52,
+            57, 44, 49, 50, 52, 44, 50, 52, 51, 44, 49, 53, 55, 44, 55, 49, 44, 50, 52, 57, 44, 56,
+            44, 57, 56, 44, 49, 50, 49, 44, 52, 55, 44, 52, 50, 44, 50, 48, 48, 44, 50, 54, 44, 49,
+            53, 57, 44, 49, 53, 44, 49, 55, 50, 44, 49, 52, 53, 44, 49, 48, 55, 44, 57, 55, 44, 49,
+            51, 52, 44, 57, 50, 44, 54, 53, 44, 57, 54, 44, 49, 50, 48, 44, 56, 52, 44, 50, 50, 57,
+            44, 49, 55, 49, 44, 49, 57, 93, 44, 34, 110, 111, 110, 99, 101, 34, 58, 91, 49, 48, 49,
+            44, 50, 50, 57, 44, 50, 53, 50, 44, 55, 50, 44, 49, 49, 54, 44, 49, 57, 44, 52, 52, 44,
+            52, 52, 44, 50, 53, 52, 44, 50, 49, 50, 44, 56, 56, 44, 49, 57, 55, 44, 49, 48, 54, 44,
+            50, 51, 57, 44, 50, 50, 48, 44, 50, 48, 50, 44, 49, 48, 50, 44, 50, 50, 49, 44, 49, 49,
+            49, 44, 49, 55, 53, 44, 50, 48, 50, 44, 49, 55, 54, 44, 49, 54, 57, 44, 57, 56, 93,
+            125,
+        ];
+
+        let encrypted_cipher = [
+            123, 34, 107, 100, 102, 95, 105, 110, 102, 111, 34, 58, 123, 34, 80, 98, 107, 100, 102,
+            50, 84, 111, 67, 104, 97, 67, 104, 97, 50, 48, 80, 111, 108, 121, 49, 51, 48, 53, 34,
+            58, 123, 34, 114, 111, 117, 110, 100, 115, 34, 58, 49, 48, 48, 48, 44, 34, 107, 100,
+            102, 95, 115, 97, 108, 116, 34, 58, 91, 51, 55, 44, 49, 51, 56, 44, 49, 50, 55, 44, 51,
+            49, 44, 49, 49, 55, 44, 53, 49, 44, 50, 52, 57, 44, 49, 51, 49, 44, 49, 52, 44, 50, 49,
+            50, 44, 57, 49, 44, 50, 49, 48, 44, 50, 51, 44, 53, 52, 44, 50, 52, 54, 44, 53, 57, 44,
+            49, 51, 57, 44, 49, 52, 54, 44, 55, 56, 44, 49, 51, 56, 44, 49, 51, 54, 44, 50, 49, 49,
+            44, 49, 57, 49, 44, 49, 55, 53, 44, 49, 57, 57, 44, 50, 44, 57, 49, 44, 50, 53, 49, 44,
+            50, 48, 54, 44, 56, 49, 44, 49, 51, 48, 44, 49, 52, 50, 93, 125, 125, 44, 34, 99, 105,
+            112, 104, 101, 114, 116, 101, 120, 116, 95, 105, 110, 102, 111, 34, 58, 123, 34, 67,
+            104, 97, 67, 104, 97, 50, 48, 80, 111, 108, 121, 49, 51, 48, 53, 34, 58, 123, 34, 110,
+            111, 110, 99, 101, 34, 58, 91, 50, 52, 57, 44, 50, 48, 48, 44, 49, 57, 51, 44, 56, 53,
+            44, 49, 55, 56, 44, 53, 53, 44, 49, 50, 52, 44, 56, 52, 44, 48, 44, 50, 52, 50, 44, 49,
+            52, 50, 44, 53, 57, 44, 49, 50, 53, 44, 55, 51, 44, 49, 57, 48, 44, 49, 55, 55, 44, 49,
+            49, 56, 44, 49, 56, 48, 44, 49, 51, 44, 50, 49, 54, 44, 49, 49, 56, 44, 56, 44, 49, 48,
+            51, 44, 50, 49, 56, 93, 44, 34, 99, 105, 112, 104, 101, 114, 116, 101, 120, 116, 34,
+            58, 91, 50, 51, 51, 44, 52, 52, 44, 50, 51, 56, 44, 50, 48, 52, 44, 53, 44, 56, 49, 44,
+            49, 49, 56, 44, 53, 51, 44, 50, 52, 44, 50, 52, 48, 44, 50, 49, 48, 44, 49, 51, 49, 44,
+            50, 50, 57, 44, 49, 50, 55, 44, 49, 53, 49, 44, 57, 52, 44, 55, 50, 44, 49, 49, 48, 44,
+            49, 51, 44, 49, 57, 44, 57, 56, 44, 49, 54, 57, 44, 50, 53, 50, 44, 49, 55, 53, 44, 49,
+            54, 49, 44, 50, 50, 52, 44, 49, 54, 49, 44, 49, 55, 48, 44, 50, 50, 44, 55, 51, 44, 49,
+            57, 57, 44, 50, 50, 54, 44, 49, 54, 51, 44, 49, 52, 55, 44, 56, 53, 44, 50, 52, 56, 44,
+            49, 48, 57, 44, 49, 48, 57, 44, 50, 49, 50, 44, 49, 52, 52, 44, 50, 48, 49, 44, 53, 48,
+            44, 50, 50, 53, 44, 49, 54, 51, 44, 56, 53, 44, 50, 53, 50, 44, 55, 48, 44, 50, 51, 50,
+            44, 49, 51, 53, 44, 49, 57, 57, 44, 49, 48, 54, 44, 54, 54, 44, 49, 49, 57, 44, 55, 52,
+            44, 50, 48, 52, 44, 52, 51, 44, 49, 55, 49, 44, 49, 53, 54, 44, 56, 55, 44, 49, 54, 53,
+            44, 49, 51, 52, 44, 53, 49, 44, 50, 50, 51, 44, 50, 53, 53, 44, 49, 55, 48, 44, 55, 51,
+            44, 50, 52, 51, 44, 49, 50, 56, 44, 50, 52, 50, 44, 49, 54, 53, 44, 49, 55, 54, 44, 50,
+            51, 55, 44, 55, 49, 44, 52, 52, 44, 52, 57, 44, 57, 57, 44, 49, 54, 50, 44, 49, 56, 52,
+            44, 49, 56, 57, 44, 56, 48, 93, 125, 125, 125,
+        ];
+
+        let store_cipher = StoreCipher::import(passphrase, &encrypted_cipher)?;
+
+        let plaintext_value = json!({
+            "some": "data"
+        });
+
+        let decrypted_value: Value = store_cipher.decrypt_value(&value)?;
+
+        assert_eq!(plaintext_value, decrypted_value);
 
         Ok(())
     }
