@@ -205,7 +205,7 @@ impl std::fmt::Debug for SledStore {
 }
 
 impl SledStore {
-    /// Open the sled based cryptostore at the given path using the given
+    /// Open the sled-based crypto store at the given path using the given
     /// passphrase to encrypt private data.
     pub fn open_with_passphrase(
         path: impl AsRef<Path>,
@@ -224,7 +224,7 @@ impl SledStore {
         SledStore::open_helper(db, Some(path), store_cipher)
     }
 
-    /// Create a sled based cryptostore using the given sled database.
+    /// Create a sled-based crypto store using the given sled database.
     /// The given passphrase will be used to encrypt private data.
     pub fn open_with_database(
         db: Db,

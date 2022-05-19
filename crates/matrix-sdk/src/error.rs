@@ -198,9 +198,9 @@ pub enum RoomKeyImportError {
     #[error(transparent)]
     SerdeJson(#[from] JsonError),
 
-    /// The cryptostore isn't yet open, logging in is required to open the
-    /// cryptostore.
-    #[error("The cryptostore hasn't been yet opened, can't import yet.")]
+    /// The crypto store isn't yet open. Logging in is required to open the
+    /// crypto store.
+    #[error("The crypto store hasn't been yet opened, can't import yet.")]
     StoreClosed,
 
     /// An IO error happened.
