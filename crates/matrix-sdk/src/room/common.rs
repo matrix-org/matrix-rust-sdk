@@ -297,7 +297,7 @@ impl Common {
     ///   }
     /// }
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # anyhow::Ok(())
     /// # });
     /// ```
     #[cfg(feature = "experimental-timeline")]
@@ -366,7 +366,7 @@ impl Common {
     ///   }
     /// }
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # anyhow::Ok(())
     /// # });
     /// ```
     #[cfg(feature = "experimental-timeline")]
@@ -430,7 +430,7 @@ impl Common {
     ///   });
     /// }
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # anyhow::Ok(())
     /// # });
     /// ```
     #[cfg(feature = "experimental-timeline")]
@@ -845,7 +845,7 @@ impl Common {
     ///
     ///     room.set_tag(TagName::User(user_tag), tag_info ).await?;
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn set_tag(
         &self,
