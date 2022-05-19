@@ -6,6 +6,7 @@ pub mod backward_stream;
 pub mod client;
 pub mod messages;
 pub mod room;
+mod uniffi_api;
 
 use std::{fs, path, sync::Arc};
 
@@ -15,6 +16,7 @@ use once_cell::sync::Lazy;
 use sanitize_filename_reader_friendly::sanitize;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
+pub use uniffi_api::*;
 
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
@@ -106,5 +108,3 @@ impl From<anyhow::Error> for ClientError {
         ClientError::Generic { msg: e.to_string() }
     }
 }
-
-uniffi_macros::include_scaffolding!("api");

@@ -239,7 +239,7 @@ impl Client {
     ///     // Change password
     /// }
     ///
-    /// # Result::<_, anyhow::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new(), None).await?;
@@ -3365,7 +3365,7 @@ pub(crate) mod tests {
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
         let members: Vec<RoomMember> = room.active_members().await.unwrap();
 
-        assert_eq!(1, members.len());
+        assert_eq!(2, members.len());
         // assert!(room.power_levels.is_some())
     }
 

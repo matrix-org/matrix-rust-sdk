@@ -29,11 +29,11 @@ The `build_xcframework.sh` script will go through all the steps required to gene
 
 The Xcode project is meant to provide a simple example on how to integrate everything together but also a place to run unit and integration tests from.
 
-It's pre-configured to link to the generated .xcframework and .swift files so succesfully running the script first is necessary for it to compile.
+It's pre-configured to link to the generated .xcframework and .swift files so successfully running the script first is necessary for it to compile.
 
 It makes the compiled code available to swift by importing the C header through its bridging header.
 
-Once all the generated components are available running it should be as easy as chosing a platform and clicking run.
+Once all the generated components are available running it should be as easy as choosing a platform and clicking run.
 
 ## Distribution
 The generated framework and Swift code can be distributed and integrated directly but in order to make things simpler we bundle them together as a Swift package available [TBD](here)

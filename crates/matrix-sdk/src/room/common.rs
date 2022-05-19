@@ -205,15 +205,20 @@ impl Common {
         #[cfg(feature = "e2e-encryption")]
         if let Some(machine) = self.client.olm_machine().await {
             for event in http_response.chunk {
-                let decrypted_event =
-                    if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                        SyncMessageLikeEvent::Original(encrypted_event),
-                    )) = event.deserialize_as::<AnySyncRoomEvent>()?
-                    {
-                        machine.decrypt_room_event(&encrypted_event, room_id).await?
+                let decrypted_event = if let Ok(AnySyncRoomEvent::MessageLike(
+                    AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(
+                        encrypted_event,
+                    )),
+                )) = event.deserialize_as::<AnySyncRoomEvent>()
+                {
+                    if let Ok(event) = machine.decrypt_room_event(&encrypted_event, room_id).await {
+                        event
                     } else {
                         RoomEvent { event, encryption_info: None }
-                    };
+                    }
+                } else {
+                    RoomEvent { event, encryption_info: None }
+                };
 
                 response.chunk.push(decrypted_event);
             }
@@ -478,12 +483,15 @@ impl Common {
         let event = self.client.send(request, None).await?.event;
 
         #[cfg(feature = "e2e-encryption")]
-        if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(encrypted_event),
-        )) = event.deserialize_as::<AnySyncRoomEvent>()?
         {
-            Ok(self.decrypt_event(&encrypted_event).await?)
-        } else {
+            if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                SyncMessageLikeEvent::Original(encrypted_event),
+            ))) = event.deserialize_as::<AnySyncRoomEvent>()
+            {
+                if let Ok(event) = self.decrypt_event(&encrypted_event).await {
+                    return Ok(event);
+                }
+            }
             Ok(RoomEvent { event, encryption_info: None })
         }
 
