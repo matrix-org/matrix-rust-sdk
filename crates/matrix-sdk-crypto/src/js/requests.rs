@@ -1,8 +1,18 @@
 use js_sys::JsString;
-use serde_json::json;
+use ruma::api::client::keys::{
+    claim_keys::v3::Request as RumaKeysClaimRequest,
+    upload_keys::v3::Request as RumaKeysUploadRequest,
+    upload_signatures::v3::Request as RumaSignatureUploadRequest,
+};
 use wasm_bindgen::prelude::*;
 
-use crate::{OutgoingRequest, OutgoingRequests};
+use crate::{
+    requests::{
+        KeysBackupRequest as RumaKeysBackupRequest, KeysQueryRequest as RumaKeysQueryRequest,
+        RoomMessageRequest as RumaRoomMessageRequest, ToDeviceRequest as RumaToDeviceRequest,
+    },
+    OutgoingRequest, OutgoingRequests,
+};
 
 /// Data for a request to the `upload_keys` API endpoint.
 ///
@@ -133,6 +143,37 @@ pub struct KeysBackupRequest {
     pub body: JsString,
 }
 
+macro_rules! request {
+    ($request:ident from $ruma_request:ident maps fields $( $field:ident ),+ $(,)? ) => {
+        impl TryFrom<(String, &$ruma_request)> for $request {
+            type Error = serde_json::Error;
+
+            fn try_from(
+                (request_id, request): (String, &$ruma_request),
+            ) -> Result<Self, Self::Error> {
+                let mut map = serde_json::Map::new();
+                $(
+                    map.insert(stringify!($field).to_owned(), serde_json::to_value(&request.$field).unwrap());
+                )+
+                let value = serde_json::Value::Object(map);
+
+                Ok($request {
+                    request_id: request_id.into(),
+                    body: serde_json::to_string(&value)?.into(),
+                })
+            }
+        }
+    };
+}
+
+request!(KeysUploadRequest from RumaKeysUploadRequest maps fields device_keys, one_time_keys);
+request!(KeysQueryRequest from RumaKeysQueryRequest maps fields timeout, device_keys, token);
+request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout, one_time_keys);
+request!(ToDeviceRequest from RumaToDeviceRequest maps fields event_type, txn_id, messages);
+request!(SignatureUploadRequest from RumaSignatureUploadRequest maps fields signed_keys);
+request!(RoomMessageRequest from RumaRoomMessageRequest maps fields room_id, txn_id, content);
+request!(KeysBackupRequest from RumaKeysBackupRequest maps fields version, rooms);
+
 // JavaScript has no complex enums like Rust. To return structs of
 // different types, we have no choice that hidding everything behind a
 // `JsValue`.
@@ -140,93 +181,35 @@ impl TryFrom<OutgoingRequest> for JsValue {
     type Error = serde_json::Error;
 
     fn try_from(outgoing_request: OutgoingRequest) -> Result<Self, Self::Error> {
-        let request_id: JsString = outgoing_request.request_id().to_string().into();
+        let request_id = outgoing_request.request_id().to_string();
 
         Ok(match outgoing_request.request() {
             OutgoingRequests::KeysUpload(request) => {
-                let body = json!({
-                    "device_keys": request.device_keys,
-                    "one_time_keys": request.one_time_keys,
-                });
-
-                JsValue::from(KeysUploadRequest {
-                    request_id,
-                    body: serde_json::to_string(&body)?.into(),
-                })
+                JsValue::from(KeysUploadRequest::try_from((request_id, request))?)
             }
 
             OutgoingRequests::KeysQuery(request) => {
-                let body = json!({
-                    "timeout": request.timeout,
-                    "device_keys": request.device_keys,
-                    "token": request.token,
-                });
-
-                JsValue::from(KeysQueryRequest {
-                    request_id,
-                    body: serde_json::to_string(&body)?.into(),
-                })
+                JsValue::from(KeysQueryRequest::try_from((request_id, request))?)
             }
 
             OutgoingRequests::KeysClaim(request) => {
-                let body = json!({
-                    "timeout": request.timeout,
-                    "one_time_keys": request.one_time_keys,
-                });
-
-                JsValue::from(KeysClaimRequest {
-                    request_id,
-                    body: serde_json::to_string(&body)?.into(),
-                })
+                JsValue::from(KeysClaimRequest::try_from((request_id, request))?)
             }
 
             OutgoingRequests::ToDeviceRequest(request) => {
-                let body = json!({
-                    "event_type": request.event_type,
-                    "txn_id": request.txn_id,
-                    "messages": request.messages,
-                });
-
-                JsValue::from(ToDeviceRequest {
-                    request_id,
-                    body: serde_json::to_string(&body)?.into(),
-                })
+                JsValue::from(ToDeviceRequest::try_from((request_id, request))?)
             }
 
             OutgoingRequests::SignatureUpload(request) => {
-                let body = json!({
-                    "signed_keys": request.signed_keys,
-                });
-
-                JsValue::from(SignatureUploadRequest {
-                    request_id,
-                    body: serde_json::to_string(&body)?.into(),
-                })
+                JsValue::from(SignatureUploadRequest::try_from((request_id, request))?)
             }
 
             OutgoingRequests::RoomMessage(request) => {
-                let body = json!({
-                    "room_id": request.room_id,
-                    "txn_id": request.txn_id,
-                    "content": request.content,
-                });
-
-                JsValue::from(RoomMessageRequest {
-                    request_id,
-                    body: serde_json::to_string(&body)?.into(),
-                })
+                JsValue::from(RoomMessageRequest::try_from((request_id, request))?)
             }
 
             OutgoingRequests::KeysBackup(request) => {
-                let body = json!({
-                    "version": request.version,
-                    "rooms": request.rooms,
-                });
-
-                JsValue::from(KeysBackupRequest {
-                    request_id,
-                    body: serde_json::to_string(&body)?.into(),
-                })
+                JsValue::from(KeysBackupRequest::try_from((request_id, request))?)
             }
         })
     }

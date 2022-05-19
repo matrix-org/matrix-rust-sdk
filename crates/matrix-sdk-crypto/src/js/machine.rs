@@ -9,10 +9,9 @@ use serde_json::value::RawValue as RawJsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::js::{
-    events,
+    downcast, events,
     future::future_to_promise,
-    identifiers,
-    requests::RequestType,
+    identifiers, requests,
     responses::{self, response_from_string},
     sync_events,
 };
@@ -170,11 +169,11 @@ impl OlmMachine {
     pub fn mark_request_as_sent(
         &self,
         request_id: &str,
-        request_type: RequestType,
+        request_type: requests::RequestType,
         response: &str,
     ) -> Result<Promise, JsError> {
         let transaction_id = OwnedTransactionId::from(request_id);
-        let response = response_from_string(response).map_err(JsError::from)?;
+        let response = response_from_string(response)?;
         let incoming_response = responses::OwnedResponse::try_from((request_type, response))?;
 
         let me = self.inner.clone();
@@ -209,9 +208,8 @@ impl OlmMachine {
         content: &str,
     ) -> Result<Promise, JsError> {
         let room_id = room_id.inner.clone();
-        let content: Box<RawJsonValue> = serde_json::from_str(content).map_err(JsError::from)?;
-        let content =
-            AnyMessageLikeEventContent::from_parts(event_type, &content).map_err(JsError::from)?;
+        let content: Box<RawJsonValue> = serde_json::from_str(content)?;
+        let content = AnyMessageLikeEventContent::from_parts(event_type, &content)?;
 
         let me = self.inner.clone();
 
@@ -235,9 +233,9 @@ impl OlmMachine {
 
     /// Get to-device requests to share a group session with users in a room.
     ///
-    /// `room_id` is the room ID. `users` is an array of strings
-    /// representing user IDs. `encryption_settings` are an
-    /// `EncryptionSettings` object.
+    /// `room_id` is the room ID. `users` is an array of `UserId`
+    /// objects. `encryption_settings` are an `EncryptionSettings`
+    /// object.
     #[wasm_bindgen(js_name = "shareGroupSession")]
     pub fn share_group_session(
         &self,
@@ -248,19 +246,7 @@ impl OlmMachine {
         let room_id = room_id.inner.clone();
         let users = users
             .iter()
-            .map(|user| {
-                let user = user
-                    .as_string()
-                    .ok_or_else(|| JsError::new("Given user ID is not a string"))?;
-                let user = ruma::UserId::parse(&user).map_err(|error| {
-                    JsError::new(&format!(
-                        "Given user ID `{}` has an invalid syntax: {}",
-                        user, error
-                    ))
-                })?;
-
-                Ok(user)
-            })
+            .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
             .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
         let encryption_settings = crate::olm::EncryptionSettings::from(encryption_settings);
 
@@ -270,11 +256,61 @@ impl OlmMachine {
             Ok(serde_json::to_string(
                 &me.share_group_session(
                     &room_id,
-                    users.iter().by_ref().map(AsRef::as_ref),
+                    users.iter().map(AsRef::as_ref),
                     encryption_settings,
                 )
                 .await?,
             )?)
+        }))
+    }
+
+    /// Get the a key claiming request for the user/device pairs that
+    /// we are missing Olm sessions for.
+    ///
+    /// Returns `NULL` if no key claiming request needs to be sent
+    /// out, otherwise it returns an `Array` where the first key is
+    /// the transaction ID as a string, and the second key is the keys
+    /// claim request serialized to JSON.
+    ///
+    /// Sessions need to be established between devices so group
+    /// sessions for a room can be shared with them.
+    ///
+    /// This should be called every time a group session needs to be
+    /// shared as well as between sync calls. After a sync some
+    /// devices may request room keys without us having a valid Olm
+    /// session with them, making it impossible to server the room key
+    /// request, thus it’s necessary to check for missing sessions
+    /// between sync as well.
+    ///
+    /// Note: Care should be taken that only one such request at a
+    /// time is in flight, e.g. using a lock.
+    ///
+    /// The response of a successful key claiming requests needs to be
+    /// passed to the `OlmMachine` with the `mark_request_as_sent`.
+    ///
+    /// `users` represents the list of users that we should check if
+    /// we lack a session with one of their devices. This can be an
+    /// empty iterator when calling this method between sync requests.
+    #[wasm_bindgen(js_name = "getMissingSessions")]
+    pub fn get_missing_sessions(&self, users: &Array) -> Result<Promise, JsError> {
+        let users = users
+            .iter()
+            .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
+            .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
+
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            match me.get_missing_sessions(users.iter().map(AsRef::as_ref)).await? {
+                Some((transaction_id, keys_claim_request)) => {
+                    Ok(JsValue::from(requests::KeysClaimRequest::try_from((
+                        transaction_id.to_string(),
+                        &keys_claim_request,
+                    ))?))
+                }
+
+                None => Ok(JsValue::NULL),
+            }
         }))
     }
 }
