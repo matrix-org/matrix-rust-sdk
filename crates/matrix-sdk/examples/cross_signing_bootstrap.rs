@@ -37,11 +37,7 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) {
     }
 }
 
-async fn login(
-    homeserver_url: String,
-    username: &str,
-    password: &str,
-) -> Result<(), matrix_sdk::Error> {
+async fn login(homeserver_url: String, username: &str, password: &str) -> matrix_sdk::Result<()> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 

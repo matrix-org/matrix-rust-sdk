@@ -56,7 +56,7 @@ async fn login_and_sync(
     username: String,
     password: String,
     image: File,
-) -> Result<(), matrix_sdk::Error> {
+) -> matrix_sdk::Result<()> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
