@@ -663,8 +663,9 @@ impl OlmMachine {
 
     /// Encrypt a json [`Value`] content for the given room.
     ///
-    /// This method is equivalent to the [`encrypt()`] method but operates on an
-    /// arbitrary JSON value instead of strongly-typed event content struct.
+    /// This method is equivalent to the [`OlmMachine::encrypt_room_event()`]
+    /// method but operates on an arbitrary JSON value instead of strongly-typed
+    /// event content struct.
     ///
     /// # Arguments
     ///
@@ -679,8 +680,6 @@ impl OlmMachine {
     /// # Panics
     ///
     /// Panics if a group session for the given room wasn't shared beforehand.
-    ///
-    /// [`encrypt()`]: #method.encrypt
     pub async fn encrypt_room_event_raw(
         &self,
         room_id: &RoomId,
