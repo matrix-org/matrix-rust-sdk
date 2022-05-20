@@ -93,24 +93,6 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .ok_or_else(|| anyhow::anyhow!("Not unlocked"))
     }
 
-    /// Returns a reference to the cipher
-    ///
-    /// # Errors
-    /// This function will return an error if the database has not been unlocked
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn ensure_cipher(&self) -> Result<&StoreCipher> {
-        Ok(&self.ensure_e2e()?.cipher)
-    }
-
-    /// Returns a refcounted reference to the cipher
-    ///
-    /// # Errors
-    /// This function will return an error if the database has not been unlocked
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn ensure_cipher_arc(&self) -> Result<Arc<StoreCipher>> {
-        Ok(Arc::clone(&self.ensure_e2e()?.cipher))
-    }
-
     /// Unlocks the e2e encryption database
     /// # Errors
     /// This function will fail if the passphrase is not `hunter2`
@@ -123,7 +105,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        self.unlock_with_passphrase("hunter2").await
+        self.cryptostore = Some(CryptostoreData::new_unencrypted());
+        self.load_tracked_users().await?;
+        Ok(())
     }
 
     /// Unlocks the e2e encryption database with password

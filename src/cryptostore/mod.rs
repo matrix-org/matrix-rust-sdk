@@ -1,6 +1,7 @@
 //! Crypto store implementation
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
@@ -26,7 +27,7 @@ use matrix_sdk_crypto::{
 use matrix_sdk_store_encryption::StoreCipher;
 use parking_lot::RwLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{
     database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Row, Transaction,
 };
@@ -46,7 +47,7 @@ type StoreResult<T> = Result<T, CryptoStoreError>;
 pub(crate) struct CryptostoreData {
     /// Encryption cipher
     #[educe(Debug(ignore))]
-    pub(crate) cipher: Arc<StoreCipher>,
+    pub(crate) cipher: Option<StoreCipher>,
     /// Account info
     pub(crate) account: RwLock<Option<AccountInfo>>,
     /// In-Memory session store
@@ -65,13 +66,65 @@ impl CryptostoreData {
     /// Create a new cryptostore data
     pub(crate) fn new(cipher: StoreCipher) -> Self {
         Self {
-            cipher: Arc::new(cipher),
+            cipher: Some(cipher),
             account: RwLock::new(None),
             sessions: SessionStore::new(),
             group_sessions: GroupSessionStore::new(),
             devices: DeviceStore::new(),
             tracked_users: Arc::new(DashSet::new()),
             users_for_key_query: Arc::new(DashSet::new()),
+        }
+    }
+
+    /// Create a new unencrypted cryptostore data struct
+    pub(crate) fn new_unencrypted() -> Self {
+        Self {
+            cipher: None,
+            account: RwLock::new(None),
+            sessions: SessionStore::new(),
+            group_sessions: GroupSessionStore::new(),
+            devices: DeviceStore::new(),
+            tracked_users: Arc::new(DashSet::new()),
+            users_for_key_query: Arc::new(DashSet::new()),
+        }
+    }
+
+    /// Encode a key
+    pub(crate) fn encode_key<'a>(&self, table_name: &str, key: &'a [u8]) -> Cow<'a, [u8]> {
+        self.cipher.as_ref().map_or_else(
+            || key.into(),
+            |v| {
+                v.hash_key(table_name.as_ref(), key.as_ref())
+                    .to_vec()
+                    .into()
+            },
+        )
+    }
+
+    /// Tries to encode a value
+    ///
+    /// # Errors
+    /// This function returns an error if serialization or encryption fails.
+    pub(crate) fn encode_value<T: Serialize>(&self, value: &T) -> Result<Vec<u8>> {
+        if let Some(ref v) = self.cipher {
+            let encrypted = v.encrypt_value_typed(value)?;
+            Ok(bincode::serialize(&encrypted)?)
+        } else {
+            Ok(serde_json::to_vec(value)?)
+        }
+    }
+
+    /// Tries to decode a value
+    ///
+    /// # Errors
+    /// This function returns an error if deserialization or decryption fails.
+    pub(crate) fn decode_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+        if let Some(ref v) = self.cipher {
+            let deser = bincode::deserialize(value)?;
+            let decrypted = v.decrypt_value_typed(deser)?;
+            Ok(decrypted)
+        } else {
+            Ok(serde_json::from_slice(value)?)
         }
     }
 }
@@ -116,12 +169,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
         let e2e = self.ensure_e2e()?;
         let mut rows = DB::tracked_users_fetch_query().fetch(&*self.db);
         while let Some(row) = rows.try_next().await? {
             let user: Vec<u8> = row.try_get("tracked_user_data")?;
-            let user: TrackedUser = cipher.decrypt_value(&user)?;
+            let user: TrackedUser = e2e.decode_value(&user)?;
             e2e.tracked_users.insert(user.user_id.clone());
             if user.dirty {
                 e2e.users_for_key_query.insert(user.user_id.clone());
@@ -143,10 +195,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
+        let e2e = self.ensure_e2e()?;
         let account = match self.get_kv(b"e2e_account").await? {
             Some(account) => {
-                let account = cipher.decrypt_value(&account)?;
+                let account = e2e.decode_value(&account)?;
                 let account = ReadOnlyAccount::from_pickle(account)?;
 
                 let account_info = AccountInfo {
@@ -196,17 +248,17 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
-        let cipher = self.ensure_cipher()?;
+        let e2e = self.ensure_e2e()?;
         let account_info = AccountInfo {
             user_id: Arc::clone(&account.user_id),
             device_id: Arc::clone(&account.device_id),
             identity_keys: Arc::clone(&account.identity_keys),
         };
-        *(self.ensure_e2e()?.account.write()) = Some(account_info);
+        *(e2e.account.write()) = Some(account_info);
         Self::insert_kv_txn(
             txn,
             b"e2e_account",
-            &cipher.encrypt_value(&account.pickle().await)?,
+            &e2e.encode_value(&account.pickle().await)?,
         )
         .await?;
         Ok(())
@@ -225,10 +277,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
+        let e2e = self.ensure_e2e()?;
         let private_identity = match self.get_kv(b"private_identity").await? {
             Some(account) => {
-                let private_identity = cipher.decrypt_value(&account)?;
+                let private_identity = e2e.decode_value(&account)?;
                 let private_identity =
                     PrivateCrossSigningIdentity::from_pickle(private_identity).await?;
                 Some(private_identity)
@@ -253,11 +305,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
-        let cipher = self.ensure_cipher()?;
+        let e2e = self.ensure_e2e()?;
         Self::insert_kv_txn(
             txn,
             b"private_identity",
-            &cipher.encrypt_value(&identity.pickle().await?)?,
+            &e2e.encode_value(&identity.pickle().await?)?,
         )
         .await?;
         Ok(())
@@ -278,13 +330,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        Self::insert_kv_txn(
-            txn,
-            b"backup_version",
-            &cipher.encrypt_value(&backup_version)?,
-        )
-        .await?;
+        let e2e = self.ensure_e2e()?;
+        Self::insert_kv_txn(txn, b"backup_version", &e2e.encode_value(&backup_version)?).await?;
         Ok(())
     }
 
@@ -303,8 +350,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        Self::insert_kv_txn(txn, b"recovery_key", &cipher.encrypt_value(&recovery_key)?).await?;
+        let e2e = self.ensure_e2e()?;
+        Self::insert_kv_txn(txn, b"recovery_key", &e2e.encode_value(&recovery_key)?).await?;
         Ok(())
     }
 
@@ -321,16 +368,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let sender_key = cipher.hash_key(
-            "cryptostore_session:sender_key",
-            session.sender_key().to_base64().as_bytes(),
-        );
+        let e2e = self.ensure_e2e()?;
+        let sender_key = session.sender_key().to_base64();
+        let sender_key = sender_key.as_bytes();
+        let sender_key = e2e.encode_key("cryptostore_session:sender_key", sender_key);
         DB::session_store_query()
-            .bind(sender_key.to_vec())
-            .bind(cipher.encrypt_value(&session.pickle().await)?)
+            .bind(sender_key.as_ref())
+            .bind(e2e.encode_value(&session.pickle().await)?.as_ref())
             .execute(txn)
             .await?;
         self.ensure_e2e()?.sessions.add(session).await;
@@ -373,16 +419,16 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         Vec<u8>: SqlType<DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let room_id = cipher.hash_key(
+        let e2e = self.ensure_e2e()?;
+        let room_id = e2e.encode_key(
             "cryptostore_inbound_group_session:room_id",
             session.room_id().as_bytes(),
         );
-        let sender_key = cipher.hash_key(
+        let sender_key = e2e.encode_key(
             "cryptostore_inbound_group_session:sender_key",
             session.sender_key().as_bytes(),
         );
-        let session_id = cipher.hash_key(
+        let session_id = e2e.encode_key(
             "cryptostore_inbound_group_session:session_id",
             session.session_id().as_bytes(),
         );
@@ -390,7 +436,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .bind(room_id.to_vec())
             .bind(sender_key.to_vec())
             .bind(session_id.to_vec())
-            .bind(cipher.encrypt_value(&session.pickle().await)?)
+            .bind(&e2e.encode_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
         self.ensure_e2e()?.group_sessions.add(session);
@@ -412,14 +458,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         Vec<u8>: SqlType<DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let room_id = cipher.hash_key(
+        let e2e = self.ensure_e2e()?;
+        let room_id = e2e.encode_key(
             "cryptostore_inbound_group_session:room_id",
             session.room_id().as_bytes(),
         );
         DB::outbound_group_session_store_query()
             .bind(room_id.to_vec())
-            .bind(cipher.encrypt_value(&session.pickle().await)?)
+            .bind(&e2e.encode_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
         Ok(())
@@ -441,25 +487,26 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         bool: SqlType<DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let recipient_id = cipher.hash_key(
+        let e2e = self.ensure_e2e()?;
+        let recipient_id = e2e.encode_key(
             "cryptostore_gossip_request:recipient_id",
             request.request_recipient.as_bytes(),
         );
-        let request_id = cipher.hash_key(
+        let request_id = e2e.encode_key(
             "cryptostore_gossip_request:request_id",
             request.request_id.as_bytes(),
         );
-        let info_key = cipher.hash_key(
+        let request_info_key = request.info.as_key();
+        let info_key = e2e.encode_key(
             "cryptostore_gossip_request:info_key",
-            request.info.as_key().as_bytes(),
+            request_info_key.as_bytes(),
         );
         DB::gossip_request_store_query()
             .bind(recipient_id.to_vec())
             .bind(request_id.to_vec())
             .bind(info_key.to_vec())
             .bind(request.sent_out)
-            .bind(cipher.encrypt_value(&request)?)
+            .bind(&e2e.encode_value(&request)?)
             .execute(txn)
             .await?;
         Ok(())
@@ -480,14 +527,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         Vec<u8>: SqlType<DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key(
+        let e2e = self.ensure_e2e()?;
+        let user_id = e2e.encode_key(
             "cryptostore_identity:user_id",
             identity.user_id().as_bytes(),
         );
         DB::identity_upsert_query()
             .bind(user_id.to_vec())
-            .bind(cipher.encrypt_value(&identity)?)
+            .bind(&e2e.encode_value(&identity)?)
             .execute(txn)
             .await?;
         Ok(())
@@ -508,16 +555,16 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         Vec<u8>: SqlType<DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("cryptostore_device:user_id", device.user_id().as_bytes());
-        let device_id = cipher.hash_key(
+        let e2e = self.ensure_e2e()?;
+        let user_id = e2e.encode_key("cryptostore_device:user_id", device.user_id().as_bytes());
+        let device_id = e2e.encode_key(
             "cryptostore_device:device_id",
             device.device_id().as_bytes(),
         );
         DB::device_upsert_query()
             .bind(user_id.to_vec())
             .bind(device_id.to_vec())
-            .bind(cipher.encrypt_value(&device)?)
+            .bind(&e2e.encode_value(&device)?)
             .execute(txn)
             .await?;
         self.ensure_e2e()?.devices.add(device);
@@ -539,9 +586,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         Vec<u8>: SqlType<DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("cryptostore_device:user_id", device.user_id().as_bytes());
-        let device_id = cipher.hash_key(
+        let e2e = self.ensure_e2e()?;
+        let user_id = e2e.encode_key("cryptostore_device:user_id", device.user_id().as_bytes());
+        let device_id = e2e.encode_key(
             "cryptostore_device:device_id",
             device.device_id().as_bytes(),
         );
@@ -661,24 +708,24 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let sessions = &self.ensure_e2e()?.sessions;
+        let e2e = self.ensure_e2e()?;
+        let sessions = &e2e.sessions;
         if let Some(v) = sessions.get(sender_key) {
             Ok(Some(v))
         } else {
-            let account_info = self.ensure_e2e()?.account.read().clone();
+            let account_info = e2e.account.read().clone();
             let account_info = account_info
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("No account info"))?;
             // try fetching from the database
-            let cipher = self.ensure_cipher()?;
-            let user_id = cipher.hash_key("cryptostore_session:sender_key", sender_key.as_bytes());
+            let user_id = e2e.encode_key("cryptostore_session:sender_key", sender_key.as_bytes());
             let mut rows = DB::sessions_for_user_query()
                 .bind(user_id.to_vec())
                 .fetch(&*self.db);
             let mut sess = Vec::new();
             while let Some(row) = rows.try_next().await? {
                 let data: Vec<u8> = row.try_get("session_data")?;
-                let session = cipher.decrypt_value(&data)?;
+                let session = e2e.decode_value(&data)?;
                 let session = Session::from_pickle(
                     Arc::clone(&account_info.user_id),
                     Arc::clone(&account_info.device_id),
@@ -709,20 +756,20 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let sessions = &self.ensure_e2e()?.group_sessions;
+        let e2e = self.ensure_e2e()?;
+        let sessions = &e2e.group_sessions;
         if let Some(v) = sessions.get(room_id, sender_key, session_id) {
             Ok(Some(v))
         } else {
-            let cipher = self.ensure_cipher()?;
-            let room_id = cipher.hash_key(
+            let room_id = e2e.encode_key(
                 "cryptostore_inbound_group_session:room_id",
                 room_id.as_bytes(),
             );
-            let sender_key = cipher.hash_key(
+            let sender_key = e2e.encode_key(
                 "cryptostore_inbound_group_session:sender_key",
                 sender_key.as_bytes(),
             );
-            let session_id = cipher.hash_key(
+            let session_id = e2e.encode_key(
                 "cryptostore_inbound_group_session:session_id",
                 session_id.as_bytes(),
             );
@@ -734,7 +781,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
                 .await?;
             if let Some(row) = row {
                 let data: Vec<u8> = row.try_get("session_data")?;
-                let session = cipher.decrypt_value(&data)?;
+                let session = e2e.decode_value(&data)?;
                 let session = InboundGroupSession::from_pickle(session)?;
                 sessions.add(session.clone());
                 Ok(Some(session))
@@ -748,27 +795,27 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database has not been unlocked.
-    pub(crate) fn get_inbound_group_session_stream(
-        &self,
-    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error>>
+    pub(crate) fn get_inbound_group_session_stream<'this>(
+        &'this self,
+    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + 'this>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher_arc()?;
+        let e2e = self.ensure_e2e()?;
         Ok(DB::inbound_group_sessions_fetch_query()
             .fetch(&*self.db)
             .map_err(Into::into)
             .and_then(move |row| {
-                let cipher = Arc::clone(&cipher);
-                async move {
+                let result = move || {
                     let data: Vec<u8> = row.try_get("session_data")?;
-                    let session = cipher.decrypt_value(&data)?;
+                    let session = e2e.decode_value(&data)?;
                     let session = InboundGroupSession::from_pickle(session)?;
                     Ok(session)
-                }
+                };
+                futures::future::ready((result)())
             }))
     }
 
@@ -777,7 +824,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked.
     pub(crate) fn get_inbound_group_session_stream_txn<'r, 'c>(
-        &self,
+        &'r self,
         txn: &'r mut Transaction<'c, DB>,
     ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + 'r>
     where
@@ -786,19 +833,19 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher_arc()?;
+        let e2e = self.ensure_e2e()?;
         Ok(Box::pin(
             DB::inbound_group_sessions_fetch_query()
                 .fetch(txn)
                 .map_err(Into::into)
                 .and_then(move |row| {
-                    let cipher = Arc::clone(&cipher);
-                    async move {
+                    let result = move || {
                         let data: Vec<u8> = row.try_get("session_data")?;
-                        let session = cipher.decrypt_value(&data)?;
+                        let session = e2e.decode_value(&data)?;
                         let session = InboundGroupSession::from_pickle(session)?;
                         Ok(session)
-                    }
+                    };
+                    futures::future::ready((result)())
                 }),
         ))
     }
@@ -900,16 +947,16 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
+        let e2e = self.ensure_e2e()?;
         let backup_version = self
             .get_kv(b"backup_version")
             .await?
-            .map(|v| cipher.decrypt_value(&v).map_err(anyhow::Error::from))
+            .map(|v| e2e.decode_value(&v).map_err(anyhow::Error::from))
             .transpose()?;
         let recovery_key = self
             .get_kv(b"recovery_key")
             .await?
-            .map(|v| cipher.decrypt_value(&v).map_err(anyhow::Error::from))
+            .map(|v| e2e.decode_value(&v).map_err(anyhow::Error::from))
             .transpose()?;
         Ok(BackupKeys {
             recovery_key,
@@ -932,12 +979,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
-        let account_info = self.ensure_e2e()?.account.read().clone();
+        let e2e = self.ensure_e2e()?;
+        let account_info = e2e.account.read().clone();
         let account_info = account_info
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No account info"))?;
-        let room_id = cipher.hash_key(
+        let room_id = e2e.encode_key(
             "cryptostore_inbound_group_session:room_id",
             room_id.as_bytes(),
         );
@@ -947,7 +994,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .await?;
         if let Some(row) = row {
             let data: Vec<u8> = row.try_get("session_data")?;
-            let session = cipher.decrypt_value(&data)?;
+            let session = e2e.decode_value(&data)?;
             let session = OutboundGroupSession::from_pickle(
                 Arc::clone(&account_info.device_id),
                 Arc::clone(&account_info.identity_keys),
@@ -970,15 +1017,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
         Vec<u8>: SqlType<DB>,
     {
-        let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("cryptostore_tracked_user:user_id", tracked_user.as_bytes());
+        let e2e = self.ensure_e2e()?;
+        let user_id = e2e.encode_key("cryptostore_tracked_user:user_id", tracked_user.as_bytes());
         let tracked_user = TrackedUser {
             user_id: tracked_user.into(),
             dirty,
         };
         DB::tracked_user_upsert_query()
             .bind(user_id.to_vec())
-            .bind(cipher.encrypt_value(&tracked_user)?)
+            .bind(e2e.encode_value(&tracked_user)?)
             .execute(&*self.db)
             .await?;
         Ok(())
@@ -1025,9 +1072,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("cryptostore_device:user_id", user_id.as_bytes());
-        let device_id = cipher.hash_key("cryptostore_device:device_id", device_id.as_bytes());
+        let e2e = self.ensure_e2e()?;
+        let user_id = e2e.encode_key("cryptostore_device:user_id", user_id.as_bytes());
+        let device_id = e2e.encode_key("cryptostore_device:device_id", device_id.as_bytes());
         let row = DB::device_fetch_query()
             .bind(user_id.to_vec())
             .bind(device_id.to_vec())
@@ -1035,7 +1082,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .await?;
         if let Some(row) = row {
             let data: Vec<u8> = row.try_get("device_info")?;
-            let device = cipher.decrypt_value(&data)?;
+            let device = e2e.decode_value(&data)?;
             Ok(Some(device))
         } else {
             Ok(None)
@@ -1057,15 +1104,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("cryptostore_device:user_id", user_id.as_bytes());
+        let e2e = self.ensure_e2e()?;
+        let user_id = e2e.encode_key("cryptostore_device:user_id", user_id.as_bytes());
         let mut rows = DB::devices_for_user_query()
             .bind(user_id.to_vec())
             .fetch(&*self.db);
         let mut devices = HashMap::new();
         while let Some(row) = rows.try_next().await? {
             let data: Vec<u8> = row.try_get("device_info")?;
-            let device: ReadOnlyDevice = cipher.decrypt_value(&data)?;
+            let device: ReadOnlyDevice = e2e.decode_value(&data)?;
             let device_id = device.device_id().to_owned();
             devices.insert(device_id, device);
         }
@@ -1087,15 +1134,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let cipher = self.ensure_cipher()?;
-        let user_id = cipher.hash_key("cryptostore_identity:user_id", user_id.as_bytes());
+        let e2e = self.ensure_e2e()?;
+        let user_id = e2e.encode_key("cryptostore_identity:user_id", user_id.as_bytes());
         let row = DB::identity_fetch_query()
             .bind(user_id.to_vec())
             .fetch_optional(&*self.db)
             .await?;
         if let Some(row) = row {
             let data: Vec<u8> = row.try_get("identity_data")?;
-            let identity = cipher.decrypt_value(&data)?;
+            let identity = e2e.decode_value(&data)?;
             Ok(Some(identity))
         } else {
             Ok(None)
