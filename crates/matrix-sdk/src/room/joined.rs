@@ -575,7 +575,7 @@ impl Joined {
                 let olm = self.client.olm_machine().await.expect("Olm machine wasn't started");
 
                 let encrypted_content =
-                    olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
+                    olm.encrypt_room_event_raw(self.inner.room_id(), content, event_type).await?;
                 let raw_content = Raw::new(&encrypted_content)
                     .expect("Failed to serialize encrypted event")
                     .cast();
