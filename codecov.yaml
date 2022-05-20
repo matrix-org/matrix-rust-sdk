@@ -20,11 +20,4 @@ coverage:
         informational: true
         paths:
           - "labs"
-    patch:
-      default:
-        # Be tolerant on slight code coverage diff on PRs to limit
-        # noisy red coverage status on github PRs.
-        # Note: The coverage stats are still uploaded
-        # to codecov so that PR reviewers can see uncovered lines
-        target: auto
-        threshold: 1%
+    patch: off
