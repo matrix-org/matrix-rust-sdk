@@ -3,7 +3,10 @@
 use anyhow::Result;
 use sqlx::{database::HasArguments, ColumnIndex, Database, Executor, IntoArguments};
 
-use crate::{helpers::SqlType, StateStore, SupportedDatabase};
+use crate::{
+    helpers::{BorrowedSqlType, SqlType},
+    StateStore, SupportedDatabase,
+};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Save the given filter id under the given name
@@ -14,13 +17,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let mut key = Vec::with_capacity(7 + name.len());
         key.extend_from_slice(b"filter:");
         key.extend_from_slice(name.as_bytes());
 
-        self.insert_kv(key, filter_id.to_owned().into_bytes()).await
+        self.insert_kv(&key, filter_id.as_bytes()).await
     }
 
     /// Get the filter id that was stored under the given filter name.
@@ -31,13 +34,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut key = Vec::with_capacity(7 + name.len());
         key.extend_from_slice(b"filter:");
         key.extend_from_slice(name.as_bytes());
-        let result = self.get_kv(key).await?;
+        let result = self.get_kv(&key).await?;
         match result {
             Some(value) => Ok(Some(String::from_utf8(value)?)),
             None => Ok(None),

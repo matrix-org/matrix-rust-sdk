@@ -2,7 +2,10 @@
 
 use std::collections::BTreeSet;
 
-use crate::{helpers::SqlType, StateStore, SupportedDatabase};
+use crate::{
+    helpers::{BorrowedSqlType, SqlType},
+    StateStore, SupportedDatabase,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use matrix_sdk_base::{
@@ -37,11 +40,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn insert_kv(&self, key: Vec<u8>, value: Vec<u8>) -> Result<()>
+    pub async fn insert_kv(&self, key: &[u8], value: &[u8]) -> Result<()>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         DB::kv_upsert_query()
             .bind(key)
@@ -57,13 +60,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// This function will return an error if the upsert cannot be performed
     pub async fn insert_kv_txn<'c>(
         txn: &mut Transaction<'c, DB>,
-        key: Vec<u8>,
-        value: Vec<u8>,
+        key: &[u8],
+        value: &[u8],
     ) -> Result<()>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         DB::kv_upsert_query()
             .bind(key)
@@ -77,10 +80,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_kv(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>>
+    pub async fn get_kv(&self, key: &[u8]) -> Result<Option<Vec<u8>>>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -109,6 +113,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         Option<String>: SqlType<DB>,
         String: SqlType<DB>,
@@ -221,6 +227,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         Option<String>: SqlType<DB>,
         String: SqlType<DB>,
@@ -252,6 +260,8 @@ where
     for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
     for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
     for<'a, 'c> &'c mut Transaction<'a, DB>: Executor<'c, Database = DB>,
+    for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+    for<'a> &'a str: BorrowedSqlType<'a, DB>,
     Vec<u8>: SqlType<DB>,
     Option<String>: SqlType<DB>,
     String: SqlType<DB>,
@@ -546,7 +556,7 @@ where
             .get_custom_value(key)
             .await
             .map_err(|e| StoreError::Backend(e.into()))?;
-        self.set_custom_value(key, value)
+        self.set_custom_value(key, &value)
             .await
             .map_err(|e| StoreError::Backend(e.into()))?;
         Ok(old_val)
@@ -560,7 +570,7 @@ where
     ///
     /// * `content` - The content of the file.
     async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> StoreResult<()> {
-        self.insert_media(Self::extract_media_url(request), content)
+        self.insert_media(Self::extract_media_url(request), &content)
             .await
             .map_err(|e| StoreError::Backend(e.into()))
     }
@@ -641,17 +651,11 @@ pub mod tests {
     #[tokio::test]
     async fn test_sqlite_kv_store() {
         let store = open_sqlite_database().await.unwrap();
-        store
-            .insert_kv(b"key".to_vec(), b"value".to_vec())
-            .await
-            .unwrap();
-        let value = store.get_kv(b"key".to_vec()).await.unwrap();
+        store.insert_kv(b"key", b"value").await.unwrap();
+        let value = store.get_kv(b"key").await.unwrap();
         assert_eq!(value, Some(b"value".to_vec()));
-        store
-            .insert_kv(b"key".to_vec(), b"value2".to_vec())
-            .await
-            .unwrap();
-        let value = store.get_kv(b"key".to_vec()).await.unwrap();
+        store.insert_kv(b"key", b"value2").await.unwrap();
+        let value = store.get_kv(b"key").await.unwrap();
         assert_eq!(value, Some(b"value2".to_vec()));
     }
 
@@ -660,17 +664,11 @@ pub mod tests {
     #[cfg_attr(not(feature = "ci"), ignore)]
     async fn test_postgres_kv_store() {
         let store = open_postgres_database().await.unwrap();
-        store
-            .insert_kv(b"key".to_vec(), b"value".to_vec())
-            .await
-            .unwrap();
-        let value = store.get_kv(b"key".to_vec()).await.unwrap();
+        store.insert_kv(b"key", b"value").await.unwrap();
+        let value = store.get_kv(b"key").await.unwrap();
         assert_eq!(value, Some(b"value".to_vec()));
-        store
-            .insert_kv(b"key".to_vec(), b"value2".to_vec())
-            .await
-            .unwrap();
-        let value = store.get_kv(b"key".to_vec()).await.unwrap();
+        store.insert_kv(b"key", b"value2").await.unwrap();
+        let value = store.get_kv(b"key").await.unwrap();
         assert_eq!(value, Some(b"value2".to_vec()));
     }
 }

@@ -31,7 +31,7 @@ use anyhow::Result;
 #[cfg(feature = "e2e-encryption")]
 use cryptostore::CryptostoreData;
 #[cfg(feature = "e2e-encryption")]
-use helpers::SqlType;
+use helpers::{BorrowedSqlType, SqlType};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_store_encryption::StoreCipher;
 
@@ -40,6 +40,7 @@ pub use helpers::SupportedDatabase;
 #[cfg(feature = "e2e-encryption")]
 use sqlx::{database::HasArguments, ColumnIndex, Executor, IntoArguments};
 use sqlx::{migrate::Migrate, Database, Pool};
+
 #[cfg(feature = "e2e-encryption")]
 mod cryptostore;
 mod statestore;
@@ -119,6 +120,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
         Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         self.unlock_with_passphrase("hunter2").await
@@ -132,11 +134,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         // Try to read the store cipher
-        let cipher_export = self.get_kv(b"cipher".to_vec()).await?;
+
+        let cipher_export = self.get_kv(b"cipher").await?;
         if let Some(cipher) = cipher_export {
             self.cryptostore = Some(CryptostoreData::new(StoreCipher::import(
                 passphrase, &cipher,
@@ -144,7 +148,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         } else {
             // Store the cipher in the database
             let cipher = StoreCipher::new()?;
-            self.insert_kv(b"cipher".to_vec(), cipher.export(passphrase)?)
+            self.insert_kv(b"cipher", &cipher.export(passphrase)?)
                 .await?;
             self.cryptostore = Some(CryptostoreData::new(cipher));
         }

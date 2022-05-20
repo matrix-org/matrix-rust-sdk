@@ -5,24 +5,27 @@ use matrix_sdk_base::media::MediaRequest;
 use ruma::{events::room::MediaSource, MxcUri};
 use sqlx::{database::HasArguments, ColumnIndex, Executor, IntoArguments, Row, Transaction};
 
-use crate::{helpers::SqlType, StateStore, SupportedDatabase};
+use crate::{
+    helpers::{BorrowedSqlType, SqlType},
+    StateStore, SupportedDatabase,
+};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Insert media into the media store
     ///
     /// # Errors
     /// This function will return an error if the media cannot be inserted
-    pub async fn insert_media(&self, url: &MxcUri, media: Vec<u8>) -> Result<()>
+    pub async fn insert_media(&self, url: &MxcUri, media: &[u8]) -> Result<()>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a, 'c> &'c mut Transaction<'a, DB>: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        String: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
     {
         let mut txn = self.db.begin().await?;
 
         DB::media_insert_query_1()
-            .bind(url.to_string())
+            .bind(url.as_str())
             .bind(media)
             .execute(&mut txn)
             .await?;
@@ -40,10 +43,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
     {
         DB::media_delete_query()
-            .bind(url.to_string())
+            .bind(url.as_str())
             .execute(&*self.db)
             .await?;
         Ok(())
@@ -58,11 +61,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
         Vec<u8>: SqlType<DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         for<'a> &'a str: ColumnIndex<<DB as sqlx::Database>::Row>,
     {
         let row = DB::media_load_query()
-            .bind(url.to_string())
+            .bind(url.as_str())
             .fetch_optional(&*self.db)
             .await?;
         let row = if let Some(row) = row {
@@ -98,21 +101,12 @@ mod tests {
         let entry_0 = <&MxcUri>::from("mxc://localhost:8080/media/0");
         let entry_1 = <&MxcUri>::from("mxc://localhost:8080/media/1");
 
-        store
-            .insert_media(entry_0, b"media_0".to_vec())
-            .await
-            .unwrap();
-        store
-            .insert_media(entry_1, b"media_1".to_vec())
-            .await
-            .unwrap();
+        store.insert_media(entry_0, b"media_0").await.unwrap();
+        store.insert_media(entry_1, b"media_1").await.unwrap();
 
         for entry in 2..101 {
             let entry = OwnedMxcUri::from(format!("mxc://localhost:8080/media/{}", entry));
-            store
-                .insert_media(&entry, b"media_0".to_vec())
-                .await
-                .unwrap();
+            store.insert_media(&entry, b"media_0").await.unwrap();
         }
 
         assert_eq!(store.get_media(entry_0).await.unwrap(), None);
@@ -132,21 +126,12 @@ mod tests {
         let entry_0 = <&MxcUri>::from("mxc://localhost:8080/media/0");
         let entry_1 = <&MxcUri>::from("mxc://localhost:8080/media/1");
 
-        store
-            .insert_media(entry_0, b"media_0".to_vec())
-            .await
-            .unwrap();
-        store
-            .insert_media(entry_1, b"media_1".to_vec())
-            .await
-            .unwrap();
+        store.insert_media(entry_0, b"media_0").await.unwrap();
+        store.insert_media(entry_1, b"media_1").await.unwrap();
 
         for entry in 2..101 {
             let entry = OwnedMxcUri::from(format!("mxc://localhost:8080/media/{}", entry));
-            store
-                .insert_media(&entry, b"media_0".to_vec())
-                .await
-                .unwrap();
+            store.insert_media(&entry, b"media_0").await.unwrap();
         }
 
         assert_eq!(store.get_media(entry_0).await.unwrap(), None);

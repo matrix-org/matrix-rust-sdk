@@ -21,7 +21,10 @@ use sqlx::{
     Transaction,
 };
 
-use crate::{helpers::SqlType, StateStore, SupportedDatabase};
+use crate::{
+    helpers::{BorrowedSqlType, SqlType},
+    StateStore, SupportedDatabase,
+};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Deletes a room from the room store
@@ -32,10 +35,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
     {
         DB::room_remove_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .execute(&*self.db)
             .await?;
         Ok(())
@@ -53,11 +56,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
     {
         DB::account_data_upsert_query()
-            .bind("".to_owned())
+            .bind("")
             .bind(event_type.to_string())
             .bind(Json(event_data))
             .execute(txn)
@@ -77,12 +81,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::account_data_load_query()
-            .bind("".to_owned())
+            .bind("")
             .bind(event_type.to_string())
             .fetch_optional(&*self.db)
             .await?;
@@ -107,12 +112,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::account_data_load_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(event_type.to_string())
             .fetch_optional(&*self.db)
             .await?;
@@ -137,11 +143,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<Raw<PresenceEvent>>: SqlType<DB>,
     {
         DB::presence_upsert_query()
-            .bind(user_id.to_string())
+            .bind(user_id.as_str())
             .bind(Json(presence))
             .execute(txn)
             .await?;
@@ -156,12 +162,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<Raw<PresenceEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::presence_load_query()
-            .bind(user_id.to_string())
+            .bind(user_id.as_str())
             .fetch_optional(&*self.db)
             .await?;
         let row = if let Some(row) = row {
@@ -185,11 +191,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
     {
         DB::member_remove_query()
-            .bind(room_id.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_str())
+            .bind(user_id.as_str())
             .execute(txn)
             .await?;
         Ok(())
@@ -208,7 +214,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<SyncRoomMemberEvent>: SqlType<DB>,
         bool: SqlType<DB>,
         Option<String>: SqlType<DB>,
@@ -222,8 +228,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             _ => return Self::remove_member(txn, room_id, user_id).await,
         };
         DB::member_upsert_query()
-            .bind(room_id.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_str())
+            .bind(user_id.as_str())
             .bind(false)
             .bind(Json(member_event))
             .bind(displayname)
@@ -246,7 +252,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<StrippedRoomMemberEvent>: SqlType<DB>,
         bool: SqlType<DB>,
         Option<String>: SqlType<DB>,
@@ -258,8 +264,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             _ => return Self::remove_member(txn, room_id, user_id).await,
         };
         DB::member_upsert_query()
-            .bind(room_id.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_str())
+            .bind(user_id.as_str())
             .bind(true)
             .bind(Json(member_event))
             .bind(displayname)
@@ -282,12 +288,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<MinimalRoomMemberEvent>: SqlType<DB>,
     {
         DB::member_profile_upsert_query()
-            .bind(room_id.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_str())
+            .bind(user_id.as_str())
             .bind(Json(profile))
             .execute(txn)
             .await?;
@@ -308,14 +314,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
         bool: SqlType<DB>,
     {
         DB::state_upsert_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(event_type.to_string())
-            .bind(state_key.to_owned())
+            .bind(state_key)
             .bind(false)
             .bind(Json(state))
             .execute(txn)
@@ -337,14 +344,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
         bool: SqlType<DB>,
     {
         DB::state_upsert_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(event_type.to_string())
-            .bind(state_key.to_owned())
+            .bind(state_key)
             .bind(true)
             .bind(Json(state))
             .execute(txn)
@@ -365,12 +373,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
         bool: SqlType<DB>,
     {
         DB::account_data_upsert_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(event_type.to_string())
             .bind(Json(event_data))
             .execute(txn)
@@ -390,12 +399,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<RoomInfo>: SqlType<DB>,
         bool: SqlType<DB>,
     {
         DB::room_upsert_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(false)
             .bind(Json(room_info))
             .execute(txn)
@@ -415,12 +424,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<RoomInfo>: SqlType<DB>,
         bool: SqlType<DB>,
     {
         DB::room_upsert_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(true)
             .bind(Json(room_info))
             .execute(txn)
@@ -443,14 +452,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<Receipt>: SqlType<DB>,
     {
         DB::receipt_upsert_query()
-            .bind(room_id.to_string())
-            .bind(event_id.to_string())
-            .bind(receipt_type.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_str())
+            .bind(event_id.as_str())
+            .bind(receipt_type.as_str())
+            .bind(user_id.as_str())
             .bind(Json(receipt))
             .execute(txn)
             .await?;
@@ -470,14 +479,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::state_load_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(event_type.to_string())
-            .bind(state_key.to_owned())
+            .bind(state_key)
             .fetch_optional(&*self.db)
             .await?;
         let row = if let Some(row) = row {
@@ -501,12 +511,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut rows = DB::states_load_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(event_type.to_string())
             .fetch(&*self.db);
         let mut result = Vec::new();
@@ -531,13 +542,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Json<MinimalRoomMemberEvent>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::profile_load_query()
-            .bind(room_id.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_str())
+            .bind(user_id.as_str())
             .fetch_optional(&*self.db)
             .await?;
         let row = if let Some(row) = row {
@@ -557,11 +568,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut rows = DB::members_load_query()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .fetch(&*self.db);
         let mut result = Vec::new();
         while let Some(row) = rows.try_next().await? {
@@ -578,12 +590,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         bool: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut rows = DB::members_load_query_with_join_status()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(false)
             .fetch(&*self.db);
         let mut result = Vec::new();
@@ -601,12 +614,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         bool: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut rows = DB::members_load_query_with_join_status()
-            .bind(room_id.to_string())
+            .bind(room_id.as_str())
             .bind(true)
             .fetch(&*self.db);
         let mut result = Vec::new();
@@ -628,15 +642,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        String: SqlType<DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         bool: SqlType<DB>,
         Json<StrippedRoomMemberEvent>: SqlType<DB>,
         Json<SyncRoomMemberEvent>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::member_load_query()
-            .bind(room_id.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_str())
+            .bind(user_id.as_str())
             .fetch_optional(&*self.db)
             .await?;
         let row = if let Some(row) = row {
@@ -714,12 +728,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut rows = DB::users_with_display_name_load_query()
-            .bind(room_id.to_string())
-            .bind(display_name.to_owned())
+            .bind(room_id.as_ref())
+            .bind(display_name)
             .fetch(&*self.db);
         let mut result = BTreeSet::new();
         while let Some(row) = rows.try_next().await? {
@@ -741,14 +756,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Receipt>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let row = DB::receipt_load_query()
-            .bind(room_id.to_string())
-            .bind(receipt_type.to_string())
-            .bind(user_id.to_string())
+            .bind(room_id.as_ref())
+            .bind(receipt_type.as_ref())
+            .bind(user_id.as_ref())
             .fetch_optional(&*self.db)
             .await?;
         let row = if let Some(row) = row {
@@ -774,14 +790,15 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Receipt>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut rows = DB::event_receipt_load_query()
-            .bind(room_id.to_string())
-            .bind(receipt_type.to_string())
-            .bind(event_id.to_string())
+            .bind(room_id.as_ref())
+            .bind(receipt_type.as_ref())
+            .bind(event_id.as_ref())
             .fetch(&*self.db);
         let mut result = Vec::new();
         while let Some(row) = rows.try_next().await? {

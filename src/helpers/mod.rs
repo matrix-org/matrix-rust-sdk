@@ -29,6 +29,16 @@ impl<DB: Database, T> SqlType<DB> for T where
 {
 }
 
+/// Helper trait for a borrowed SQL-Compatible type
+pub trait BorrowedSqlType<'a, DB: Database>:
+    Encode<'a, DB> + Decode<'a, DB> + Type<DB> + 'a
+{
+}
+impl<'a, DB: Database, T> BorrowedSqlType<'a, DB> for T where
+    T: Encode<'a, DB> + Decode<'a, DB> + Type<DB> + 'a
+{
+}
+
 /// Supported Database trait
 ///
 /// It contains many methods that try to generate queries for the supported databases.
@@ -142,8 +152,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The room ID for the account data
     /// * `$2` - The account data event type
     /// * `$3` - The account data event content
-    fn account_data_upsert_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn account_data_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_accountdata
@@ -223,8 +232,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The room ID
     /// * `$2` - The user ID
     /// * `$3` - The profile event content
-    fn member_profile_upsert_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn member_profile_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_members
@@ -365,8 +373,8 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - Whether or not the user has joined
-    fn members_load_query_with_join_status(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn members_load_query_with_join_status<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT user_id FROM statestore_members
@@ -407,8 +415,8 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - The display name
-    fn users_with_display_name_load_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn users_with_display_name_load_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT user_id FROM statestore_members
@@ -468,8 +476,8 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The sender key
     /// * `$2` - The message hash
     #[cfg(feature = "e2e-encryption")]
-    fn olm_message_hash_store_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn olm_message_hash_store_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments>
+    {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_message_hash (sender_key, message_hash)
@@ -486,8 +494,8 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$3` - The hashed session id
     /// * `$4` - The encrypted session data
     #[cfg(feature = "e2e-encryption")]
-    fn inbound_group_session_upsert_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn inbound_group_session_upsert_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_inbound_group_session
@@ -505,8 +513,8 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The hashed room id
     /// * `$2` - The encrypted session data
     #[cfg(feature = "e2e-encryption")]
-    fn outbound_group_session_store_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn outbound_group_session_store_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_outbound_group_session (room_id, session_data)
@@ -524,8 +532,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$4` - Whether or not the request has been sent
     /// * `$5` - The encrypted request data
     #[cfg(feature = "e2e-encryption")]
-    fn gossip_request_store_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn gossip_request_store_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_gossip_request (recipient_id, request_id, secret_request_info, sent, request_data)
@@ -603,8 +610,8 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$2` - The hashed sender key
     /// * `$3` - The hashed session id
     #[cfg(feature = "e2e-encryption")]
-    fn inbound_group_session_fetch_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn inbound_group_session_fetch_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT session_data FROM cryptostore_inbound_group_session
@@ -615,8 +622,8 @@ pub trait SupportedDatabase: Database + Sealed {
 
     /// Fetch all inbound group sessions
     #[cfg(feature = "e2e-encryption")]
-    fn inbound_group_sessions_fetch_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn inbound_group_sessions_fetch_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT session_data FROM cryptostore_inbound_group_session
@@ -629,8 +636,8 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The hashed room ID
     #[cfg(feature = "e2e-encryption")]
-    fn outbound_group_session_load_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn outbound_group_session_load_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT session_data FROM cryptostore_outbound_group_session
@@ -645,8 +652,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The hashed user ID
     /// * `$2` - The encrypted tracked user data
     #[cfg(feature = "e2e-encryption")]
-    fn tracked_user_upsert_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn tracked_user_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_tracked_user (user_id, tracked_user_data)
@@ -687,8 +693,7 @@ pub trait SupportedDatabase: Database + Sealed {
 
     /// Retrieves all tracked users
     #[cfg(feature = "e2e-encryption")]
-    fn tracked_users_fetch_query(
-    ) -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn tracked_users_fetch_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT tracked_user_data FROM cryptostore_tracked_user

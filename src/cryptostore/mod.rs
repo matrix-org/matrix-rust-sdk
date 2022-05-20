@@ -31,7 +31,10 @@ use sqlx::{
     database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Row, Transaction,
 };
 
-use crate::{helpers::SqlType, StateStore, SupportedDatabase};
+use crate::{
+    helpers::{BorrowedSqlType, SqlType},
+    StateStore, SupportedDatabase,
+};
 
 /// Store Result type
 type StoreResult<T> = Result<T, CryptoStoreError>;
@@ -136,11 +139,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let cipher = self.ensure_cipher()?;
-        let account = match self.get_kv(b"e2e_account".to_vec()).await? {
+        let account = match self.get_kv(b"e2e_account").await? {
             Some(account) => {
                 let account = cipher.decrypt_value(&account)?;
                 let account = ReadOnlyAccount::from_pickle(account)?;
@@ -168,7 +172,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let mut txn = self.db.begin().await?;
         self.save_account_txn(&mut txn, account).await?;
@@ -190,7 +194,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let cipher = self.ensure_cipher()?;
         let account_info = AccountInfo {
@@ -201,8 +205,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         *(self.ensure_e2e()?.account.write()) = Some(account_info);
         Self::insert_kv_txn(
             txn,
-            b"e2e_account".to_vec(),
-            cipher.encrypt_value(&account.pickle().await)?,
+            b"e2e_account",
+            &cipher.encrypt_value(&account.pickle().await)?,
         )
         .await?;
         Ok(())
@@ -217,11 +221,12 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let cipher = self.ensure_cipher()?;
-        let private_identity = match self.get_kv(b"private_identity".to_vec()).await? {
+        let private_identity = match self.get_kv(b"private_identity").await? {
             Some(account) => {
                 let private_identity = cipher.decrypt_value(&account)?;
                 let private_identity =
@@ -246,13 +251,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let cipher = self.ensure_cipher()?;
         Self::insert_kv_txn(
             txn,
-            b"private_identity".to_vec(),
-            cipher.encrypt_value(&identity.pickle().await?)?,
+            b"private_identity",
+            &cipher.encrypt_value(&identity.pickle().await?)?,
         )
         .await?;
         Ok(())
@@ -271,13 +276,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let cipher = self.ensure_cipher()?;
         Self::insert_kv_txn(
             txn,
-            b"backup_version".to_vec(),
-            cipher.encrypt_value(&backup_version)?,
+            b"backup_version",
+            &cipher.encrypt_value(&backup_version)?,
         )
         .await?;
         Ok(())
@@ -296,15 +301,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let cipher = self.ensure_cipher()?;
-        Self::insert_kv_txn(
-            txn,
-            b"recovery_key".to_vec(),
-            cipher.encrypt_value(&recovery_key)?,
-        )
-        .await?;
+        Self::insert_kv_txn(txn, b"recovery_key", &cipher.encrypt_value(&recovery_key)?).await?;
         Ok(())
     }
 
@@ -569,6 +569,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         String: SqlType<DB>,
         bool: SqlType<DB>,
@@ -634,6 +635,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         String: SqlType<DB>,
         bool: SqlType<DB>,
@@ -894,17 +896,18 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let cipher = self.ensure_cipher()?;
         let backup_version = self
-            .get_kv(b"backup_version".to_vec())
+            .get_kv(b"backup_version")
             .await?
             .map(|v| cipher.decrypt_value(&v).map_err(anyhow::Error::from))
             .transpose()?;
         let recovery_key = self
-            .get_kv(b"recovery_key".to_vec())
+            .get_kv(b"recovery_key")
             .await?
             .map(|v| cipher.decrypt_value(&v).map_err(anyhow::Error::from))
             .transpose()?;
@@ -1124,6 +1127,7 @@ where
     for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
     for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
     for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+    for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     Vec<u8>: SqlType<DB>,
     String: SqlType<DB>,
     bool: SqlType<DB>,

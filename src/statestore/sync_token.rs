@@ -3,7 +3,10 @@
 use anyhow::Result;
 use sqlx::{database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Transaction};
 
-use crate::{helpers::SqlType, StateStore, SupportedDatabase};
+use crate::{
+    helpers::{BorrowedSqlType, SqlType},
+    StateStore, SupportedDatabase,
+};
 
 impl<DB: SupportedDatabase> StateStore<DB> {
     /// Put a sync token into the sync token store
@@ -15,10 +18,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
-        self.insert_kv(b"sync_token".to_vec(), token.as_bytes().to_vec())
-            .await
+        self.insert_kv(b"sync_token", token.as_bytes()).await
     }
 
     /// Put a sync token into the sync token store
@@ -29,9 +31,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
-        Self::insert_kv_txn(txn, b"sync_token".to_vec(), token.as_bytes().to_vec()).await
+        Self::insert_kv_txn(txn, b"sync_token", token.as_bytes()).await
     }
 
     /// Get the last stored sync token
@@ -43,9 +45,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
         Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
-        let result = self.get_kv(b"sync_token".to_vec()).await?;
+        let result = self.get_kv(b"sync_token").await?;
         match result {
             Some(value) => Ok(Some(String::from_utf8(value)?)),
             None => Ok(None),
