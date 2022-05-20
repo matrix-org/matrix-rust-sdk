@@ -42,7 +42,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The key to insert
     /// * `$2` - The value to insert
-    fn kv_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn kv_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_kv (kv_key, kv_value)
@@ -56,7 +56,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - The key to load
-    fn kv_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn kv_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT kv_value FROM statestore_kv WHERE kv_key = $1
@@ -68,7 +68,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - The key to load
-    fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn media_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 UPDATE statestore_media
@@ -84,7 +84,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The key to insert
     /// * `$2` - The value to insert
-    fn media_insert_query_1() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn media_insert_query_1<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_media (media_url, media_data, last_access)
@@ -95,7 +95,7 @@ pub trait SupportedDatabase: Database + Sealed {
     }
 
     /// Returns the second query for storing into the `statestore_media` table
-    fn media_insert_query_2() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn media_insert_query_2<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 DELETE FROM statestore_media
@@ -111,7 +111,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - The mxc URL
-    fn media_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn media_delete_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 DELETE FROM statestore_media
@@ -124,7 +124,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - The room ID
-    fn room_remove_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn room_remove_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 DELETE FROM statestore_rooms WHERE room_id = $1;
@@ -159,8 +159,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID for the account data
     /// * `$2` - The account data event type
-    fn account_data_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
-    {
+    fn account_data_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT account_data FROM statestore_accountdata
@@ -174,7 +173,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The user ID
     /// * `$2` - The presence data
-    fn presence_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn presence_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_presence
@@ -189,7 +188,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - The user ID
-    fn presence_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn presence_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT presence FROM statestore_presence
@@ -207,7 +206,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$4` - The membership event content
     /// * `$5` - The display name of the user
     /// * `$6` - Whether or not the user has joined
-    fn member_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn member_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_members
@@ -244,7 +243,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$3` - The state key
     /// * `$4` - Whether or not the state is partial
     /// * `$5` - The event content
-    fn state_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn state_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_state
@@ -261,7 +260,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The room ID
     /// * `$2` - Whether or not the state is partial
     /// * `$3` - The room info
-    fn room_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn room_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_rooms
@@ -280,7 +279,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$3` - The receipt type
     /// * `$4` - The user id
     /// * `$5` - The receipt content
-    fn receipt_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn receipt_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_receipts
@@ -297,7 +296,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The room ID
     /// * `$2` - The event type
     /// * `$3` - The state key
-    fn state_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn state_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT state_event FROM statestore_state
@@ -311,7 +310,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - The event type
-    fn states_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn states_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT state_event FROM statestore_state
@@ -325,7 +324,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - The user ID
-    fn profile_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn profile_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT user_profile FROM statestore_members
@@ -339,7 +338,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - The user ID
-    fn member_remove_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn member_remove_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 DELETE FROM statestore_memberships
@@ -352,7 +351,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - The room ID
-    fn members_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn members_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT user_id FROM statestore_members
@@ -381,7 +380,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - The user ID
-    fn member_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn member_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT is_partial, member_event FROM statestore_members
@@ -394,7 +393,7 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - Whether or not the info is partial
-    fn room_info_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn room_info_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT room_info FROM statestore_rooms
@@ -424,7 +423,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The room ID
     /// * `$2` - The receipt type
     /// * `$3` - The user ID
-    fn receipt_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn receipt_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT event_id, receipt FROM statestore_receipts
@@ -439,8 +438,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The room ID
     /// * `$2` - The receipt type
     /// * `$3` - The event ID
-    fn event_receipt_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
-    {
+    fn event_receipt_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT user_id, receipt FROM statestore_receipts
@@ -455,7 +453,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The hashed sender key
     /// * `$2` - The encrypted session data
     #[cfg(feature = "e2e-encryption")]
-    fn session_store_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn session_store_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_session (sender_key, session_data)
@@ -542,7 +540,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The hashed user ID
     /// * `$2` - The encrypted identity data
     #[cfg(feature = "e2e-encryption")]
-    fn identity_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn identity_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_identity (user_id, identity_data)
@@ -559,7 +557,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$2` - The hashed device ID
     /// * `$3` - The encrypted device data
     #[cfg(feature = "e2e-encryption")]
-    fn device_upsert_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn device_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO cryptostore_device (user_id, device_id, device_info)
@@ -575,7 +573,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The hashed user ID
     /// * `$2` - The hashed device ID
     #[cfg(feature = "e2e-encryption")]
-    fn device_delete_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn device_delete_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 DELETE FROM cryptostore_device
@@ -589,8 +587,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The hashed sender key
     #[cfg(feature = "e2e-encryption")]
-    fn sessions_for_user_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
-    {
+    fn sessions_for_user_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT session_data FROM cryptostore_session
@@ -665,7 +662,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The hashed user ID
     /// * `$2` - The hashed device ID
     #[cfg(feature = "e2e-encryption")]
-    fn device_fetch_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn device_fetch_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT device_info FROM cryptostore_device
@@ -679,8 +676,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The hashed user ID
     #[cfg(feature = "e2e-encryption")]
-    fn devices_for_user_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments>
-    {
+    fn devices_for_user_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT device_info FROM cryptostore_device
@@ -705,7 +701,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The hashed user ID
     #[cfg(feature = "e2e-encryption")]
-    fn identity_fetch_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn identity_fetch_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT identity_data FROM cryptostore_identity
@@ -720,7 +716,7 @@ pub trait SupportedDatabase: Database + Sealed {
     /// * `$1` - The sender key
     /// * `$2` - The message hash
     #[cfg(feature = "e2e-encryption")]
-    fn message_known_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn message_known_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT 1 FROM cryptostore_message_hash
@@ -743,7 +739,7 @@ impl SupportedDatabase for sqlx::sqlite::Sqlite {
         &sqlx::migrate!("./migrations/sqlite")
     }
 
-    fn media_load_query() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn media_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 UPDATE statestore_media
@@ -754,7 +750,7 @@ impl SupportedDatabase for sqlx::sqlite::Sqlite {
         )
     }
 
-    fn media_insert_query_1() -> Query<'static, Self, <Self as HasArguments<'static>>::Arguments> {
+    fn media_insert_query_1<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_media (media_url, media_data, last_access)
