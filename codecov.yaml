@@ -2,10 +2,24 @@ coverage:
   status:
     project:
       default:
-        # Commits pushed to master should not make the overall
-        # project coverage decrease by more than 1%:
+        # by default, we only care about test coverage of the main
+        # rust crates
         target: auto
         threshold: 1%
+        paths:
+          - "crates"
+      bindings:
+        # Coverage of binding tests is recorded but for informational
+        # purposes only
+        informational: true
+        paths:
+          - "bindings"
+      labs:
+        # Coverage of lab tests is recorded but for informational
+        # purposes only
+        informational: true
+        paths:
+          - "labs"
     patch:
       default:
         # Be tolerant on slight code coverage diff on PRs to limit
