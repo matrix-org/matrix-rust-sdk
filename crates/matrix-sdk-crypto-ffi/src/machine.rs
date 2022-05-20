@@ -523,7 +523,7 @@ impl OlmMachine {
         let content = AnyMessageLikeEventContent::from_parts(event_type, &content)?;
         let encrypted_content = self
             .runtime
-            .block_on(self.inner.encrypt(&room_id, content))
+            .block_on(self.inner.encrypt_room_event(&room_id, content))
             .expect("Encrypting an event produced an error");
 
         Ok(serde_json::to_string(&encrypted_content)?)
