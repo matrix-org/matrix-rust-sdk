@@ -220,7 +220,7 @@ impl BackupMachine {
         Ok(())
     }
 
-    /// Store the recovery key in the cryptostore.
+    /// Store the recovery key in the crypto store.
     ///
     /// This is useful if the client wants to support gossiping of the backup
     /// key.

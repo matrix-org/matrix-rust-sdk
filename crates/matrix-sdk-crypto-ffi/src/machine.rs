@@ -1330,7 +1330,7 @@ impl OlmMachine {
         Ok(self.runtime.block_on(self.inner.backup_machine().room_key_counts())?.into())
     }
 
-    /// Store the recovery key in the cryptostore.
+    /// Store the recovery key in the crypto store.
     ///
     /// This is useful if the client wants to support gossiping of the backup
     /// key.

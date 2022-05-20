@@ -456,8 +456,8 @@ impl ReadOnlyDevice {
 
     /// Set the trust state of the device to the given state.
     ///
-    /// Note: This should only done in the cryptostore where the trust state can
-    /// be stored.
+    /// Note: This should only done in the crypto store where the trust state
+    /// can be stored.
     pub(crate) fn set_trust_state(&self, state: LocalTrust) {
         self.trust_state.store(state, Ordering::Relaxed)
     }
