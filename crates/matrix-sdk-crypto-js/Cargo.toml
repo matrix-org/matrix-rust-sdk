@@ -22,21 +22,20 @@ wasm-opt = ['-Oz']
 crate-type = ["cdylib"]
 
 [features]
-default = ["js"]
+default = []
 qrcode = ["matrix-sdk-crypto/qrcode"]
-backups_v1 = ["matrix-sdk-crypto/backups_v1"]
 docsrs = []
 js = []
-nodejs = []
+nodejs = ["napi", "napi-derive"]
 
 [dependencies]
 matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto" }
-http = "0.2.6"
-serde_json = "1.0.79"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ruma = { version = "0.6.2", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
 vodozemac = "0.2.0"
+napi = { version = "2.4.3", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "2.4.1", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ruma = { version = "0.6.2", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
@@ -44,4 +43,9 @@ vodozemac = { version = "0.2.0", features = ["js"] }
 wasm-bindgen = "0.2.80"
 wasm-bindgen-futures = "0.4.30"
 js-sys = "0.3.49"
+serde_json = "1.0.79"
+http = "0.2.6"
 anyhow = "1.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
+napi-build = "2.0.0"

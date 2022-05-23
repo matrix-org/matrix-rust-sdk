@@ -15,11 +15,19 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
+
+#[cfg(all(not(feature = "js"), not(feature = "nodejs")))]
+compile_error!("One of the following features must be enabled: `js` or `nodejs`");
+
+#[cfg(all(feature = "js", feature = "nodejs"))]
+compile_error!("The `js` and `nodejs` features are mutually exclusive.");
+
 #[cfg(all(feature = "js", not(target_arch = "wasm32")))]
 compile_error!(
     "The `js` feature must be enabled only for the `wasm32` target (either `wasm32-unknown-unknown` or `wasm32-wasi`)."
 );
 
+//mod errors;
 pub mod events;
 mod future;
 pub mod identifiers;
@@ -36,6 +44,7 @@ use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};
 /// https://github.com/rustwasm/wasm-bindgen/issues/2231#issuecomment-656293288.
 ///
 /// The returned value is a likely to be `wasm_bindgen::__ref::Ref<T>`.
+#[cfg(feature = "js")]
 fn downcast<T>(value: &JsValue, classname: &str) -> Result<T::Anchor, JsError>
 where
     T: RefFromWasmAbi<Abi = u32>,
