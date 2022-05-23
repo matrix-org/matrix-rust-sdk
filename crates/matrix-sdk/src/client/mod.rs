@@ -2553,7 +2553,7 @@ pub(crate) mod tests {
             .with_body(test_json::GET_ALIAS.to_string())
             .create();
 
-        let alias = room_alias_id!("#alias:example.org");
+        let alias = ruma::room_alias_id!("#alias:example.org");
         assert!(client.get_alias(alias).await.is_ok());
     }
 
