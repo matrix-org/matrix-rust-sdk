@@ -1,9 +1,9 @@
 # SQL StateStore for matrix-sdk
 
 ![Build Status](https://img.shields.io/github/workflow/status/DarkKirb/matrix-sdk-statestore-sql/Build%20checks)
-[![Code Coverage](https://img.shields.io/coveralls/github/DarkKirb/matrix-sdk-sql)](https://coveralls.io/github/DarkKirb/matrix-sdk-statestore-sql)
+[![Code Coverage](https://img.shields.io/coveralls/github/DarkKirb/matrix-sdk-statestore-sql)](https://coveralls.io/github/DarkKirb/matrix-sdk-statestore-sql)
 [![License](https://img.shields.io/crates/l/matrix-sdk-sql)](https://opensource.org/licenses/Apache-2.0)
-[![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg)](https://darkkirb.github.io/matrix-sdk-statestore-sql/rust/matrix_sdk_statestore_sql/)
+[![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg)](https://darkkirb.github.io/matrix-sdk-statestore-sql/rust/matrix_sdk_sql/)
 [![Version](https://img.shields.io/crates/v/matrix-sdk-sql)](https://crates.io/crates/matrix-sdk-sql)
 
 This crate allows you to use your postgres/sqlite database as a state and crypto store for matrix-sdk.

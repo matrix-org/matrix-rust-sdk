@@ -18,7 +18,7 @@
 //!                      .store_config(store_config)
 //! ```
 //!
-//! ## [`CryptoStore`]
+//! ### [`CryptoStore`]
 //!
 //! Enabling the `e2e-encryption` feature enables cryptostore functionality. To protect encryption session information, the contents of the tables are encrypted in the same manner as in `matrix-sdk-sled`.
 //!
@@ -34,7 +34,7 @@
 //!
 //! ## About Trait bounds
 //!
-//! The list of trait bounds may seem daunting, however every implementation of [`SupportedDatabase`] matches the trait bounds specified.
+//! The list of trait bounds may seem daunting, however all enabled database backends are supported.
 
 use std::sync::Arc;
 
