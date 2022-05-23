@@ -69,7 +69,7 @@ use ruma::{
     ServerName, UInt, RoomAliasId,
 };
 use serde::de::DeserializeOwned;
-#[cfgnot(target_arch = "wasm32")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use tokio::sync::OnceCell;
 use tracing::{error, info, instrument, warn};
 use url::Url;
