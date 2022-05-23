@@ -43,6 +43,7 @@ use ruma::{
     api::{
         client::{
             account::{register, whoami},
+            alias::get_alias,
             device::{delete_devices, get_devices},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
@@ -65,10 +66,10 @@ use ruma::{
     events::room::MediaSource,
     presence::PresenceState,
     MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, OwnedUserId, RoomId, RoomOrAliasId,
-    ServerName, UInt,
+    ServerName, UInt, RoomAliasId,
 };
 use serde::de::DeserializeOwned;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfgnot(target_arch = "wasm32")]
 pub use tokio::sync::OnceCell;
 use tracing::{error, info, instrument, warn};
 use url::Url;
@@ -606,6 +607,16 @@ impl Client {
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_left_room(&self, room_id: &RoomId) -> Option<room::Left> {
         self.store().get_room(room_id).and_then(|room| room::Left::new(self.clone(), room))
+    }
+
+    /// Resolve a room alias to a room id and a list of servers which knows about it.
+    ///
+    /// # Arguments
+    ///
+    /// `room_alias` - The room alias to be resolved.
+    pub async fn get_alias(&self, room_alias: &RoomAliasId) -> HttpResult<get_alias::v3::Response> {
+        let request = get_alias::v3::Request::new(room_alias);
+        self.send(request, None).await
     }
 
     /// Gets the homeserver’s supported login types.
@@ -2531,6 +2542,19 @@ pub(crate) mod tests {
             .create();
 
         assert!(client.devices().await.is_ok());
+    }
+
+    #[async_test]
+    async fn get_alias() {
+        let client = no_retry_test_client().await;
+
+        let _m = mock("GET", "/_matrix/client/v3/directory/room/%23alias:example.org")
+            .with_status(200)
+            .with_body(test_json::GET_ALIAS.to_string())
+            .create();
+
+        let alias = room_alias_id!("#alias:example.org");
+        assert!(client.get_alias(alias).await.is_ok());
     }
 
     #[async_test]
