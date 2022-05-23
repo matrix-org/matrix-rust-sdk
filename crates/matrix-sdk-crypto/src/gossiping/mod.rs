@@ -43,7 +43,7 @@ use crate::{
 };
 
 /// An error describing why a key share request won't be honored.
-#[derive(Debug, Clone, Error, PartialEq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum KeyForwardDecision {
     /// The key request is from a device that we don't own, we're only sharing
     /// sessions that we know the requesting device already was supposed to get.

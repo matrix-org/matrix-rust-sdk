@@ -500,7 +500,7 @@ impl MacKey {
 
 /// Encrypted value, ready for storage, as created by the
 /// [`StoreCipher::encrypt_value_data()`]
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncryptedValue {
     version: u8,
     ciphertext: Vec<u8>,
@@ -557,7 +557,7 @@ impl Keys {
 }
 
 /// Version specific info for the key derivation method that is used.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 enum KdfInfo {
     /// The PBKDF2 to Chacha key derivation variant.
     Pbkdf2ToChaCha20Poly1305 {
@@ -572,7 +572,7 @@ enum KdfInfo {
 
 /// Version specific info for encryption method that is used to encrypt our
 /// store cipher.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 enum CipherTextInfo {
     /// A store cipher encrypted using the ChaCha20Poly1305 AEAD.
     ChaCha20Poly1305 {
@@ -585,7 +585,7 @@ enum CipherTextInfo {
 
 /// An encrypted version of our store cipher, this can be safely stored in a
 /// database.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct EncryptedStoreCipher {
     /// Info about the key derivation method that was used to expand the
     /// passphrase into an encryption key.

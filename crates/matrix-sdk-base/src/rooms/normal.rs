@@ -177,7 +177,13 @@ impl Room {
 
     /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        self.inner.read().unwrap().base_info.avatar.as_ref()?.as_original()?.content.url.clone()
+        self.inner
+            .read()
+            .unwrap()
+            .base_info
+            .avatar
+            .as_ref()
+            .and_then(|e| e.as_original().and_then(|e| e.content.url.clone()))
     }
 
     /// Get the canonical alias of this room.
@@ -194,7 +200,13 @@ impl Room {
     /// It can also be redacted in current room versions, leaving only the
     /// `creator` field.
     pub fn create_content(&self) -> Option<RoomCreateEventContent> {
-        Some(self.inner.read().unwrap().base_info.create.as_ref()?.as_original()?.content.clone())
+        self.inner
+            .read()
+            .unwrap()
+            .base_info
+            .create
+            .as_ref()
+            .and_then(|e| e.as_original().map(|e| e.content.clone()))
     }
 
     /// Is this room considered a direct message.

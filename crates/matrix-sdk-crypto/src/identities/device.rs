@@ -348,7 +348,7 @@ impl UserDevices {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 /// The local trust state of a device.
 pub enum LocalTrust {
     /// The device has been verified and is trusted.
