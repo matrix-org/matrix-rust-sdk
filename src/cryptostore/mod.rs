@@ -417,7 +417,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let e2e = self.ensure_e2e()?;
         let room_id = e2e.encode_key(
@@ -433,10 +433,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             session.session_id().as_bytes(),
         );
         DB::inbound_group_session_upsert_query()
-            .bind(room_id.to_vec())
-            .bind(sender_key.to_vec())
-            .bind(session_id.to_vec())
-            .bind(&e2e.encode_value(&session.pickle().await)?)
+            .bind(room_id.as_ref())
+            .bind(sender_key.as_ref())
+            .bind(session_id.as_ref())
+            .bind(e2e.encode_value(&session.pickle().await)?.as_ref())
             .execute(txn)
             .await?;
         self.ensure_e2e()?.group_sessions.add(session);
@@ -456,7 +456,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let e2e = self.ensure_e2e()?;
         let room_id = e2e.encode_key(
@@ -464,8 +464,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             session.room_id().as_bytes(),
         );
         DB::outbound_group_session_store_query()
-            .bind(room_id.to_vec())
-            .bind(&e2e.encode_value(&session.pickle().await)?)
+            .bind(room_id.as_ref())
+            .bind(e2e.encode_value(&session.pickle().await)?.as_ref())
             .execute(txn)
             .await?;
         Ok(())
@@ -484,7 +484,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         bool: SqlType<DB>,
     {
         let e2e = self.ensure_e2e()?;
@@ -502,11 +502,11 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             request_info_key.as_bytes(),
         );
         DB::gossip_request_store_query()
-            .bind(recipient_id.to_vec())
-            .bind(request_id.to_vec())
-            .bind(info_key.to_vec())
+            .bind(recipient_id.as_ref())
+            .bind(request_id.as_ref())
+            .bind(info_key.as_ref())
             .bind(request.sent_out)
-            .bind(&e2e.encode_value(&request)?)
+            .bind(e2e.encode_value(&request)?.as_ref())
             .execute(txn)
             .await?;
         Ok(())
@@ -525,7 +525,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key(
@@ -533,8 +533,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             identity.user_id().as_bytes(),
         );
         DB::identity_upsert_query()
-            .bind(user_id.to_vec())
-            .bind(&e2e.encode_value(&identity)?)
+            .bind(user_id.as_ref())
+            .bind(e2e.encode_value(&identity)?.as_ref())
             .execute(txn)
             .await?;
         Ok(())
@@ -553,7 +553,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_device:user_id", device.user_id().as_bytes());
@@ -562,9 +562,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             device.device_id().as_bytes(),
         );
         DB::device_upsert_query()
-            .bind(user_id.to_vec())
-            .bind(device_id.to_vec())
-            .bind(&e2e.encode_value(&device)?)
+            .bind(user_id.as_ref())
+            .bind(device_id.as_ref())
+            .bind(e2e.encode_value(&device)?.as_ref())
             .execute(txn)
             .await?;
         self.ensure_e2e()?.devices.add(device);
@@ -584,7 +584,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
     {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_device:user_id", device.user_id().as_bytes());
@@ -593,8 +593,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             device.device_id().as_bytes(),
         );
         DB::device_delete_query()
-            .bind(user_id.to_vec())
-            .bind(device_id.to_vec())
+            .bind(user_id.as_ref())
+            .bind(device_id.as_ref())
             .execute(txn)
             .await?;
         self.ensure_e2e()?
@@ -705,6 +705,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -720,7 +721,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             // try fetching from the database
             let user_id = e2e.encode_key("cryptostore_session:sender_key", sender_key.as_bytes());
             let mut rows = DB::sessions_for_user_query()
-                .bind(user_id.to_vec())
+                .bind(user_id.as_ref())
                 .fetch(&*self.db);
             let mut sess = Vec::new();
             while let Some(row) = rows.try_next().await? {
@@ -753,6 +754,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -774,9 +776,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
                 session_id.as_bytes(),
             );
             let row = DB::inbound_group_session_fetch_query()
-                .bind(room_id.to_vec())
-                .bind(sender_key.to_vec())
-                .bind(session_id.to_vec())
+                .bind(room_id.as_ref())
+                .bind(sender_key.as_ref())
+                .bind(session_id.as_ref())
                 .fetch_optional(&*self.db)
                 .await?;
             if let Some(row) = row {
@@ -919,6 +921,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -976,6 +979,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -989,7 +993,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             room_id.as_bytes(),
         );
         let row = DB::outbound_group_session_load_query()
-            .bind(room_id.to_vec())
+            .bind(room_id.as_ref())
             .fetch_optional(&*self.db)
             .await?;
         if let Some(row) = row {
@@ -1015,6 +1019,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
     {
         let e2e = self.ensure_e2e()?;
@@ -1024,7 +1029,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             dirty,
         };
         DB::tracked_user_upsert_query()
-            .bind(user_id.to_vec())
+            .bind(user_id.as_ref())
             .bind(e2e.encode_value(&tracked_user)?)
             .execute(&*self.db)
             .await?;
@@ -1040,6 +1045,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
     {
         let e2e = self.ensure_e2e()?;
@@ -1069,6 +1075,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
@@ -1076,8 +1083,8 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         let user_id = e2e.encode_key("cryptostore_device:user_id", user_id.as_bytes());
         let device_id = e2e.encode_key("cryptostore_device:device_id", device_id.as_bytes());
         let row = DB::device_fetch_query()
-            .bind(user_id.to_vec())
-            .bind(device_id.to_vec())
+            .bind(user_id.as_ref())
+            .bind(device_id.as_ref())
             .fetch_optional(&*self.db)
             .await?;
         if let Some(row) = row {
@@ -1101,13 +1108,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_device:user_id", user_id.as_bytes());
         let mut rows = DB::devices_for_user_query()
-            .bind(user_id.to_vec())
+            .bind(user_id.as_ref())
             .fetch(&*self.db);
         let mut devices = HashMap::new();
         while let Some(row) = rows.try_next().await? {
@@ -1131,13 +1139,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_identity:user_id", user_id.as_bytes());
         let row = DB::identity_fetch_query()
-            .bind(user_id.to_vec())
+            .bind(user_id.as_ref())
             .fetch_optional(&*self.db)
             .await?;
         if let Some(row) = row {
