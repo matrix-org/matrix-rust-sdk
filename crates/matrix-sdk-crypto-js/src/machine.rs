@@ -230,7 +230,8 @@ impl OlmMachine {
     /// # Panics
     ///
     /// Panics if a group session for the given room wasn't shared beforehand.
-    pub fn encrypt(
+    #[wasm_bindgen(js_name = "encryptRoomEvent")]
+    pub fn encrypt_room_event(
         &self,
         room_id: &identifiers::RoomId,
         event_type: &str,
@@ -243,7 +244,7 @@ impl OlmMachine {
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(serde_json::to_string(&me.encrypt(&room_id, content).await?)?)
+            Ok(serde_json::to_string(&me.encrypt_room_event(&room_id, content).await?)?)
         }))
     }
 
