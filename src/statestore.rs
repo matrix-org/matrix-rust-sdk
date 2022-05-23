@@ -61,7 +61,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn set_custom_value(&self, key_ref: &[u8], val: &[u8]) -> Result<()> {
+    pub(crate) async fn set_custom_value(&self, key_ref: &[u8], val: &[u8]) -> Result<()> {
         let mut key = Vec::with_capacity(7 + key_ref.len());
         key.extend_from_slice(b"custom:");
         key.extend_from_slice(key_ref);
@@ -73,7 +73,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_custom_value(&self, key_ref: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub(crate) async fn get_custom_value(&self, key_ref: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut key = Vec::with_capacity(7 + key_ref.len());
         key.extend_from_slice(b"custom:");
         key.extend_from_slice(key_ref);
@@ -84,7 +84,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn save_filter(&self, name: &str, filter_id: &str) -> Result<()> {
+    pub(crate) async fn save_filter(&self, name: &str, filter_id: &str) -> Result<()> {
         let mut key = Vec::with_capacity(7 + name.len());
         key.extend_from_slice(b"filter:");
         key.extend_from_slice(name.as_bytes());
@@ -96,7 +96,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_filter(&self, name: &str) -> Result<Option<String>> {
+    pub(crate) async fn get_filter(&self, name: &str) -> Result<Option<String>> {
         let mut key = Vec::with_capacity(7 + name.len());
         key.extend_from_slice(b"filter:");
         key.extend_from_slice(name.as_bytes());
@@ -111,7 +111,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the media cannot be inserted
-    pub async fn insert_media(&self, url: &MxcUri, media: &[u8]) -> Result<()> {
+    pub(crate) async fn insert_media(&self, url: &MxcUri, media: &[u8]) -> Result<()> {
         let mut txn = self.db.begin().await?;
 
         DB::media_insert_query_1()
@@ -129,7 +129,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the media cannot be deleted
-    pub async fn delete_media(&self, url: &MxcUri) -> Result<()> {
+    pub(crate) async fn delete_media(&self, url: &MxcUri) -> Result<()> {
         DB::media_delete_query()
             .bind(url.as_str())
             .execute(&*self.db)
@@ -141,7 +141,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the query fails
-    pub async fn get_media(&self, url: &MxcUri) -> Result<Option<Vec<u8>>> {
+    pub(crate) async fn get_media(&self, url: &MxcUri) -> Result<Option<Vec<u8>>> {
         let row = DB::media_load_query()
             .bind(url.as_str())
             .fetch_optional(&*self.db)
@@ -158,7 +158,7 @@ where
     ///
     /// [`MxcUri`]: ruma::identifiers::MxcUri
     #[must_use]
-    pub fn extract_media_url(request: &MediaRequest) -> &MxcUri {
+    pub(crate) fn extract_media_url(request: &MediaRequest) -> &MxcUri {
         match request.source {
             MediaSource::Plain(ref p) => p,
             MediaSource::Encrypted(ref e) => &e.url,
@@ -169,7 +169,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+    pub(crate) async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         let mut txn = self.db.begin().await?;
 
         for query in DB::room_remove_queries() {
@@ -184,7 +184,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_global_account_data<'c>(
+    pub(crate) async fn set_global_account_data<'c>(
         txn: &mut Transaction<'c, DB>,
         event_type: &GlobalAccountDataEventType,
         event_data: Raw<AnyGlobalAccountDataEvent>,
@@ -203,7 +203,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_account_data_event(
+    pub(crate) async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
@@ -225,7 +225,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_room_account_data_event(
+    pub(crate) async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
         event_type: RoomAccountDataEventType,
@@ -248,7 +248,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_presence_event<'c>(
+    pub(crate) async fn set_presence_event<'c>(
         txn: &mut Transaction<'c, DB>,
         user_id: &UserId,
         presence: Raw<PresenceEvent>,
@@ -265,7 +265,10 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
+    pub(crate) async fn get_presence_event(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<Raw<PresenceEvent>>> {
         let row = DB::presence_load_query()
             .bind(user_id.as_str())
             .fetch_optional(&*self.db)
@@ -300,7 +303,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_room_membership<'c>(
+    pub(crate) async fn set_room_membership<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         user_id: &UserId,
@@ -330,7 +333,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_stripped_room_membership<'c>(
+    pub(crate) async fn set_stripped_room_membership<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         user_id: &UserId,
@@ -358,7 +361,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_room_profile<'c>(
+    pub(crate) async fn set_room_profile<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         user_id: &UserId,
@@ -378,7 +381,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_room_state<'c>(
+    pub(crate) async fn set_room_state<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         event_type: &StateEventType,
@@ -400,7 +403,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_stripped_room_state<'c>(
+    pub(crate) async fn set_stripped_room_state<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         event_type: &StateEventType,
@@ -422,7 +425,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_room_account_data<'c>(
+    pub(crate) async fn set_room_account_data<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         event_type: &RoomAccountDataEventType,
@@ -441,7 +444,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_room_info<'c>(
+    pub(crate) async fn set_room_info<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         room_info: RoomInfo,
@@ -459,7 +462,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_stripped_room_info<'c>(
+    pub(crate) async fn set_stripped_room_info<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         room_info: RoomInfo,
@@ -477,7 +480,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn set_receipt<'c>(
+    pub(crate) async fn set_receipt<'c>(
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         event_id: &EventId,
@@ -500,7 +503,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_state_event(
+    pub(crate) async fn get_state_event(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
@@ -525,7 +528,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_state_events(
+    pub(crate) async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
@@ -549,7 +552,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_profile(
+    pub(crate) async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
@@ -572,7 +575,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+    pub(crate) async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let mut rows = DB::members_load_query()
             .bind(room_id.as_str())
             .fetch(&*self.db);
@@ -587,7 +590,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+    pub(crate) async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let mut rows = DB::members_load_query_with_join_status()
             .bind(room_id.as_str())
             .bind(false)
@@ -603,7 +606,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
+    pub(crate) async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let mut rows = DB::members_load_query_with_join_status()
             .bind(room_id.as_str())
             .bind(true)
@@ -619,7 +622,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_member_event(
+    pub(crate) async fn get_member_event(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
@@ -660,14 +663,14 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    pub(crate) async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         self.get_room_infos_internal(false).await
     }
     /// Get partial room infos
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
+    pub(crate) async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
         self.get_room_infos_internal(true).await
     }
 
@@ -675,7 +678,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_users_with_display_name(
+    pub(crate) async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
         display_name: &str,
@@ -695,7 +698,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_user_room_receipt_event(
+    pub(crate) async fn get_user_room_receipt_event(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
@@ -721,7 +724,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_event_room_receipt_events(
+    pub(crate) async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
@@ -754,7 +757,10 @@ where
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn save_sync_token<'c>(txn: &mut Transaction<'c, DB>, token: &str) -> Result<()> {
+    pub(crate) async fn save_sync_token<'c>(
+        txn: &mut Transaction<'c, DB>,
+        token: &str,
+    ) -> Result<()> {
         Self::insert_kv_txn(txn, b"sync_token", token.as_bytes()).await
     }
 
@@ -762,7 +768,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_sync_token(&self) -> Result<Option<String>> {
+    pub(crate) async fn get_sync_token(&self) -> Result<Option<String>> {
         let result = self.get_kv(b"sync_token").await?;
         match result {
             Some(value) => Ok(Some(String::from_utf8(value)?)),
@@ -774,7 +780,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn insert_kv(&self, key: &[u8], value: &[u8]) -> Result<()> {
+    pub(crate) async fn insert_kv(&self, key: &[u8], value: &[u8]) -> Result<()> {
         DB::kv_upsert_query()
             .bind(key)
             .bind(value)
@@ -787,7 +793,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn insert_kv_txn<'c>(
+    pub(crate) async fn insert_kv_txn<'c>(
         txn: &mut Transaction<'c, DB>,
         key: &[u8],
         value: &[u8],
@@ -804,7 +810,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_kv(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub(crate) async fn get_kv(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let row = DB::kv_load_query()
             .bind(key)
             .fetch_optional(&*self.db)
@@ -823,7 +829,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn save_state_changes_txn<'c>(
+    pub(crate) async fn save_state_changes_txn<'c>(
         txn: &mut Transaction<'c, DB>,
         state_changes: &StateChanges,
     ) -> Result<()> {
@@ -920,7 +926,7 @@ where
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn save_state_changes(&self, state_changes: &StateChanges) -> Result<()> {
+    pub(crate) async fn save_state_changes(&self, state_changes: &StateChanges) -> Result<()> {
         let mut txn = self.db.begin().await?;
         Self::save_state_changes_txn(&mut txn, state_changes).await?;
         txn.commit().await?;
@@ -1300,7 +1306,7 @@ where
 
 #[cfg(test)]
 #[allow(unused_imports, unreachable_pub, clippy::unwrap_used)]
-pub mod tests {
+mod tests {
     use crate::{StateStore, SupportedDatabase};
     use anyhow::Result;
     use ruma::{MxcUri, OwnedMxcUri};
@@ -1317,7 +1323,7 @@ pub mod tests {
     }
 
     #[cfg(feature = "postgres")]
-    pub async fn open_postgres_database() -> Result<StateStore<sqlx::Postgres>> {
+    async fn open_postgres_database() -> Result<StateStore<sqlx::Postgres>> {
         let db = Arc::new(
             sqlx::PgPool::connect("postgres://postgres:postgres@localhost:5432/postgres").await?,
         );

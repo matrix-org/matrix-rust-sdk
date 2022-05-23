@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes
 - Improved performance by reducing the amount of allocations and copy operations done
+- Changed the places trait bounds are included
+
+### Removed
+- Many internal functions of the StateStore are no longer public.
 
 ### Fixes
 - Fixes a type issue when inserting members in postgresql
