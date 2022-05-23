@@ -674,6 +674,35 @@ pub mod tests {
 }
 
 #[allow(clippy::redundant_pub_crate)]
+#[cfg(all(test, feature = "postgres", feature = "ci"))]
+mod postgres_integration_test {
+    use std::sync::Arc;
+
+    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+    use rand::distributions::{Alphanumeric, DistString};
+    use sqlx::migrate::MigrateDatabase;
+
+    use super::StoreResult;
+    async fn get_store_anyhow() -> anyhow::Result<impl StateStore> {
+        let name = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let db_url = format!("postgres://postgres:postgres@localhost:5432/{}", name);
+        if !sqlx::Postgres::database_exists(&db_url).await? {
+            sqlx::Postgres::create_database(&db_url).await?;
+        }
+        let db = Arc::new(sqlx::PgPool::connect(&db_url).await?);
+        let store = crate::StateStore::new(&db).await?;
+        Ok(store)
+    }
+    async fn get_store() -> StoreResult<impl StateStore> {
+        get_store_anyhow()
+            .await
+            .map_err(|e| StoreError::Backend(e.into()))
+    }
+
+    statestore_integration_tests! { integration }
+}
+
+#[allow(clippy::redundant_pub_crate)]
 #[cfg(all(test, feature = "sqlite"))]
 mod sqlite_integration_test {
     use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
