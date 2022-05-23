@@ -65,6 +65,13 @@ test('OlmMachine', async (t) => {
         assert.equal(tracked_users.size, 0, 'No tracked users by default');
     });
 
+    await t.test('Update tracked users', async (t) => {
+        const machine = await new OlmMachine(user_id, device_id);
+        const update_tracked_users = await machine.updateTrackedUsers([new UserId('@foo:matrix.org'), new UserId('@bar:matrix.org')]);
+
+        assert.equal(update_tracked_users, undefined, 'Updating tracked users returns nothing');
+    });
+
     await t.test('Receive sync changes', async (t) => {
         const machine = await new OlmMachine(user_id, device_id);
         const to_device_events = JSON.stringify({});

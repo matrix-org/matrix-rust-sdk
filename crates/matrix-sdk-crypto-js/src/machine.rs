@@ -83,6 +83,31 @@ impl OlmMachine {
         set
     }
 
+    /// Update the tracked users.
+    ///
+    /// `users` is an iterator over user IDs that should be marked for
+    /// tracking.
+    ///
+    /// This will mark users that weren't seen before for a key query
+    /// and tracking.
+    ///
+    /// If the user is already known to the Olm machine, it will not
+    /// be considered for a key query.
+    #[wasm_bindgen(js_name = "updateTrackedUsers")]
+    pub fn update_tracked_users(&self, users: &Array) -> Result<Promise, JsError> {
+        let users = users
+            .iter()
+            .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
+            .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
+
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            me.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
+            Ok(JsValue::UNDEFINED)
+        }))
+    }
+
     #[wasm_bindgen(js_name = "receiveSyncChanges")]
     pub fn receive_sync_changes(
         &self,
