@@ -34,13 +34,16 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub async fn remove_room(&self, room_id: &RoomId) -> Result<()>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a str: BorrowedSqlType<'a, DB>,
     {
-        DB::room_remove_query()
-            .bind(room_id.as_str())
-            .execute(&*self.db)
-            .await?;
+        let mut txn = self.db.begin().await?;
+
+        for query in DB::room_remove_queries() {
+            query.bind(room_id.as_str()).execute(&mut txn).await?;
+        }
+
+        txn.commit().await?;
         Ok(())
     }
 

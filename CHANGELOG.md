@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes
 - Fixes a type issue when inserting members in postgresql
+- Makes `remove_room` work with postgresql (it does not support prepared queries with multiple statements)
 
 ## [0.1.0-beta.1] - 2022-05-12
 

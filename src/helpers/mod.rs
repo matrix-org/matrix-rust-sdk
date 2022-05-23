@@ -134,16 +134,15 @@ pub trait SupportedDatabase: Database + Sealed {
     ///
     /// # Arguments
     /// * `$1` - The room ID
-    fn room_remove_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
-        sqlx::query(
-            r#"
-                DELETE FROM statestore_rooms WHERE room_id = $1;
-                DELETE FROM statestore_accountdata WHERE room_id = $1;
-                DELETE FROM statestore_members WHERE room_id = $1;
-                DELETE FROM statestore_state WHERE room_id = $1;
-                DELETE FROM statestore_receipts WHERE room_id = $1;
-            "#,
-        )
+    #[must_use]
+    fn room_remove_queries<'q>() -> Vec<Query<'q, Self, <Self as HasArguments<'q>>::Arguments>> {
+        vec![
+            sqlx::query("DELETE FROM statestore_rooms WHERE room_id = $1"),
+            sqlx::query("DELETE FROM statestore_accountdata WHERE room_id = $1"),
+            sqlx::query("DELETE FROM statestore_members WHERE room_id = $1"),
+            sqlx::query("DELETE FROM statestore_state WHERE room_id = $1"),
+            sqlx::query("DELETE FROM statestore_receipts WHERE room_id = $1"),
+        ]
     }
 
     /// Upserts account data
