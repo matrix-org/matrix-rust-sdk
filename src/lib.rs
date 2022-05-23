@@ -35,7 +35,7 @@ use helpers::{BorrowedSqlType, SqlType};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_store_encryption::StoreCipher;
 
-pub mod helpers;
+mod helpers;
 pub use helpers::SupportedDatabase;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{deserialized_responses::MemberEvent, MinimalRoomMemberEvent, RoomInfo};

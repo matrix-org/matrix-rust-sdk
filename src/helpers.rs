@@ -43,6 +43,7 @@ impl<'a, DB: Database, T> BorrowedSqlType<'a, DB> for T where
 ///
 /// It contains many methods that try to generate queries for the supported databases.
 #[allow(single_use_lifetimes)]
+#[doc(hidden)]
 pub trait SupportedDatabase: Database + Sealed {
     /// Returns the migrator for the current database type
     fn get_migrator() -> &'static Migrator;
