@@ -30,16 +30,14 @@ This crate integrates with your existing [SQLx](https://github.com/launchbadge/s
 ```rust
 
 let sql_pool: Arc<sqlx::Pool<DB>> = /* ... */;
-// Create the state store, applying migrations if necessary
-let state_store = StateStore::new(&sql_pool).await?;
+// Create the  store config
+let store_config = matrix_sdk_sql::store_config(sql_pool, Some(std::env::var("MYAPP_SECRET_KEY")?)).await?;
 
 ```
 
 After that you can pass it into your client builder as follows:
 
 ```rust
-let store_config = StoreConfig::new().state_store(Box::new(state_store));
-
 let client_builder = Client::builder()
                     /* ... */
                      .store_config(store_config)
@@ -56,6 +54,8 @@ let mut state_store = /* as above */;
 
 state_store.unlock_with_passphrase(std::env::var("MYAPP_SECRET_KEY")?).await?;
 ```
+
+If you are using the `store_config` function, the store will be automatically unlocked for you.
 
 ## Authors
 

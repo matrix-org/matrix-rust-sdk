@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - A `CryptoStore` implementation
+- Added a convenience `store_config` method, that returns a preconfigured store config
 
 ### Changes
 - Improved performance by reducing the amount of allocations and copy operations done

@@ -5,20 +5,32 @@
 //! ```rust,ignore
 //!
 //! let sql_pool: Arc<sqlx::Pool<DB>> = /* ... */;
-//! // Create the state store, applying migrations if necessary
-//! let state_store = StateStore::new(&sql_pool).await?;
+//! // Create the  store config
+//! let store_config = matrix_sdk_sql::store_config(sql_pool, Some(std::env::var("MYAPP_SECRET_KEY")?)).await?;
 //!
 //! ```
 //!
 //! After that you can pass it into your client builder as follows:
 //!
 //! ```rust,ignore
-//! let store_config = StoreConfig::new().state_store(Box::new(state_store));
-//!
 //! let client_builder = Client::builder()
 //!                     /* ... */
 //!                      .store_config(store_config)
 //! ```
+//!
+//! ## [`CryptoStore`]
+//!
+//! Enabling the `e2e-encryption` feature enables cryptostore functionality. To protect encryption session information, the contents of the tables are encrypted in the same manner as in `matrix-sdk-sled`.
+//!
+//! Before you can use cryptostore functionality, you need to unlock the cryptostore:
+//!
+//! ```rust,ignore
+//! let mut state_store = /* as above */;
+//!
+//! state_store.unlock_with_passphrase(std::env::var("MYAPP_SECRET_KEY")?).await?;
+//! ```
+//!
+//! If you are using the `store_config` function, the store will be automatically unlocked for you.
 //!
 //! ## About Trait bounds
 //!
@@ -30,16 +42,14 @@ use anyhow::Result;
 
 #[cfg(feature = "e2e-encryption")]
 use cryptostore::CryptostoreData;
-#[cfg(feature = "e2e-encryption")]
 use helpers::{BorrowedSqlType, SqlType};
+use matrix_sdk_base::store::StoreConfig;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_store_encryption::StoreCipher;
 
 mod helpers;
 pub use helpers::SupportedDatabase;
-#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{deserialized_responses::MemberEvent, MinimalRoomMemberEvent, RoomInfo};
-#[cfg(feature = "e2e-encryption")]
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -50,11 +60,10 @@ use ruma::{
     },
     serde::Raw,
 };
-#[cfg(feature = "e2e-encryption")]
 use sqlx::{
-    database::HasArguments, types::Json, ColumnIndex, Executor, IntoArguments, Transaction,
+    database::HasArguments, migrate::Migrate, types::Json, ColumnIndex, Database, Executor,
+    IntoArguments, Pool, Transaction,
 };
-use sqlx::{migrate::Migrate, Database, Pool};
 
 #[cfg(feature = "e2e-encryption")]
 mod cryptostore;
@@ -187,5 +196,60 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         }
         self.load_tracked_users().await?;
         Ok(())
+    }
+}
+
+/// Creates a new store confiig
+///
+/// # Errors
+/// This function will return an error if the migration cannot be applied,
+/// or if the passphrase is incorrect
+pub async fn store_config<DB: SupportedDatabase>(
+    db: &Arc<Pool<DB>>,
+    passphrase: Option<&str>,
+) -> Result<StoreConfig>
+where
+    <DB as Database>::Connection: Migrate,
+    for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+    for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+    for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+    for<'a> &'a str: BorrowedSqlType<'a, DB>,
+    Vec<u8>: SqlType<DB>,
+    String: SqlType<DB>,
+    bool: SqlType<DB>,
+    Vec<u8>: SqlType<DB>,
+    Option<String>: SqlType<DB>,
+    Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
+    Json<Raw<PresenceEvent>>: SqlType<DB>,
+    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<MinimalRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+    Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
+    Json<RoomInfo>: SqlType<DB>,
+    Json<Receipt>: SqlType<DB>,
+    Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
+    Json<StrippedRoomMemberEvent>: SqlType<DB>,
+    Json<MemberEvent>: SqlType<DB>,
+    for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+{
+    #[cfg(not(feature = "e2e-encryption"))]
+    {
+        let _ = passphrase;
+        let state_store = StateStore::new(db).await?;
+        Ok(StoreConfig::new().state_store(Box::new(state_store)))
+    }
+    #[cfg(feature = "e2e-encryption")]
+    {
+        let state_store = StateStore::new(db).await?;
+        let mut crypto_store = StateStore::new(db).await?;
+        if let Some(passphrase) = passphrase {
+            crypto_store.unlock_with_passphrase(passphrase).await?;
+        } else {
+            crypto_store.unlock().await?;
+        }
+        Ok(StoreConfig::new()
+            .state_store(Box::new(state_store))
+            .crypto_store(Box::new(crypto_store)))
     }
 }
