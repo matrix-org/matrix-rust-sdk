@@ -11,7 +11,9 @@ use async_trait::async_trait;
 use dashmap::DashSet;
 use educe::Educe;
 use futures::{StreamExt, TryStream, TryStreamExt};
-use matrix_sdk_base::locks::Mutex;
+use matrix_sdk_base::{
+    deserialized_responses::MemberEvent, locks::Mutex, MinimalRoomMemberEvent, RoomInfo,
+};
 use matrix_sdk_crypto::{
     olm::{
         IdentityKeys, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
@@ -26,10 +28,21 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use parking_lot::RwLock;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId};
+use ruma::{
+    events::{
+        presence::PresenceEvent,
+        receipt::Receipt,
+        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent,
+    },
+    serde::Raw,
+    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{
-    database::HasArguments, ColumnIndex, Database, Executor, IntoArguments, Row, Transaction,
+    database::HasArguments, types::Json, ColumnIndex, Database, Executor, IntoArguments, Row,
+    Transaction,
 };
 
 use crate::{
@@ -149,7 +162,31 @@ struct TrackedUser {
     dirty: bool,
 }
 
-impl<DB: SupportedDatabase> StateStore<DB> {
+impl<DB: SupportedDatabase> StateStore<DB>
+where
+    for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+    for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
+    for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+    for<'a> &'a str: BorrowedSqlType<'a, DB>,
+    Vec<u8>: SqlType<DB>,
+    String: SqlType<DB>,
+    bool: SqlType<DB>,
+    Vec<u8>: SqlType<DB>,
+    Option<String>: SqlType<DB>,
+    Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
+    Json<Raw<PresenceEvent>>: SqlType<DB>,
+    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<MinimalRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+    Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
+    Json<RoomInfo>: SqlType<DB>,
+    Json<Receipt>: SqlType<DB>,
+    Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
+    Json<StrippedRoomMemberEvent>: SqlType<DB>,
+    Json<MemberEvent>: SqlType<DB>,
+    for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+{
     /// Returns account info, if it exists
     #[cfg(test)]
     pub(crate) fn get_account_info(&self) -> Option<AccountInfo> {
@@ -162,13 +199,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn load_tracked_users(&self) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn load_tracked_users(&self) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let mut rows = DB::tracked_users_fetch_query().fetch(&*self.db);
         while let Some(row) = rows.try_next().await? {
@@ -187,14 +218,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn load_account(&self) -> Result<Option<ReadOnlyAccount>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         let e2e = self.ensure_e2e()?;
         let account = match self.get_kv(b"e2e_account").await? {
             Some(account) => {
@@ -220,12 +244,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    pub(crate) async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
         let mut txn = self.db.begin().await?;
         self.save_account_txn(&mut txn, account).await?;
         txn.commit().await?;
@@ -242,12 +261,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         account: ReadOnlyAccount,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let account_info = AccountInfo {
             user_id: Arc::clone(&account.user_id),
@@ -269,14 +283,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         let e2e = self.ensure_e2e()?;
         let private_identity = match self.get_kv(b"private_identity").await? {
             Some(account) => {
@@ -299,12 +306,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         identity: PrivateCrossSigningIdentity,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         Self::insert_kv_txn(
             txn,
@@ -324,12 +326,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         backup_version: String,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         Self::insert_kv_txn(txn, b"backup_version", &e2e.encode_value(&backup_version)?).await?;
         Ok(())
@@ -344,12 +341,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         recovery_key: RecoveryKey,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         Self::insert_kv_txn(txn, b"recovery_key", &e2e.encode_value(&recovery_key)?).await?;
         Ok(())
@@ -364,19 +356,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         session: Session,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let sender_key = session.sender_key().to_base64();
         let sender_key = sender_key.as_bytes();
         let sender_key = e2e.encode_key("cryptostore_session:sender_key", sender_key);
         DB::session_store_query()
             .bind(sender_key.as_ref())
-            .bind(e2e.encode_value(&session.pickle().await)?.as_ref())
+            .bind(e2e.encode_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
         self.ensure_e2e()?.sessions.add(session).await;
@@ -390,12 +377,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn save_message_hash<'c>(
         txn: &mut Transaction<'c, DB>,
         message_hash: OlmMessageHash,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        String: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::olm_message_hash_store_query()
             .bind(message_hash.sender_key)
             .bind(message_hash.hash)
@@ -413,12 +395,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         session: InboundGroupSession,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let room_id = e2e.encode_key(
             "cryptostore_inbound_group_session:room_id",
@@ -436,7 +413,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .bind(room_id.as_ref())
             .bind(sender_key.as_ref())
             .bind(session_id.as_ref())
-            .bind(e2e.encode_value(&session.pickle().await)?.as_ref())
+            .bind(e2e.encode_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
         self.ensure_e2e()?.group_sessions.add(session);
@@ -452,12 +429,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         session: OutboundGroupSession,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let room_id = e2e.encode_key(
             "cryptostore_inbound_group_session:room_id",
@@ -465,7 +437,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         );
         DB::outbound_group_session_store_query()
             .bind(room_id.as_ref())
-            .bind(e2e.encode_value(&session.pickle().await)?.as_ref())
+            .bind(e2e.encode_value(&session.pickle().await)?)
             .execute(txn)
             .await?;
         Ok(())
@@ -480,13 +452,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         request: GossipRequest,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        bool: SqlType<DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let recipient_id = e2e.encode_key(
             "cryptostore_gossip_request:recipient_id",
@@ -506,7 +472,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .bind(request_id.as_ref())
             .bind(info_key.as_ref())
             .bind(request.sent_out)
-            .bind(e2e.encode_value(&request)?.as_ref())
+            .bind(e2e.encode_value(&request)?)
             .execute(txn)
             .await?;
         Ok(())
@@ -521,12 +487,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         identity: ReadOnlyUserIdentities,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key(
             "cryptostore_identity:user_id",
@@ -534,7 +495,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         );
         DB::identity_upsert_query()
             .bind(user_id.as_ref())
-            .bind(e2e.encode_value(&identity)?.as_ref())
+            .bind(e2e.encode_value(&identity)?)
             .execute(txn)
             .await?;
         Ok(())
@@ -549,12 +510,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         device: ReadOnlyDevice,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_device:user_id", device.user_id().as_bytes());
         let device_id = e2e.encode_key(
@@ -564,7 +520,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         DB::device_upsert_query()
             .bind(user_id.as_ref())
             .bind(device_id.as_ref())
-            .bind(e2e.encode_value(&device)?.as_ref())
+            .bind(e2e.encode_value(&device)?)
             .execute(txn)
             .await?;
         self.ensure_e2e()?.devices.add(device);
@@ -580,12 +536,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         device: ReadOnlyDevice,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_device:user_id", device.user_id().as_bytes());
         let device_id = e2e.encode_key(
@@ -612,15 +563,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         txn: &mut Transaction<'c, DB>,
         changes: Changes,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        String: SqlType<DB>,
-        bool: SqlType<DB>,
-    {
+    ) -> Result<()> {
         if let Some(account) = changes.account {
             self.save_account_txn(txn, account).await?;
         }
@@ -678,15 +621,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        String: SqlType<DB>,
-        bool: SqlType<DB>,
-    {
+    pub(crate) async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut txn = self.db.begin().await?;
         self.save_changes_txn(&mut txn, changes).await?;
         txn.commit().await?;
@@ -701,14 +636,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn get_sessions(
         &self,
         sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         let e2e = self.ensure_e2e()?;
         let sessions = &e2e.sessions;
         if let Some(v) = sessions.get(sender_key) {
@@ -750,14 +678,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
-    ) -> Result<Option<InboundGroupSession>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<InboundGroupSession>> {
         let e2e = self.ensure_e2e()?;
         let sessions = &e2e.group_sessions;
         if let Some(v) = sessions.get(room_id, sender_key, session_id) {
@@ -797,15 +718,9 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database has not been unlocked.
-    pub(crate) fn get_inbound_group_session_stream<'this>(
-        &'this self,
-    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + 'this>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) fn get_inbound_group_session_stream(
+        &self,
+    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + '_> {
         let e2e = self.ensure_e2e()?;
         Ok(DB::inbound_group_sessions_fetch_query()
             .fetch(&*self.db)
@@ -828,13 +743,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) fn get_inbound_group_session_stream_txn<'r, 'c>(
         &'r self,
         txn: &'r mut Transaction<'c, DB>,
-    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + 'r>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        &'r mut Transaction<'c, DB>: Executor<'r, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + 'r> {
         let e2e = self.ensure_e2e()?;
         Ok(Box::pin(
             DB::inbound_group_sessions_fetch_query()
@@ -872,13 +781,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn inbound_group_session_counts(&self) -> Result<RoomKeyCounts> {
         self.get_inbound_group_session_stream()?
             .try_fold(RoomKeyCounts::default(), |mut counts, session| async move {
                 counts.total += 1;
@@ -898,13 +801,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn inbound_group_sessions_for_backup(
         &self,
         limit: usize,
-    ) -> Result<Vec<InboundGroupSession>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Vec<InboundGroupSession>> {
         self.get_inbound_group_session_stream()?
             .try_filter(|v| futures::future::ready(!v.backed_up()))
             .take(limit)
@@ -917,14 +814,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn reset_backup_state(&self) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn reset_backup_state(&self) -> Result<()> {
         let mut txn = self.db.begin().await?;
         let sessions: Vec<_> = self
             .get_inbound_group_session_stream_txn(&mut txn)?
@@ -943,14 +833,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn load_backup_keys(&self) -> Result<BackupKeys>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn load_backup_keys(&self) -> Result<BackupKeys> {
         let e2e = self.ensure_e2e()?;
         let backup_version = self
             .get_kv(b"backup_version")
@@ -976,14 +859,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn get_outbound_group_sessions(
         &self,
         room_id: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<OutboundGroupSession>> {
         let e2e = self.ensure_e2e()?;
         let account_info = e2e.account.read().clone();
         let account_info = account_info
@@ -1016,13 +892,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn save_tracked_user(&self, tracked_user: &UserId, dirty: bool) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-    {
+    pub(crate) async fn save_tracked_user(&self, tracked_user: &UserId, dirty: bool) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_tracked_user:user_id", tracked_user.as_bytes());
         let tracked_user = TrackedUser {
@@ -1042,13 +912,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-    {
+    pub(crate) async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
         let e2e = self.ensure_e2e()?;
         let already_added = e2e.tracked_users.insert(user.to_owned());
 
@@ -1072,14 +936,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<ReadOnlyDevice>> {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_device:user_id", user_id.as_bytes());
         let device_id = e2e.encode_key("cryptostore_device:device_id", device_id.as_bytes());
@@ -1105,14 +962,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_device:user_id", user_id.as_bytes());
         let mut rows = DB::devices_for_user_query()
@@ -1136,14 +986,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn get_user_identity(
         &self,
         user_id: &UserId,
-    ) -> Result<Option<ReadOnlyUserIdentities>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<ReadOnlyUserIdentities>> {
         let e2e = self.ensure_e2e()?;
         let user_id = e2e.encode_key("cryptostore_identity:user_id", user_id.as_bytes());
         let row = DB::identity_fetch_query()
@@ -1163,12 +1006,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the query fails
-    pub(crate) async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        String: SqlType<DB>,
-    {
+    pub(crate) async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool> {
         let row = DB::message_known_query()
             .bind(message_hash.sender_key.clone())
             .bind(message_hash.hash.clone())
@@ -1182,14 +1020,10 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn get_outgoing_key_request(&self, id: &[u8]) -> Result<Option<GossipRequest>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn get_outgoing_key_request(
+        &self,
+        id: &[u8],
+    ) -> Result<Option<GossipRequest>> {
         let e2e = self.ensure_e2e()?;
         let id = e2e.encode_key("cryptostore_gossip_request:request_id", id);
         let row = DB::gossip_request_fetch_query()
@@ -1213,14 +1047,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn get_secret_request_by_info(
         &self,
         key_info: &SecretInfo,
-    ) -> Result<Option<GossipRequest>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<GossipRequest>> {
         let e2e = self.ensure_e2e()?;
         let request_info_key = key_info.as_key();
         let info_key = e2e.encode_key(
@@ -1245,14 +1072,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the database has not been unlocked,
     /// or if the query fails.
-    pub(crate) async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        bool: SqlType<DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub(crate) async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
         let e2e = self.ensure_e2e()?;
         let mut rows = DB::gossip_requests_sent_state_fetch_query()
             .bind(false)
@@ -1274,13 +1094,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) async fn delete_outgoing_secret_requests(
         &self,
         request_id: &TransactionId,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<()> {
         let e2e = self.ensure_e2e()?;
         let id = e2e.encode_key(
             "cryptostore_gossip_request:request_id",
@@ -1301,9 +1115,23 @@ where
     for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
     for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
     for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+    for<'a> &'a str: BorrowedSqlType<'a, DB>,
     Vec<u8>: SqlType<DB>,
     String: SqlType<DB>,
     bool: SqlType<DB>,
+    Vec<u8>: SqlType<DB>,
+    Option<String>: SqlType<DB>,
+    Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
+    Json<Raw<PresenceEvent>>: SqlType<DB>,
+    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<MinimalRoomMemberEvent>: SqlType<DB>,
+    Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+    Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
+    Json<RoomInfo>: SqlType<DB>,
+    Json<Receipt>: SqlType<DB>,
+    Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
+    Json<StrippedRoomMemberEvent>: SqlType<DB>,
+    Json<MemberEvent>: SqlType<DB>,
     for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
 {
     async fn load_account(&self) -> StoreResult<Option<ReadOnlyAccount>> {

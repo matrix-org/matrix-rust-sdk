@@ -33,17 +33,35 @@ use sqlx::{
     Transaction,
 };
 
-impl<DB: SupportedDatabase> StateStore<DB> {
+impl<DB: SupportedDatabase> StateStore<DB>
+where
+    for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+    for<'a, 'c> &'c mut Transaction<'a, DB>: Executor<'c, Database = DB>,
+    for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+    for<'a> &'a str: BorrowedSqlType<'a, DB>,
+    Vec<u8>: SqlType<DB>,
+    Option<String>: SqlType<DB>,
+    String: SqlType<DB>,
+    Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
+    Json<Raw<PresenceEvent>>: SqlType<DB>,
+    Json<SyncRoomMemberEvent>: SqlType<DB>,
+    Json<MinimalRoomMemberEvent>: SqlType<DB>,
+    bool: SqlType<DB>,
+    Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+    Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
+    Json<RoomInfo>: SqlType<DB>,
+    Json<Receipt>: SqlType<DB>,
+    Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
+    Json<StrippedRoomMemberEvent>: SqlType<DB>,
+    Json<MemberEvent>: SqlType<DB>,
+    for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+{
     /// Put arbitrary data into the custom store
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn set_custom_value(&self, key_ref: &[u8], val: &[u8]) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    pub async fn set_custom_value(&self, key_ref: &[u8], val: &[u8]) -> Result<()> {
         let mut key = Vec::with_capacity(7 + key_ref.len());
         key.extend_from_slice(b"custom:");
         key.extend_from_slice(key_ref);
@@ -55,14 +73,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_custom_value(&self, key_ref: &[u8]) -> Result<Option<Vec<u8>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_custom_value(&self, key_ref: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut key = Vec::with_capacity(7 + key_ref.len());
         key.extend_from_slice(b"custom:");
         key.extend_from_slice(key_ref);
@@ -73,12 +84,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn save_filter(&self, name: &str, filter_id: &str) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    pub async fn save_filter(&self, name: &str, filter_id: &str) -> Result<()> {
         let mut key = Vec::with_capacity(7 + name.len());
         key.extend_from_slice(b"filter:");
         key.extend_from_slice(name.as_bytes());
@@ -90,14 +96,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_filter(&self, name: &str) -> Result<Option<String>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_filter(&self, name: &str) -> Result<Option<String>> {
         let mut key = Vec::with_capacity(7 + name.len());
         key.extend_from_slice(b"filter:");
         key.extend_from_slice(name.as_bytes());
@@ -112,13 +111,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the media cannot be inserted
-    pub async fn insert_media(&self, url: &MxcUri, media: &[u8]) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a, 'c> &'c mut Transaction<'a, DB>: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-    {
+    pub async fn insert_media(&self, url: &MxcUri, media: &[u8]) -> Result<()> {
         let mut txn = self.db.begin().await?;
 
         DB::media_insert_query_1()
@@ -136,12 +129,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the media cannot be deleted
-    pub async fn delete_media(&self, url: &MxcUri) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-    {
+    pub async fn delete_media(&self, url: &MxcUri) -> Result<()> {
         DB::media_delete_query()
             .bind(url.as_str())
             .execute(&*self.db)
@@ -153,14 +141,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the query fails
-    pub async fn get_media(&self, url: &MxcUri) -> Result<Option<Vec<u8>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        for<'a> &'a str: ColumnIndex<<DB as sqlx::Database>::Row>,
-    {
+    pub async fn get_media(&self, url: &MxcUri) -> Result<Option<Vec<u8>>> {
         let row = DB::media_load_query()
             .bind(url.as_str())
             .fetch_optional(&*self.db)
@@ -188,12 +169,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn remove_room(&self, room_id: &RoomId) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-    {
+    pub async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
         let mut txn = self.db.begin().await?;
 
         for query in DB::room_remove_queries() {
@@ -212,14 +188,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         txn: &mut Transaction<'c, DB>,
         event_type: &GlobalAccountDataEventType,
         event_data: Raw<AnyGlobalAccountDataEvent>,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::account_data_upsert_query()
             .bind("")
             .bind(event_type.to_string())
@@ -237,15 +206,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
-    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         let row = DB::account_data_load_query()
             .bind("")
             .bind(event_type.to_string())
@@ -268,15 +229,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         room_id: &RoomId,
         event_type: RoomAccountDataEventType,
-    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         let row = DB::account_data_load_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
@@ -299,13 +252,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         txn: &mut Transaction<'c, DB>,
         user_id: &UserId,
         presence: Raw<PresenceEvent>,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<Raw<PresenceEvent>>: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::presence_upsert_query()
             .bind(user_id.as_str())
             .bind(Json(presence))
@@ -318,14 +265,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<Raw<PresenceEvent>>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         let row = DB::presence_load_query()
             .bind(user_id.as_str())
             .fetch_optional(&*self.db)
@@ -347,12 +287,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         DB::member_remove_query()
             .bind(room_id.as_str())
             .bind(user_id.as_str())
@@ -370,15 +305,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         user_id: &UserId,
         member_event: SyncRoomMemberEvent,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<SyncRoomMemberEvent>: SqlType<DB>,
-        bool: SqlType<DB>,
-        Option<String>: SqlType<DB>,
-    {
+    ) -> Result<()> {
         let displayname = member_event
             .as_original()
             .and_then(|v| v.content.displayname.clone());
@@ -408,15 +335,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         user_id: &UserId,
         member_event: StrippedRoomMemberEvent,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<StrippedRoomMemberEvent>: SqlType<DB>,
-        bool: SqlType<DB>,
-        Option<String>: SqlType<DB>,
-    {
+    ) -> Result<()> {
         let displayname = member_event.content.displayname.clone();
         let joined = match member_event.content.membership {
             MembershipState::Join => true,
@@ -444,14 +363,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         user_id: &UserId,
         profile: MinimalRoomMemberEvent,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        bool: SqlType<DB>,
-        Json<MinimalRoomMemberEvent>: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::member_profile_upsert_query()
             .bind(room_id.as_str())
             .bind(user_id.as_str())
@@ -472,15 +384,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         event_type: &StateEventType,
         state_key: &str,
         state: Raw<AnySyncStateEvent>,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
-        bool: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::state_upsert_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
@@ -502,15 +406,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         event_type: &StateEventType,
         state_key: &str,
         state: Raw<AnyStrippedStateEvent>,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-        bool: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::state_upsert_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
@@ -531,15 +427,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         event_type: &RoomAccountDataEventType,
         event_data: Raw<AnyRoomAccountDataEvent>,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
-        bool: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::account_data_upsert_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
@@ -557,14 +445,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         room_info: RoomInfo,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<RoomInfo>: SqlType<DB>,
-        bool: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::room_upsert_query()
             .bind(room_id.as_str())
             .bind(false)
@@ -582,14 +463,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         txn: &mut Transaction<'c, DB>,
         room_id: &RoomId,
         room_info: RoomInfo,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<RoomInfo>: SqlType<DB>,
-        bool: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::room_upsert_query()
             .bind(room_id.as_str())
             .bind(true)
@@ -610,13 +484,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         receipt_type: &ReceiptType,
         user_id: &UserId,
         receipt: Receipt,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<Receipt>: SqlType<DB>,
-    {
+    ) -> Result<()> {
         DB::receipt_upsert_query()
             .bind(room_id.as_str())
             .bind(event_id.as_str())
@@ -637,15 +505,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
-    ) -> Result<Option<Raw<AnySyncStateEvent>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         let row = DB::state_load_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
@@ -669,16 +529,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
-    ) -> Result<Vec<Raw<AnySyncStateEvent>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
-        bool: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
         let mut rows = DB::states_load_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
@@ -702,14 +553,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MinimalRoomMemberEvent>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Json<MinimalRoomMemberEvent>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<MinimalRoomMemberEvent>> {
         let row = DB::profile_load_query()
             .bind(room_id.as_str())
             .bind(user_id.as_str())
@@ -728,14 +572,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let mut rows = DB::members_load_query()
             .bind(room_id.as_str())
             .fetch(&*self.db);
@@ -750,15 +587,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        bool: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let mut rows = DB::members_load_query_with_join_status()
             .bind(room_id.as_str())
             .bind(false)
@@ -774,15 +603,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        bool: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<OwnedUserId>> {
         let mut rows = DB::members_load_query_with_join_status()
             .bind(room_id.as_str())
             .bind(true)
@@ -802,16 +623,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<MemberEvent>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        bool: SqlType<DB>,
-        Json<StrippedRoomMemberEvent>: SqlType<DB>,
-        Json<SyncRoomMemberEvent>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<MemberEvent>> {
         let row = DB::member_load_query()
             .bind(room_id.as_str())
             .bind(user_id.as_str())
@@ -835,14 +647,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    async fn get_room_infos_internal(&self, partial: bool) -> Result<Vec<RoomInfo>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Json<RoomInfo>: SqlType<DB>,
-        bool: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    async fn get_room_infos_internal(&self, partial: bool) -> Result<Vec<RoomInfo>> {
         let mut rows = DB::room_info_load_query().bind(partial).fetch(&*self.db);
         let mut result = Vec::new();
         while let Some(row) = rows.try_next().await? {
@@ -855,28 +660,14 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Json<RoomInfo>: SqlType<DB>,
-        bool: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         self.get_room_infos_internal(false).await
     }
     /// Get partial room infos
     ///
     /// # Errors
     /// This function will return an error if the the query fails
-    pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Json<RoomInfo>: SqlType<DB>,
-        bool: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
         self.get_room_infos_internal(true).await
     }
 
@@ -888,14 +679,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         &self,
         room_id: &RoomId,
         display_name: &str,
-    ) -> Result<BTreeSet<OwnedUserId>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<BTreeSet<OwnedUserId>> {
         let mut rows = DB::users_with_display_name_load_query()
             .bind(room_id.as_ref())
             .bind(display_name)
@@ -916,15 +700,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         user_id: &UserId,
-    ) -> Result<Option<(OwnedEventId, Receipt)>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Receipt>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Option<(OwnedEventId, Receipt)>> {
         let row = DB::receipt_load_query()
             .bind(room_id.as_ref())
             .bind(receipt_type.as_ref())
@@ -950,15 +726,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         event_id: &EventId,
-    ) -> Result<Vec<(OwnedUserId, Receipt)>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        String: SqlType<DB>,
-        Json<Receipt>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         let mut rows = DB::event_receipt_load_query()
             .bind(room_id.as_ref())
             .bind(receipt_type.as_ref())
@@ -978,12 +746,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
     #[cfg(test)]
-    async fn save_sync_token_test(&self, token: &str) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    async fn save_sync_token_test(&self, token: &str) -> Result<()> {
         self.insert_kv(b"sync_token", token.as_bytes()).await
     }
 
@@ -991,12 +754,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn save_sync_token<'c>(txn: &mut Transaction<'c, DB>, token: &str) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    pub async fn save_sync_token<'c>(txn: &mut Transaction<'c, DB>, token: &str) -> Result<()> {
         Self::insert_kv_txn(txn, b"sync_token", token.as_bytes()).await
     }
 
@@ -1004,14 +762,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_sync_token(&self) -> Result<Option<String>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_sync_token(&self) -> Result<Option<String>> {
         let result = self.get_kv(b"sync_token").await?;
         match result {
             Some(value) => Ok(Some(String::from_utf8(value)?)),
@@ -1023,12 +774,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the upsert cannot be performed
-    pub async fn insert_kv(&self, key: &[u8], value: &[u8]) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    pub async fn insert_kv(&self, key: &[u8], value: &[u8]) -> Result<()> {
         DB::kv_upsert_query()
             .bind(key)
             .bind(value)
@@ -1045,12 +791,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         txn: &mut Transaction<'c, DB>,
         key: &[u8],
         value: &[u8],
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-    {
+    ) -> Result<()> {
         DB::kv_upsert_query()
             .bind(key)
             .bind(value)
@@ -1063,14 +804,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn get_kv(&self, key: &[u8]) -> Result<Option<Vec<u8>>>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
-    {
+    pub async fn get_kv(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let row = DB::kv_load_query()
             .bind(key)
             .fetch_optional(&*self.db)
@@ -1092,27 +826,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub async fn save_state_changes_txn<'c>(
         txn: &mut Transaction<'c, DB>,
         state_changes: &StateChanges,
-    ) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        Option<String>: SqlType<DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
-        Json<Raw<PresenceEvent>>: SqlType<DB>,
-        Json<SyncRoomMemberEvent>: SqlType<DB>,
-        Json<MinimalRoomMemberEvent>: SqlType<DB>,
-        bool: SqlType<DB>,
-        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
-        Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
-        Json<RoomInfo>: SqlType<DB>,
-        Json<Receipt>: SqlType<DB>,
-        Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-        Json<StrippedRoomMemberEvent>: SqlType<DB>,
-    {
+    ) -> Result<()> {
         if let Some(sync_token) = &state_changes.sync_token {
             Self::save_sync_token(txn, sync_token).await?;
         }
@@ -1206,27 +920,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     ///
     /// # Errors
     /// This function will return an error if the database query fails
-    pub async fn save_state_changes(&self, state_changes: &StateChanges) -> Result<()>
-    where
-        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
-        for<'a, 'c> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
-        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
-        for<'a> &'a str: BorrowedSqlType<'a, DB>,
-        Vec<u8>: SqlType<DB>,
-        Option<String>: SqlType<DB>,
-        String: SqlType<DB>,
-        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
-        Json<Raw<PresenceEvent>>: SqlType<DB>,
-        Json<SyncRoomMemberEvent>: SqlType<DB>,
-        Json<MinimalRoomMemberEvent>: SqlType<DB>,
-        bool: SqlType<DB>,
-        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
-        Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
-        Json<RoomInfo>: SqlType<DB>,
-        Json<Receipt>: SqlType<DB>,
-        Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
-        Json<StrippedRoomMemberEvent>: SqlType<DB>,
-    {
+    pub async fn save_state_changes(&self, state_changes: &StateChanges) -> Result<()> {
         let mut txn = self.db.begin().await?;
         Self::save_state_changes_txn(&mut txn, state_changes).await?;
         txn.commit().await?;

@@ -38,7 +38,22 @@ use matrix_sdk_store_encryption::StoreCipher;
 pub mod helpers;
 pub use helpers::SupportedDatabase;
 #[cfg(feature = "e2e-encryption")]
-use sqlx::{database::HasArguments, ColumnIndex, Executor, IntoArguments};
+use matrix_sdk_base::{deserialized_responses::MemberEvent, MinimalRoomMemberEvent, RoomInfo};
+#[cfg(feature = "e2e-encryption")]
+use ruma::{
+    events::{
+        presence::PresenceEvent,
+        receipt::Receipt,
+        room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent,
+    },
+    serde::Raw,
+};
+#[cfg(feature = "e2e-encryption")]
+use sqlx::{
+    database::HasArguments, types::Json, ColumnIndex, Executor, IntoArguments, Transaction,
+};
 use sqlx::{migrate::Migrate, Database, Pool};
 
 #[cfg(feature = "e2e-encryption")]
@@ -95,14 +110,31 @@ impl<DB: SupportedDatabase> StateStore<DB> {
 
     /// Unlocks the e2e encryption database
     /// # Errors
-    /// This function will fail if the passphrase is not `hunter2`
+    /// This function will fail if the database could not be unlocked
     #[cfg(feature = "e2e-encryption")]
     pub async fn unlock(&mut self) -> Result<()>
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
-        Vec<u8>: SqlType<DB>,
+        for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
+        Vec<u8>: SqlType<DB>,
+        String: SqlType<DB>,
+        bool: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        Option<String>: SqlType<DB>,
+        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
+        Json<Raw<PresenceEvent>>: SqlType<DB>,
+        Json<SyncRoomMemberEvent>: SqlType<DB>,
+        Json<MinimalRoomMemberEvent>: SqlType<DB>,
+        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+        Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
+        Json<RoomInfo>: SqlType<DB>,
+        Json<Receipt>: SqlType<DB>,
+        Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
+        Json<StrippedRoomMemberEvent>: SqlType<DB>,
+        Json<MemberEvent>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         self.cryptostore = Some(CryptostoreData::new_unencrypted());
@@ -118,8 +150,25 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     where
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'c, 'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        for<'a> &'a str: BorrowedSqlType<'a, DB>,
         Vec<u8>: SqlType<DB>,
+        String: SqlType<DB>,
+        bool: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        Option<String>: SqlType<DB>,
+        Json<Raw<AnyGlobalAccountDataEvent>>: SqlType<DB>,
+        Json<Raw<PresenceEvent>>: SqlType<DB>,
+        Json<SyncRoomMemberEvent>: SqlType<DB>,
+        Json<MinimalRoomMemberEvent>: SqlType<DB>,
+        Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+        Json<Raw<AnyRoomAccountDataEvent>>: SqlType<DB>,
+        Json<RoomInfo>: SqlType<DB>,
+        Json<Receipt>: SqlType<DB>,
+        Json<Raw<AnyStrippedStateEvent>>: SqlType<DB>,
+        Json<StrippedRoomMemberEvent>: SqlType<DB>,
+        Json<MemberEvent>: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         // Try to read the store cipher
