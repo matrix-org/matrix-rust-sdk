@@ -231,14 +231,15 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - The user ID
-    /// * `$3` - The profile event content
+    /// * `$3` - Whether or not the information is partial
+    /// * `$4` - The profile event content
     fn member_profile_upsert_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 INSERT INTO statestore_members
                     (room_id, user_id, is_partial, user_profile)
-                VALUES ($1, $2, 0, $3)
-                ON CONFLICT(room_id, user_id) DO UPDATE SET user_profile = $3
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT(room_id, user_id) DO UPDATE SET user_profile = $4
             "#,
         )
     }
@@ -318,11 +319,12 @@ pub trait SupportedDatabase: Database + Sealed {
     /// # Arguments
     /// * `$1` - The room ID
     /// * `$2` - The event type
+    /// * `$3` - Whether the state is partial
     fn states_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
                 SELECT state_event FROM statestore_state
-                WHERE room_id = $1 AND event_type = $2 AND is_partial = '0'
+                WHERE room_id = $1 AND event_type = $2 AND is_partial = $3
             "#,
         )
     }

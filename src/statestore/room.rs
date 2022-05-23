@@ -289,11 +289,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
         for<'a> &'a mut Transaction<'c, DB>: Executor<'a, Database = DB>,
         for<'a> &'a str: BorrowedSqlType<'a, DB>,
+        bool: SqlType<DB>,
         Json<MinimalRoomMemberEvent>: SqlType<DB>,
     {
         DB::member_profile_upsert_query()
             .bind(room_id.as_str())
             .bind(user_id.as_str())
+            .bind(false)
             .bind(Json(profile))
             .execute(txn)
             .await?;
@@ -514,11 +516,13 @@ impl<DB: SupportedDatabase> StateStore<DB> {
         for<'a> &'a str: BorrowedSqlType<'a, DB>,
         String: SqlType<DB>,
         Json<Raw<AnySyncStateEvent>>: SqlType<DB>,
+        bool: SqlType<DB>,
         for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
     {
         let mut rows = DB::states_load_query()
             .bind(room_id.as_str())
             .bind(event_type.to_string())
+            .bind(false)
             .fetch(&*self.db);
         let mut result = Vec::new();
         while let Some(row) = rows.try_next().await? {
