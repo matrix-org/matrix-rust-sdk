@@ -934,6 +934,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             session.reset_backup_state();
             self.save_inbound_group_session(&mut txn, session).await?;
         }
+        txn.commit().await?;
         Ok(())
     }
 
@@ -1175,6 +1176,122 @@ impl<DB: SupportedDatabase> StateStore<DB> {
             .await?;
         Ok(row.is_some())
     }
+
+    /// Retrieves an outgoing key request
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_outgoing_key_request(&self, id: &[u8]) -> Result<Option<GossipRequest>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let e2e = self.ensure_e2e()?;
+        let id = e2e.encode_key("cryptostore_gossip_request:request_id", id);
+        let row = DB::gossip_request_fetch_query()
+            .bind(id.as_ref())
+            .fetch_optional(&*self.db)
+            .await?;
+        if let Some(row) = row {
+            let data: Vec<u8> = row.try_get("gossip_data")?;
+            let request = e2e.decode_value(&data)?;
+            Ok(Some(request))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Retrieves an outgoing key request by info
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_secret_request_by_info(
+        &self,
+        key_info: &SecretInfo,
+    ) -> Result<Option<GossipRequest>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let e2e = self.ensure_e2e()?;
+        let request_info_key = key_info.as_key();
+        let info_key = e2e.encode_key(
+            "cryptostore_gossip_request:info_key",
+            request_info_key.as_bytes(),
+        );
+        let row = DB::gossip_request_info_fetch_query()
+            .bind(info_key.as_ref())
+            .fetch_optional(&*self.db)
+            .await?;
+        if let Some(row) = row {
+            let data: Vec<u8> = row.try_get("gossip_data")?;
+            let request = e2e.decode_value(&data)?;
+            Ok(Some(request))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Retrieves unsent outgoing key requests
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        bool: SqlType<DB>,
+        Vec<u8>: SqlType<DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let e2e = self.ensure_e2e()?;
+        let mut rows = DB::gossip_requests_sent_state_fetch_query()
+            .bind(false)
+            .fetch(&*self.db);
+        let mut requests = Vec::new();
+        while let Some(row) = rows.try_next().await? {
+            let data: Vec<u8> = row.try_get("gossip_data")?;
+            let request = e2e.decode_value(&data)?;
+            requests.push(request);
+        }
+        Ok(requests)
+    }
+
+    /// Deletes outgoing key requests
+    ///
+    /// # Errors
+    /// This function will return an error if the database has not been unlocked,
+    /// or if the query fails.
+    pub(crate) async fn delete_outgoing_secret_requests(
+        &self,
+        request_id: &TransactionId,
+    ) -> Result<()>
+    where
+        for<'a> <DB as HasArguments<'a>>::Arguments: IntoArguments<'a, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: Executor<'c, Database = DB>,
+        for<'a> &'a [u8]: BorrowedSqlType<'a, DB>,
+        for<'a> &'a str: ColumnIndex<<DB as Database>::Row>,
+    {
+        let e2e = self.ensure_e2e()?;
+        let id = e2e.encode_key(
+            "cryptostore_gossip_request:request_id",
+            request_id.as_str().as_bytes(),
+        );
+        DB::gossip_request_delete_query()
+            .bind(id.as_ref())
+            .execute(&*self.db)
+            .await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1323,19 +1440,27 @@ where
         &self,
         request_id: &TransactionId,
     ) -> StoreResult<Option<GossipRequest>> {
-        todo!();
+        self.get_outgoing_key_request(request_id.as_str().as_bytes())
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_secret_request_by_info(
         &self,
         secret_info: &SecretInfo,
     ) -> StoreResult<Option<GossipRequest>> {
-        todo!();
+        self.get_secret_request_by_info(secret_info)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn get_unsent_secret_requests(&self) -> StoreResult<Vec<GossipRequest>> {
-        todo!();
+        self.get_unsent_secret_requests()
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> StoreResult<()> {
-        todo!();
+        self.delete_outgoing_secret_requests(request_id)
+            .await
+            .map_err(|e| CryptoStoreError::Backend(e.into()))
     }
 }
 

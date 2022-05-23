@@ -535,8 +535,10 @@ pub trait SupportedDatabase: Database + Sealed {
     fn gossip_request_store_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
-                INSERT INTO cryptostore_gossip_request (recipient_id, request_id, secret_request_info, sent, request_data)
+                INSERT INTO cryptostore_gossip_request (recipient_id, request_id, info_key, sent_out, gossip_data)
                 VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (request_id)
+                DO UPDATE SET recipient_id = $1, info_key = $3, sent_out = $4, gossip_data = $5
             "#,
         )
     }
@@ -726,6 +728,64 @@ pub trait SupportedDatabase: Database + Sealed {
             r#"
                 SELECT 1 FROM cryptostore_message_hash
                 WHERE sender_key = $1 AND message_hash = $2
+            "#,
+        )
+    }
+
+    /// Retrieves a gossip equest by ID
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed request ID
+    #[cfg(feature = "e2e-encryption")]
+    fn gossip_request_fetch_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT gossip_data FROM cryptostore_gossip_request
+                WHERE request_id = $1
+            "#,
+        )
+    }
+
+    /// Retrieves a gossip equest by info
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed request info
+    #[cfg(feature = "e2e-encryption")]
+    fn gossip_request_info_fetch_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT gossip_data FROM cryptostore_gossip_request
+                WHERE info_key = $1
+            "#,
+        )
+    }
+
+    /// Retrieves gossip requests by sent state
+    ///
+    /// # Arguments
+    /// * `$1` - The sent state
+    #[cfg(feature = "e2e-encryption")]
+    fn gossip_requests_sent_state_fetch_query<'q>(
+    ) -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
+        sqlx::query(
+            r#"
+                SELECT gossip_data FROM cryptostore_gossip_request
+                WHERE sent_out = $1
+            "#,
+        )
+    }
+
+    /// Deletes gossip request by transaction ID
+    ///
+    /// # Arguments
+    /// * `$1` - The hashed transaction ID
+    #[cfg(feature = "e2e-encryption")]
+    fn gossip_request_delete_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
+        sqlx::query(
+            r#"
+                DELETE FROM cryptostore_gossip_request
+                WHERE request_id = $1
             "#,
         )
     }
