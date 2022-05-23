@@ -65,8 +65,8 @@ use ruma::{
     assign,
     events::room::MediaSource,
     presence::PresenceState,
-    MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, OwnedUserId, RoomId, RoomOrAliasId,
-    ServerName, UInt, RoomAliasId,
+    MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, OwnedUserId, RoomAliasId, RoomId,
+    RoomOrAliasId, ServerName, UInt,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -609,7 +609,8 @@ impl Client {
         self.store().get_room(room_id).and_then(|room| room::Left::new(self.clone(), room))
     }
 
-    /// Resolve a room alias to a room id and a list of servers which knows about it.
+    /// Resolve a room alias to a room id and a list of servers which knows
+    /// about it.
     ///
     /// # Arguments
     ///
