@@ -609,7 +609,7 @@ impl Client {
         self.store().get_room(room_id).and_then(|room| room::Left::new(self.clone(), room))
     }
 
-    /// Resolve a room alias to a room id and a list of servers which knows
+    /// Resolve a room alias to a room id and a list of servers which know
     /// about it.
     ///
     /// # Arguments
