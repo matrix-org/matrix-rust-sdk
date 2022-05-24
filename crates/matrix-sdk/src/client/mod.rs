@@ -615,7 +615,10 @@ impl Client {
     /// # Arguments
     ///
     /// `room_alias` - The room alias to be resolved.
-    pub async fn get_alias(&self, room_alias: &RoomAliasId) -> HttpResult<get_alias::v3::Response> {
+    pub async fn resolve_room_alias(
+        &self,
+        room_alias: &RoomAliasId,
+    ) -> HttpResult<get_alias::v3::Response> {
         let request = get_alias::v3::Request::new(room_alias);
         self.send(request, None).await
     }
@@ -2546,7 +2549,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn get_alias() {
+    async fn resolve_room_alias() {
         let client = no_retry_test_client().await;
 
         let _m = mock("GET", "/_matrix/client/r0/directory/room/%23alias%3Aexample%2Eorg")
@@ -2555,7 +2558,7 @@ pub(crate) mod tests {
             .create();
 
         let alias = ruma::room_alias_id!("#alias:example.org");
-        assert!(client.get_alias(alias).await.is_ok());
+        assert!(client.resolve_room_alias(alias).await.is_ok());
     }
 
     #[async_test]
