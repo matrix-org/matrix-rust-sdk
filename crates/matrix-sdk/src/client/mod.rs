@@ -2549,7 +2549,7 @@ pub(crate) mod tests {
     async fn get_alias() {
         let client = no_retry_test_client().await;
 
-        let _m = mock("GET", "/_matrix/client/v3/directory/room/%23alias:example.org")
+        let _m = mock("GET", "/_matrix/client/r0/directory/room/%23alias%3Aexample%2Eorg")
             .with_status(200)
             .with_body(test_json::GET_ALIAS.to_string())
             .create();
