@@ -1,11 +1,11 @@
 [package]
 authors = ["Ivan Enderlin <ivane@element.io>"]
-description = "Matrix encryption library, for JavaScript"
+description = "Matrix encryption library, for NodeJS"
 edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
-name = "matrix-sdk-crypto-js"
+name = "matrix-sdk-crypto-nodejs"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.60"
@@ -14,9 +14,6 @@ version = "0.5.0"
 [package.metadata.docs.rs]
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ['-Oz']
 
 [lib]
 crate-type = ["cdylib"]
@@ -28,11 +25,10 @@ docsrs = []
 
 [dependencies]
 matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto" }
-ruma = { version = "0.6.2", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = { version = "0.2.0", features = ["js"] }
-wasm-bindgen = "0.2.80"
-wasm-bindgen-futures = "0.4.30"
-js-sys = "0.3.49"
-serde_json = "1.0.79"
-http = "0.2.6"
-anyhow = "1.0"
+ruma = { version = "0.6.2", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
+vodozemac = "0.2.0"
+napi = { git = "https://github.com/Hywan/napi-rs", branch = "feat-tonapivalue-u16", default-features = false, features = ["napi4"] }
+napi-derive = "2.4.1"
+
+[build-dependencies]
+napi-build = "2.0.0"

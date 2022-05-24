@@ -1,10 +1,11 @@
 //! Types related to events.
 
-use wasm_bindgen::prelude::*;
+use napi::bindgen_prelude::ToNapiValue;
+use napi_derive::*;
 
 /// Who can see a room's history.
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+#[napi]
+#[derive(Debug)]
 pub enum HistoryVisibility {
     /// Previous events are accessible to newly joined members from
     /// the point they were invited onwards.

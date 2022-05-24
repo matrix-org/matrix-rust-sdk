@@ -23,7 +23,7 @@ pub struct OlmMachine {
     inner: Arc<matrix_sdk_crypto::OlmMachine>,
 }
 
-#[cfg_attr(feature = "js", wasm_bindgen)]
+#[wasm_bindgen]
 impl OlmMachine {
     #[wasm_bindgen(constructor)]
     pub fn new(user_id: &identifiers::UserId, device_id: &identifiers::DeviceId) -> Promise {
