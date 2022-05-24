@@ -49,7 +49,7 @@ impl DeviceLists {
         self.inner
             .changed
             .iter()
-            .map(|user| identifiers::UserId { inner: user.clone() })
+            .map(|user| identifiers::UserId::new_with(user.clone()))
             .map(JsValue::from)
             .collect()
     }
@@ -60,7 +60,7 @@ impl DeviceLists {
         self.inner
             .left
             .iter()
-            .map(|user| identifiers::UserId { inner: user.clone() })
+            .map(|user| identifiers::UserId::new_with(user.clone()))
             .map(JsValue::from)
             .collect()
     }

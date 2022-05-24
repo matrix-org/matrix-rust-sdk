@@ -23,6 +23,7 @@ pub mod events;
 mod future;
 pub mod identifiers;
 pub mod machine;
+pub mod verifications;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;

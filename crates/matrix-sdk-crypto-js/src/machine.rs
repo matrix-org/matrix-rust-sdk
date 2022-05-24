@@ -14,7 +14,7 @@ use crate::{
     identifiers, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
-    sync_events,
+    sync_events, verifications,
 };
 
 #[wasm_bindgen]
@@ -343,6 +343,31 @@ impl OlmMachine {
                 None => Ok(JsValue::NULL),
             }
         }))
+    }
+
+    /// Get a verification object for the given user ID with the given flow ID.
+    ///
+    /// Returns a list of `JsValue` to represent either (depending on
+    /// how the Wasm module has been compiled):
+    ///   * `Sas` (enabled),
+    ///   * `Qr`
+    #[cfg_attr(feature = "qrcode", doc = "(enabled).")]
+    #[cfg_attr(not(feature = "qrcode"), doc = "(disabled).")]
+    ///
+    /// If a verification mode is missing, please try to compile the
+    /// Wasm module with different features.
+    #[wasm_bindgen(js_name = "getVerification")]
+    pub fn get_verification(
+        &self,
+        user_id: &identifiers::UserId,
+        flow_id: &str,
+    ) -> Result<JsValue, JsError> {
+        self.inner
+            .get_verification(user_id.inner.as_ref(), flow_id)
+            .map(verifications::Verification)
+            .map(JsValue::try_from)
+            .transpose()
+            .map(|r| r.unwrap_or_else(|| JsValue::UNDEFINED))
     }
 }
 

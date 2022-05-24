@@ -11,6 +11,12 @@ pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
 
+impl UserId {
+    pub(crate) fn new_with(inner: ruma::OwnedUserId) -> Self {
+        Self { inner }
+    }
+}
+
 #[wasm_bindgen]
 impl UserId {
     /// Parse/validate and create a new `UserId`.
@@ -57,6 +63,12 @@ pub struct DeviceId {
     pub(crate) inner: ruma::OwnedDeviceId,
 }
 
+impl DeviceId {
+    pub(crate) fn new_with(inner: ruma::OwnedDeviceId) -> Self {
+        Self { inner }
+    }
+}
+
 #[wasm_bindgen]
 impl DeviceId {
     /// Create a new `DeviceId`.
@@ -79,6 +91,12 @@ impl DeviceId {
 #[derive(Debug, Clone)]
 pub struct RoomId {
     pub(crate) inner: ruma::OwnedRoomId,
+}
+
+impl RoomId {
+    pub(crate) fn new_with(inner: ruma::OwnedRoomId) -> Self {
+        Self { inner }
+    }
 }
 
 #[wasm_bindgen]
