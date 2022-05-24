@@ -51,7 +51,9 @@ use ruma::{
     signatures::{redact_in_place, CanonicalJsonObject},
     RoomVersionId,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(feature = "experimental-timeline")]
+use serde::Deserialize;
+use serde::{de::DeserializeOwned, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,

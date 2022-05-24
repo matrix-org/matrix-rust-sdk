@@ -376,7 +376,7 @@ impl Cancelled {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum FlowId {
     ToDevice(OwnedTransactionId),
     InRoom(OwnedRoomId, OwnedEventId),

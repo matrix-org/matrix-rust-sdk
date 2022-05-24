@@ -65,11 +65,7 @@ async fn print_devices(user_id: &UserId, client: &Client) {
     }
 }
 
-async fn login(
-    homeserver_url: String,
-    username: &str,
-    password: &str,
-) -> Result<(), matrix_sdk::Error> {
+async fn login(homeserver_url: String, username: &str, password: &str) -> matrix_sdk::Result<()> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
@@ -201,7 +197,7 @@ async fn login(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), matrix_sdk::Error> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let (homeserver_url, username, password) =
@@ -216,5 +212,7 @@ async fn main() -> Result<(), matrix_sdk::Error> {
             }
         };
 
-    login(homeserver_url, &username, &password).await
+    login(homeserver_url, &username, &password).await?;
+
+    Ok(())
 }
