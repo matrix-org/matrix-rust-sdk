@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
+#[cfg(target_arch = "wasm32")]
+use async_once_cell::OnceCell;
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName, UserId,
 };
 use thiserror::Error;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::OnceCell;
 use url::Url;
 
 use super::{Client, ClientInner};
@@ -109,7 +113,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Create a new `ClientConfig` with the given [`StoreConfig`].
+    /// Create a new `ClientBuilder` with the given [`StoreConfig`].
     ///
     /// The easiest way to get a [`StoreConfig`] is to use the
     /// [`make_store_config`] method from the [`store`] module or directly from
@@ -186,7 +190,7 @@ impl ClientBuilder {
     /// let client_config = Client::builder()
     ///     .proxy("http://localhost:8080");
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(())
+    /// # anyhow::Ok(())
     /// # });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
@@ -323,23 +327,11 @@ impl ClientBuilder {
         let homeserver = Arc::new(RwLock::new(Url::parse(&homeserver)?));
         let http_client = mk_http_client(homeserver.clone());
 
-        #[cfg(target_arch = "wasm32")]
-        let server_versions = {
-            let cell = async_once_cell::OnceCell::new();
-            if let Some(server_versions) = self.server_versions {
-                cell.get_or_init(async move { server_versions }).await;
-            }
-            cell
-        };
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let server_versions = tokio::sync::OnceCell::new_with(self.server_versions);
-
         let inner = Arc::new(ClientInner {
             homeserver,
             http_client,
             base_client,
-            server_versions,
+            server_versions: OnceCell::new_with(self.server_versions),
             #[cfg(feature = "e2e-encryption")]
             group_session_locks: Default::default(),
             #[cfg(feature = "e2e-encryption")]

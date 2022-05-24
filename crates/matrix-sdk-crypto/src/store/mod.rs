@@ -639,8 +639,8 @@ impl CryptoStoreError {
     }
 }
 
-/// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
-/// keys.
+/// Represents a store that the `OlmMachine` uses to store E2EE data (such as
+/// cryptographic keys).
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait CryptoStore: AsyncTraitDeps {

@@ -67,7 +67,7 @@ impl Account {
     /// if let Some(name) = client.account().get_display_name().await? {
     ///     println!("Logged in as user '{}' with display name '{}'", user, name);
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -90,7 +90,7 @@ impl Account {
     /// client.login(user, "password", None, None).await?;
     ///
     /// client.account().set_display_name(Some("Alice")).await?;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -115,7 +115,7 @@ impl Account {
     /// if let Some(url) = client.account().get_avatar_url().await? {
     ///     println!("Your avatar's mxc url is {}", url);
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -164,7 +164,7 @@ impl Account {
     /// if let Some(avatar) = client.account().get_avatar(MediaFormat::File).await? {
     ///     std::fs::write("avatar.png", avatar);
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.get_avatar_url().await? {
@@ -199,7 +199,7 @@ impl Account {
     /// let mut image = File::open(&path)?;
     ///
     /// client.account().upload_avatar(&mime::IMAGE_JPEG, &mut image).await?;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn upload_avatar<R: Read>(
         &self,
@@ -230,7 +230,7 @@ impl Account {
     ///         profile.avatar_url
     ///     );
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_profile(&self) -> Result<get_profile::v3::Response> {
         let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -276,7 +276,7 @@ impl Account {
     ///     "myverysecretpassword",
     ///     Some(AuthData::Dummy(Dummy::new())),
     /// ).await?;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
     /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
@@ -326,7 +326,7 @@ impl Account {
     ///
     /// // Proceed with UIAA.
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
@@ -362,7 +362,7 @@ impl Account {
     /// for threepid in threepids {
     ///     println!("Found 3PID '{}' of type '{}'", threepid.address, threepid.medium);
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     pub async fn get_3pids(&self) -> Result<get_3pids::v3::Response> {
@@ -429,7 +429,7 @@ impl Account {
     ///
     /// // Proceed with UIAA.
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
@@ -511,7 +511,7 @@ impl Account {
     ///
     /// // Proceed with UIAA.
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
@@ -617,7 +617,7 @@ impl Account {
     ///         _ => println!("Could not unbind 3PID from the Identity Server"),
     ///     }
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ThirdPartyIdRemovalStatus::Success`]: ruma::api::client::account::ThirdPartyIdRemovalStatus::Success

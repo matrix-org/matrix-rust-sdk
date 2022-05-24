@@ -348,7 +348,7 @@ impl UserDevices {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 /// The local trust state of a device.
 pub enum LocalTrust {
     /// The device has been verified and is trusted.
@@ -456,8 +456,8 @@ impl ReadOnlyDevice {
 
     /// Set the trust state of the device to the given state.
     ///
-    /// Note: This should only done in the cryptostore where the trust state can
-    /// be stored.
+    /// Note: This should only done in the crypto store where the trust state
+    /// can be stored.
     pub(crate) fn set_trust_state(&self, state: LocalTrust) {
         self.trust_state.store(state, Ordering::Relaxed)
     }
