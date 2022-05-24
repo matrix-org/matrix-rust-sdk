@@ -34,7 +34,7 @@ matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto" }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ruma = { version = "0.6.2", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
 vodozemac = "0.2.0"
-napi = { version = "2.4.3", default-features = false, features = ["napi4"], optional = true }
+napi = { git = "https://github.com/Hywan/napi-rs", branch = "feat-tonapivalue-u16", default-features = false, features = ["napi4"], optional = true }
 napi-derive = { version = "2.4.1", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -14,3 +14,10 @@ where
         Self(napi::Error::from_reason(error.to_string()))
     }
 }
+
+#[cfg(feature = "nodejs")]
+impl Into<napi::Error> for Error {
+    fn into(self) -> napi::Error {
+        self.0
+    }
+}

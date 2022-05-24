@@ -1,10 +1,11 @@
 //! Types related to events.
 
-use wasm_bindgen::prelude::*;
+use crate::prelude::*;
 
 /// Who can see a room's history.
-#[derive(Debug, Clone)]
-#[wasm_bindgen]
+#[cfg_attr(feature = "js", wasm_bindgen)]
+#[cfg_attr(feature = "nodejs", napi)]
+#[derive(Debug)]
 pub enum HistoryVisibility {
     /// Previous events are accessible to newly joined members from
     /// the point they were invited onwards.
