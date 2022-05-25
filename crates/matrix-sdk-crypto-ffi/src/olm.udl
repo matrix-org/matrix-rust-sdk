@@ -451,7 +451,7 @@ dictionary MigrationData {
     sequence<PickledInboundGroupSession> inbound_group_sessions;
     string? backup_version;
     string? backup_recovery_key;
-    string pickle_key;
+    sequence<u8> pickle_key;
     CrossSigningKeyExport cross_signing;
     sequence<string> tracked_users;
 };

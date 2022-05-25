@@ -48,7 +48,7 @@ pub struct MigrationData {
     /// The list of Megolm inbound group sessions.
     inbound_group_sessions: Vec<PickledInboundGroupSession>,
     /// The Olm pickle key that was used to pickle all the Olm objects.
-    pickle_key: String,
+    pickle_key: Vec<u8>,
     /// The backup version that is currently active.
     backup_version: Option<String>,
     // The backup recovery key, as a base58 encoded string.
@@ -521,7 +521,9 @@ mod test {
                   "backed_up":true
                }
             ],
-            "pickle_key":"\u{0011}$xJ_N8$>{\u{0005}iJoF03eBVt\u{000e}rUU\\,GYc7J",
+            "pickle_key": [17, 36, 120, 74, 95, 78, 56, 36, 62, 123, 5, 105, 74,
+                           111, 70, 48, 51, 101, 66, 86, 116, 14, 114, 85, 85,
+                           92, 44, 71, 89, 99, 55, 74],
             "backup_version":"3",
             "backup_recovery_key":"EsTHScmRV5oT1WBhe2mj2Gn3odeYantZ4NEk7L51p6L8hrmB",
             "cross_signing":{

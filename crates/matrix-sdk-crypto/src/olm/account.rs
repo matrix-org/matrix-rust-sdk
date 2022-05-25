@@ -1012,8 +1012,7 @@ impl ReadOnlyAccount {
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
         let their_identity_key = Curve25519PublicKey::from_base64(their_identity_key)?;
-        let result =
-            self.inner.lock().await.create_inbound_session(&their_identity_key, message)?;
+        let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
