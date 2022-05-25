@@ -6,6 +6,8 @@ pub mod backward_stream;
 pub mod client;
 pub mod messages;
 pub mod room;
+#[cfg(feature = "sliding-sync")]
+pub mod sliding_sync;
 mod uniffi_api;
 
 use std::{fs, path, sync::Arc};
@@ -24,6 +26,9 @@ pub static RUNTIME: Lazy<Runtime> =
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
 pub use self::{backward_stream::*, client::*, messages::*, room::*};
+
+#[cfg(feature = "sliding-sync")]
+pub use self::sliding_sync::*;
 
 pub fn guest_client(base_path: String, homeurl: String) -> anyhow::Result<Arc<Client>> {
     let builder = new_client_builder(base_path, homeurl.clone())?.homeserver_url(&homeurl);

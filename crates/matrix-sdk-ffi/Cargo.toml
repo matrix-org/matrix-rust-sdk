@@ -12,6 +12,13 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
+[features]
+default = [ "sliding-sync" ]
+sliding-sync = [
+    "matrix-sdk/sliding-sync",
+    "futures-signals",
+    "ruma",
+]
 
 [build-dependencies]
 uniffi_build = { version = "0.18.0", features = ["builtin-bindgen"] }
@@ -21,7 +28,8 @@ anyhow = "1.0.51"
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-util = { version = "0.3.17", default-features = false }
-matrix-sdk = { path = "../matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown"] }
+# FIXME: we currently can't feature flag anything in the api.udl, therefore we must enforce sliding-sync being exposed here..
+matrix-sdk = { path = "../matrix-sdk", features = ["anyhow", "experimental-timeline", "markdown", "sliding-sync"] } 
 once_cell = "1.10.0"
 parking_lot = "0.12.0"
 sanitize-filename-reader-friendly = "2.2.1"
@@ -33,3 +41,5 @@ tokio-stream = "0.1.8"
 tracing = "0.1.32"
 uniffi = "0.18.0"
 uniffi_macros = "0.18.0"
+futures-signals = { version = "0.3.28", optional = true }
+ruma = { version = "0.6.2", optional = true }

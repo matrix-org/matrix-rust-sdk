@@ -51,9 +51,11 @@ mod http_client;
 /// High-level room API
 pub mod room;
 mod room_member;
-mod sliding_sync;
 pub mod store;
 mod sync;
+
+#[cfg(feature = "sliding-sync")]
+mod sliding_sync;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
@@ -65,6 +67,7 @@ pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
+#[cfg(feature = "sliding-sync")]
 pub use sliding_sync::{
-    UpdateSummary, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom, SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder,
+    UpdateSummary, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom, SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, RoomListEntry,
 };

@@ -47,6 +47,10 @@ experimental-timeline = [
     "matrix-sdk-sled?/experimental-timeline",
 ]
 
+sliding-sync = [
+    "matrix-sdk-base/sliding-sync",
+]
+
 docsrs = [
     "e2e-encryption",
     "sled",

@@ -14,6 +14,11 @@ namespace sdk {
 };
 
 
+/// Cancels on drop
+interface StoppableSpawn {
+    boolean is_cancelled();
+    void cancel();
+};
 
 [Error]
 interface ClientError {
@@ -35,12 +40,59 @@ callback interface SlidingSyncDelegate {
     void did_receive_sync_update(UpdateSummary summary);
 };
 
+[Enum]
+interface RoomListEntry {
+    Empty();
+    Invalidated(string room_id);
+    Filled(string room_id);
+};
+
+[Enum]
+interface SlidingSyncViewRoomsListDiff {
+    Replace(sequence<RoomListEntry> values);
+    InsertAt(
+        u32 index,
+        RoomListEntry value
+    );
+    UpdateAt(
+        u32 index,
+        RoomListEntry value
+    );
+    RemoveAt(u32 index);
+    Move(
+        u32 old_index,
+        u32 new_index
+    );
+    Push(RoomListEntry value);
+    // Pop();
+    // Clear();
+};
+
+
+callback interface SlidingSyncViewRoomsListDelegate {
+    void did_receive_update(SlidingSyncViewRoomsListDiff diff);
+};
+
+callback interface SlidingSyncViewRoomsCountDelegate {
+    void did_receive_update(u32 count);
+};
+
+interface SlidingSyncView {
+    StoppableSpawn on_rooms_update(SlidingSyncViewRoomsListDelegate update);
+    StoppableSpawn on_rooms_count_update(SlidingSyncViewRoomsCountDelegate update);
+
+    u32? current_room_count();
+    sequence<RoomListEntry> current_rooms_list();
+
+};
 
 interface SlidingSync {
 
     void on_update(SlidingSyncDelegate? update);
 
     void start_sync();
+
+    SlidingSyncView? get_view(string name);
 };
 
 interface Client {
