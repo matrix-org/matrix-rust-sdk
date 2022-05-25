@@ -29,6 +29,16 @@
 //! The crate is in an experimental state. Follow
 //! [matrix-org/matrix-rust-sdk#228] for progress.
 //!
+//! # Registration
+//!
+//! The crate relies on the registration being always in sync with the actual
+//! registration used by the homeserver. That's because it's required for the
+//! access tokens and because membership states for virtual users are determined
+//! based on the registered namespace.
+//!
+//! **Note:** Non-exclusive registration namespaces are not yet supported and
+//! hence might lead to undefined behavior.
+//!
 //! # Quickstart
 //!
 //! ```no_run
@@ -99,15 +109,19 @@ use regex::Regex;
 use ruma::{
     api::{
         appservice::{
+            event::push_events,
             query::{query_room_alias::v1 as query_room, query_user_id::v1 as query_user},
             Registration,
         },
-        client::{account::register, session::login, uiaa::UserIdentifier},
+        client::{account::register, session::login, sync::sync_events, uiaa::UserIdentifier},
     },
-    assign, DeviceId, IdParseError, OwnedDeviceId, OwnedServerName, UserId,
+    assign,
+    events::{room::member::MembershipState, AnyRoomEvent, AnyStateEvent},
+    DeviceId, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedServerName, UserId,
 };
-use serde::de::DeserializeOwned;
-use tracing::info;
+use serde::{de::DeserializeOwned, Deserialize};
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
 
 mod error;
 pub mod event_handler;
@@ -118,6 +132,7 @@ pub type Host = String;
 pub type Port = u16;
 
 const USER_KEY: &[u8] = b"appservice.users.";
+pub const USER_MEMBER: &[u8] = b"appservice.users.membership.";
 
 /// Builder for a virtual user
 #[derive(Debug)]
@@ -625,6 +640,108 @@ impl AppService {
     /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
     pub fn warp_filter(&self) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
         webserver::warp_filter(self.clone())
+    }
+
+    /// Receive an incoming [transaction], pushing the contained events to
+    /// active virtual clients.
+    ///
+    /// [transaction]: https://spec.matrix.org/v1.2/application-service-api/#put_matrixappv1transactionstxnid
+    pub async fn receive_transaction(
+        &self,
+        transaction: push_events::v1::IncomingRequest,
+    ) -> Result<()> {
+        let client = self.get_cached_client(None)?;
+
+        // Find membership events affecting members in our namespace, and update
+        // membership accordingly
+        for event in transaction.events.iter() {
+            let event = match event.deserialize() {
+                Ok(AnyRoomEvent::State(AnyStateEvent::RoomMember(event))) => event,
+                _ => continue,
+            };
+            if !self.user_id_is_in_namespace(event.state_key())? {
+                continue;
+            }
+            let localpart = event.state_key().localpart();
+            client
+                .store()
+                .set_custom_value(
+                    &[USER_MEMBER, event.room_id().as_bytes(), localpart.as_bytes(), b"."].concat(),
+                    event.membership().to_string().into_bytes(),
+                )
+                .await?;
+        }
+
+        /// Helper type for extracting the room id for an event
+        #[derive(Debug, Deserialize)]
+        struct EventRoomId {
+            room_id: Option<OwnedRoomId>,
+        }
+
+        // Spawn a task for each client that constructs and pushes a sync event
+        let mut tasks: Vec<JoinHandle<_>> = Vec::new();
+        let transaction = Arc::new(transaction);
+        for virt_client in self.clients.iter() {
+            let client = client.clone();
+            let virt_client = virt_client.clone();
+            let transaction = transaction.clone();
+
+            let task = tokio::spawn(async move {
+                let user_id = match virt_client.user_id() {
+                    Some(user_id) => user_id,
+                    // Unauthenticated client. (should that be possible?)
+                    None => return Ok(()),
+                };
+                let mut response = sync_events::v3::Response::new(transaction.txn_id.to_string());
+
+                // Clients expect events to be grouped per room, where the group also denotes
+                // what the client's membership of the given room is. We take the
+                // all the events in the transaction and sort them into appropriate
+                // groups, falling back to a membership of "join" if it's unknown.
+                for raw_event in &transaction.events {
+                    let room_id = match raw_event.deserialize_as::<EventRoomId>()?.room_id {
+                        Some(room_id) => room_id,
+                        None => {
+                            warn!("Transaction contained event with no ID");
+                            continue;
+                        }
+                    };
+                    let key = &[USER_MEMBER, room_id.as_bytes(), b".", user_id.as_bytes()].concat();
+                    let membership = match client.store().get_custom_value(key).await? {
+                        Some(value) => String::from_utf8(value).ok().map(MembershipState::from),
+                        None => None,
+                    };
+
+                    match membership.unwrap_or(MembershipState::Join) {
+                        MembershipState::Join => {
+                            let room = response.rooms.join.entry(room_id).or_default();
+                            room.timeline.events.push(raw_event.clone().cast())
+                        }
+                        MembershipState::Leave | MembershipState::Ban => {
+                            let room = response.rooms.leave.entry(room_id).or_default();
+                            room.timeline.events.push(raw_event.clone().cast())
+                        }
+                        MembershipState::Knock => {
+                            response.rooms.knock.entry(room_id).or_default();
+                        }
+                        MembershipState::Invite => {
+                            response.rooms.invite.entry(room_id).or_default();
+                        }
+                        _ => debug!("Membership type we don't know how to handle"),
+                    }
+                }
+                virt_client.receive_transaction(&transaction.txn_id, response).await?;
+                Ok::<_, Error>(())
+            });
+
+            tasks.push(task);
+        }
+        for task in tasks {
+            if let Err(e) = task.await {
+                warn!("Joining sync task failed: {}", e);
+            }
+        }
+        Ok(())
     }
 
     /// Convenience method that runs an http server depending on the selected
