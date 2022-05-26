@@ -883,15 +883,11 @@ impl ReadOnlyAccount {
             .await
             .expect("Newly created one-time keys can always be signed");
 
-        let signatures = BTreeMap::from([(
+        key.signatures_mut().add_signature(
             self.user_id().to_owned(),
-            BTreeMap::from([(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                signature,
-            )]),
-        )]);
-
-        *key.signatures() = signatures;
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signature,
+        );
 
         key
     }

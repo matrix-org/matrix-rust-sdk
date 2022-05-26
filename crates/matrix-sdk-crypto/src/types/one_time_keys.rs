@@ -20,24 +20,22 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{serde::Raw, OwnedDeviceKeyId, OwnedUserId};
+use ruma::serde::Raw;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{value::to_raw_value, Value};
-use vodozemac::{Curve25519PublicKey, Ed25519Signature};
+use vodozemac::Curve25519PublicKey;
 
-/// Signatures for a `SignedKey` object.
-pub type SignedKeySignatures = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Ed25519Signature>>;
+use super::Signatures;
 
 /// A key for the SignedCurve25519 algorithm
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedKey {
-    // /// The Curve25519 key that can be used to establish Olm sessions.
+    /// The Curve25519 key that can be used to establish Olm sessions.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     key: Curve25519PublicKey,
 
     /// Signatures for the key object.
-    #[serde(deserialize_with = "deserialize_signatures", serialize_with = "serialize_signatures")]
-    signatures: SignedKeySignatures,
+    signatures: Signatures,
 
     /// Is the key considered to be a fallback key.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "double_option")]
@@ -67,42 +65,6 @@ where
     s.serialize_str(&key)
 }
 
-fn deserialize_signatures<'de, D>(de: D) -> Result<SignedKeySignatures, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> =
-        Deserialize::deserialize(de)?;
-
-    map.into_iter()
-        .map(|(u, m)| {
-            Ok((
-                u,
-                m.into_iter()
-                    .map(|(d, s)| {
-                        Ok((
-                            d,
-                            Ed25519Signature::from_base64(&s).map_err(serde::de::Error::custom)?,
-                        ))
-                    })
-                    .collect::<Result<BTreeMap<OwnedDeviceKeyId, Ed25519Signature>, _>>()?,
-            ))
-        })
-        .collect::<Result<SignedKeySignatures, _>>()
-}
-
-fn serialize_signatures<S>(signatures: &SignedKeySignatures, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, String>> = signatures
-        .iter()
-        .map(|(u, m)| (u, m.iter().map(|(d, s)| (d, s.to_base64())).collect()))
-        .collect();
-
-    signatures.serialize(s)
-}
-
 fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
 where
     T: Deserialize<'de>,
@@ -114,7 +76,7 @@ where
 impl SignedKey {
     /// Creates a new `SignedKey` with the given key and signatures.
     pub fn new(key: Curve25519PublicKey) -> Self {
-        Self { key, signatures: BTreeMap::new(), fallback: None, other: BTreeMap::new() }
+        Self { key, signatures: Signatures::new(), fallback: None, other: BTreeMap::new() }
     }
 
     /// Creates a new `SignedKey`, that represents a fallback key, with the
@@ -122,7 +84,7 @@ impl SignedKey {
     pub fn new_fallback(key: Curve25519PublicKey) -> Self {
         Self {
             key,
-            signatures: BTreeMap::new(),
+            signatures: Signatures::new(),
             fallback: Some(Some(true)),
             other: BTreeMap::new(),
         }
@@ -134,7 +96,12 @@ impl SignedKey {
     }
 
     /// Signatures for the key object.
-    pub fn signatures(&mut self) -> &mut SignedKeySignatures {
+    pub fn signatures(&self) -> &Signatures {
+        &self.signatures
+    }
+
+    /// Signatures for the key object as a mutable borrow.
+    pub fn signatures_mut(&mut self) -> &mut Signatures {
         &mut self.signatures
     }
 
@@ -168,18 +135,24 @@ pub enum OneTimeKey {
 #[cfg(test)]
 mod tests {
     use matches::assert_matches;
+    use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
-    use vodozemac::Curve25519PublicKey;
+    use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
     use super::OneTimeKey;
+    use crate::types::Signature;
 
     #[test]
     fn serialization() {
+        let user_id = user_id!("@user:example.com");
+        let device_id = device_id!("EGURVBUNJP");
+
         let json = json!({
           "key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
           "signatures": {
-            "@user:example.com": {
-              "ed25519:EGURVBUNJP": "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
+            user_id: {
+              "ed25519:EGURVBUNJP": "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg",
+              "other:EGURVBUNJP": "UnknownSignature"
             }
           },
           "extra_key": "extra_value"
@@ -189,10 +162,27 @@ mod tests {
             Curve25519PublicKey::from_base64("XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM")
                 .expect("Can't construct curve key from base64");
 
+        let signature = Ed25519Signature::from_base64(
+            "mia28GKixFzOWKJ0h7Bdrdy2fjxiHCsst1qpe467FbW85H61UlshtKBoAXfTLlVfi0FX+/noJ8B3noQPnY+9Cg"
+        ).expect("The signature can always be decoded");
+
+        let custom_signature = Signature::Other("UnknownSignature".to_owned());
+
         let key: OneTimeKey =
             serde_json::from_value(json.clone()).expect("Can't deserialize a valid one-time key");
 
-        assert_matches!(key, OneTimeKey::SignedKey(ref k) if k.key == curve_key);
+        assert_matches!(
+            key,
+            OneTimeKey::SignedKey(ref k) if k.key == curve_key
+            && k
+                .signatures()
+                .get_signature(user_id, &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id))
+                == Some(signature)
+            && k
+                .signatures()
+                .get(user_id).unwrap().get(&DeviceKeyId::from_parts("other".into(), device_id))
+                == Some(&custom_signature)
+        );
 
         let serialized = serde_json::to_value(key).expect("Can't reserialize a signed key");
 
