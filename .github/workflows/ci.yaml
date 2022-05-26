@@ -216,7 +216,7 @@ jobs:
           mv target/doc public/rust
         if: github.ref == 'refs/heads/main'
       - name: Deploy to GitHub Pages
-        uses: crazy-max/ghaction-github-pages@v2
+        uses: crazy-max/ghaction-github-pages@v3
         with:
           target_branch: gh-pages
           build_dir: public
