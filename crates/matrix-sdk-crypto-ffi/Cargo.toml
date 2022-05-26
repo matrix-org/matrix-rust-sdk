@@ -10,8 +10,8 @@ license = "Apache-2.0"
 publish = false
 
 [lib]
-crate-type = ["cdylib", "lib"]
-name = "matrix_crypto"
+crate-type = ["cdylib", "staticlib"]
+name = "matrix_crypto_ffi"
 
 [dependencies]
 anyhow = "1.0.57"
