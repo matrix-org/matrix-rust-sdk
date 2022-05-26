@@ -26,8 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::Ed25519PublicKey;
 
-/// Signatures for a `CrossSigningKey` object.
-pub type CrossSigningKeySignatures = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>;
+use super::Signatures;
 
 /// A cross signing key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -47,8 +46,7 @@ pub struct CrossSigningKey {
     /// Signatures of the key.
     ///
     /// Only optional for master key.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub signatures: CrossSigningKeySignatures,
+    pub signatures: Signatures,
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -61,7 +59,7 @@ impl CrossSigningKey {
         user_id: OwnedUserId,
         usage: Vec<KeyUsage>,
         keys: BTreeMap<OwnedDeviceKeyId, SigningKey>,
-        signatures: CrossSigningKeySignatures,
+        signatures: Signatures,
     ) -> Self {
         Self { user_id, usage, keys, signatures, other: BTreeMap::new() }
     }
@@ -106,8 +104,8 @@ struct CrossSigningKeyHelper {
     pub user_id: OwnedUserId,
     pub usage: Vec<KeyUsage>,
     pub keys: BTreeMap<OwnedDeviceKeyId, String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub signatures: CrossSigningKeySignatures,
+    #[serde(default, skip_serializing_if = "Signatures::is_empty")]
+    pub signatures: Signatures,
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
 }

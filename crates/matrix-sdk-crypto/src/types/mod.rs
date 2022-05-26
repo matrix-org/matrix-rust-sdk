@@ -106,6 +106,16 @@ impl Signatures {
     pub fn clear(&mut self) {
         self.0.clear()
     }
+
+    /// Do we hold any signatures or is our collection completely empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// How many signatures do we currently hold.
+    pub fn signature_count(&self) -> usize {
+        self.0.iter().map(|(_, u)| u.len()).sum()
+    }
 }
 
 impl Default for Signatures {

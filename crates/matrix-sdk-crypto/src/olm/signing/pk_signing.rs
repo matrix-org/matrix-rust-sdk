@@ -24,7 +24,7 @@ use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     olm::utility::SignJson,
-    types::{CrossSigningKey, CrossSigningKeySignatures, DeviceKeys},
+    types::{CrossSigningKey, DeviceKeys, Signatures},
     utilities::{encode, DecodeError},
     ReadOnlyUserIdentity,
 };
@@ -128,17 +128,14 @@ impl MasterSigning {
         let json_subkey = serde_json::to_value(&subkey).expect("Can't serialize cross signing key");
         let signature = self.inner.sign_json(json_subkey).expect("Can't sign cross signing keys");
 
-        subkey
-            .signatures
-            .entry(self.public_key.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key.to_base64().as_str().into(),
-                ),
-                signature.to_base64(),
-            );
+        subkey.signatures.add_signature(
+            self.public_key.user_id().to_owned(),
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                self.inner.public_key.to_base64().as_str().into(),
+            ),
+            signature,
+        );
     }
 }
 
@@ -175,22 +172,20 @@ impl UserSigning {
     pub fn sign_user_helper(
         &self,
         user: &ReadOnlyUserIdentity,
-    ) -> Result<CrossSigningKeySignatures, SignatureError> {
+    ) -> Result<Signatures, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
         let signature = self.inner.sign_json(serde_json::to_value(user_master)?)?;
 
-        let mut signatures = BTreeMap::new();
+        let mut signatures = Signatures::new();
 
-        signatures
-            .entry(self.public_key.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key.to_base64().as_str().into(),
-                ),
-                signature.to_base64(),
-            );
+        signatures.add_signature(
+            self.public_key.user_id().to_owned(),
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                self.inner.public_key.to_base64().as_str().into(),
+            ),
+            signature,
+        );
 
         Ok(signatures)
     }
@@ -311,7 +306,7 @@ impl Signing {
             self.inner.public_key().into(),
         )]);
 
-        CrossSigningKey::new(user_id, vec![usage], keys, BTreeMap::new())
+        CrossSigningKey::new(user_id, vec![usage], keys, Default::default())
     }
 
     pub fn sign(&self, message: &str) -> Ed25519Signature {

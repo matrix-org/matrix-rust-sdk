@@ -780,9 +780,10 @@ impl ReadOnlyAccount {
     ) -> Result<(), SignatureError> {
         let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?).await?;
 
-        cross_signing_key.signatures.entry(self.user_id().to_owned()).or_default().insert(
+        cross_signing_key.signatures.add_signature(
+            self.user_id().to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            signature.to_base64(),
+            signature,
         );
 
         Ok(())

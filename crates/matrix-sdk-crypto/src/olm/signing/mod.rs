@@ -780,8 +780,11 @@ mod tests {
 
         let master = user_signing.sign_user(&bob_public).unwrap();
 
-        let num_signatures: usize = master.signatures.iter().map(|(_, u)| u.len()).sum();
-        assert_eq!(num_signatures, 1, "We're only uploading our own signature");
+        assert_eq!(
+            master.signatures.signature_count(),
+            1,
+            "We're only uploading our own signature"
+        );
 
         bob_public.master_key = master.into();
 
