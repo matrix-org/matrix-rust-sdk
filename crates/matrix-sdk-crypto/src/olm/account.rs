@@ -739,7 +739,7 @@ impl ReadOnlyAccount {
             (*self.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
-            BTreeMap::new(),
+            Default::default(),
         )
     }
 
@@ -757,9 +757,10 @@ impl ReadOnlyAccount {
             .await
             .expect("Newly created device keys can always be signed");
 
-        device_keys.signatures.entry(self.user_id().to_owned()).or_default().insert(
+        device_keys.signatures.add_signature(
+            self.user_id().to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-            signature.to_base64(),
+            signature,
         );
 
         device_keys

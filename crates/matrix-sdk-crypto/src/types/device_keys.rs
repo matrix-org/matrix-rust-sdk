@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
+use super::Signatures;
+
 /// Identity keys for a device.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(try_from = "DeviceKeyHelper", into = "DeviceKeyHelper")]
@@ -49,7 +51,7 @@ pub struct DeviceKeys {
     pub keys: BTreeMap<OwnedDeviceKeyId, DeviceKey>,
 
     /// Signatures for the device key object.
-    pub signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
+    pub signatures: Signatures,
 
     /// Additional data added to the device key information by intermediate
     /// servers, and not covered by the signatures.
@@ -68,7 +70,7 @@ impl DeviceKeys {
         device_id: OwnedDeviceId,
         algorithms: Vec<EventEncryptionAlgorithm>,
         keys: BTreeMap<OwnedDeviceKeyId, DeviceKey>,
-        signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
+        signatures: Signatures,
     ) -> Self {
         Self {
             user_id,
@@ -154,7 +156,7 @@ struct DeviceKeyHelper {
     pub device_id: OwnedDeviceId,
     pub algorithms: Vec<EventEncryptionAlgorithm>,
     pub keys: BTreeMap<OwnedDeviceKeyId, String>,
-    pub signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
+    pub signatures: Signatures,
     #[serde(default, skip_serializing_if = "UnsignedDeviceInfo::is_empty")]
     pub unsigned: UnsignedDeviceInfo,
     #[serde(flatten)]

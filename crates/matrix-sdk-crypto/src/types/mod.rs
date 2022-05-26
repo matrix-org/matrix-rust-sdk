@@ -101,6 +101,11 @@ impl Signatures {
     pub fn get(&self, signer: &UserId) -> Option<&BTreeMap<OwnedDeviceKeyId, Signature>> {
         self.0.get(signer)
     }
+
+    /// Remove all the signatures we currently hold.
+    pub fn clear(&mut self) {
+        self.0.clear()
+    }
 }
 
 impl Default for Signatures {

@@ -224,12 +224,13 @@ impl SelfSigning {
         let serialized = serde_json::to_value(&device_keys)?;
         let signature = self.inner.sign_json(serialized)?;
 
-        device_keys.signatures.entry(self.public_key.user_id().to_owned()).or_default().insert(
+        device_keys.signatures.add_signature(
+            self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
                 self.inner.public_key.to_base64().as_str().into(),
             ),
-            signature.to_base64(),
+            signature,
         );
 
         Ok(())
