@@ -14,7 +14,6 @@
 
 use std::{
     collections::{btree_map::Iter, BTreeMap},
-    convert::TryFrom,
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -31,7 +30,7 @@ use ruma::{
     DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::to_value;
+use serde_json::{to_value, Value};
 use tracing::error;
 use vodozemac::Ed25519PublicKey;
 
@@ -422,10 +421,15 @@ impl MasterPubkey {
     /// There's usually only a single master key so this will usually fetch the
     /// only key.
     pub fn get_first_key(&self) -> Option<Ed25519PublicKey> {
-        if let Some(SigningKey::Ed25519(k)) = self.0.keys.values().next() {
-            Some(*k)
+        self.0.get_first_key_and_id().map(|(_, k)| k)
+    }
+
+    /// Check if the given json is signed by this master key.
+    pub fn is_signed_by(&self, json: Value) -> Result<(), SignatureError> {
+        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
+            key.verify_json(&self.0.user_id, key_id, json)
         } else {
-            None
+            Err(SignatureError::UnsupportedAlgorithm)
         }
     }
 
@@ -441,10 +445,6 @@ impl MasterPubkey {
         &self,
         subkey: impl Into<CrossSigningSubKeys<'a>>,
     ) -> Result<(), SignatureError> {
-        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
-
-        let key_id = <&DeviceKeyId>::try_from(key_id.as_str())?;
-
         // FIXME `KeyUsage is missing PartialEq.
         // if self.0.usage.contains(&KeyUsage::Master) {
         //     return Err(SignatureError::MissingSigningKey);
@@ -455,11 +455,8 @@ impl MasterPubkey {
             return Err(SignatureError::UserIdMismatch);
         }
 
-        if let SigningKey::Ed25519(key) = key {
-            key.verify_json(&self.0.user_id, key_id, to_value(subkey.cross_signing_key())?)
-        } else {
-            Err(SignatureError::UnsupportedAlgorithm)
-        }
+        let serialized_key = to_value(subkey.cross_signing_key())?;
+        self.is_signed_by(serialized_key)
     }
 }
 
@@ -496,12 +493,10 @@ impl UserSigningPubkey {
         &self,
         master_key: &MasterPubkey,
     ) -> Result<(), SignatureError> {
-        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
-
         // TODO check that the usage is OK.
 
-        if let SigningKey::Ed25519(key) = key {
-            key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, to_value(&master_key.0)?)
+        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
+            key.verify_json(&self.0.user_id, key_id, to_value(&master_key.0)?)
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }
@@ -528,14 +523,12 @@ impl SelfSigningPubkey {
         &self.0.keys
     }
 
-    pub(crate) fn verify_device_keys(&self, device_keys: DeviceKeys) -> Result<(), SignatureError> {
-        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
+    fn verify_device_keys(&self, device_keys: DeviceKeys) -> Result<(), SignatureError> {
         // TODO check that the usage is OK.
 
-        let device = to_value(device_keys)?;
-
-        if let SigningKey::Ed25519(key) = key {
-            key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, device)
+        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
+            let device = to_value(device_keys)?;
+            key.verify_json(&self.0.user_id, key_id, device)
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }

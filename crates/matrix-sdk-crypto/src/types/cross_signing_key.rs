@@ -21,7 +21,10 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{encryption::KeyUsage, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceKeyId, OwnedUserId};
+use ruma::{
+    encryption::KeyUsage, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId,
+    OwnedUserId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::Ed25519PublicKey;
@@ -68,6 +71,11 @@ impl CrossSigningKey {
     pub fn to_raw<T>(&self) -> Raw<T> {
         Raw::from_json(to_raw_value(&self).expect("Coulnd't serialize cross signing keys"))
     }
+
+    /// Get the first key id and matching Ed25519 key we can find.
+    pub fn get_first_key_and_id(&self) -> Option<(&DeviceKeyId, Ed25519PublicKey)> {
+        self.keys.iter().find_map(|(id, key)| key.ed25519().map(|k| (id.as_ref(), k)))
+    }
 }
 
 /// An enum over the different key types a cross-signing key can have.
@@ -89,6 +97,15 @@ impl SigningKey {
         match self {
             SigningKey::Ed25519(k) => k.to_base64(),
             SigningKey::Unknown(k) => k.to_owned(),
+        }
+    }
+
+    /// Get the Ed25519 key, if it is an Ed25519 key.
+    pub fn ed25519(&self) -> Option<Ed25519PublicKey> {
+        if let SigningKey::Ed25519(k) = self {
+            Some(*k)
+        } else {
+            None
         }
     }
 }
