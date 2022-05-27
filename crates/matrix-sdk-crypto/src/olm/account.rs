@@ -739,7 +739,7 @@ impl ReadOnlyAccount {
             (*self.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
-            BTreeMap::new(),
+            Default::default(),
         )
     }
 
@@ -757,9 +757,10 @@ impl ReadOnlyAccount {
             .await
             .expect("Newly created device keys can always be signed");
 
-        device_keys.signatures.entry(self.user_id().to_owned()).or_default().insert(
+        device_keys.signatures.add_signature(
+            self.user_id().to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-            signature.to_base64(),
+            signature,
         );
 
         device_keys
@@ -779,9 +780,10 @@ impl ReadOnlyAccount {
     ) -> Result<(), SignatureError> {
         let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?).await?;
 
-        cross_signing_key.signatures.entry(self.user_id().to_owned()).or_default().insert(
+        cross_signing_key.signatures.add_signature(
+            self.user_id().to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            signature.to_base64(),
+            signature,
         );
 
         Ok(())
@@ -883,15 +885,11 @@ impl ReadOnlyAccount {
             .await
             .expect("Newly created one-time keys can always be signed");
 
-        let signatures = BTreeMap::from([(
+        key.signatures_mut().add_signature(
             self.user_id().to_owned(),
-            BTreeMap::from([(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                signature,
-            )]),
-        )]);
-
-        *key.signatures() = signatures;
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signature,
+        );
 
         key
     }

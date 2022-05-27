@@ -20,10 +20,7 @@ mod qrcode;
 mod requests;
 mod sas;
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
@@ -47,8 +44,8 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, OwnedDeviceId, OwnedDeviceKeyId, OwnedEventId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, UserId,
+    DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
@@ -58,6 +55,7 @@ use crate::{
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
     store::{Changes, CryptoStore},
+    types::Signatures,
     CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
 
@@ -140,10 +138,7 @@ impl VerificationStore {
     }
 
     /// Get the signatures that have signed our own device.
-    pub async fn device_signatures(
-        &self,
-    ) -> Result<Option<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>>, CryptoStoreError>
-    {
+    pub async fn device_signatures(&self) -> Result<Option<Signatures>, CryptoStoreError> {
         Ok(self
             .inner
             .get_device(self.account.user_id(), self.account.device_id())

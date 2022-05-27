@@ -32,7 +32,7 @@ use ruma::{
         AnyToDeviceEventContent,
     },
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedUserId, UserId,
+    OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
@@ -47,7 +47,7 @@ use crate::{
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, Session, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
-    types::{DeviceKey, DeviceKeys, SignedKey},
+    types::{DeviceKey, DeviceKeys, Signatures, SignedKey},
     verification::VerificationMachine,
     OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
 };
@@ -433,7 +433,7 @@ impl ReadOnlyDevice {
     }
 
     /// Get a map containing all the device signatures.
-    pub fn signatures(&self) -> &BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
+    pub fn signatures(&self) -> &Signatures {
         &self.inner.signatures
     }
 

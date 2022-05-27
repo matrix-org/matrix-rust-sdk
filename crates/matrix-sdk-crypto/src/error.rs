@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use ruma::{signatures::CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
@@ -181,7 +181,13 @@ pub enum SignatureError {
 
     /// The signed object couldn't be deserialized.
     #[error(transparent)]
-    JsonError(#[from] SerdeError),
+    JsonError(#[from] CanonicalJsonError),
+}
+
+impl From<SerdeError> for SignatureError {
+    fn from(e: SerdeError) -> Self {
+        CanonicalJsonError::SerDe(e).into()
+    }
 }
 
 #[derive(Error, Debug)]

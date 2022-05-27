@@ -28,7 +28,7 @@ use ruma::{
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
+    DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
@@ -40,7 +40,7 @@ use crate::{
     error::SignatureError,
     olm::VerifyJson,
     store::{Changes, IdentityChanges},
-    types::{CrossSigningKey, DeviceKeys, SigningKey},
+    types::{CrossSigningKey, DeviceKeys, Signatures, SigningKey},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
@@ -404,7 +404,7 @@ impl MasterPubkey {
     }
 
     /// Get the signatures map of this cross signing key.
-    pub fn signatures(&self) -> &BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
+    pub fn signatures(&self) -> &Signatures {
         &self.0.signatures
     }
 
