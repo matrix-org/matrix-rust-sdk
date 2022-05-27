@@ -8,6 +8,10 @@ edition = "2021"
 rust-version = "1.60"
 readme = "README.md"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["e2e-encryption"]
 e2e-encryption = ["matrix-sdk-base/e2e-encryption", "matrix-sdk-crypto"]
