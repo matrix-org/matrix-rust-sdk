@@ -1354,7 +1354,12 @@ impl OlmMachine {
         self.runtime
             .block_on(self.inner.sign(message))
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v.into_iter().map(|(k, v)| (k.to_string(), v)).collect()))
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    v.into_iter().map(|(k, v)| (k.to_string(), v.to_base64())).collect(),
+                )
+            })
             .collect()
     }
 

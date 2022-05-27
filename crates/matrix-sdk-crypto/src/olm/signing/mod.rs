@@ -25,7 +25,7 @@ use ruma::{
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     encryption::KeyUsage,
     events::secret::request::SecretName,
-    OwnedUserId, UserId,
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
@@ -128,6 +128,14 @@ impl PrivateCrossSigningIdentity {
         let has_self = self.self_signing_key.lock().await.is_some();
 
         !(has_master && has_user && has_self)
+    }
+
+    /// Get the key ID of the master key.
+    pub async fn master_key_id(&self) -> Option<OwnedDeviceKeyId> {
+        let master_key = self.master_public_key().await?.get_first_key()?.to_base64();
+        let master_key = OwnedDeviceId::from(master_key);
+
+        Some(DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key))
     }
 
     /// Can we sign our own devices, i.e. do we have a self signing key.
