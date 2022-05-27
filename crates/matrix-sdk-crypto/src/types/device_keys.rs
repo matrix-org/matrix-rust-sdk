@@ -115,7 +115,7 @@ impl UnsignedDeviceInfo {
 /// Currently devices have a curve25519 and ed25519 keypair. The keys transport
 /// format is a base64 encoded string, any unknown key type will be left as such
 /// a string.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeviceKey {
     /// The curve25519 device key.
     Curve25519(Curve25519PublicKey),

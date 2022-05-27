@@ -177,7 +177,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.typing_notice(true).await?
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn typing_notice(&self, typing: bool) -> Result<()> {
         // Only send a request to the homeserver if the old timeout has elapsed
@@ -288,7 +288,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.enable_encryption().await?
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn enable_encryption(&self) -> Result<()> {
         use ruma::{
@@ -458,7 +458,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send(content, Some(&txn_id)).await?;
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
@@ -526,7 +526,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_raw(content, "m.room.message", None).await?;
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
@@ -575,7 +575,7 @@ impl Joined {
                 let olm = self.client.olm_machine().expect("Olm machine wasn't started");
 
                 let encrypted_content =
-                    olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
+                    olm.encrypt_room_event_raw(self.inner.room_id(), content, event_type).await?;
                 let raw_content = Raw::new(&encrypted_content)
                     .expect("Failed to serialize encrypted event")
                     .cast();
@@ -648,7 +648,7 @@ impl Joined {
     ///         AttachmentConfig::new(),
     ///     ).await?;
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn send_attachment<R: Read + Seek, T: Read>(
         &self,
@@ -813,7 +813,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event(content, "").await?;
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn send_state_event(
         &self,
@@ -907,7 +907,7 @@ impl Joined {
     ///     let reason = Some("Indecent material");
     ///     room.redact(&event_id, reason, None).await?;
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn redact(
         &self,

@@ -77,7 +77,7 @@ impl CrossSigningKey {
 /// Currently cross signing keys support an ed25519 keypair. The keys transport
 /// format is a base64 encoded string, any unknown key type will be left as such
 /// a string.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SigningKey {
     /// The ed25519 cross-signing key.
     Ed25519(Ed25519PublicKey),

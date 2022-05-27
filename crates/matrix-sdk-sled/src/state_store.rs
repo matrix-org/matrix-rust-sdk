@@ -51,7 +51,9 @@ use ruma::{
     signatures::{redact_in_place, CanonicalJsonObject},
     RoomVersionId,
 };
-use serde::{Deserialize, Serialize};
+#[cfg(feature = "experimental-timeline")]
+use serde::Deserialize;
+use serde::{de::DeserializeOwned, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
@@ -368,10 +370,7 @@ impl SledStore {
         }
     }
 
-    fn deserialize_event<T: for<'b> Deserialize<'b>>(
-        &self,
-        event: &[u8],
-    ) -> Result<T, SledStoreError> {
+    fn deserialize_event<T: DeserializeOwned>(&self, event: &[u8]) -> Result<T, SledStoreError> {
         if let Some(key) = &self.store_cipher {
             Ok(key.decrypt_value(event)?)
         } else {

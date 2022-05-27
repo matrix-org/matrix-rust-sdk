@@ -46,6 +46,17 @@ pub static DEVICES: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static GET_ALIAS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "room_id": "!lUbmUPdxdXxEQurqOs:example.net",
+        "servers": [
+          "example.org",
+          "example.net",
+          "matrix.org",
+        ]
+    })
+});
+
 pub static WELL_KNOWN: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "m.homeserver": {

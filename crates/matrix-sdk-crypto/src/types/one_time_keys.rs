@@ -29,7 +29,7 @@ use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 pub type SignedKeySignatures = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Ed25519Signature>>;
 
 /// A key for the SignedCurve25519 algorithm
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedKey {
     // /// The Curve25519 key that can be used to establish Olm sessions.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
@@ -151,7 +151,7 @@ impl SignedKey {
 }
 
 /// A one-time public key for "pre-key" messages.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum OneTimeKey {
     /// A signed Curve25519 one-time key.

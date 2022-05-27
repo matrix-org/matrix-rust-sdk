@@ -25,7 +25,7 @@ use displaydoc::Display;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{thread_rng, Error as RandomError, Fill};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::Zeroize;
 
@@ -76,7 +76,7 @@ pub enum Error {
 /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
 ///
 /// assert_eq!(value, decrypted);
-/// # Result::<_, anyhow::Error>::Ok(()) };
+/// # anyhow::Ok(()) };
 /// ```
 #[allow(missing_debug_implementations)]
 pub struct StoreCipher {
@@ -115,7 +115,7 @@ impl StoreCipher {
     /// let export = store_cipher.export("secret-passphrase");
     ///
     /// // Save the export in your key/value store.
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn export(&self, passphrase: &str) -> Result<Vec<u8>, Error> {
         let mut rng = thread_rng();
@@ -171,7 +171,7 @@ impl StoreCipher {
     /// let imported = StoreCipher::import("secret-passphrase", &export)?;
     ///
     /// // Save the export in your key/value store.
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
         let encrypted: EncryptedStoreCipher = serde_json::from_slice(encrypted)?;
@@ -245,7 +245,7 @@ impl StoreCipher {
     /// let hashed_key = store_cipher.hash_key("list-of-pokemon", key.as_ref());
     ///
     /// // It's now safe to insert the key into our key/value store.
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn hash_key(&self, table_name: &str, key: &[u8]) -> [u8; 32] {
         let mac_key = self.inner.get_mac_key_for_table(table_name);
@@ -281,7 +281,7 @@ impl StoreCipher {
     /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, Error> {
         Ok(serde_json::to_vec(&self.encrypt_value_typed(value)?)?)
@@ -351,7 +351,7 @@ impl StoreCipher {
     /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value_data(&self, mut data: Vec<u8>) -> Result<EncryptedValue, Error> {
         let nonce = Keys::get_nonce()?;
@@ -391,9 +391,9 @@ impl StoreCipher {
     /// let decrypted: Value = store_cipher.decrypt_value(&encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
-    pub fn decrypt_value<T: for<'b> Deserialize<'b>>(&self, value: &[u8]) -> Result<T, Error> {
+    pub fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, Error> {
         let value: EncryptedValue = serde_json::from_slice(value)?;
         self.decrypt_value_typed(value)
     }
@@ -427,9 +427,9 @@ impl StoreCipher {
     /// let decrypted: Value = store_cipher.decrypt_value_typed(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
-    pub fn decrypt_value_typed<T: for<'b> Deserialize<'b>>(
+    pub fn decrypt_value_typed<T: DeserializeOwned>(
         &self,
         value: EncryptedValue,
     ) -> Result<T, Error> {
@@ -467,7 +467,7 @@ impl StoreCipher {
     /// let decrypted = store_cipher.decrypt_value_data(encrypted)?;
     ///
     /// assert_eq!(value, decrypted);
-    /// # Result::<_, anyhow::Error>::Ok(()) };
+    /// # anyhow::Ok(()) };
     /// ```
     pub fn decrypt_value_data(&self, value: EncryptedValue) -> Result<Vec<u8>, Error> {
         if value.version != VERSION {
@@ -500,7 +500,7 @@ impl MacKey {
 
 /// Encrypted value, ready for storage, as created by the
 /// [`StoreCipher::encrypt_value_data()`]
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncryptedValue {
     version: u8,
     ciphertext: Vec<u8>,
@@ -557,7 +557,7 @@ impl Keys {
 }
 
 /// Version specific info for the key derivation method that is used.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 enum KdfInfo {
     /// The PBKDF2 to Chacha key derivation variant.
     Pbkdf2ToChaCha20Poly1305 {
@@ -572,7 +572,7 @@ enum KdfInfo {
 
 /// Version specific info for encryption method that is used to encrypt our
 /// store cipher.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 enum CipherTextInfo {
     /// A store cipher encrypted using the ChaCha20Poly1305 AEAD.
     ChaCha20Poly1305 {
@@ -585,7 +585,7 @@ enum CipherTextInfo {
 
 /// An encrypted version of our store cipher, this can be safely stored in a
 /// database.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct EncryptedStoreCipher {
     /// Info about the key derivation method that was used to expand the
     /// passphrase into an encryption key.

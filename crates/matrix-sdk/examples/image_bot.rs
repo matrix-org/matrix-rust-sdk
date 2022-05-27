@@ -56,7 +56,7 @@ async fn login_and_sync(
     username: String,
     password: String,
     image: File,
-) -> Result<(), matrix_sdk::Error> {
+) -> matrix_sdk::Result<()> {
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
@@ -74,7 +74,7 @@ async fn login_and_sync(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), matrix_sdk::Error> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let (homeserver_url, username, password, image_path) =
         match (env::args().nth(1), env::args().nth(2), env::args().nth(3), env::args().nth(4)) {
