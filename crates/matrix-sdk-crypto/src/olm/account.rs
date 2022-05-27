@@ -672,7 +672,7 @@ impl ReadOnlyAccount {
 
     /// Check that the given json value is signed by this account.
     #[cfg(feature = "backups_v1")]
-    pub fn is_signed(&self, json: &mut Value) -> Result<(), SignatureError> {
+    pub fn is_signed(&self, json: Value) -> Result<(), SignatureError> {
         use crate::olm::utility::VerifyJson;
 
         let signing_key = self.identity_keys.ed25519;

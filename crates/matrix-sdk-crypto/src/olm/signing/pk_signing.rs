@@ -318,7 +318,7 @@ impl Signing {
         &self,
         user_id: &ruma::UserId,
         key_id: &DeviceKeyId,
-        message: &mut Value,
+        message: Value,
     ) -> Result<(), SignatureError> {
         use crate::olm::VerifyJson;
         self.public_key.verify_json(user_id, key_id, message)

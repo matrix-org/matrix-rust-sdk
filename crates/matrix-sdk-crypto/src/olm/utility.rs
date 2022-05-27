@@ -69,7 +69,7 @@ pub trait VerifyJson {
         &self,
         user_id: &UserId,
         key_id: &DeviceKeyId,
-        json: &mut Value,
+        json: Value,
     ) -> Result<(), SignatureError>;
 }
 
@@ -78,7 +78,7 @@ impl VerifyJson for vodozemac::Ed25519PublicKey {
         &self,
         user_id: &UserId,
         key_id: &DeviceKeyId,
-        json: &mut Value,
+        mut json: Value,
     ) -> Result<(), SignatureError> {
         if key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
             return Err(SignatureError::UnsupportedAlgorithm);
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn signature_test() {
-        let mut device_keys = json!({
+        let device_keys = json!({
             "device_id": "GBEWHQOYGS",
             "algorithms": [
                 "m.olm.v1.curve25519-aes-sha2",
@@ -159,7 +159,7 @@ mod tests {
             .verify_json(
                 user_id!("@example:localhost"),
                 &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("GBEWHQOYGS")),
-                &mut device_keys,
+                device_keys,
             )
             .expect("Can't verify device keys");
     }

@@ -682,13 +682,12 @@ mod tests {
         let signatures =
             BTreeMap::from([(user_id, BTreeMap::from([(key_id.clone(), signature.to_base64())]))]);
 
-        let mut json = json!({
+        let json = json!({
             "hello": "world",
             "signatures": signatures,
-
         });
 
-        assert!(signing.verify_json(user_id, &key_id, &mut json).is_ok());
+        assert!(signing.verify_json(user_id, &key_id, json).is_ok());
     }
 
     #[test]

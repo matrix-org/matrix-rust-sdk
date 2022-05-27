@@ -119,7 +119,7 @@ impl BackupMachine {
     /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
     pub async fn verify_backup(
         &self,
-        mut serialized_auth_data: Value,
+        serialized_auth_data: Value,
     ) -> Result<bool, CryptoStoreError> {
         #[derive(Debug, Serialize, Deserialize)]
         struct AuthData {
@@ -138,7 +138,7 @@ impl BackupMachine {
             for device_key_id in signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
                     if device_key_id.device_id() == self.account.device_id() {
-                        let result = self.account.is_signed(&mut serialized_auth_data);
+                        let result = self.account.is_signed(serialized_auth_data.clone());
 
                         trace!(?result, "Checking auth data signature of our own device");
 
@@ -158,7 +158,7 @@ impl BackupMachine {
 
                         if let Some(device) = device {
                             if device.verified()
-                                && device.is_signed_by_device(&mut serialized_auth_data).is_ok()
+                                && device.is_signed_by_device(serialized_auth_data.clone()).is_ok()
                             {
                                 return Ok(true);
                             }
