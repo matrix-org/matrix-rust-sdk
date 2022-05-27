@@ -49,6 +49,21 @@ callback interface SlidingSyncDelegate {
     void did_receive_sync_update(UpdateSummary summary);
 };
 
+enum SlidingSyncState {
+    /// Hasn't started yet
+    "Cold",
+    /// We are quickly preloading a preview of the most important rooms
+    "Preload",
+    /// We are trying to load all remaining rooms, might be in batches
+    "CatchingUp",
+    /// We are all caught up and now only sync the live responses.
+    "Live",
+};
+
+callback interface SlidingSyncViewStateDelegate {
+    void did_receive_update(SlidingSyncState new_state);
+};
+
 [Enum]
 interface RoomListEntry {
     Empty();
@@ -89,6 +104,7 @@ callback interface SlidingSyncViewRoomsCountDelegate {
 interface SlidingSyncView {
     StoppableSpawn on_rooms_update(SlidingSyncViewRoomsListDelegate update);
     StoppableSpawn on_rooms_count_update(SlidingSyncViewRoomsCountDelegate update);
+    StoppableSpawn on_state_update(SlidingSyncViewStateDelegate update);
 
     u32? current_room_count();
     sequence<RoomListEntry> current_rooms_list();

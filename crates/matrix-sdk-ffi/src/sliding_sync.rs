@@ -1,5 +1,6 @@
 pub use matrix_sdk::{
-    RoomListEntry as MatrixRoomEntry
+    RoomListEntry as MatrixRoomEntry,
+    SlidingSyncState,
 };
 use futures_util::{StreamExt, pin_mut};
 use futures_signals::{
@@ -151,11 +152,35 @@ pub trait SlidingSyncViewRoomsCountDelegate: Sync + Send {
     fn did_receive_update(&self, new_count: u32);
 }
 
+pub trait SlidingSyncViewStateDelegate: Sync + Send {
+    fn did_receive_update(&self, new_state: SlidingSyncState);
+}
+
+
 pub struct SlidingSyncView {
     inner: matrix_sdk::SlidingSyncView,
 }
 
 impl SlidingSyncView {
+    
+    pub fn on_state_update(&self, delegate: Box<dyn SlidingSyncViewStateDelegate>) -> Arc<StoppableSpawn> {
+        let outer_stopper = Arc::new(StoppableSpawn::new());
+        let stopper = outer_stopper.clone();
+        let mut signal = self.inner.state.signal_cloned().to_stream();
+        RUNTIME.spawn(async move {
+            loop {
+                let update = signal.next().await;
+                if stopper.is_cancelled() {
+                    break
+                }
+                if let Some(new_state) = update {
+                    delegate.did_receive_update(new_state);
+                }
+            }
+        });
+        outer_stopper
+    }
+
     pub fn on_rooms_update(&self, delegate: Box<dyn SlidingSyncViewRoomsListDelegate>) -> Arc<StoppableSpawn> {
         let outer_stopper = Arc::new(StoppableSpawn::new());
         let stopper = outer_stopper.clone();
@@ -173,6 +198,7 @@ impl SlidingSyncView {
         });
         outer_stopper
     }
+
     pub fn on_rooms_count_update(&self, delegate: Box<dyn SlidingSyncViewRoomsCountDelegate>) -> Arc<StoppableSpawn> {
         let outer_stopper = Arc::new(StoppableSpawn::new());
         let stopper = outer_stopper.clone();
