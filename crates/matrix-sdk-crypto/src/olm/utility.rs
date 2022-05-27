@@ -15,27 +15,28 @@
 use std::convert::TryInto;
 
 use ruma::{serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+use serde::Deserialize;
 use serde_json::Value;
 use vodozemac::{olm::Account, Ed25519SecretKey, Ed25519Signature};
 
-use crate::error::SignatureError;
+use crate::{error::SignatureError, types::Signatures};
+
+fn to_signable_json(mut value: Value) -> Result<String, SignatureError> {
+    let json_object = value.as_object_mut().ok_or(SignatureError::NotAnObject)?;
+    let _ = json_object.remove("signatures");
+    let _ = json_object.remove("unsigned");
+
+    let canonical_json: CanonicalJsonValue = value.try_into()?;
+    Ok(canonical_json.to_string())
+}
 
 pub trait SignJson {
     fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError>;
-
-    fn to_signable_json(mut value: Value) -> Result<String, SignatureError> {
-        let json_object = value.as_object_mut().ok_or(SignatureError::NotAnObject)?;
-        let _ = json_object.remove("signatures");
-        let _ = json_object.remove("unsigned");
-
-        let canonical_json: CanonicalJsonValue = value.try_into()?;
-        Ok(canonical_json.to_string())
-    }
 }
 
 impl SignJson for Account {
     fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
-        let serialized = Self::to_signable_json(value)?;
+        let serialized = to_signable_json(value)?;
 
         Ok(self.sign(serialized.as_ref()))
     }
@@ -43,7 +44,7 @@ impl SignJson for Account {
 
 impl SignJson for Ed25519SecretKey {
     fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
-        let serialized = Self::to_signable_json(value)?;
+        let serialized = to_signable_json(value)?;
 
         Ok(self.sign(serialized.as_ref()))
     }
@@ -78,44 +79,27 @@ impl VerifyJson for vodozemac::Ed25519PublicKey {
         &self,
         user_id: &UserId,
         key_id: &DeviceKeyId,
-        mut json: Value,
+        json: Value,
     ) -> Result<(), SignatureError> {
+        #[derive(Debug, Deserialize)]
+        struct SignedJson {
+            #[serde(default)]
+            signatures: Signatures,
+        }
+
         if key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
             return Err(SignatureError::UnsupportedAlgorithm);
         }
 
-        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
-        let unsigned = json_object.remove("unsigned");
-        let signatures = json_object.remove("signatures");
+        let signed_json: SignedJson = serde_json::from_value(json.clone())?;
+        let canonicalized = to_signable_json(json)?;
 
-        let canonical_json: CanonicalJsonValue =
-            json.clone().try_into().map_err(|_| SignatureError::NotAnObject)?;
-
-        let canonical_json: String = canonical_json.to_string();
-
-        let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
-        let signature_object = signatures.as_object().ok_or(SignatureError::NoSignatureFound)?;
-        let signature =
-            signature_object.get(user_id.as_str()).ok_or(SignatureError::NoSignatureFound)?;
-        let signature =
-            signature.get(key_id.to_string()).ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
-
-        let signature = vodozemac::Ed25519Signature::from_base64(signature)?;
-
-        let ret = self
-            .verify(canonical_json.as_bytes(), &signature)
-            .map_err(SignatureError::VerificationError);
-
-        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
-
-        if let Some(u) = unsigned {
-            json_object.insert("unsigned".to_owned(), u);
+        if let Some(signature) = signed_json.signatures.get_signature(user_id, key_id) {
+            self.verify(canonicalized.as_bytes(), &signature)
+                .map_err(SignatureError::VerificationError)
+        } else {
+            Err(SignatureError::NoSignatureFound)
         }
-
-        json_object.insert("signatures".to_owned(), signatures);
-
-        ret
     }
 }
 
