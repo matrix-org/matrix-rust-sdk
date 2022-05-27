@@ -143,31 +143,29 @@ impl<'de> Deserialize<'de> for Signatures {
         let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> =
             serde::Deserialize::deserialize(deserializer)?;
 
-        Ok(Signatures(
-            map.into_iter()
-                .map(|(user, signatures)| {
-                    Ok((
-                        user,
-                        signatures
-                            .into_iter()
-                            .map(|(key_id, s)| {
-                                let algorithm = key_id.algorithm();
-                                let signature = match algorithm {
-                                    DeviceKeyAlgorithm::Ed25519 => {
-                                        Ed25519Signature::from_base64(&s)
-                                            .map_err(serde::de::Error::custom)?
-                                            .into()
-                                    }
-                                    _ => Signature::Other(s),
-                                };
+        let map = map
+            .into_iter()
+            .map(|(user, signatures)| {
+                let signatures = signatures
+                    .into_iter()
+                    .map(|(key_id, s)| {
+                        let algorithm = key_id.algorithm();
+                        let signature = match algorithm {
+                            DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
+                                .map_err(serde::de::Error::custom)?
+                                .into(),
+                            _ => Signature::Other(s),
+                        };
 
-                                Ok((key_id, signature))
-                            })
-                            .collect::<Result<BTreeMap<_, _>, _>>()?,
-                    ))
-                })
-                .collect::<Result<_, _>>()?,
-        ))
+                        Ok((key_id, signature))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, _>>()?;
+
+                Ok((user, signatures))
+            })
+            .collect::<Result<_, _>>()?;
+
+        Ok(Signatures(map))
     }
 }
 
