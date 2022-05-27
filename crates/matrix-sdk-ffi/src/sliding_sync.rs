@@ -10,9 +10,14 @@ use parking_lot::RwLock;
 
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
+use ruma::{
+    api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription,
+};
+
+use assign::assign;
+
 use super::{Client, RUNTIME};
 
-pub type Uindex = usize;
 pub struct StoppableSpawn {
     cancelled: AtomicBool,
 }
@@ -35,6 +40,29 @@ pub struct UpdateSummary {
     /// The views (according to their name), which have seen an update
     pub views: Vec<String>,
     pub rooms: Vec<String>,
+}
+
+pub struct RoomSubscriptionRequiredState {
+    pub key: String,
+    pub value: String,
+}
+
+pub struct RoomSubscription {
+    pub required_state: Option<Vec<RoomSubscriptionRequiredState>>,
+    pub timeline_limit: Option<u32>,
+}
+
+impl TryInto<RumaRoomSubscription> for RoomSubscription {
+    type Error = anyhow::Error;
+    fn try_into(self) -> anyhow::Result<RumaRoomSubscription> {
+
+        Ok(assign!(RumaRoomSubscription::default(), {
+            required_state: self.required_state.map(|r|
+                r.into_iter().map(|s| (s.key.into(), s.value)).collect()
+            ),
+            timeline_limit: self.timeline_limit.map(|u| u.into())
+        }))
+    }
 }
 
 impl From<matrix_sdk::UpdateSummary> for UpdateSummary {
@@ -115,8 +143,6 @@ impl From<&MatrixRoomEntry> for RoomListEntry {
     }
 }
 
-
-
 pub trait SlidingSyncViewRoomsListDelegate: Sync + Send {
     fn did_receive_update(&self, diff: SlidingSyncViewRoomsListDiff);
 }
@@ -186,6 +212,26 @@ impl SlidingSync {
 
     pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
         *self.delegate.write() = delegate;
+    }
+
+    pub fn subscribe(&self, room_id: String, settings: Option<RoomSubscription>) -> anyhow::Result<()> {
+        let settings = if let Some(settings) = settings {
+            Some(settings.try_into()?)
+        } else {
+            None
+        };
+        self.inner.subscribe(
+            room_id.try_into()?,
+            settings,
+        );
+        Ok(())
+    }
+
+    pub fn unsubscribe(&self, room_id: String) -> anyhow::Result<()> {
+        self.inner.unsubscribe(
+            room_id.try_into()?,
+        );
+        Ok(())
     }
 
     pub fn get_view(&self, name: String) -> Option<Arc<SlidingSyncView>> { 

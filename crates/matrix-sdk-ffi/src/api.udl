@@ -29,6 +29,15 @@ callback interface ClientDelegate {
     void did_receive_sync_update();
 };
 
+dictionary RoomSubscriptionRequiredState {
+    string key;
+    string value;
+};
+
+dictionary RoomSubscription {
+    sequence<RoomSubscriptionRequiredState>? required_state;
+    u32? timeline_limit;
+};
 
 dictionary UpdateSummary {
     sequence<string> views;
@@ -91,6 +100,11 @@ interface SlidingSync {
     void on_update(SlidingSyncDelegate? update);
 
     void start_sync();
+
+    [Throws=ClientError]
+    void subscribe(string room_id, RoomSubscription? settings);
+    [Throws=ClientError]
+    void unsubscribe(string room_id);
 
     SlidingSyncView? get_view(string name);
 };

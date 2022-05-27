@@ -18,6 +18,7 @@ sliding-sync = [
     "matrix-sdk/sliding-sync",
     "futures-signals",
     "ruma",
+    "assign",
 ]
 
 [build-dependencies]
@@ -43,3 +44,4 @@ uniffi = "0.18.0"
 uniffi_macros = "0.18.0"
 futures-signals = { version = "0.3.28", optional = true }
 ruma = { version = "0.6.2", optional = true }
+assign = { version = "1.1.1", optional = true }
