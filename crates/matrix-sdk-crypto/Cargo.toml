@@ -50,7 +50,7 @@ zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.ruma]
 version = "0.6.1"
-features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"]
+features = ["client-api-c", "js", "rand", "signatures", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac/"
@@ -59,7 +59,7 @@ features = ["js"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
 version = "0.6.1"
-features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"]
+features = ["client-api-c", "rand", "signatures", "unstable-msc2676", "unstable-msc2677"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac/"

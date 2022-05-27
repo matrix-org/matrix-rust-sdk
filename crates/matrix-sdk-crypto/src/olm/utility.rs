@@ -28,7 +28,7 @@ pub trait SignJson {
         let _ = json_object.remove("signatures");
         let _ = json_object.remove("unsigned");
 
-        let canonical_json: CanonicalJsonValue = value.try_into().unwrap();
+        let canonical_json: CanonicalJsonValue = value.try_into()?;
         Ok(canonical_json.to_string())
     }
 }
