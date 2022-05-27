@@ -4,9 +4,8 @@ use std::collections::BTreeSet;
 
 use crate::{
     helpers::{BorrowedSqlType, SqlType},
-    StateStore, SupportedDatabase,
+    Result, StateStore, SupportedDatabase,
 };
-use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use matrix_sdk_base::{
@@ -1307,8 +1306,8 @@ where
 #[cfg(test)]
 #[allow(unused_imports, unreachable_pub, clippy::unwrap_used)]
 mod tests {
+    use crate::Result;
     use crate::{StateStore, SupportedDatabase};
-    use anyhow::Result;
     use ruma::{MxcUri, OwnedMxcUri};
     use sqlx::{
         database::HasArguments, migrate::Migrate, ColumnIndex, Database, Decode, Encode, Executor,

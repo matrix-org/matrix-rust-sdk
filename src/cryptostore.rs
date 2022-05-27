@@ -6,7 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashSet;
 use educe::Educe;
@@ -47,7 +46,7 @@ use sqlx::{
 
 use crate::{
     helpers::{BorrowedSqlType, SqlType},
-    StateStore, SupportedDatabase,
+    Result, SQLStoreError, StateStore, SupportedDatabase,
 };
 
 /// Store Result type
@@ -288,8 +287,9 @@ where
         let private_identity = match self.get_kv(b"private_identity").await? {
             Some(account) => {
                 let private_identity = e2e.decode_value(&account)?;
-                let private_identity =
-                    PrivateCrossSigningIdentity::from_pickle(private_identity).await?;
+                let private_identity = PrivateCrossSigningIdentity::from_pickle(private_identity)
+                    .await
+                    .map_err(|e| SQLStoreError::Sign(Box::new(e)))?;
                 Some(private_identity)
             }
             None => None,
@@ -645,7 +645,7 @@ where
             let account_info = e2e.account.read().clone();
             let account_info = account_info
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("No account info"))?;
+                .ok_or(SQLStoreError::MissingAccountInfo)?;
             // try fetching from the database
             let user_id = e2e.encode_key("cryptostore_session:sender_key", sender_key.as_bytes());
             let mut rows = DB::sessions_for_user_query()
@@ -720,7 +720,7 @@ where
     /// This function will return an error if the database has not been unlocked.
     pub(crate) fn get_inbound_group_session_stream(
         &self,
-    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + '_> {
+    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = SQLStoreError> + '_> {
         let e2e = self.ensure_e2e()?;
         Ok(DB::inbound_group_sessions_fetch_query()
             .fetch(&*self.db)
@@ -743,7 +743,7 @@ where
     pub(crate) fn get_inbound_group_session_stream_txn<'r, 'c>(
         &'r self,
         txn: &'r mut Transaction<'c, DB>,
-    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = anyhow::Error> + 'r> {
+    ) -> Result<impl TryStream<Ok = InboundGroupSession, Error = SQLStoreError> + 'r> {
         let e2e = self.ensure_e2e()?;
         Ok(Box::pin(
             DB::inbound_group_sessions_fetch_query()
@@ -838,12 +838,12 @@ where
         let backup_version = self
             .get_kv(b"backup_version")
             .await?
-            .map(|v| e2e.decode_value(&v).map_err(anyhow::Error::from))
+            .map(|v| e2e.decode_value(&v).map_err(SQLStoreError::from))
             .transpose()?;
         let recovery_key = self
             .get_kv(b"recovery_key")
             .await?
-            .map(|v| e2e.decode_value(&v).map_err(anyhow::Error::from))
+            .map(|v| e2e.decode_value(&v).map_err(SQLStoreError::from))
             .transpose()?;
         Ok(BackupKeys {
             recovery_key,
@@ -864,7 +864,7 @@ where
         let account_info = e2e.account.read().clone();
         let account_info = account_info
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No account info"))?;
+            .ok_or(SQLStoreError::MissingAccountInfo)?;
         let room_id = e2e.encode_key(
             "cryptostore_inbound_group_session:room_id",
             room_id.as_bytes(),
@@ -1351,7 +1351,7 @@ mod sqlite_integration_test {
     async fn get_store_anyhow(
         name: String,
         passphrase: Option<&str>,
-    ) -> anyhow::Result<StateStore<sqlx::sqlite::Sqlite>> {
+    ) -> crate::Result<StateStore<sqlx::sqlite::Sqlite>> {
         let tmpdir_path = TMP_DIR.path().join(name + ".db");
         let db_url = format!("sqlite://{}", tmpdir_path.to_string_lossy());
         if !sqlx::Sqlite::database_exists(&db_url).await? {

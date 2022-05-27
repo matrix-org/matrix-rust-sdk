@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- The Error type was changed from anyhow to thiserror.
+
 ## [0.1.0-beta.2] - 2022-05-23
 ### Added
 - A `CryptoStore` implementation

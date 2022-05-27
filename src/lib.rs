@@ -38,8 +38,6 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
-
 #[cfg(feature = "e2e-encryption")]
 use cryptostore::CryptostoreData;
 use helpers::{BorrowedSqlType, SqlType};
@@ -64,10 +62,60 @@ use sqlx::{
     database::HasArguments, migrate::Migrate, types::Json, ColumnIndex, Database, Executor,
     IntoArguments, Pool, Transaction,
 };
+use thiserror::Error;
 
 #[cfg(feature = "e2e-encryption")]
 mod cryptostore;
 mod statestore;
+
+/// Errors that can occur in the SQL Store
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SQLStoreError {
+    /// Database error
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+    /// Migration failed
+    #[error("Migration for database failed: {0}")]
+    Migration(#[from] sqlx::migrate::MigrateError),
+    /// Database is still locked
+    #[cfg(feature = "e2e-encryption")]
+    #[error("A cryptostore access ocurred without the database being unlocked")]
+    DatabaseLocked,
+    /// An UTF-8 string has failed to decode
+    #[error("Data failed to decode: UTF-8 error {0}")]
+    DecodeUtf8(#[from] std::string::FromUtf8Error),
+    #[error("Data failed to decode: ID decoding error {0}")]
+    /// An ID failed to decode
+    DecodeId(#[from] ruma::IdParseError),
+    #[cfg(feature = "e2e-encryption")]
+    /// Data failed to encrypt/decrypt
+    #[error("Failed to encrypt/decrypt data: {0}")]
+    Crypto(#[from] matrix_sdk_store_encryption::Error),
+    /// Failed to encode/decode data as bincode
+    #[cfg(feature = "e2e-encryption")]
+    #[error("Failed to encode/decode data as bincode: {0}")]
+    Bincode(#[from] bincode::Error),
+    /// Failed to decode a JSON value
+    #[cfg(feature = "e2e-encryption")]
+    #[error("Failed to encode/decode data as json: {0}")]
+    Json(#[from] serde_json::Error),
+    /// Failed to pickle data
+    #[cfg(feature = "e2e-encryption")]
+    #[error("Failed to pickle data: {0}")]
+    Pickle(#[from] vodozemac::PickleError),
+    /// Failed to verify data
+    #[cfg(feature = "e2e-encryption")]
+    #[error("Failed to verify data: {0}")]
+    Sign(Box<dyn std::error::Error + Send + Sync>),
+    /// Account info was not found
+    #[cfg(feature = "e2e-encryption")]
+    #[error("Account info was not found")]
+    MissingAccountInfo,
+}
+
+/// Result type returned by SQL Store functions
+pub type Result<T, E = SQLStoreError> = std::result::Result<T, E>;
 
 /// SQL State Storage for matrix-sdk
 #[allow(single_use_lifetimes)]
@@ -114,7 +162,7 @@ impl<DB: SupportedDatabase> StateStore<DB> {
     pub(crate) fn ensure_e2e(&self) -> Result<&CryptostoreData> {
         self.cryptostore
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Not unlocked"))
+            .ok_or(SQLStoreError::DatabaseLocked)
     }
 
     /// Unlocks the e2e encryption database
