@@ -1377,6 +1377,10 @@ impl OlmMachine {
     /// devices that we trust.
     pub fn verify_backup(&self, auth_data: &str) -> Result<bool, CryptoStoreError> {
         let auth_data = serde_json::from_str(auth_data)?;
-        Ok(self.runtime.block_on(self.inner.backup_machine().verify_backup(auth_data))?)
+
+        Ok(self
+            .runtime
+            .block_on(self.inner.backup_machine().verify_backup(auth_data, false))?
+            .trusted())
     }
 }
