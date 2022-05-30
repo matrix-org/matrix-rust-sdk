@@ -43,6 +43,9 @@ pub enum Signature {
     Ed25519(Ed25519Signature),
     /// An unknown digital signature as a base64 encoded string.
     Other(String),
+    /// An invalid signature that could not be decoded, left unmodified as a
+    /// string.
+    Invalid(String),
 }
 
 impl Signature {
@@ -60,6 +63,7 @@ impl Signature {
         match self {
             Signature::Ed25519(s) => s.to_base64(),
             Signature::Other(s) => s.to_owned(),
+            Signature::Invalid(s) => s.to_owned(),
         }
     }
 }
@@ -152,8 +156,8 @@ impl<'de> Deserialize<'de> for Signatures {
                         let algorithm = key_id.algorithm();
                         let signature = match algorithm {
                             DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
-                                .map_err(serde::de::Error::custom)?
-                                .into(),
+                                .map(|s| s.into())
+                                .unwrap_or_else(|_| Signature::Invalid(s)),
                             _ => Signature::Other(s),
                         };
 
