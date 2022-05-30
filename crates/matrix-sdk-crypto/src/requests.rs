@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Modules containing customized request types.
+
 use std::{collections::BTreeMap, iter, sync::Arc, time::Duration};
 
 use ruma::{
