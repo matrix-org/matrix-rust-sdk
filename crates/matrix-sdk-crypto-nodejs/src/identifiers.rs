@@ -3,7 +3,7 @@
 
 use napi_derive::*;
 
-use crate::errors::*;
+use crate::into_err;
 
 /// A Matrix [user ID].
 ///
@@ -25,11 +25,7 @@ impl UserId {
     /// Parse/validate and create a new `UserId`.
     #[napi(constructor)]
     pub fn new(id: String) -> Result<UserId, napi::Error> {
-        Ok(Self::new_with(
-            ruma::UserId::parse(id.as_str())
-                .map_err(Error::from)
-                .map_err(Into::<napi::Error>::into)?,
-        ))
+        Ok(Self::new_with(ruma::UserId::parse(id.as_str()).map_err(into_err)?))
     }
 
     /// Returns the user's localpart.
@@ -114,9 +110,7 @@ impl RoomId {
     /// Parse/validate and create a new `RoomId`.
     #[napi(constructor)]
     pub fn new(id: String) -> Result<RoomId, napi::Error> {
-        Ok(Self::new_with(
-            ruma::RoomId::parse(id).map_err(Error::from).map_err(Into::<napi::Error>::into)?,
-        ))
+        Ok(Self::new_with(ruma::RoomId::parse(id).map_err(into_err)?))
     }
 
     /// Returns the user's localpart.
@@ -156,11 +150,7 @@ impl ServerName {
     /// Parse/validate and create a new `ServerName`.
     #[napi(constructor)]
     pub fn new(name: String) -> Result<ServerName, napi::Error> {
-        Ok(Self {
-            inner: ruma::ServerName::parse(name)
-                .map_err(Error::from)
-                .map_err(Into::<napi::Error>::into)?,
-        })
+        Ok(Self { inner: ruma::ServerName::parse(name).map_err(into_err)? })
     }
 
     /// Returns the host of the server name.

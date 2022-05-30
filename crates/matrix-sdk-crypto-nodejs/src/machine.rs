@@ -1,8 +1,11 @@
 //! The crypto specific Olm objects.
 
-use napi_derive::*;
+use std::collections::{BTreeMap, HashMap};
 
-use crate::identifiers;
+use napi_derive::*;
+use ruma::{DeviceKeyAlgorithm, UInt};
+
+use crate::{identifiers, into_err, sync_events};
 
 /// State machine implementation of the Olm/Megolm encryption protocol
 /// used for Matrix end to end encryption.
@@ -49,6 +52,44 @@ impl OlmMachine {
     #[napi]
     pub fn identity_keys(&self) -> IdentityKeys {
         self.inner.identity_keys().into()
+    }
+
+    #[napi]
+    pub async fn receive_sync_changes(
+        &self,
+        to_device_events: String,
+        changed_devices: &sync_events::DeviceLists,
+        one_time_key_counts: HashMap<String, u32>,
+        unused_fallback_keys: Vec<String>,
+    ) -> Result<String, napi::Error> {
+        let to_device_events = serde_json::from_str(to_device_events.as_ref()).map_err(into_err)?;
+        let changed_devices = changed_devices.inner.clone();
+        let one_time_key_counts = one_time_key_counts
+            .iter()
+            .filter_map(|(key, value)| {
+                Some((DeviceKeyAlgorithm::from(key.as_str()), UInt::new(*value as u64)?))
+            })
+            .collect::<BTreeMap<DeviceKeyAlgorithm, UInt>>();
+        let unused_fallback_keys = Some(
+            unused_fallback_keys
+                .into_iter()
+                .map(|key| DeviceKeyAlgorithm::from(key.as_str()))
+                .collect::<Vec<DeviceKeyAlgorithm>>(),
+        );
+
+        Ok(serde_json::to_string(
+            &self
+                .inner
+                .receive_sync_changes(
+                    to_device_events,
+                    &changed_devices,
+                    &one_time_key_counts,
+                    unused_fallback_keys.as_deref(),
+                )
+                .await
+                .map_err(into_err)?,
+        )
+        .map_err(into_err)?)
     }
 
     #[napi]

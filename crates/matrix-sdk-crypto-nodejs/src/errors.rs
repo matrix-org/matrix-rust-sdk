@@ -16,3 +16,10 @@ impl From<Error> for napi::Error {
         value.0
     }
 }
+
+pub fn into_err<E>(error: E) -> napi::Error
+where
+    E: std::error::Error,
+{
+    Error::from(error).into()
+}

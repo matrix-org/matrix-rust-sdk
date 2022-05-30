@@ -29,6 +29,7 @@ ruma = { version = "0.6.2", features = ["client-api-c", "rand", "unstable-msc267
 vodozemac = {  git = "https://github.com/matrix-org/vodozemac/", rev = "d0e744287a14319c2a9148fef3747548c740fc36" }
 napi = { git = "https://github.com/Hywan/napi-rs", branch = "feat-tonapivalue-u16", default-features = false, features = ["napi4", "tokio_rt"] }
 napi-derive = "2.4.1"
+serde_json = "1.0.79"
 
 [build-dependencies]
 napi-build = "2.0.0"
