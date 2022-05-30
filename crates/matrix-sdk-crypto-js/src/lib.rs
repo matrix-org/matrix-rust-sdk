@@ -23,10 +23,10 @@ pub mod events;
 mod future;
 pub mod identifiers;
 pub mod machine;
-pub mod verifications;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;
+pub mod verifications;
 
 use js_sys::{Object, Reflect};
 use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};
