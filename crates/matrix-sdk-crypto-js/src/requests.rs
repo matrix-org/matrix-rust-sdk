@@ -176,7 +176,7 @@ request!(RoomMessageRequest from RumaRoomMessageRequest maps fields room_id, txn
 request!(KeysBackupRequest from RumaKeysBackupRequest maps fields version, rooms);
 
 // JavaScript has no complex enums like Rust. To return structs of
-// different types, we have no choice that hidding everything behind a
+// different types, we have no choice that hiding everything behind a
 // `JsValue`.
 pub(crate) struct OutgoingRequest(pub(crate) matrix_sdk_crypto::OutgoingRequest);
 

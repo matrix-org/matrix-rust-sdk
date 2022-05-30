@@ -35,7 +35,7 @@ use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};
 /// RefFromWasmAbi`, inspired by
 /// https://github.com/rustwasm/wasm-bindgen/issues/2231#issuecomment-656293288.
 ///
-/// The returned value is a likely to be `wasm_bindgen::__ref::Ref<T>`.
+/// The returned value is likely to be a `wasm_bindgen::__ref::Ref<T>`.
 fn downcast<T>(value: &JsValue, classname: &str) -> Result<T::Anchor, JsError>
 where
     T: RefFromWasmAbi<Abi = u32>,

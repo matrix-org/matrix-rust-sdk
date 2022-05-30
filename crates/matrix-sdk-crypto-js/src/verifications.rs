@@ -102,7 +102,7 @@ impl Sas {
         todo!()
     }
 
-    #[wasm_bindgen(js_name = "acceptWithSetings")]
+    #[wasm_bindgen(js_name = "acceptWithSettings")]
     pub fn accept_with_settings(&self) {
         todo!()
     }

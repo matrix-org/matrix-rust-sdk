@@ -461,7 +461,7 @@ impl Into<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Debug, Clone)]
 pub struct EncryptionSettings {
-    /// The algorith, see `EncryptionAlgorithm`.
+    /// The algorithm, see `EncryptionAlgorithm`.
     pub algorithm: EncryptionAlgorithm,
 
     /// A duration expressed in microseconds.
