@@ -37,24 +37,27 @@ impl OlmMachine {
     }
 
     #[napi]
-    #[napi(js_name = "userId")]
     pub fn user_id(&self) -> identifiers::UserId {
         identifiers::UserId::new_with(self.inner.user_id().to_owned())
     }
 
     #[napi]
-    #[napi(js_name = "deviceId")]
     pub fn device_id(&self) -> identifiers::DeviceId {
         identifiers::DeviceId::new_with(self.inner.device_id().to_owned())
     }
 
-    /*
     #[napi]
-    #[napi(js_name = "identityKeys")]
     pub fn identity_keys(&self) -> IdentityKeys {
         self.inner.identity_keys().into()
     }
-    */
+
+    #[napi]
+    pub async fn update_tracked_users(&self, users: Vec<&identifiers::UserId>) {
+        let users: Vec<ruma::OwnedUserId> =
+            users.into_iter().map(|user| user.inner.clone()).collect();
+
+        self.inner.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
+    }
 }
 
 /// An Ed25519 public key, used to verify digital signatures.
