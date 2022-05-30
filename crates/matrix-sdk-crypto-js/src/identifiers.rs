@@ -7,6 +7,7 @@ use wasm_bindgen::prelude::*;
 ///
 /// [user ID]: https://spec.matrix.org/v1.2/appendices/#user-identifiers
 #[wasm_bindgen]
+#[derive(Debug, Clone)]
 pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
@@ -48,6 +49,7 @@ impl UserId {
 
     /// Return the user ID as a string.
     #[wasm_bindgen(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
     }
@@ -79,6 +81,7 @@ impl DeviceId {
 
     /// Return the device ID as a string.
     #[wasm_bindgen(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
     }
@@ -120,6 +123,7 @@ impl RoomId {
 
     /// Return the room ID as a string.
     #[wasm_bindgen(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
     }

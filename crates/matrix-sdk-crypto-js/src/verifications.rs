@@ -1,9 +1,12 @@
+//! Different verification types.
+
 use js_sys::{Array, JsString};
 use ruma::events::key::verification::cancel::CancelCode as RumaCancelCode;
 use wasm_bindgen::prelude::*;
 
 use crate::identifiers::{DeviceId, RoomId, UserId};
 
+/// Short Authentification String (SAS) verification.
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct Sas {
@@ -36,15 +39,21 @@ impl Sas {
         DeviceId { inner: self.inner.other_device_id().to_owned() }
     }
 
+    /*
+    /// Get the device of the other user.
     #[wasm_bindgen(js_name = "otherDevice")]
     pub fn other_device(&self) {
         todo!()
     }
+    */
 
+    /*
+    /// Get the unique ID that identifies this SAS verification flow.
     #[wasm_bindgen(js_name = "flowId")]
     pub fn flow_id(&self) {
         todo!()
     }
+    */
 
     /// Get the room ID if the verification is happening inside a
     /// room.
@@ -98,27 +107,37 @@ impl Sas {
         self.inner.we_started()
     }
 
+    /*
     pub fn accept(&self) {
         todo!()
     }
+    */
 
+    /*
     #[wasm_bindgen(js_name = "acceptWithSettings")]
     pub fn accept_with_settings(&self) {
         todo!()
     }
+    */
 
+    /*
     pub fn confirm(&self) {
         todo!()
     }
+    */
 
+    /*
     pub fn cancel(&self) {
         todo!()
     }
+    */
 
+    /*
     #[wasm_bindgen(js_name = "cancelWithCode")]
     pub fn cancel_with_code(&self) {
         todo!()
     }
+    */
 
     /// Has the SAS verification flow timed out.
     #[wasm_bindgen(js_name = "timedOut")]
@@ -168,7 +187,7 @@ impl Sas {
     /// entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
     #[wasm_bindgen(js_name = "emoji_index")]
     pub fn emoji_index(&self) -> Option<Array> {
-        Some(self.inner.emoji_index()?.iter().map(|emoji| *emoji).map(JsValue::from).collect())
+        Some(self.inner.emoji_index()?.iter().copied().map(JsValue::from).collect())
     }
 
     /// Get the decimal version of the short auth string.
@@ -188,6 +207,7 @@ impl Sas {
     }
 }
 
+/// QR code based verification.
 #[cfg(feature = "qrcode")]
 #[wasm_bindgen]
 #[derive(Debug)]
@@ -227,7 +247,10 @@ impl TryFrom<Verification> for JsValue {
     }
 }
 
+/// Information about the cancellation of a verification request or
+/// verification flow.
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct CancelInfo {
     inner: matrix_sdk_crypto::CancelInfo,
 }
@@ -240,22 +263,28 @@ impl CancelInfo {
 
 #[wasm_bindgen]
 impl CancelInfo {
+    /// Get the human readable reason of the cancellation.
     pub fn reason(&self) -> JsString {
         self.inner.reason().into()
     }
 
+    /// Get the `CancelCode` that cancelled this verification.
     #[wasm_bindgen(js_name = "cancelCode")]
     pub fn cancel_code(&self) -> CancelCode {
         self.inner.cancel_code().into()
     }
 
+    /// Was the verification cancelled by us?
     #[wasm_bindgen(js_name = "cancelledbyUs")]
     pub fn cancelled_by_us(&self) -> bool {
         self.inner.cancelled_by_us()
     }
 }
 
+/// An error code for why the process/request was cancelled by the
+/// user.
 #[wasm_bindgen]
+#[derive(Debug)]
 pub enum CancelCode {
     /// Unknown cancel code.
     Other,
@@ -329,7 +358,15 @@ impl From<&RumaCancelCode> for CancelCode {
     }
 }
 
+/// An emoji that is used for interactive verification using a short
+/// auth string.
+///
+/// This will contain a single emoji and description from the list of
+/// emojis from [the specification].
+///
+/// [the specification]: https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct Emoji {
     inner: matrix_sdk_crypto::Emoji,
 }
@@ -342,11 +379,14 @@ impl Emoji {
 
 #[wasm_bindgen]
 impl Emoji {
+    /// The emoji symbol that represents a part of the short auth
+    /// string, for example: 🐶
     #[wasm_bindgen(getter)]
     pub fn symbol(&self) -> JsString {
         self.inner.symbol.into()
     }
 
+    /// The description of the emoji, for example ‘Dog’.
     #[wasm_bindgen(getter)]
     pub fn description(&self) -> JsString {
         self.inner.description.into()

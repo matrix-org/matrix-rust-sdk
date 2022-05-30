@@ -15,6 +15,7 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
+#![allow(clippy::drop_non_drop)] // `wasm-bindgen` generates probably useless `std::mem::drop` calls.
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 compile_error!("This crate is designed to only be compiled to `wasm32-unknown-unknown`.");
@@ -40,7 +41,7 @@ fn downcast<T>(value: &JsValue, classname: &str) -> Result<T::Anchor, JsError>
 where
     T: RefFromWasmAbi<Abi = u32>,
 {
-    let constructor_name = Object::get_prototype_of(&value).constructor().name();
+    let constructor_name = Object::get_prototype_of(value).constructor().name();
 
     if constructor_name == classname {
         let pointer = Reflect::get(value, &JsValue::from_str("ptr"))

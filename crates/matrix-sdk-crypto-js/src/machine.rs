@@ -1,3 +1,5 @@
+//! The crypto specific Olm objects.
+
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use js_sys::{Array, Map, Promise, Set};
@@ -17,6 +19,8 @@ use crate::{
     sync_events, verifications,
 };
 
+/// State machine implementation of the Olm/Megolm encryption protocol
+/// used for Matrix end to end encryption.
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct OlmMachine {
@@ -25,7 +29,16 @@ pub struct OlmMachine {
 
 #[wasm_bindgen]
 impl OlmMachine {
+    /// Create a new memory based `OlmMachine`.
+    ///
+    /// The created machine will keep the encryption keys only in
+    /// memory and once the objects is dropped, the keys will be lost.
+    ///
+    /// `user_id` represents the unique ID of the user that owns this
+    /// machine. `device_id` represents the unique ID of the device
+    /// that owns this machine.
     #[wasm_bindgen(constructor)]
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(user_id: &identifiers::UserId, device_id: &identifiers::DeviceId) -> Promise {
         let user_id = user_id.inner.clone();
         let device_id = device_id.inner.clone();
@@ -42,16 +55,16 @@ impl OlmMachine {
     /// The unique user ID that owns this `OlmMachine` instance.
     #[wasm_bindgen(js_name = "userId")]
     pub fn user_id(&self) -> identifiers::UserId {
-        identifiers::UserId { inner: self.inner.user_id().to_owned() }
+        identifiers::UserId::new_with(self.inner.user_id().to_owned())
     }
 
     /// The unique device ID that identifies this `OlmMachine`.
     #[wasm_bindgen(js_name = "deviceId")]
     pub fn device_id(&self) -> identifiers::DeviceId {
-        identifiers::DeviceId { inner: self.inner.device_id().to_owned() }
+        identifiers::DeviceId::new_with(self.inner.device_id().to_owned())
     }
 
-    ///// Get the public parts of our Olm identity keys.
+    /// Get the public parts of our Olm identity keys.
     #[wasm_bindgen(js_name = "identityKeys")]
     pub fn identity_keys(&self) -> IdentityKeys {
         self.inner.identity_keys().into()
@@ -72,13 +85,11 @@ impl OlmMachine {
     pub fn tracked_users(&self) -> Set {
         let set = Set::new(&JsValue::UNDEFINED);
 
-        self.inner
-            .tracked_users()
-            .into_iter()
-            .map(|user| identifiers::UserId { inner: user })
-            .for_each(|user| {
+        self.inner.tracked_users().into_iter().map(identifiers::UserId::new_with).for_each(
+            |user| {
                 set.add(&user.into());
-            });
+            },
+        );
 
         set
     }
@@ -108,6 +119,13 @@ impl OlmMachine {
         }))
     }
 
+    /// Handle a to-device and one-time key counts from a sync response.
+    ///
+    /// This will decrypt and handle to-device events returning the
+    /// decrypted versions of them.
+    ///
+    /// To decrypt an event from the room timeline call
+    /// `decrypt_room_event`.
     #[wasm_bindgen(js_name = "receiveSyncChanges")]
     pub fn receive_sync_changes(
         &self,
@@ -367,10 +385,11 @@ impl OlmMachine {
             .map(verifications::Verification)
             .map(JsValue::try_from)
             .transpose()
-            .map(|r| r.unwrap_or_else(|| JsValue::UNDEFINED))
+            .map(|r| r.unwrap_or(JsValue::UNDEFINED))
     }
 }
 
+/// An Ed25519 public key, used to verify digital signatures.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct Ed25519PublicKey {
@@ -379,17 +398,21 @@ pub struct Ed25519PublicKey {
 
 #[wasm_bindgen]
 impl Ed25519PublicKey {
+    /// The number of bytes an Ed25519 public key has.
     #[wasm_bindgen(getter)]
     pub fn length(&self) -> usize {
         vodozemac::Ed25519PublicKey::LENGTH
     }
 
+    /// Serialize an Ed25519 public key to an unpadded base64
+    /// representation.
     #[wasm_bindgen(js_name = "toBase64")]
     pub fn to_base64(&self) -> String {
         self.inner.to_base64()
     }
 }
 
+/// A Curve25519 public key.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct Curve25519PublicKey {
@@ -398,21 +421,28 @@ pub struct Curve25519PublicKey {
 
 #[wasm_bindgen]
 impl Curve25519PublicKey {
+    /// The number of bytes a Curve25519 public key has.
     #[wasm_bindgen(getter)]
     pub fn length(&self) -> usize {
         vodozemac::Curve25519PublicKey::LENGTH
     }
 
+    /// Serialize an Curve25519 public key to an unpadded base64
+    /// representation.
     #[wasm_bindgen(js_name = "toBase64")]
     pub fn to_base64(&self) -> String {
         self.inner.to_base64()
     }
 }
 
+/// Struct holding the two public identity keys of an account.
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Debug)]
 pub struct IdentityKeys {
+    /// The Ed25519 public key, used for signing.
     pub ed25519: Ed25519PublicKey,
+
+    /// The Curve25519 public key, used for establish shared secrets.
     pub curve25519: Curve25519PublicKey,
 }
 
@@ -425,6 +455,8 @@ impl From<matrix_sdk_crypto::olm::IdentityKeys> for IdentityKeys {
     }
 }
 
+/// An encryption algorithm to be used to encrypt messages sent to a
+/// room.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub enum EncryptionAlgorithm {
@@ -446,40 +478,45 @@ impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
     }
 }
 
-impl Into<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
-    fn into(self) -> EncryptionAlgorithm {
-        use EncryptionAlgorithm::*;
+impl From<ruma::EventEncryptionAlgorithm> for EncryptionAlgorithm {
+    fn from(value: ruma::EventEncryptionAlgorithm) -> Self {
+        use ruma::EventEncryptionAlgorithm::*;
 
-        match self {
-            Self::OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2,
-            Self::MegolmV1AesSha2 => MegolmV1AesSha2,
+        match value {
+            OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
+            MegolmV1AesSha2 => Self::MegolmV1AesSha2,
             _ => unreachable!("Unknown variant"),
         }
     }
 }
 
+/// Settings for an encrypted room.
+///
+/// This determines the algorithm and rotation periods of a group
+/// session.
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Debug, Clone)]
 pub struct EncryptionSettings {
-    /// The algorithm, see `EncryptionAlgorithm`.
+    /// The encryption algorithm that should be used in the room.
     pub algorithm: EncryptionAlgorithm,
 
-    /// A duration expressed in microseconds.
+    /// How long the session should be used before changing it,
+    /// expressed in microseconds.
     #[wasm_bindgen(js_name = "rotationPeriod")]
     pub rotation_period: u64,
 
+    /// How many messages should be sent before changing the session.
     #[wasm_bindgen(js_name = "rotationPeriodMessages")]
     pub rotation_period_messages: u64,
 
+    /// The history visibility of the room when the session was
+    /// created.
     #[wasm_bindgen(js_name = "historyVisibility")]
     pub history_visibility: events::HistoryVisibility,
 }
 
-#[wasm_bindgen]
-impl EncryptionSettings {
-    /// Create a new `EncryptionSettings` with default values.
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> EncryptionSettings {
+impl Default for EncryptionSettings {
+    fn default() -> Self {
         let default = matrix_sdk_crypto::olm::EncryptionSettings::default();
 
         Self {
@@ -488,6 +525,15 @@ impl EncryptionSettings {
             rotation_period_messages: default.rotation_period_msgs,
             history_visibility: default.history_visibility.into(),
         }
+    }
+}
+
+#[wasm_bindgen]
+impl EncryptionSettings {
+    /// Create a new `EncryptionSettings` with default values.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> EncryptionSettings {
+        Self::default()
     }
 }
 

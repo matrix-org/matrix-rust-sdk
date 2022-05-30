@@ -222,11 +222,24 @@ impl TryFrom<OutgoingRequest> for JsValue {
 #[wasm_bindgen]
 #[derive(Debug)]
 pub enum RequestType {
+    /// Represents a `KeysUploadRequest`.
     KeysUpload,
+
+    /// Represents a `KeysQueryRequest`.
     KeysQuery,
+
+    /// Represents a `KeysClaimRequest`.
     KeysClaim,
+
+    /// Represents a `ToDeviceRequest`.
     ToDevice,
+
+    /// Represents a `SignatureUploadRequest`.
     SignatureUpload,
+
+    /// Represents a `RoomMessageRequest`.
     RoomMessage,
+
+    /// Represents a `KeysBackupRequest`.
     KeysBackup,
 }
