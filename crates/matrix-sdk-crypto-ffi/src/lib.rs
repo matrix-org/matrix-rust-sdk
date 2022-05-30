@@ -382,9 +382,21 @@ pub struct RoomKeyCounts {
 /// Backup keys and information we load from the store.
 pub struct BackupKeys {
     /// The recovery key as a base64 encoded string.
-    pub recovery_key: String,
+    recovery_key: Arc<BackupRecoveryKey>,
     /// The version that is used with the recovery key.
-    pub backup_version: String,
+    backup_version: String,
+}
+
+impl BackupKeys {
+    /// Get the recovery key that we're holding on to.
+    pub fn recovery_key(&self) -> Arc<BackupRecoveryKey> {
+        self.recovery_key.clone()
+    }
+
+    /// Get the backups version that we're holding on to.
+    pub fn backup_version(&self) -> String {
+        self.backup_version.to_owned()
+    }
 }
 
 impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
@@ -392,7 +404,11 @@ impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
 
     fn try_from(keys: matrix_sdk_crypto::store::BackupKeys) -> Result<Self, Self::Error> {
         Ok(Self {
-            recovery_key: keys.recovery_key.ok_or(())?.to_base64(),
+            recovery_key: BackupRecoveryKey {
+                inner: keys.recovery_key.ok_or(())?,
+                passphrase_info: None,
+            }
+            .into(),
             backup_version: keys.backup_version.ok_or(())?,
         })
     }
