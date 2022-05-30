@@ -1,13 +1,10 @@
 //! The crypto specific Olm objects.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, time::Duration};
 
 use js_sys::{Array, Map, Promise, Set};
-use ruma::{
-    events::{AnyMessageLikeEventContent, EventContent},
-    DeviceKeyAlgorithm, OwnedTransactionId, UInt,
-};
-use serde_json::value::RawValue as RawJsonValue;
+use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
+use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::{
@@ -16,15 +13,15 @@ use crate::{
     identifiers, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
-    sync_events, verifications,
+    sync_events,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
 /// used for Matrix end to end encryption.
 #[wasm_bindgen]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OlmMachine {
-    inner: Arc<matrix_sdk_crypto::OlmMachine>,
+    inner: matrix_sdk_crypto::OlmMachine,
 }
 
 #[wasm_bindgen]
@@ -45,9 +42,8 @@ impl OlmMachine {
 
         future_to_promise(async move {
             Ok(OlmMachine {
-                inner: Arc::new(
-                    matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref()).await,
-                ),
+                inner: matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref())
+                    .await,
             })
         })
     }
@@ -119,7 +115,8 @@ impl OlmMachine {
         }))
     }
 
-    /// Handle a to-device and one-time key counts from a sync response.
+    /// Handle to-device events and one-time key counts from a sync
+    /// response.
     ///
     /// This will decrypt and handle to-device events returning the
     /// decrypted versions of them.
@@ -206,12 +203,14 @@ impl OlmMachine {
     /// Mark the request with the given request ID as sent (see
     /// `outgoing_requests`).
     ///
-    /// `request_id` represents the unique ID of the request that was
-    /// sent out. This is needed to couple the response with the now
-    /// sent out request. `response_type` represents the type of the
-    /// request that was sent out. `response` represents the response
-    /// that was received from the server after the outgoing request
-    /// was sent out. `
+    /// Arguments are:
+    ///
+    /// * `request_id` represents the unique ID of the request that was sent
+    ///   out. This is needed to couple the response with the now sent out
+    ///   request.
+    /// * `response_type` represents the type of the request that was sent out.
+    /// * `response` represents the response that was received from the server
+    ///   after the outgoing request was sent out.
     #[wasm_bindgen(js_name = "markRequestAsSent")]
     pub fn mark_request_as_sent(
         &self,
@@ -235,11 +234,6 @@ impl OlmMachine {
     /// Beware that a group session needs to be shared before this
     /// method can be called using the `share_group_session` method.
     ///
-    /// Since group sessions can expire or become invalid if the room
-    /// membership changes, client authors should check with the
-    /// `should_share_group_session` method if a new group session
-    /// needs to be shared.
-    ///
     /// `room_id` is the ID of the room for which the message should
     /// be encrypted. `event_type` is the type of the event. `content`
     /// is the plaintext content of the message that should be
@@ -247,22 +241,23 @@ impl OlmMachine {
     ///
     /// # Panics
     ///
-    /// Panics if a group session for the given room wasn't shared beforehand.
+    /// Panics if a group session for the given room wasn't shared
+    /// beforehand.
     #[wasm_bindgen(js_name = "encryptRoomEvent")]
     pub fn encrypt_room_event(
         &self,
         room_id: &identifiers::RoomId,
-        event_type: &str,
+        event_type: String,
         content: &str,
     ) -> Result<Promise, JsError> {
         let room_id = room_id.inner.clone();
-        let content: Box<RawJsonValue> = serde_json::from_str(content)?;
-        let content = AnyMessageLikeEventContent::from_parts(event_type, &content)?;
-
+        let content: JsonValue = serde_json::from_str(content)?;
         let me = self.inner.clone();
 
         Ok(future_to_promise(async move {
-            Ok(serde_json::to_string(&me.encrypt_room_event(&room_id, content).await?)?)
+            Ok(serde_json::to_string(
+                &me.encrypt_room_event_raw(&room_id, content, event_type.as_ref()).await?,
+            )?)
         }))
     }
 
@@ -361,31 +356,6 @@ impl OlmMachine {
                 None => Ok(JsValue::NULL),
             }
         }))
-    }
-
-    /// Get a verification object for the given user ID with the given flow ID.
-    ///
-    /// Returns a list of `JsValue` to represent either (depending on
-    /// how the Wasm module has been compiled):
-    ///   * `Sas` (enabled),
-    ///   * `Qr`
-    #[cfg_attr(feature = "qrcode", doc = "(enabled).")]
-    #[cfg_attr(not(feature = "qrcode"), doc = "(disabled).")]
-    ///
-    /// If a verification mode is missing, please try to compile the
-    /// Wasm module with different features.
-    #[wasm_bindgen(js_name = "getVerification")]
-    pub fn get_verification(
-        &self,
-        user_id: &identifiers::UserId,
-        flow_id: &str,
-    ) -> Result<JsValue, JsError> {
-        self.inner
-            .get_verification(user_id.inner.as_ref(), flow_id)
-            .map(verifications::Verification)
-            .map(JsValue::try_from)
-            .transpose()
-            .map(|r| r.unwrap_or(JsValue::UNDEFINED))
     }
 }
 

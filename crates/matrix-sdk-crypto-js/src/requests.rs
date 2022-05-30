@@ -15,9 +15,12 @@ use ruma::api::client::keys::{
 };
 use wasm_bindgen::prelude::*;
 
-/// Data for a request to the `upload_keys` API endpoint.
+/// Data for a request to the `/keys/upload` API endpoint
+/// ([specification]).
 ///
 /// Publishes end-to-end encryption keys for the device.
+///
+/// [specification]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3keysupload
 #[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct KeysUploadRequest {
@@ -34,9 +37,12 @@ pub struct KeysUploadRequest {
     pub body: JsString,
 }
 
-/// Data for a request to the `get_keys` API endpoint.
+/// Data for a request to the `/keys/query` API endpoint
+/// ([specification]).
 ///
 /// Returns the current devices and identity keys for the given users.
+///
+/// [specification]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3keysquery
 #[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct KeysQueryRequest {
@@ -53,9 +59,13 @@ pub struct KeysQueryRequest {
     pub body: JsString,
 }
 
-/// Data for a request to the `claim_keys` API endpoint.
+/// Data for a request to the `/keys/claim` API endpoint
+/// ([specification]).
 ///
-/// Claims one-time keys for use in pre-key messages.
+/// Claims one-time keys that can be used to establish 1-to-1 E2EE
+/// sessions.
+///
+/// [specification]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3keysclaim
 #[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct KeysClaimRequest {
@@ -72,9 +82,12 @@ pub struct KeysClaimRequest {
     pub body: JsString,
 }
 
-/// Data for a request to the `send_event_to_device` API endpoint.
+/// Data for a request to the `/sendToDevice` API endpoint
+/// ([specification]).
 ///
-/// Send an event to a device or devices.
+/// Send an event to a single device or to a group of devices.
+///
+/// [specification]: https://spec.matrix.org/unstable/client-server-api/#put_matrixclientv3sendtodeviceeventtypetxnid
 #[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct ToDeviceRequest {
@@ -91,9 +104,12 @@ pub struct ToDeviceRequest {
     pub body: JsString,
 }
 
-/// Data for a request to the `upload_signatures` API endpoint.
+/// Data for a request to the `/keys/signatures/upload` API endpoint
+/// ([specification]).
 ///
 /// Publishes cross-signing signatures for the user.
+///
+/// [specification]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3keyssignaturesupload
 #[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct SignatureUploadRequest {
@@ -110,7 +126,10 @@ pub struct SignatureUploadRequest {
     pub body: JsString,
 }
 
-/// A customized owned request type for sending out room messages.
+/// A customized owned request type for sending out room messages
+/// ([specification]).
+///
+/// [specification]: https://spec.matrix.org/unstable/client-server-api/#put_matrixclientv3roomsroomidsendeventtypetxnid
 #[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct RoomMessageRequest {
@@ -127,7 +146,10 @@ pub struct RoomMessageRequest {
     pub body: JsString,
 }
 
-/// A request that will back up a batch of room keys to the server.
+/// A request that will back up a batch of room keys to the server
+/// ([specification]).
+///
+/// [specification]: https://spec.matrix.org/unstable/client-server-api/#put_matrixclientv3room_keyskeys
 #[derive(Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct KeysBackupRequest {
@@ -138,7 +160,7 @@ pub struct KeysBackupRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```
-    /// {"version": …, "rooms": …}
+    /// {"rooms": …}
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
@@ -173,7 +195,7 @@ request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout, one_tim
 request!(ToDeviceRequest from RumaToDeviceRequest maps fields event_type, txn_id, messages);
 request!(SignatureUploadRequest from RumaSignatureUploadRequest maps fields signed_keys);
 request!(RoomMessageRequest from RumaRoomMessageRequest maps fields room_id, txn_id, content);
-request!(KeysBackupRequest from RumaKeysBackupRequest maps fields version, rooms);
+request!(KeysBackupRequest from RumaKeysBackupRequest maps fields rooms);
 
 // JavaScript has no complex enums like Rust. To return structs of
 // different types, we have no choice that hiding everything behind a

@@ -23,7 +23,7 @@ impl UserId {
     /// Parse/validate and create a new `UserId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> Result<UserId, JsError> {
-        Ok(Self { inner: ruma::UserId::parse(id)? })
+        Ok(Self::new_with(ruma::UserId::parse(id)?))
     }
 
     /// Returns the user's localpart.
@@ -76,7 +76,7 @@ impl DeviceId {
     /// Create a new `DeviceId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> DeviceId {
-        Self { inner: id.into() }
+        Self::new_with(id.into())
     }
 
     /// Return the device ID as a string.
@@ -107,7 +107,7 @@ impl RoomId {
     /// Parse/validate and create a new `RoomId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> Result<RoomId, JsError> {
-        Ok(Self { inner: ruma::RoomId::parse(id)? })
+        Ok(Self::new_with(ruma::RoomId::parse(id)?))
     }
 
     /// Returns the user's localpart.

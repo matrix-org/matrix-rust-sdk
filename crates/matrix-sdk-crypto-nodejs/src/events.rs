@@ -2,6 +2,7 @@
 
 use napi::bindgen_prelude::ToNapiValue;
 use napi_derive::*;
+use ruma::events::room::history_visibility::HistoryVisibility as RumaHistoryVisibility;
 
 /// Who can see a room's history.
 #[napi]
@@ -33,7 +34,7 @@ pub enum HistoryVisibility {
     WorldReadable,
 }
 
-impl From<HistoryVisibility> for ruma::events::room::history_visibility::HistoryVisibility {
+impl From<HistoryVisibility> for RumaHistoryVisibility {
     fn from(value: HistoryVisibility) -> Self {
         use HistoryVisibility::*;
 
@@ -46,15 +47,15 @@ impl From<HistoryVisibility> for ruma::events::room::history_visibility::History
     }
 }
 
-impl Into<HistoryVisibility> for ruma::events::room::history_visibility::HistoryVisibility {
-    fn into(self) -> HistoryVisibility {
-        use HistoryVisibility::*;
+impl From<RumaHistoryVisibility> for HistoryVisibility {
+    fn from(value: RumaHistoryVisibility) -> Self {
+        use RumaHistoryVisibility::*;
 
-        match self {
-            Self::Invited => Invited,
-            Self::Joined => Joined,
-            Self::Shared => Shared,
-            Self::WorldReadable => WorldReadable,
+        match value {
+            Invited => Self::Invited,
+            Joined => Self::Joined,
+            Shared => Self::Shared,
+            WorldReadable => Self::WorldReadable,
             _ => unreachable!("Unknown variant"),
         }
     }

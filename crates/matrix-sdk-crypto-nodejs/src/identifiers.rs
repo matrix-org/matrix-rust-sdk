@@ -50,6 +50,7 @@ impl UserId {
 
     /// Return the user ID as a string.
     #[napi(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
     }
@@ -75,6 +76,7 @@ impl DeviceId {
 
     /// Return the device ID as a string.
     #[napi(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
     }
@@ -115,6 +117,7 @@ impl RoomId {
 
     /// Return the room ID as a string.
     #[napi(js_name = "toString")]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
     }

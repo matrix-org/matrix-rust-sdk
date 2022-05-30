@@ -11,8 +11,8 @@ where
     }
 }
 
-impl Into<napi::Error> for Error {
-    fn into(self) -> napi::Error {
-        self.0
+impl From<Error> for napi::Error {
+    fn from(value: Error) -> Self {
+        value.0
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2022 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
 
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-compile_error!("This crate is designed to only be compiled to `wasm32-unknown-unknown`.");
-
 pub mod events;
 mod future;
 pub mod identifiers;
@@ -26,7 +23,6 @@ pub mod machine;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;
-pub mod verifications;
 
 use js_sys::{Object, Reflect};
 use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};
