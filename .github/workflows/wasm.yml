@@ -27,7 +27,7 @@ jobs:
           - matrix-sdk-qrcode
           - matrix-sdk-base
           - matrix-sdk-common
-          - matrix-sdk-crypto
+          - matrix-sdk-crypto-js
           - indexeddb-no-crypto
           - indexeddb-with-crypto
 
@@ -54,7 +54,7 @@ jobs:
         profile: minimal
         override: true
 
-    - name: Install WasmPack
+    - name: Install wasm-pack
       uses: jetli/wasm-pack-action@v0.3.0
       with:
         version: 'latest'
