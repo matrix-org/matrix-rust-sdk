@@ -9,6 +9,7 @@ use crate::errors::*;
 ///
 /// [user ID]: https://spec.matrix.org/v1.2/appendices/#user-identifiers
 #[napi]
+#[derive(Debug, Clone)]
 pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
