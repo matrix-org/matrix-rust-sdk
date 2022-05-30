@@ -1705,7 +1705,7 @@ pub(crate) mod tests {
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut device_keys),
+            json!(&mut device_keys),
         );
         assert!(ret.is_ok());
     }
@@ -1738,7 +1738,7 @@ pub(crate) mod tests {
         let ret = key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut device_keys),
+            json!(&mut device_keys),
         );
         assert!(ret.is_err());
     }
@@ -1758,7 +1758,7 @@ pub(crate) mod tests {
             .verify_json(
                 &machine.user_id,
                 &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-                &mut json!(&mut one_time_key),
+                json!(&mut one_time_key),
             )
             .expect("One-time key has been signed successfully");
     }
@@ -1776,14 +1776,14 @@ pub(crate) mod tests {
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut request.one_time_keys.values_mut().next()),
+            json!(&mut request.one_time_keys.values_mut().next()),
         );
         assert!(ret.is_ok());
 
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut request.device_keys.unwrap()),
+            json!(&mut request.device_keys.unwrap()),
         );
         assert!(ret.is_ok());
 
