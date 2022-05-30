@@ -14,16 +14,22 @@ pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
 
+impl UserId {
+    pub(crate) fn new_with(inner: ruma::OwnedUserId) -> Self {
+        Self { inner }
+    }
+}
+
 #[napi]
 impl UserId {
     /// Parse/validate and create a new `UserId`.
     #[napi(constructor)]
     pub fn new(id: String) -> Result<UserId, napi::Error> {
-        Ok(Self {
-            inner: ruma::UserId::parse(id.as_str())
+        Ok(Self::new_with(
+            ruma::UserId::parse(id.as_str())
                 .map_err(Error::from)
                 .map_err(Into::<napi::Error>::into)?,
-        })
+        ))
     }
 
     /// Returns the user's localpart.
@@ -66,12 +72,18 @@ pub struct DeviceId {
     pub(crate) inner: ruma::OwnedDeviceId,
 }
 
+impl DeviceId {
+    pub(crate) fn new_with(inner: ruma::OwnedDeviceId) -> Self {
+        Self { inner }
+    }
+}
+
 #[napi]
 impl DeviceId {
     /// Create a new `DeviceId`.
     #[napi(constructor)]
     pub fn new(id: String) -> DeviceId {
-        Self { inner: id.into() }
+        Self::new_with(id.into())
     }
 
     /// Return the device ID as a string.
@@ -91,16 +103,20 @@ pub struct RoomId {
     pub(crate) inner: ruma::OwnedRoomId,
 }
 
+impl RoomId {
+    pub(crate) fn new_with(inner: ruma::OwnedRoomId) -> Self {
+        Self { inner }
+    }
+}
+
 #[napi]
 impl RoomId {
     /// Parse/validate and create a new `RoomId`.
     #[napi(constructor)]
     pub fn new(id: String) -> Result<RoomId, napi::Error> {
-        Ok(Self {
-            inner: ruma::RoomId::parse(id)
-                .map_err(Error::from)
-                .map_err(Into::<napi::Error>::into)?,
-        })
+        Ok(Self::new_with(
+            ruma::RoomId::parse(id).map_err(Error::from).map_err(Into::<napi::Error>::into)?,
+        ))
     }
 
     /// Returns the user's localpart.

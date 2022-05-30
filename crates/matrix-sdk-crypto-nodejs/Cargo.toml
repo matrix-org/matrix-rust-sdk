@@ -26,8 +26,8 @@ docsrs = []
 [dependencies]
 matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto" }
 ruma = { version = "0.6.2", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = "0.2.0"
-napi = { git = "https://github.com/Hywan/napi-rs", branch = "feat-tonapivalue-u16", default-features = false, features = ["napi4"] }
+vodozemac = {  git = "https://github.com/matrix-org/vodozemac/", rev = "d0e744287a14319c2a9148fef3747548c740fc36" }
+napi = { git = "https://github.com/Hywan/napi-rs", branch = "feat-tonapivalue-u16", default-features = false, features = ["napi4", "tokio_rt"] }
 napi-derive = "2.4.1"
 
 [build-dependencies]

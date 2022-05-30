@@ -18,11 +18,7 @@
 
 mod errors;
 pub mod events;
-//mod future;
 pub mod identifiers;
-//pub mod machine;
-//pub mod requests;
-//pub mod responses;
-//pub mod sync_events;
+pub mod machine;
 
 pub use crate::errors::Error;
