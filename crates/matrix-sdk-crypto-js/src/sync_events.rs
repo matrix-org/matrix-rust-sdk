@@ -16,10 +16,7 @@ pub struct DeviceLists {
 impl DeviceLists {
     /// Create an empty `DeviceLists`.
     ///
-    /// `changed` and `left` must be an array of strings representing
-    /// a user ID. Ideally, we should pass a `UserId` object instance,
-    /// but it's a limitation of `wasm-bindgen` (a workaround is
-    /// possible but it will slow down performance).
+    /// `changed` and `left` must be an array of `UserId`.
     #[wasm_bindgen(constructor)]
     pub fn new(changed: Array, left: Array) -> Result<DeviceLists, JsError> {
         let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
