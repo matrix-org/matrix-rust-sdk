@@ -1,3 +1,5 @@
+//! Types to handle requests.
+
 use js_sys::JsString;
 use matrix_sdk_crypto::{
     requests::{
