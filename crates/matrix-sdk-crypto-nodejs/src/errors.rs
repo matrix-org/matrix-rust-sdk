@@ -1,3 +1,4 @@
+/// Generic error wrapping `napi::Error`.
 #[derive(Debug)]
 pub struct Error(napi::Error);
 
