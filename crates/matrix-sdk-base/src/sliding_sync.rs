@@ -27,8 +27,8 @@ impl BaseClient {
         let sliding_sync_events::Response {
             // not applicable.
             // next_batch,
-            room_subscriptions,
-            ops,
+            mut rooms,
+            lists,
             // FIXME: missing compared to v3::Response
             //presence,
             //account_data,
@@ -38,64 +38,6 @@ impl BaseClient {
             //device_unused_fallback_key_types,
             ..
         } = response;
-        let mut rooms = {
-            if let Some(subs) = room_subscriptions {
-                subs.clone()
-            } else {
-                Default::default()
-            }
-        };
-
-        
-
-        for op in ops
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|r| r.deserialize().ok())
-        {
-            let local_rooms = if let Some(rooms) = &op.rooms {
-                rooms.clone()
-            } else if let Some(room) = op.room {
-                vec![room]
-            } else {
-                // op has no room updates, skipping
-                continue
-            };
-
-            for room in local_rooms {
-                let room_id = if let Some(Ok(room_id)) = room.room_id.clone().map(RoomId::parse) {
-                    room_id
-                } else {
-                    continue
-                };
-                rooms
-                    .entry(room_id)
-                    .and_modify(|entry| {
-                        // different ops might filter different fields, so
-                        // we need to merge the data
-                        for e in &room.timeline {
-                            let event_id : String = if let Ok(Some(event_id)) = e.get_field("event_id") { event_id } else { continue };
-                            if !entry.timeline.iter().find(|t|
-                                t.get_field("event_id").ok().flatten().map(|f: String| f == event_id).unwrap_or_default()
-                            ).is_none() {
-                                entry.timeline.push(e.clone());
-                            }
-                        }
-                        for e in &room.required_state {
-                            let event_id: String = if let Ok(Some(event_id)) = e.get_field("event_id") { event_id } else { continue };
-                            if !entry.required_state.iter().find(|t|
-                                    t.get_field("event_id").ok().flatten().map(|f: String| f == event_id).unwrap_or_default()
-                            ).is_none() {
-                                entry.required_state.push(e.clone());
-                            }
-                        }
-
-                        // we assume the other fields are the same for the same response answer
-                    })
-                    .or_insert_with(|| room.clone());
-            }
-
-        }
 
         // FIXME not yet supported by sliding sync. 
         // #[cfg(feature = "encryption")]
@@ -116,6 +58,13 @@ impl BaseClient {
         //         to_device
         //     }
         // };
+
+        let rooms = if let Some(rooms) = rooms {
+            rooms
+        } else  {
+            // nothing for us to handle here
+            return Ok(SyncResponse::default())
+        };
 
         let store = self.store();
         let mut changes = StateChanges::default();

@@ -40,7 +40,7 @@ use matrix_sdk_common::locks::RwLock;
 // };
 use ruma::{
     OwnedRoomId,
-    api::client::sync::sliding_sync_events, assign, events::{EventType, AnySyncRoomEvent}, serde::Raw, RoomId, UInt,
+    api::client::sync::sliding_sync_events, assign, events::{RoomEventType, AnySyncRoomEvent}, serde::Raw, RoomId, UInt,
 };
 use tracing::{error, info, instrument, warn};
 use url::Url;
@@ -127,7 +127,7 @@ impl Default for RoomListEntry {
 #[derive(Debug, Clone)]
 /// Room info as giving by the SlidingSync Feature
 pub struct SlidingSyncRoom {
-    inner: sliding_sync_events::Room,
+    inner: sliding_sync_events::SlidingSyncRoom,
     is_loading_more: futures_signals::signal::Mutable<bool>,
     prev_batch: futures_signals::signal::Mutable<Option<String>>,
     timeline: AliveRoomTimeline,
@@ -149,15 +149,15 @@ impl SlidingSyncRoom {
 }
 
 impl std::ops::Deref for SlidingSyncRoom {
-    type Target = sliding_sync_events::Room;
+    type Target = sliding_sync_events::SlidingSyncRoom;
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl From<sliding_sync_events::Room> for SlidingSyncRoom {
-    fn from(mut inner: sliding_sync_events::Room) -> Self {
-        let sliding_sync_events::Room {
+impl From<sliding_sync_events::SlidingSyncRoom> for SlidingSyncRoom {
+    fn from(mut inner: sliding_sync_events::SlidingSyncRoom) -> Self {
+        let sliding_sync_events::SlidingSyncRoom {
             timeline,
             ..
         } =  inner;
@@ -319,39 +319,32 @@ impl SlidingSync {
         self.client.process_sliding_sync(resp.clone());
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
+        if resp.lists.len() != views.len() {
+            bail!("Received response for {} lists, yet we have {}", resp.lists.len(), views.len());
+        }
 
-        if let Some(ops) = resp.ops {
-            let mut mapped_ops = Vec::new();
-            mapped_ops.resize_with(views.len(), Vec::new);
-
-            for (idx, ops) in ops
-                .iter()
-                .filter_map(|r| r.deserialize().ok())
-                .fold(mapped_ops, |mut mp, op| {
-                    let idx: u32 =
-                        op.list.try_into().expect("the list index is convertible into u32");
-                    mp[idx as usize].push(op);
-                    mp
-                })
-                .iter()
-                .enumerate()
-            {
-                let count: u32 = resp.counts[idx].try_into().context("conversion always works")?;
-                views[idx].handle_response(count, ops)?;
-                updated_views.push(views[idx].name.clone());
+        for (view, updates) in views.iter().zip(resp.lists.iter()) {
+            let count: u32 = updates.count.try_into().expect("the list total count convertible into u32");
+            if let Some(ops) = &updates.ops {
+                if view.handle_response(count, ops)? {
+                    updated_views.push(view.name.clone());
+                }
             }
         }
 
-        let rooms  = if let Some(subs) = &resp.room_subscriptions {
+        let rooms  = if let Some(room_updates) = &resp.rooms {
             let mut updated = Vec::new();
-            let mut rooms = self.rooms.lock_mut();
-            for (id, room_data) in subs.iter() {
-                if let Some(r) = rooms.get(id) {
+            let mut rooms_map = self.rooms.lock_mut();
+            for (id, room_data) in room_updates.iter() {
+                if let Some(r) = rooms_map.get(id) {
                     // FIXME: other updates
                     if !room_data.timeline.is_empty() {
                         r.received_newer_timeline(&room_data.timeline);
                         updated.push(id.clone())
                     }
+                } else {
+                    rooms_map.insert_cloned(id.clone(), room_data.clone().into());
+                    updated.push(id.clone());
                 }
             }
             updated
@@ -456,7 +449,7 @@ pub struct SlidingSyncView {
     sort: Vec<String>,
 
     #[builder(default = "self.default_required_state()")]
-    required_state: Vec<(EventType, String)>,
+    required_state: Vec<(RoomEventType, String)>,
 
     #[builder(default = "20")]
     batch_size: u32,
@@ -503,12 +496,12 @@ impl SlidingSyncViewBuilder {
         vec!["by_recency".to_string(), "by_name".to_string()]
     }
 
-    fn default_required_state(&self) -> Vec<(EventType, String)> {
+    fn default_required_state(&self) -> Vec<(RoomEventType, String)> {
         vec![
-            (EventType::RoomAvatar, "".to_string()),
-            (EventType::RoomMember, "*".to_string()),
-            (EventType::RoomEncryption, "".to_string()),
-            (EventType::RoomTombstone, "".to_string()),
+            (RoomEventType::RoomAvatar, "".to_string()),
+            (RoomEventType::RoomMember, "*".to_string()),
+            (RoomEventType::RoomEncryption, "".to_string()),
+            (RoomEventType::RoomTombstone, "".to_string()),
         ]
     }
 
@@ -669,7 +662,7 @@ impl SlidingSyncView {
         &self,
         offset: Option<usize>,
         count: Option<usize>,
-    ) -> Vec<sliding_sync_events::Room> {
+    ) -> Vec<sliding_sync_events::SlidingSyncRoom> {
         let start = offset.unwrap_or(0);
         let rooms = self.rooms.lock_ref();
         let listing = self.rooms_list.lock_ref();
@@ -688,25 +681,11 @@ impl SlidingSyncView {
         let mut rooms_list = self.rooms_list.lock_mut();
         let mut rooms_map = self.rooms.lock_mut();
         for op in ops {
-            let mut room_ids = Vec::new();
-            if let Some(rooms) = &op.rooms {
-                for room in rooms {
-                    let r: OwnedRoomId =
-                        room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
-                    rooms_map.insert_cloned(r.clone(), room.clone().into());
-                    room_ids.push(r);
-                }
-            } else if let Some(room) = &op.room { // Insert specific 
-                let r: OwnedRoomId =
-                    room.room_id.clone().context("Sliding Sync without RoomdId")?.parse()?;
-                rooms_map.insert_cloned(r.clone(), room.clone().into());
-                room_ids.push(r);
-            }
-
             match op.op {
                 sliding_sync_events::SlidingOp::Update |
                 sliding_sync_events::SlidingOp::Sync => {
-                    let start: u32 = op.range.0.try_into()?;
+                    let start: u32 = op.range.context("`range` must be present for Sync and Update operation")?.0.try_into()?;
+                    let room_ids = op.room_ids.clone().context("`room_ids` must be present for Sync and Update Operation")?;
                     room_ids
                         .into_iter()
                         .enumerate()
@@ -717,13 +696,13 @@ impl SlidingSyncView {
                         .count();
                 }
                 sliding_sync_events::SlidingOp::Delete => {
-                    let pos: u32 = op.range.0.try_into()?;
+                    let pos: u32 = op.index.context("`index` must be present for DELETE operation")?.try_into()?;
                     rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
                 }
                 sliding_sync_events::SlidingOp::Insert => {
-                    let pos: u32 = op.range.0.try_into()?;
+                    let pos: u32 = op.index.context("`index` must be present for INSERT operation")?.try_into()?;
                     let sliced = rooms_list.as_slice();
-                    let room = room_ids.first().cloned().map(|r| RoomListEntry::Filled(r)).unwrap_or_default();
+                    let room = RoomListEntry::Filled(op.room_id.clone().context("`room_id` must be present for INSERT operation")?);
                     let mut dif = 0;
                     loop {
                         let check_prev = dif > pos;
@@ -749,14 +728,18 @@ impl SlidingSyncView {
                 }
                 sliding_sync_events::SlidingOp::Invalidate => {
                     let max_len = rooms_list.len();
-                    let mut pos: u32 = op.range.0.try_into()?;
-                    let end: u32 = op.range.1.try_into()?;
+                    let (mut pos, end): (u32, u32) = if let Some(range) = op.range {
+                        (range.0.try_into()?, range.1.try_into()?)
+                    } else {
+                        bail!("`range` must be given on `Invalidate` operation")
+                    };
+
                     if pos > end {
                         bail!("Invalid invalidation, end smaller than start");
                     } 
 
-                    while (pos < end) {
-                        if (pos as usize >= max_len) {
+                    while pos < end {
+                        if pos as usize >= max_len {
                             break // how does this happen?
                         }
                         let idx = pos as usize;
@@ -778,9 +761,10 @@ impl SlidingSyncView {
         &self,
         rooms_count: u32,
         ops: &Vec<sliding_sync_events::SyncOp>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
+        let mut changed = false;
         if missing > 0 {
             let mut list = self.rooms_list.lock_mut();
             list.reserve_exact(missing as usize);
@@ -789,13 +773,15 @@ impl SlidingSyncView {
                 missing -= 1;
             }
             self.rooms_count.replace(Some(rooms_count));
+            changed = true;
         }
 
         if !ops.is_empty() {
             self.room_ops(ops)?;
+            changed = true;
         }
 
-        Ok(())
+        Ok(changed)
     }
 
     fn request_generator<'a>(&'a self) -> SlidingSyncViewRequestGenerator<'a> {
