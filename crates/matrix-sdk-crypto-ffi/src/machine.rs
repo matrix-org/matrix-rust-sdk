@@ -1375,12 +1375,25 @@ impl OlmMachine {
 
     /// Check if the given backup has been verified by us or by another of our
     /// devices that we trust.
-    pub fn verify_backup(&self, auth_data: &str) -> Result<bool, CryptoStoreError> {
-        let auth_data = serde_json::from_str(auth_data)?;
+    ///
+    /// The `backup_info` should be a JSON encoded object with the following
+    /// format:
+    ///
+    /// ```json
+    /// {
+    ///     "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+    ///     "auth_data": {
+    ///         "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+    ///         "signatures": {}
+    ///     }
+    /// }
+    /// ```
+    pub fn verify_backup(&self, backup_info: &str) -> Result<bool, CryptoStoreError> {
+        let backup_info = serde_json::from_str(backup_info)?;
 
         Ok(self
             .runtime
-            .block_on(self.inner.backup_machine().verify_backup(auth_data, false))?
+            .block_on(self.inner.backup_machine().verify_backup(backup_info, false))?
             .trusted())
     }
 }
