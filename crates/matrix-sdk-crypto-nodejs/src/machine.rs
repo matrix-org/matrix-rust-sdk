@@ -2,10 +2,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use napi::Either;
 use napi_derive::*;
 use ruma::{DeviceKeyAlgorithm, UInt};
 
-use crate::{identifiers, into_err, sync_events};
+use crate::{identifiers, into_err, requests, sync_events};
 
 /// State machine implementation of the Olm/Megolm encryption protocol
 /// used for Matrix end to end encryption.
@@ -90,6 +91,45 @@ impl OlmMachine {
                 .map_err(into_err)?,
         )
         .map_err(into_err)?)
+    }
+
+    // We could be tempted to use `requests::OutgoingRequests` as its
+    // a type alias for this giant `Either` chain. But `napi` won't
+    // unfold it properly into a valid TypeScript definition, so…
+    // let's copy-paste :-(.
+    #[napi]
+    pub async fn outgoing_requests(
+        &self,
+    ) -> Result<
+        Vec<
+            Either<
+                requests::KeysUploadRequest,
+                Either<
+                    requests::KeysQueryRequest,
+                    Either<
+                        requests::KeysClaimRequest,
+                        Either<
+                            requests::ToDeviceRequest,
+                            Either<
+                                requests::SignatureUploadRequest,
+                                Either<requests::RoomMessageRequest, requests::KeysBackupRequest>,
+                            >,
+                        >,
+                    >,
+                >,
+            >,
+        >,
+        napi::Error,
+    > {
+        self.inner
+            .outgoing_requests()
+            .await
+            .map_err(into_err)?
+            .into_iter()
+            .map(requests::OutgoingRequest)
+            .map(TryFrom::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(into_err)
     }
 
     #[napi]

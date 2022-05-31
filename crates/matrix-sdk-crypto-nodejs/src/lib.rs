@@ -20,6 +20,7 @@ mod errors;
 pub mod events;
 pub mod identifiers;
 pub mod machine;
+pub mod requests;
 pub mod sync_events;
 
 use crate::errors::into_err;
