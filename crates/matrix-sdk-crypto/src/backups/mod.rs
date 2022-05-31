@@ -33,14 +33,13 @@ use ruma::{
     api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId,
     OwnedTransactionId, TransactionId,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     olm::{Account, InboundGroupSession},
     store::{BackupKeys, Changes, RecoveryKey, RoomKeyCounts, Store},
-    types::Signatures,
+    types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
     CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest,
 };
 
@@ -281,35 +280,13 @@ impl BackupMachine {
         Ok(result)
     }
 
-    /// Verify some backup auth data that we downloaded from the server.
-    ///
-    /// The auth data should be fetched from the server using the
-    /// [`/room_keys/version`] endpoint.
-    ///
-    /// Ruma models this using the [`BackupAlgorithm`] struct, but care needs to
-    /// be taken if that struct is used. Some clients might use unspecced fields
-    /// and the given Ruma struct will lose the unspecced fields after a
-    /// serialization cycle.
-    ///
-    /// [`BackupAlgorithm`]: ruma::api::client::backup::BackupAlgorithm
-    /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
-    pub async fn verify_backup(
+    async fn verify_auth_data_v1(
         &self,
-        serialized_auth_data: Value,
+        auth_data: MegolmV1AuthData,
         check_all: bool,
     ) -> Result<SignatureCheckResult, CryptoStoreError> {
-        #[derive(Debug, Serialize, Deserialize)]
-        struct AuthData {
-            public_key: String,
-            #[serde(default)]
-            signatures: Signatures,
-            #[serde(flatten)]
-            extra: BTreeMap<String, Value>,
-        }
-
-        let auth_data: AuthData = serde_json::from_value(serialized_auth_data.clone())?;
-
         trace!(?auth_data, "Verifying backup auth data");
+        let serialized_auth_data = serde_json::to_value(auth_data.clone())?;
 
         // Check if there's a signature from our own device.
         let device_signature = self.check_own_device_signature(serialized_auth_data.clone()).await;
@@ -332,6 +309,29 @@ impl BackupMachine {
             };
 
         Ok(SignatureCheckResult { device_signature, user_identity_signature, other_signatures })
+    }
+
+    /// Verify some backup auth data that we downloaded from the server.
+    ///
+    /// The auth data should be fetched from the server using the
+    /// [`/room_keys/version`] endpoint.
+    ///
+    /// [`BackupAlgorithm`]: ruma::api::client::backup::BackupAlgorithm
+    /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
+    pub async fn verify_backup(
+        &self,
+        backup_version: Value,
+        check_all: bool,
+    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+        let auth_data: RoomKeyBackupInfo = serde_json::from_value(backup_version)?;
+
+        trace!(?auth_data, "Verifying backup auth data");
+
+        if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = auth_data {
+            self.verify_auth_data_v1(data, check_all).await
+        } else {
+            Ok(Default::default())
+        }
     }
 
     /// Activate the given backup key to be used to encrypt and backup room
@@ -629,32 +629,46 @@ mod tests {
         let backup_machine = machine.backup_machine();
 
         let auth_data = json!({
-            "public_key": "abcdefg",
+            "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+        });
+
+        let backup_version = json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": auth_data,
         });
 
         let canonical_json: CanonicalJsonValue =
             auth_data.clone().try_into().expect("Canonicalizing should always work");
         let serialized = canonical_json.to_string();
 
-        let state =
-            backup_machine.verify_backup(auth_data, false).await.expect("Verifying should work");
+        let state = backup_machine
+            .verify_backup(backup_version, false)
+            .await
+            .expect("Verifying should work");
         assert!(!state.trusted());
         assert!(!state.device_signature.trusted());
         assert!(!state.user_identity_signature.trusted());
+        assert!(!state.other_signatures.values().any(|s| s.trusted()));
 
         let signatures = machine.sign(&serialized).await;
 
-        let auth_data = json!({
-            "public_key": "abcdefg",
-            "signatures": signatures,
+        let backup_version = json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+                "signatures": signatures,
+            }
         });
 
-        let state =
-            backup_machine.verify_backup(auth_data, false).await.expect("Verifying should work");
+        let state = backup_machine
+            .verify_backup(backup_version, false)
+            .await
+            .expect("Verifying should work");
 
         assert!(state.trusted());
         assert!(state.device_signature.trusted());
         assert!(!state.user_identity_signature.trusted());
+        assert!(!state.other_signatures.values().any(|s| s.trusted()));
 
         machine
             .bootstrap_cross_signing(true)
@@ -663,16 +677,22 @@ mod tests {
 
         let signatures = machine.sign(&serialized).await;
 
-        let auth_data = json!({
-            "public_key": "abcdefg",
-            "signatures": signatures,
+        let backup_version = json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+                "signatures": signatures,
+            }
         });
-        let state =
-            backup_machine.verify_backup(auth_data, false).await.expect("Verifying should work");
+        let state = backup_machine
+            .verify_backup(backup_version, false)
+            .await
+            .expect("Verifying should work");
 
         assert!(state.trusted());
         assert!(state.device_signature.trusted());
         assert!(state.user_identity_signature.trusted());
+        assert!(!state.other_signatures.values().any(|s| s.trusted()));
 
         Ok(())
     }

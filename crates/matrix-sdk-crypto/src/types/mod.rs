@@ -23,18 +23,20 @@
 //!    way, meaning the white-space and field order won't be preserved but the
 //!    data will.
 
+mod backup;
 mod cross_signing_key;
 mod device_keys;
 mod one_time_keys;
 
 use std::collections::BTreeMap;
 
+pub use backup::*;
 pub use cross_signing_key::*;
 pub use device_keys::*;
 pub use one_time_keys::*;
 use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize, Serializer};
-use vodozemac::Ed25519Signature;
+use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -224,4 +226,24 @@ impl Serialize for Signatures {
 
         serde::Serialize::serialize(&signatures, serializer)
     }
+}
+
+// Vodozemac serializes curve keys directly as a byteslice, while matrix likes
+// to base64 encode all byte slices.
+//
+// This ensures that we serialize/deserialize in a Matrix compatible way.
+fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let key: String = Deserialize::deserialize(de)?;
+    Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
+}
+
+fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let key = key.to_base64();
+    s.serialize_str(&key)
 }
