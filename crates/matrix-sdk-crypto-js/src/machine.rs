@@ -8,10 +8,11 @@ use ruma::{
 use serde_json::value::RawValue as RawJsonValue;
 use wasm_bindgen::prelude::*;
 
-use crate::js::{
+use crate::{
     downcast, events,
     future::future_to_promise,
     identifiers, requests,
+    requests::OutgoingRequest,
     responses::{self, response_from_string},
     sync_events,
 };
@@ -19,7 +20,7 @@ use crate::js::{
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct OlmMachine {
-    inner: Arc<crate::OlmMachine>,
+    inner: Arc<matrix_sdk_crypto::OlmMachine>,
 }
 
 #[cfg_attr(feature = "js", wasm_bindgen)]
@@ -31,7 +32,9 @@ impl OlmMachine {
 
         future_to_promise(async move {
             Ok(OlmMachine {
-                inner: Arc::new(crate::OlmMachine::new(user_id.as_ref(), device_id.as_ref()).await),
+                inner: Arc::new(
+                    matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref()).await,
+                ),
             })
         })
     }
@@ -149,6 +152,7 @@ impl OlmMachine {
                 .outgoing_requests()
                 .await?
                 .into_iter()
+                .map(OutgoingRequest)
                 .map(TryFrom::try_from)
                 .collect::<Result<Vec<JsValue>, _>>()?
                 .into_iter()
@@ -248,7 +252,8 @@ impl OlmMachine {
             .iter()
             .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
             .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
-        let encryption_settings = crate::olm::EncryptionSettings::from(encryption_settings);
+        let encryption_settings =
+            matrix_sdk_crypto::olm::EncryptionSettings::from(encryption_settings);
 
         let me = self.inner.clone();
 
@@ -360,8 +365,8 @@ pub struct IdentityKeys {
     pub curve25519: Curve25519PublicKey,
 }
 
-impl From<crate::olm::IdentityKeys> for IdentityKeys {
-    fn from(value: crate::olm::IdentityKeys) -> Self {
+impl From<matrix_sdk_crypto::olm::IdentityKeys> for IdentityKeys {
+    fn from(value: matrix_sdk_crypto::olm::IdentityKeys) -> Self {
         Self {
             ed25519: Ed25519PublicKey { inner: value.ed25519 },
             curve25519: Curve25519PublicKey { inner: value.curve25519 },
@@ -424,7 +429,7 @@ impl EncryptionSettings {
     /// Create a new `EncryptionSettings` with default values.
     #[wasm_bindgen(constructor)]
     pub fn new() -> EncryptionSettings {
-        let default = crate::olm::EncryptionSettings::default();
+        let default = matrix_sdk_crypto::olm::EncryptionSettings::default();
 
         Self {
             algorithm: default.algorithm.into(),
@@ -435,7 +440,7 @@ impl EncryptionSettings {
     }
 }
 
-impl From<&EncryptionSettings> for crate::olm::EncryptionSettings {
+impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     fn from(value: &EncryptionSettings) -> Self {
         Self {
             algorithm: value.algorithm.clone().into(),

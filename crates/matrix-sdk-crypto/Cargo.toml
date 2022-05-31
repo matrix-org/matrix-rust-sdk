@@ -15,18 +15,11 @@ version = "0.5.0"
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ['-Oz']
-
-[lib]
-crate-type = ["cdylib"]
-
 [features]
 default = []
 qrcode = ["matrix-sdk-qrcode"]
 backups_v1 = ["olm-rs", "bs58"]
 docsrs = []
-js = ["http"]
 
 # Testing helpers for implementations based upon this
 testing = ["http"]
@@ -54,18 +47,8 @@ sha2 = "0.10.2"
 thiserror = "1.0.30"
 tracing = "0.1.34"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ruma = { version = "0.6.2", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834" }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-ruma = { version = "0.6.2", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834", features = ["js"] }
-wasm-bindgen = "0.2.80"
-wasm-bindgen-futures = "0.4.30"
-js-sys = "0.3.49"
-anyhow = "1.0"
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
@@ -76,7 +59,3 @@ matrix-sdk-test = { version = "0.5.0", path = "../matrix-sdk-test" }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
 tokio = { version = "1.7.0", default-features = false, features = ["macros", "rt-multi-thread"] }
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-getrandom = { version = "0.2.6", features = ["js"] }
-wasm-bindgen-test = "0.3.24"

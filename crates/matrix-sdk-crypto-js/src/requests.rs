@@ -1,18 +1,17 @@
 use js_sys::JsString;
+use matrix_sdk_crypto::{
+    requests::{
+        KeysBackupRequest as RumaKeysBackupRequest, KeysQueryRequest as RumaKeysQueryRequest,
+        RoomMessageRequest as RumaRoomMessageRequest, ToDeviceRequest as RumaToDeviceRequest,
+    },
+    OutgoingRequests,
+};
 use ruma::api::client::keys::{
     claim_keys::v3::Request as RumaKeysClaimRequest,
     upload_keys::v3::Request as RumaKeysUploadRequest,
     upload_signatures::v3::Request as RumaSignatureUploadRequest,
 };
 use wasm_bindgen::prelude::*;
-
-use crate::{
-    requests::{
-        KeysBackupRequest as RumaKeysBackupRequest, KeysQueryRequest as RumaKeysQueryRequest,
-        RoomMessageRequest as RumaRoomMessageRequest, ToDeviceRequest as RumaToDeviceRequest,
-    },
-    OutgoingRequest, OutgoingRequests,
-};
 
 /// Data for a request to the `upload_keys` API endpoint.
 ///
@@ -177,13 +176,15 @@ request!(KeysBackupRequest from RumaKeysBackupRequest maps fields version, rooms
 // JavaScript has no complex enums like Rust. To return structs of
 // different types, we have no choice that hidding everything behind a
 // `JsValue`.
+pub(crate) struct OutgoingRequest(pub(crate) matrix_sdk_crypto::OutgoingRequest);
+
 impl TryFrom<OutgoingRequest> for JsValue {
     type Error = serde_json::Error;
 
     fn try_from(outgoing_request: OutgoingRequest) -> Result<Self, Self::Error> {
-        let request_id = outgoing_request.request_id().to_string();
+        let request_id = outgoing_request.0.request_id().to_string();
 
-        Ok(match outgoing_request.request() {
+        Ok(match outgoing_request.0.request() {
             OutgoingRequests::KeysUpload(request) => {
                 JsValue::from(KeysUploadRequest::try_from((request_id, request))?)
             }

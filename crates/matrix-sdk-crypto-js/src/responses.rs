@@ -1,5 +1,6 @@
 //! Types related to responses.
 
+use matrix_sdk_crypto::IncomingResponse;
 pub(crate) use ruma::api::client::{
     backup::add_backup_keys::v3::Response as KeysBackupResponse,
     keys::{
@@ -13,7 +14,7 @@ pub(crate) use ruma::api::client::{
 use ruma::api::IncomingResponse as RumaIncomingResponse;
 use wasm_bindgen::prelude::*;
 
-use crate::{js::requests::RequestType, IncomingResponse};
+use crate::requests::RequestType;
 
 pub(crate) fn response_from_string(body: &str) -> http::Result<http::Response<Vec<u8>>> {
     http::Response::builder().status(200).body(body.as_bytes().to_vec())

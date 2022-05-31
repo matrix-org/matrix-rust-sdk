@@ -15,10 +15,6 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
-#[cfg(all(feature = "js", not(target_arch = "wasm32")))]
-compile_error!(
-    "The `js` feature must be enabled only for the `wasm32` target (either `wasm32-unknown-unknown` or `wasm32-wasi`)."
-);
 
 #[cfg(feature = "backups_v1")]
 pub mod backups;
@@ -26,10 +22,9 @@ mod error;
 mod file_encryption;
 mod gossiping;
 mod identities;
-mod js;
 mod machine;
 pub mod olm;
-mod requests;
+pub mod requests;
 mod session_manager;
 pub mod store;
 pub mod types;
@@ -83,8 +78,6 @@ pub use identities::{
     Device, LocalTrust, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
-#[cfg(feature = "js")]
-pub use js::*;
 pub use machine::OlmMachine;
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_qrcode;
