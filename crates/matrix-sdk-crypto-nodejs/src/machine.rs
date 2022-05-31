@@ -153,9 +153,35 @@ impl OlmMachine {
     }
 
     #[napi]
+    pub async fn get_missing_sessions(
+        &self,
+        users: Vec<&identifiers::UserId>,
+    ) -> Result<Option<requests::KeysClaimRequest>, napi::Error> {
+        let users =
+            users.into_iter().map(|user| user.inner.clone()).collect::<Vec<ruma::OwnedUserId>>();
+
+        match self
+            .inner
+            .get_missing_sessions(users.iter().map(AsRef::as_ref))
+            .await
+            .map_err(into_err)?
+        {
+            Some((transaction_id, keys_claim_request)) => Ok(Some(
+                requests::KeysClaimRequest::try_from((
+                    transaction_id.to_string(),
+                    &keys_claim_request,
+                ))
+                .map_err(into_err)?,
+            )),
+
+            None => Ok(None),
+        }
+    }
+
+    #[napi]
     pub async fn update_tracked_users(&self, users: Vec<&identifiers::UserId>) {
-        let users: Vec<ruma::OwnedUserId> =
-            users.into_iter().map(|user| user.inner.clone()).collect();
+        let users =
+            users.into_iter().map(|user| user.inner.clone()).collect::<Vec<ruma::OwnedUserId>>();
 
         self.inner.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
     }
