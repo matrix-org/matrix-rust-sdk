@@ -8,6 +8,7 @@ use std::{
 use napi::{bindgen_prelude::ToNapiValue, Either};
 use napi_derive::*;
 use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
+use serde_json::Value as JsonValue;
 
 use crate::{
     events, identifiers, into_err, requests, responses, responses::response_from_string,
@@ -84,7 +85,7 @@ impl OlmMachine {
                 .collect::<Vec<DeviceKeyAlgorithm>>(),
         );
 
-        Ok(serde_json::to_string(
+        serde_json::to_string(
             &self
                 .inner
                 .receive_sync_changes(
@@ -96,7 +97,7 @@ impl OlmMachine {
                 .await
                 .map_err(into_err)?,
         )
-        .map_err(into_err)?)
+        .map_err(into_err)
     }
 
     // We could be tempted to use `requests::OutgoingRequests` as its
@@ -203,14 +204,34 @@ impl OlmMachine {
         let encryption_settings =
             matrix_sdk_crypto::olm::EncryptionSettings::from(encryption_settings);
 
-        Ok(serde_json::to_string(
+        serde_json::to_string(
             &self
                 .inner
                 .share_room_key(&room_id, users.iter().map(AsRef::as_ref), encryption_settings)
                 .await
                 .map_err(into_err)?,
         )
-        .map_err(into_err)?)
+        .map_err(into_err)
+    }
+
+    #[napi]
+    pub async fn encrypt_room_event(
+        &self,
+        room_id: &identifiers::RoomId,
+        event_type: String,
+        content: String,
+    ) -> Result<String, napi::Error> {
+        let room_id = room_id.inner.clone();
+        let content: JsonValue = serde_json::from_str(content.as_str()).map_err(into_err)?;
+
+        serde_json::to_string(
+            &self
+                .inner
+                .encrypt_room_event_raw(&room_id, content, event_type.as_ref())
+                .await
+                .map_err(into_err)?,
+        )
+        .map_err(into_err)
     }
 }
 
