@@ -1505,6 +1505,7 @@ impl OlmMachine {
         &self.backup_machine
     }
 }
+
 #[cfg(any(feature = "testing", test))]
 pub(crate) mod testing {
     #![allow(dead_code)]

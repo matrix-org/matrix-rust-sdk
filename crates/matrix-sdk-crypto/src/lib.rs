@@ -24,7 +24,7 @@ mod gossiping;
 mod identities;
 mod machine;
 pub mod olm;
-mod requests;
+pub mod requests;
 mod session_manager;
 pub mod store;
 pub mod types;
