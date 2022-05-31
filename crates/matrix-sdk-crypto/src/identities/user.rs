@@ -30,7 +30,6 @@ use ruma::{
     DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{to_value, Value};
 use tracing::error;
 use vodozemac::Ed25519PublicKey;
 
@@ -156,7 +155,7 @@ impl OwnUserIdentity {
             let mut device_keys = self.verification_machine.store.account.device_keys().await;
             device_keys.signatures = signatures;
 
-            self.inner.self_signing_key().verify_device_keys(device_keys).is_ok()
+            self.inner.self_signing_key().verify_device_keys(&device_keys).is_ok()
         } else {
             false
         })
@@ -425,9 +424,22 @@ impl MasterPubkey {
     }
 
     /// Check if the given JSON is signed by this master key.
-    pub fn is_signed_by(&self, json: Value) -> Result<(), SignatureError> {
+    ///
+    /// This method should only be used if a signature of an object should be
+    /// checked multiple times and the canonicalization step wants to be done
+    /// only a single time.
+    ///
+    /// **Note**: Use this method with caution, the `canonical_json` needs to be
+    /// correctly canonicalized and make sure that the object you are checking
+    /// the signature for is allowed to be signed by a master key.
+    #[cfg(feature = "backups_v1")]
+    pub(crate) fn is_signed_by_raw(
+        &self,
+        signatures: &Signatures,
+        canonical_json: &str,
+    ) -> Result<(), SignatureError> {
         if let Some((key_id, key)) = self.0.get_first_key_and_id() {
-            key.verify_json(&self.0.user_id, key_id, json)
+            key.verify_canonicalized_json(&self.0.user_id, key_id, signatures, canonical_json)
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }
@@ -455,8 +467,11 @@ impl MasterPubkey {
             return Err(SignatureError::UserIdMismatch);
         }
 
-        let serialized_key = to_value(subkey.cross_signing_key())?;
-        self.is_signed_by(serialized_key)
+        if let Some((key_id, key)) = self.0.get_first_key_and_id() {
+            key.verify_json(&self.0.user_id, key_id, subkey.cross_signing_key())
+        } else {
+            Err(SignatureError::UnsupportedAlgorithm)
+        }
     }
 }
 
@@ -496,7 +511,7 @@ impl UserSigningPubkey {
         // TODO check that the usage is OK.
 
         if let Some((key_id, key)) = self.0.get_first_key_and_id() {
-            key.verify_json(&self.0.user_id, key_id, to_value(&master_key.0)?)
+            key.verify_json(&self.0.user_id, key_id, master_key.0.as_ref())
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }
@@ -523,12 +538,11 @@ impl SelfSigningPubkey {
         &self.0.keys
     }
 
-    fn verify_device_keys(&self, device_keys: DeviceKeys) -> Result<(), SignatureError> {
+    fn verify_device_keys(&self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
         // TODO check that the usage is OK.
 
         if let Some((key_id, key)) = self.0.get_first_key_and_id() {
-            let device = to_value(device_keys)?;
-            key.verify_json(&self.0.user_id, key_id, device)
+            key.verify_json(&self.0.user_id, key_id, device_keys)
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }
@@ -543,7 +557,7 @@ impl SelfSigningPubkey {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
-        self.verify_device_keys(device.as_device_keys().to_owned())
+        self.verify_device_keys(device.as_device_keys())
     }
 }
 

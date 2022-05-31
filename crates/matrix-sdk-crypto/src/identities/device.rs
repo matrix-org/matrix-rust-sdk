@@ -35,7 +35,6 @@ use ruma::{
     OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::Value;
 use tracing::warn;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
@@ -45,7 +44,7 @@ use crate::OlmMachine;
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
-    olm::{InboundGroupSession, Session, VerifyJson},
+    olm::{InboundGroupSession, Session, SignedJsonObject, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     types::{DeviceKey, DeviceKeys, Signatures, SignedKey},
     verification::VerificationMachine,
@@ -559,25 +558,47 @@ impl ReadOnlyDevice {
         Ok(())
     }
 
-    pub(crate) fn is_signed_by_device(&self, json: Value) -> Result<(), SignatureError> {
-        let key = self.ed25519_key().ok_or(SignatureError::MissingSigningKey)?;
-
-        key.verify_json(
-            self.user_id(),
-            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            json,
-        )
-    }
-
     pub(crate) fn as_device_keys(&self) -> &DeviceKeys {
         &self.inner
+    }
+
+    /// Check if the given JSON is signed by this device key.
+    ///
+    /// This method should only be used if a signature of an object should be
+    /// checked multiple times and the canonicalization step wants to be done
+    /// only a single time.
+    ///
+    /// **Note**: Use this method with caution, the `canonical_json` needs to be
+    /// correctly canonicalized and make sure that the object you are checking
+    /// the signature for is allowed to be signed by a device.
+    #[cfg(feature = "backups_v1")]
+    pub(crate) fn is_signed_by_device_raw(
+        &self,
+        signatures: &Signatures,
+        canonical_json: &str,
+    ) -> Result<(), SignatureError> {
+        let key = self.ed25519_key().ok_or(SignatureError::MissingSigningKey)?;
+        let user_id = self.user_id();
+        let key_id = &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
+
+        key.verify_canonicalized_json(user_id, key_id, signatures, canonical_json)
+    }
+
+    fn is_signed_by_device(
+        &self,
+        signed_object: &impl SignedJsonObject,
+    ) -> Result<(), SignatureError> {
+        let key = self.ed25519_key().ok_or(SignatureError::MissingSigningKey)?;
+        let user_id = self.user_id();
+        let key_id = &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
+
+        key.verify_json(user_id, key_id, signed_object)
     }
 
     pub(crate) fn verify_device_keys(
         &self,
         device_keys: &DeviceKeys,
     ) -> Result<(), SignatureError> {
-        let device_keys = serde_json::to_value(device_keys)?;
         self.is_signed_by_device(device_keys)
     }
 
@@ -585,7 +606,6 @@ impl ReadOnlyDevice {
         &self,
         one_time_key: &SignedKey,
     ) -> Result<(), SignatureError> {
-        let one_time_key = serde_json::to_value(one_time_key)?;
         self.is_signed_by_device(one_time_key)
     }
 

@@ -15,11 +15,14 @@
 use std::convert::TryInto;
 
 use ruma::{serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
-use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Value;
-use vodozemac::{olm::Account, Ed25519SecretKey, Ed25519Signature};
+use vodozemac::{olm::Account, Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature};
 
-use crate::{error::SignatureError, types::Signatures};
+use crate::{
+    error::SignatureError,
+    types::{CrossSigningKey, DeviceKeys, Signature, Signatures, SignedKey},
+};
 
 fn to_signable_json(mut value: Value) -> Result<String, SignatureError> {
     let json_object = value.as_object_mut().ok_or(SignatureError::NotAnObject)?;
@@ -50,56 +53,148 @@ impl SignJson for Ed25519SecretKey {
     }
 }
 
+/// A trait for objects that are able to verify signatures.
 pub trait VerifyJson {
-    /// Verify a signed JSON object.
-    ///
-    /// The object must have a signatures key associated  with an object of the
-    /// form `user_id: {key_id: signature}`.
-    ///
-    /// Returns Ok if the signature was successfully verified, otherwise an
-    /// SignatureError.
+    /// Verify a signature over the SignedJsonObject using this public Ed25519
+    /// key.
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The user who signed the JSON object.
+    /// * `user_id` - The user that claims to have signed this object.
     ///
-    /// * `key_id` - The id of the key that signed the JSON object.
+    /// * `key_id` - The ID of the key that was used to sign this object.
+    /// **Note**: The key ID must match the ID of the public key that is
+    /// verifying the signature. This is only used to find the correct
+    /// signature.
     ///
-    /// * `json` - The JSON object that should be verified.
+    /// * `signed_object` - The signed object that we should check for a valid
+    /// signature.
+    ///
+    /// Returns Ok if the signature was successfully verified, otherwise an
+    /// SignatureError.
     fn verify_json(
         &self,
         user_id: &UserId,
         key_id: &DeviceKeyId,
-        json: Value,
+        signed_object: &impl SignedJsonObject,
+    ) -> Result<(), SignatureError>;
+
+    /// Verify a signature over the canonicalized signed JSON object using
+    /// this public Ed25519 key.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user that claims to have signed this object.
+    ///
+    /// * `key_id` - The ID of the key that was used to sign this object.
+    /// **Note**: The key ID must match the ID of the public key that is
+    /// verifying the signature. This is only used to find the correct
+    /// signature.
+    ///
+    /// * `canonicalized_json` - The canonicalized version of a signed JSON
+    /// object.
+    ///
+    /// This method should only be used if a signature of an object should be
+    /// checked multiple times and the canonicalization step wants to be done
+    /// only a single time. Prefer the [`VerifyJson::verify_json`] method
+    /// otherwise.
+    ///
+    /// Returns Ok if the signature was successfully verified, otherwise an
+    /// SignatureError.
+    fn verify_canonicalized_json(
+        &self,
+        user_id: &UserId,
+        key_id: &DeviceKeyId,
+        signatures: &Signatures,
+        canonical_json: &str,
     ) -> Result<(), SignatureError>;
 }
 
-impl VerifyJson for vodozemac::Ed25519PublicKey {
+impl VerifyJson for Ed25519PublicKey {
     fn verify_json(
         &self,
         user_id: &UserId,
         key_id: &DeviceKeyId,
-        json: Value,
+        signed_object: &impl SignedJsonObject,
     ) -> Result<(), SignatureError> {
-        #[derive(Debug, Deserialize)]
-        struct SignedJson {
-            #[serde(default)]
-            signatures: Signatures,
-        }
-
         if key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
             return Err(SignatureError::UnsupportedAlgorithm);
         }
 
-        let signed_json: SignedJson = serde_json::from_value(json.clone())?;
-        let canonicalized = to_signable_json(json)?;
+        let canonicalized = signed_object.to_canonical_json()?;
+        verify_signature(*self, user_id, key_id, signed_object.signatures(), &canonicalized)
+    }
 
-        if let Some(signature) = signed_json.signatures.get_signature(user_id, key_id) {
-            self.verify(canonicalized.as_bytes(), &signature)
-                .map_err(SignatureError::VerificationError)
-        } else {
-            Err(SignatureError::NoSignatureFound)
+    fn verify_canonicalized_json(
+        &self,
+        user_id: &UserId,
+        key_id: &DeviceKeyId,
+        signatures: &Signatures,
+        canonical_json: &str,
+    ) -> Result<(), SignatureError> {
+        if key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
+            return Err(SignatureError::UnsupportedAlgorithm);
         }
+
+        verify_signature(*self, user_id, key_id, signatures, canonical_json)
+    }
+}
+
+fn verify_signature(
+    public_key: Ed25519PublicKey,
+    user_id: &UserId,
+    key_id: &DeviceKeyId,
+    signatures: &Signatures,
+    canonical_json: &str,
+) -> Result<(), SignatureError> {
+    if let Some(s) = signatures.get(user_id).and_then(|m| m.get(key_id)) {
+        match s {
+            Ok(Signature::Ed25519(s)) => Ok(public_key.verify(canonical_json.as_bytes(), s)?),
+            Ok(Signature::Other(_)) => Err(SignatureError::UnsupportedAlgorithm),
+            Err(_) => Err(SignatureError::InvalidSignature),
+        }
+    } else {
+        Err(SignatureError::NoSignatureFound)
+    }
+}
+
+/// A trait for Matrix objects that we can canonicalize, sign and verify
+/// signatures for as described by the [spec].
+///
+/// [spec]: https://spec.matrix.org/unstable/appendices/#signing-json
+pub trait SignedJsonObject: Serialize {
+    /// Get the collection of signatures this SignedJsonObject has.
+    fn signatures(&self) -> &Signatures;
+
+    /// Convert the SignedJsonObject to a canonicalized signed JSON string.
+    fn to_canonical_json(&self) -> Result<String, SignatureError> {
+        let value = serde_json::to_value(self)?;
+        to_signable_json(value)
+    }
+}
+
+impl SignedJsonObject for DeviceKeys {
+    fn signatures(&self) -> &Signatures {
+        &self.signatures
+    }
+}
+
+impl SignedJsonObject for SignedKey {
+    fn signatures(&self) -> &Signatures {
+        self.signatures()
+    }
+}
+
+impl SignedJsonObject for CrossSigningKey {
+    fn signatures(&self) -> &Signatures {
+        &self.signatures
+    }
+}
+
+#[cfg(feature = "backups_v1")]
+impl SignedJsonObject for crate::types::MegolmV1AuthData {
+    fn signatures(&self) -> &Signatures {
+        &self.signatures
     }
 }
 
@@ -110,6 +205,7 @@ mod tests {
     use vodozemac::Ed25519PublicKey;
 
     use super::VerifyJson;
+    use crate::types::DeviceKeys;
 
     #[test]
     fn signature_test() {
@@ -139,11 +235,13 @@ mod tests {
         let signing_key = Ed25519PublicKey::from_base64(signing_key)
             .expect("The signing key wasn't proper base64");
 
+        let device_keys: DeviceKeys = serde_json::from_value(device_keys).unwrap();
+
         signing_key
             .verify_json(
                 user_id!("@example:localhost"),
                 &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("GBEWHQOYGS")),
-                device_keys,
+                &device_keys,
             )
             .expect("Can't verify device keys");
     }

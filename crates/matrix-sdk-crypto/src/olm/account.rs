@@ -675,17 +675,30 @@ impl ReadOnlyAccount {
         self.inner.lock().await.sign(string)
     }
 
-    /// Check that the given json value is signed by this account.
+    /// Check if the given JSON is signed by this Account key.
+    ///
+    /// This method should only be used if a signature of an object should be
+    /// checked multiple times and the canonicalization step wants to be done
+    /// only a single time.
+    ///
+    /// **Note**: Use this method with caution, the `canonical_json` needs to be
+    /// correctly canonicalized and make sure that the object you are checking
+    /// the signature for is allowed to be signed by our own device.
     #[cfg(feature = "backups_v1")]
-    pub fn is_signed(&self, json: Value) -> Result<(), SignatureError> {
+    pub fn is_signed_by_raw(
+        &self,
+        signatures: &crate::types::Signatures,
+        canonical_json: &str,
+    ) -> Result<(), SignatureError> {
         use crate::olm::utility::VerifyJson;
 
         let signing_key = self.identity_keys.ed25519;
 
-        signing_key.verify_json(
+        signing_key.verify_canonicalized_json(
             &self.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            json,
+            signatures,
+            canonical_json,
         )
     }
 
