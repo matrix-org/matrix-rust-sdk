@@ -1,4 +1,7 @@
+use matrix_sdk_common::deserialized_responses::{AlgorithmInfo, EncryptionInfo};
 use matrix_sdk_crypto::IncomingResponse;
+use napi::bindgen_prelude::ToNapiValue;
+use napi_derive::*;
 pub(crate) use ruma::api::client::{
     backup::add_backup_keys::v3::Response as KeysBackupResponse,
     keys::{
@@ -11,7 +14,7 @@ pub(crate) use ruma::api::client::{
 };
 use ruma::api::IncomingResponse as RumaIncomingResponse;
 
-use crate::{into_err, requests::RequestType};
+use crate::{identifiers, into_err, requests::RequestType};
 
 pub(crate) fn response_from_string(body: &str) -> http::Result<http::Response<Vec<u8>>> {
     http::Response::builder().status(200).body(body.as_bytes().to_vec())
@@ -120,6 +123,95 @@ impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
             OwnedResponse::SignatureUpload(response) => IncomingResponse::SignatureUpload(response),
             OwnedResponse::RoomMessage(response) => IncomingResponse::RoomMessage(response),
             OwnedResponse::KeysBackup(response) => IncomingResponse::KeysBackup(response),
+        }
+    }
+}
+
+#[napi]
+pub struct DecryptedRoomEvent {
+    pub event: String,
+    encryption_info: Option<EncryptionInfo>,
+}
+
+#[napi]
+impl DecryptedRoomEvent {
+    /// The user ID of the event sender, note this is untrusted data
+    /// unless the `verification_state` is as well trusted.
+    #[napi(getter)]
+    pub fn sender(&self) -> Option<identifiers::UserId> {
+        Some(identifiers::UserId::new_with(self.encryption_info.as_ref()?.sender.clone()))
+    }
+
+    /// The device ID of the device that sent us the event, note this
+    /// is untrusted data unless `verification_state` is as well
+    /// trusted.
+    #[napi(getter)]
+    pub fn sender_device(&self) -> Option<identifiers::DeviceId> {
+        Some(identifiers::DeviceId::new_with(self.encryption_info.as_ref()?.sender_device.clone()))
+    }
+
+    /// The Curve25519 key of the device that created the megolm
+    /// decryption key originally.
+    #[napi(getter)]
+    pub fn sender_curve25519_key(&self) -> Option<String> {
+        Some(match &self.encryption_info.as_ref()?.algorithm_info {
+            AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. } => curve25519_key.clone(),
+        })
+    }
+
+    /// The signing Ed25519 key that have created the megolm key that
+    /// was used to decrypt this session.
+    #[napi(getter)]
+    pub fn sender_claimed_ed25519_key(&self) -> Option<String> {
+        match &self.encryption_info.as_ref()?.algorithm_info {
+            AlgorithmInfo::MegolmV1AesSha2 { sender_claimed_keys, .. } => {
+                sender_claimed_keys.get(&ruma::DeviceKeyAlgorithm::Ed25519).cloned()
+            }
+        }
+    }
+
+    /// Chain of Curve25519 keys through which this session was
+    /// forwarded, via `m.forwarded_room_key` events.
+    #[napi(getter)]
+    pub fn forwarding_curve25519_key_chain(&self) -> Option<Vec<String>> {
+        Some(match &self.encryption_info.as_ref()?.algorithm_info {
+            AlgorithmInfo::MegolmV1AesSha2 { forwarding_curve25519_key_chain, .. } => {
+                forwarding_curve25519_key_chain.clone()
+            }
+        })
+    }
+
+    /// The verification state of the device that sent us the event,
+    /// note this is the state of the device at the time of
+    /// decryption. It may change in the future if a device gets
+    /// verified or deleted.
+    #[napi(getter)]
+    pub fn verification_state(&self) -> Option<VerificationState> {
+        Some((&self.encryption_info.as_ref()?.verification_state).into())
+    }
+}
+
+impl From<matrix_sdk_common::deserialized_responses::RoomEvent> for DecryptedRoomEvent {
+    fn from(value: matrix_sdk_common::deserialized_responses::RoomEvent) -> Self {
+        Self { event: value.event.json().get().to_owned(), encryption_info: value.encryption_info }
+    }
+}
+
+#[napi]
+pub enum VerificationState {
+    Trusted,
+    Untrusted,
+    UnknownDevice,
+}
+
+impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
+    fn from(value: &matrix_sdk_common::deserialized_responses::VerificationState) -> Self {
+        use matrix_sdk_common::deserialized_responses::VerificationState::*;
+
+        match value {
+            Trusted => Self::Trusted,
+            Untrusted => Self::Untrusted,
+            UnknownDevice => Self::UnknownDevice,
         }
     }
 }
