@@ -425,7 +425,7 @@ impl OlmMachine {
     /// [mark_request_as_sent()](#method.mark_request_as_sent) method.
     ///
     /// This method should be called every time before a call to
-    /// [`share_group_session()`](#method.share_group_session) is made.
+    /// [`share_room_key()`](#method.share_room_key) is made.
     ///
     /// # Arguments
     ///
@@ -470,7 +470,7 @@ impl OlmMachine {
             users.into_iter().filter_map(|u| UserId::parse(u).ok()).collect();
 
         let room_id = RoomId::parse(room_id)?;
-        let requests = self.runtime.block_on(self.inner.share_group_session(
+        let requests = self.runtime.block_on(self.inner.share_room_key(
             &room_id,
             users.iter().map(Deref::deref),
             EncryptionSettings::default(),
@@ -494,7 +494,7 @@ impl OlmMachine {
     ///    method. This method call should be locked per call.
     ///
     /// 2. Share a room key with all the room members using the
-    ///    [`share_group_session()`](#method.share_group_session). This method
+    ///    [`share_room_key()`](#method.share_room_key). This method
     ///    call should be locked per room.
     ///
     /// 3. Encrypt the event using this method.

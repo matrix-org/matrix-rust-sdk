@@ -310,14 +310,14 @@ impl Joined {
         Ok(())
     }
 
-    /// Share a group session for the given room.
+    /// Share a room key with users in the given room.
     ///
     /// This will create Olm sessions with all the users/device pairs in the
-    /// room if necessary and share a group session with them.
+    /// room if necessary and share a room key that can be shared with them.
     ///
-    /// Does nothing if no group session needs to be shared.
+    /// Does nothing if no room key needs to be shared.
     #[cfg(feature = "e2e-encryption")]
-    async fn preshare_group_session(&self) -> Result<()> {
+    async fn preshare_room_key(&self) -> Result<()> {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
         if let Some(mutex) =
@@ -345,7 +345,7 @@ impl Joined {
                 self.client.claim_one_time_keys(members).await?;
             };
 
-            let response = self.share_group_session().await;
+            let response = self.share_room_key().await;
 
             self.client.inner.group_session_locks.remove(self.inner.room_id());
 
@@ -368,8 +368,8 @@ impl Joined {
     /// Panics if the client isn't logged in.
     #[instrument]
     #[cfg(feature = "e2e-encryption")]
-    async fn share_group_session(&self) -> Result<()> {
-        let requests = self.client.base_client().share_group_session(self.inner.room_id()).await?;
+    async fn share_room_key(&self) -> Result<()> {
+        let requests = self.client.base_client().share_room_key(self.inner.room_id()).await?;
 
         for request in requests {
             let response = self.client.send_to_device(&request).await?;
@@ -570,7 +570,7 @@ impl Joined {
                     // TODO query keys here?
                 }
 
-                self.preshare_group_session().await?;
+                self.preshare_room_key().await?;
 
                 let olm = self.client.olm_machine().expect("Olm machine wasn't started");
 
