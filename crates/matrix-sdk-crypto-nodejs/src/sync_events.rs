@@ -29,12 +29,12 @@ impl DeviceLists {
         self.inner.is_empty()
     }
 
-    #[napi]
+    #[napi(getter)]
     pub fn changed(&self) -> Vec<identifiers::UserId> {
         self.inner.changed.iter().map(|user| identifiers::UserId::new_with(user.clone())).collect()
     }
 
-    #[napi]
+    #[napi(getter)]
     pub fn left(&self) -> Vec<identifiers::UserId> {
         self.inner.left.iter().map(|user| identifiers::UserId::new_with(user.clone())).collect()
     }

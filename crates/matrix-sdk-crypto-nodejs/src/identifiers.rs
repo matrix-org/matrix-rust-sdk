@@ -29,13 +29,13 @@ impl UserId {
     }
 
     /// Returns the user's localpart.
-    #[napi]
+    #[napi(getter)]
     pub fn localpart(&self) -> String {
         self.inner.localpart().to_owned()
     }
 
     /// Returns the server name of the user ID.
-    #[napi(js_name = "serverName")]
+    #[napi(getter)]
     pub fn server_name(&self) -> ServerName {
         ServerName { inner: self.inner.server_name().to_owned() }
     }
@@ -45,13 +45,13 @@ impl UserId {
     /// A historical user ID is one that doesn't conform to the latest
     /// specification of the user ID grammar but is still accepted
     /// because it was previously allowed.
-    #[napi(getter, js_name = "isHistorical")]
+    #[napi]
     pub fn is_historical(&self) -> bool {
         self.inner.is_historical()
     }
 
     /// Return the user ID as a string.
-    #[napi(js_name = "toString")]
+    #[napi]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
@@ -83,7 +83,7 @@ impl DeviceId {
     }
 
     /// Return the device ID as a string.
-    #[napi(js_name = "toString")]
+    #[napi]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
@@ -114,19 +114,19 @@ impl RoomId {
     }
 
     /// Returns the user's localpart.
-    #[napi]
+    #[napi(getter)]
     pub fn localpart(&self) -> String {
         self.inner.localpart().to_owned()
     }
 
     /// Returns the server name of the room ID.
-    #[napi(js_name = "serverName")]
+    #[napi(getter)]
     pub fn server_name(&self) -> ServerName {
         ServerName { inner: self.inner.server_name().to_owned() }
     }
 
     /// Return the room ID as a string.
-    #[napi(js_name = "toString")]
+    #[napi]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
@@ -157,20 +157,20 @@ impl ServerName {
     ///
     /// That is: Return the part of the server before `:<port>` or the
     /// full server name if there is no port.
-    #[napi]
+    #[napi(getter)]
     pub fn host(&self) -> String {
         self.inner.host().to_owned()
     }
 
     /// Returns the port of the server name if any.
-    #[napi]
+    #[napi(getter)]
     pub fn port(&self) -> Option<u16> {
         self.inner.port()
     }
 
     /// Returns true if and only if the server name is an IPv4 or IPv6
     /// address.
-    #[napi(js_name = "isIpLiteral")]
+    #[napi]
     pub fn is_ip_literal(&self) -> bool {
         self.inner.is_ip_literal()
     }

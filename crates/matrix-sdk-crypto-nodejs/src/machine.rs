@@ -50,17 +50,17 @@ impl OlmMachine {
         napi::Error::from_reason("To build an `OldMachine`, please use the `initialize` method")
     }
 
-    #[napi]
+    #[napi(getter)]
     pub fn user_id(&self) -> identifiers::UserId {
         identifiers::UserId::new_with(self.inner.user_id().to_owned())
     }
 
-    #[napi]
+    #[napi(getter)]
     pub fn device_id(&self) -> identifiers::DeviceId {
         identifiers::DeviceId::new_with(self.inner.device_id().to_owned())
     }
 
-    #[napi]
+    #[napi(getter)]
     pub fn identity_keys(&self) -> IdentityKeys {
         self.inner.identity_keys().into()
     }
@@ -264,7 +264,7 @@ impl Ed25519PublicKey {
 
     /// Serialize an Ed25519 public key to an unpadded base64
     /// representation.
-    #[napi(js_name = "toBase64")]
+    #[napi]
     pub fn to_base64(&self) -> String {
         self.inner.to_base64()
     }
@@ -287,7 +287,7 @@ impl Curve25519PublicKey {
 
     /// Serialize an Curve25519 public key to an unpadded base64
     /// representation.
-    #[napi(js_name = "toBase64")]
+    #[napi]
     pub fn to_base64(&self) -> String {
         self.inner.to_base64()
     }
@@ -295,20 +295,19 @@ impl Curve25519PublicKey {
 
 #[napi]
 pub struct IdentityKeys {
-    /// The Ed25519 public key, used for signing.
     ed25519: Ed25519PublicKey,
-
-    /// The Curve25519 public key, used for establish shared secrets.
     curve25519: Curve25519PublicKey,
 }
 
 #[napi]
 impl IdentityKeys {
+    /// The Ed25519 public key, used for signing.
     #[napi(getter)]
     pub fn ed25519(&self) -> Ed25519PublicKey {
         self.ed25519.clone()
     }
 
+    /// The Curve25519 public key, used for establish shared secrets.
     #[napi(getter)]
     pub fn curve25519(&self) -> Curve25519PublicKey {
         self.curve25519.clone()

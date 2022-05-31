@@ -129,7 +129,10 @@ impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
 
 #[napi]
 pub struct DecryptedRoomEvent {
+    /// The decrypted event, JSON-encoded.
+    #[napi(readonly)]
     pub event: String,
+
     encryption_info: Option<EncryptionInfo>,
 }
 
@@ -199,8 +202,13 @@ impl From<matrix_sdk_common::deserialized_responses::RoomEvent> for DecryptedRoo
 
 #[napi]
 pub enum VerificationState {
+    /// The device is trusted.
     Trusted,
+
+    /// The device is not trusted.
     Untrusted,
+
+    /// The device is not known to us.
     UnknownDevice,
 }
 
