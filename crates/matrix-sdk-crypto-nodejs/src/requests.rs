@@ -4,7 +4,7 @@ use matrix_sdk_crypto::requests::{
     KeysBackupRequest as RumaKeysBackupRequest, KeysQueryRequest as RumaKeysQueryRequest,
     RoomMessageRequest as RumaRoomMessageRequest, ToDeviceRequest as RumaToDeviceRequest,
 };
-use napi::{bindgen_prelude::ToNapiValue, Either};
+use napi::bindgen_prelude::{Either3, Either5, ToNapiValue};
 use napi_derive::*;
 use ruma::api::client::keys::{
     claim_keys::v3::Request as RumaKeysClaimRequest,
@@ -187,18 +187,12 @@ request!(SignatureUploadRequest from RumaSignatureUploadRequest maps fields sign
 request!(RoomMessageRequest from RumaRoomMessageRequest maps fields room_id, txn_id, content);
 request!(KeysBackupRequest from RumaKeysBackupRequest maps fields rooms);
 
-pub type OutgoingRequests = Either<
+pub type OutgoingRequests = Either5<
     KeysUploadRequest,
-    Either<
-        KeysQueryRequest,
-        Either<
-            KeysClaimRequest,
-            Either<
-                ToDeviceRequest,
-                Either<SignatureUploadRequest, Either<RoomMessageRequest, KeysBackupRequest>>,
-            >,
-        >,
-    >,
+    KeysQueryRequest,
+    KeysClaimRequest,
+    ToDeviceRequest,
+    Either3<SignatureUploadRequest, RoomMessageRequest, KeysBackupRequest>,
 >;
 
 // JavaScript has no complex enums like Rust. To return structs of
@@ -213,37 +207,31 @@ impl TryFrom<OutgoingRequest> for OutgoingRequests {
 
         Ok(match outgoing_request.0.request() {
             matrix_sdk_crypto::OutgoingRequests::KeysUpload(request) => {
-                Either::A(KeysUploadRequest::try_from((request_id, request))?)
+                Either5::A(KeysUploadRequest::try_from((request_id, request))?)
             }
 
             matrix_sdk_crypto::OutgoingRequests::KeysQuery(request) => {
-                Either::B(Either::A(KeysQueryRequest::try_from((request_id, request))?))
+                Either5::B(KeysQueryRequest::try_from((request_id, request))?)
             }
 
             matrix_sdk_crypto::OutgoingRequests::KeysClaim(request) => {
-                Either::B(Either::B(Either::A(KeysClaimRequest::try_from((request_id, request))?)))
+                Either5::C(KeysClaimRequest::try_from((request_id, request))?)
             }
 
-            matrix_sdk_crypto::OutgoingRequests::ToDeviceRequest(request) => Either::B(Either::B(
-                Either::B(Either::A(ToDeviceRequest::try_from((request_id, request))?)),
-            )),
+            matrix_sdk_crypto::OutgoingRequests::ToDeviceRequest(request) => {
+                Either5::D(ToDeviceRequest::try_from((request_id, request))?)
+            }
 
             matrix_sdk_crypto::OutgoingRequests::SignatureUpload(request) => {
-                Either::B(Either::B(Either::B(Either::B(Either::A(
-                    SignatureUploadRequest::try_from((request_id, request))?,
-                )))))
+                Either5::E(Either3::A(SignatureUploadRequest::try_from((request_id, request))?))
             }
 
             matrix_sdk_crypto::OutgoingRequests::RoomMessage(request) => {
-                Either::B(Either::B(Either::B(Either::B(Either::B(Either::A(
-                    RoomMessageRequest::try_from((request_id, request))?,
-                ))))))
+                Either5::E(Either3::B(RoomMessageRequest::try_from((request_id, request))?))
             }
 
             matrix_sdk_crypto::OutgoingRequests::KeysBackup(request) => {
-                Either::B(Either::B(Either::B(Either::B(Either::B(Either::B(
-                    KeysBackupRequest::try_from((request_id, request))?,
-                ))))))
+                Either5::E(Either3::C(KeysBackupRequest::try_from((request_id, request))?))
             }
         })
     }

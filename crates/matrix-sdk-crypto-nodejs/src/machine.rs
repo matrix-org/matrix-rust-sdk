@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use napi::{bindgen_prelude::ToNapiValue, Either};
+use napi::bindgen_prelude::{Either3, Either5, ToNapiValue};
 use napi_derive::*;
 use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::Value as JsonValue;
@@ -109,20 +109,15 @@ impl OlmMachine {
         &self,
     ) -> Result<
         Vec<
-            Either<
+            Either5<
                 requests::KeysUploadRequest,
-                Either<
-                    requests::KeysQueryRequest,
-                    Either<
-                        requests::KeysClaimRequest,
-                        Either<
-                            requests::ToDeviceRequest,
-                            Either<
-                                requests::SignatureUploadRequest,
-                                Either<requests::RoomMessageRequest, requests::KeysBackupRequest>,
-                            >,
-                        >,
-                    >,
+                requests::KeysQueryRequest,
+                requests::KeysClaimRequest,
+                requests::ToDeviceRequest,
+                Either3<
+                    requests::SignatureUploadRequest,
+                    requests::RoomMessageRequest,
+                    requests::KeysBackupRequest,
                 >,
             >,
         >,
