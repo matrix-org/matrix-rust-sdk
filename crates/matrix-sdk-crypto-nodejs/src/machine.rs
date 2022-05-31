@@ -4,9 +4,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use napi::Either;
 use napi_derive::*;
-use ruma::{DeviceKeyAlgorithm, UInt};
+use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 
-use crate::{identifiers, into_err, requests, sync_events};
+use crate::{
+    identifiers, into_err, requests, responses, responses::response_from_string, sync_events,
+};
 
 /// State machine implementation of the Olm/Megolm encryption protocol
 /// used for Matrix end to end encryption.
@@ -129,6 +131,24 @@ impl OlmMachine {
             .map(requests::OutgoingRequest)
             .map(TryFrom::try_from)
             .collect::<Result<Vec<_>, _>>()
+            .map_err(into_err)
+    }
+
+    #[napi]
+    pub async fn mark_request_as_sent(
+        &self,
+        request_id: String,
+        request_type: requests::RequestType,
+        response: String,
+    ) -> Result<bool, napi::Error> {
+        let transaction_id = OwnedTransactionId::from(request_id);
+        let response = response_from_string(response.as_str()).map_err(into_err)?;
+        let incoming_response = responses::OwnedResponse::try_from((request_type, response))?;
+
+        self.inner
+            .mark_request_as_sent(&transaction_id, &incoming_response)
+            .await
+            .map(|_| true)
             .map_err(into_err)
     }
 

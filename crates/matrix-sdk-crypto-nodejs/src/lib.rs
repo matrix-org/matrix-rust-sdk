@@ -18,6 +18,7 @@
 
 mod errors;
 pub mod events;
+pub mod responses;
 pub mod identifiers;
 pub mod machine;
 pub mod requests;
