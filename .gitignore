@@ -1,6 +1,10 @@
 Cargo.lock
 target
+generated
 master.zip
 emsdk-*
 .idea/
+
+## User settings
+xcuserdata/
 .vscode/

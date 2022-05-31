@@ -238,7 +238,7 @@ impl Client {
     ///     // Change password
     /// }
     ///
-    /// # Result::<_, anyhow::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new(), None).await?;
@@ -703,7 +703,7 @@ impl Client {
     ///     "Logged in as {}, got device_id {} and access_token {}",
     ///     user, response.device_id, response.access_token
     /// );
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
@@ -1372,7 +1372,7 @@ impl Client {
     /// for room in response.chunk {
     ///     println!("Found room {:?}", room);
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn public_rooms_filtered(
         &self,
@@ -1476,7 +1476,7 @@ impl Client {
     ///
     /// // Check the corresponding Response struct to find out what types are
     /// // returned
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn send<Request>(
         &self,
@@ -1544,7 +1544,7 @@ impl Client {
     ///         device.display_name.as_deref().unwrap_or("")
     ///     );
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn devices(&self) -> HttpResult<get_devices::v3::Response> {
         let request = get_devices::v3::Request::new();
@@ -1601,7 +1601,7 @@ impl Client {
     ///             .await?;
     ///     }
     /// }
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     pub async fn delete_devices(
         &self,
         devices: &[OwnedDeviceId],
@@ -1690,7 +1690,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
     /// client.sync(SyncSettings::default()).await;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`sync`]: #method.sync
@@ -1792,7 +1792,7 @@ impl Client {
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
     /// client.sync(SyncSettings::default()).await;
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [argument docs]: #method.sync_once
@@ -1921,7 +1921,7 @@ impl Client {
     ///     }
     /// }
     ///
-    /// # Result::<_, matrix_sdk::Error>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     #[instrument(skip(self))]
     pub async fn sync_stream<'a>(
@@ -3362,7 +3362,7 @@ pub(crate) mod tests {
         let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
         let members: Vec<RoomMember> = room.active_members().await.unwrap();
 
-        assert_eq!(1, members.len());
+        assert_eq!(2, members.len());
         // assert!(room.power_levels.is_some())
     }
 

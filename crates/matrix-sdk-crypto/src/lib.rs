@@ -45,7 +45,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use ruma::OwnedRoomId;
 
 /// Return type for the room key importing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoomKeyImportResult {
     /// The number of room keys that were imported.
     pub imported_count: usize,

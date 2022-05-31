@@ -1,0 +1,58 @@
+name: FFI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+   branches: [main]
+   types:
+     - opened
+     - reopened
+     - synchronize
+     - ready_for_review
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Run Apple platform tests
+    runs-on: macos-12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Install targets
+        run: |
+          rustup target add aarch64-apple-ios-sim
+          rustup target add x86_64-apple-ios
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install Uniffi
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: uniffi_bindgen
+
+
+      - name: Generate .xcframework
+        run: sh bindings/apple/debug_build_xcframework.sh ci
+
+      - name: Run XCTests
+        run: |
+          xcodebuild test \
+            -project bindings/apple/MatrixRustSDK.xcodeproj \
+            -scheme MatrixRustSDK \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 13,OS=15.4'

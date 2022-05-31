@@ -336,7 +336,7 @@ impl<'a, R: Read> AttachmentConfig<'a, R> {
 ///         config,
 ///     ).await?;
 /// }
-/// # Result::<_, matrix_sdk::Error>::Ok(()) });
+/// # anyhow::Ok(()) });
 /// ```
 #[cfg(feature = "image-proc")]
 pub fn generate_image_thumbnail<R: BufRead + Seek>(

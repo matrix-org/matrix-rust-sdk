@@ -1,7 +1,7 @@
 mod members;
 mod normal;
 
-use std::{cmp::max, collections::HashSet, fmt};
+use std::{collections::HashSet, fmt};
 
 pub use members::RoomMember;
 pub use normal::{Room, RoomInfo, RoomType};
@@ -143,11 +143,7 @@ impl BaseRoomInfo {
                 self.tombstone = Some(t.into());
             }
             AnySyncStateEvent::RoomPowerLevels(p) => {
-                self.max_power_level = p
-                    .power_levels()
-                    .users
-                    .values()
-                    .fold(self.max_power_level, |acc, &p| max(acc, p.into()));
+                self.max_power_level = p.power_levels().max().into();
             }
             _ => return false,
         }
@@ -192,11 +188,7 @@ impl BaseRoomInfo {
                 self.tombstone = Some(t.into());
             }
             AnyStrippedStateEvent::RoomPowerLevels(p) => {
-                self.max_power_level = p
-                    .content
-                    .users
-                    .values()
-                    .fold(self.max_power_level, |acc, &p| max(acc, p.into()));
+                self.max_power_level = p.power_levels().max().into();
             }
             _ => return false,
         }

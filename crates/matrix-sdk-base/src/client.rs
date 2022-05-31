@@ -1071,7 +1071,7 @@ impl BaseClient {
         content: impl MessageLikeEventContent,
     ) -> Result<RoomEncryptedEventContent> {
         match self.olm_machine().await {
-            Some(o) => Ok(o.encrypt(room_id, content).await?),
+            Some(o) => Ok(o.encrypt_room_event(room_id, content).await?),
             None => panic!("Olm machine wasn't started"),
         }
     }

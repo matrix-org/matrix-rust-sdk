@@ -46,7 +46,7 @@ use ruma::{
     signatures::{redact_in_place, CanonicalJsonObject},
     RoomVersionId,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -275,7 +275,7 @@ impl IndexeddbStore {
         })
     }
 
-    fn deserialize_event<T: for<'b> Deserialize<'b>>(
+    fn deserialize_event<T: DeserializeOwned>(
         &self,
         event: JsValue,
     ) -> std::result::Result<T, SerializationError> {

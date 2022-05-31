@@ -59,19 +59,19 @@ More examples can be found in the [examples] directory.
 
 The following crate feature flags are available:
 
-| Feature             | Default | Description                                                           |
-| ------------------- | :-----: | --------------------------------------------------------------------- |
-| `anyhow`            |   No    | Better logging for event handlers that return `anyhow::Result`        |
-| `e2e-encryption`    |   Yes   | Enable End-to-end encryption support                                  |
-| `eyre`              |   No    | Better logging for event handlers that return `eyre::Result`          |
-| `image-proc`        |   No    | Enables image processing to generate thumbnails                       |
-| `image-rayon`       |   No    | Enables faster image processing                                       |
-| `markdown`          |   No    | Support to send Markdown-formatted messages                           |
-| `qrcode`            |   Yes   | QR code verification support                                          |
-| `sled`              |   Yes   | Persistent storage of state and E2EE-Data using sled (if `e2e-encryption` is activated)
-| `indexeddb`         |   No    | Persistent storage of state and E2EE-Data for browsers using indexeddb (if `e2e-encryption` is activated)
-| `socks`             |   No    | Enables SOCKS support in the default HTTP client, [`reqwest`]         |
-| `sso-login`         |   No    | Enables SSO login with a local HTTP server                            |
+| Feature             | Default | Description                                                                                                                |
+| ------------------- | :-----: | -------------------------------------------------------------------------------------------------------------------------- |
+| `anyhow`            |   No    | Better logging for event handlers that return `anyhow::Result`                                                             |
+| `e2e-encryption`    |   Yes   | End-to-end encryption (E2EE) support                                                                                       |
+| `eyre`              |   No    | Better logging for event handlers that return `eyre::Result`                                                               |
+| `image-proc`        |   No    | Image processing for generating thumbnails                                                                                 |
+| `image-rayon`       |   No    | Enables faster image processing                                                                                            |
+| `markdown`          |   No    | Support for sending Markdown-formatted messages                                                                            |
+| `qrcode`            |   Yes   | QR code verification support                                                                                               |
+| `sled`              |   Yes   | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via Sled                   |
+| `indexeddb`         |   No    | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled) for browsers, via IndexedDB |
+| `socks`             |   No    | SOCKS support in the default HTTP client, [`reqwest`]                                                                      |
+| `sso-login`         |   No    | Support for SSO login with a local HTTP server                                                                             |
 
 [`reqwest`]: https://docs.rs/reqwest/0.11.5/reqwest/index.html
 

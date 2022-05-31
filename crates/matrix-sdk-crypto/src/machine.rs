@@ -638,11 +638,6 @@ impl OlmMachine {
     /// Beware that a group session needs to be shared before this method can be
     /// called using the [`share_group_session`] method.
     ///
-    /// Since group sessions can expire or become invalid if the room membership
-    /// changes client authors should check with the
-    /// [`should_share_group_session`] method if a new group session needs to
-    /// be shared.
-    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
@@ -655,23 +650,22 @@ impl OlmMachine {
     ///
     /// Panics if a group session for the given room wasn't shared beforehand.
     ///
-    /// [`should_share_group_session`]: #method.should_share_group_session
-    /// [`share_group_session`]: #method.share_group_session
-    pub async fn encrypt(
+    /// [`share_group_session`]: Self::share_group_session
+    pub async fn encrypt_room_event(
         &self,
         room_id: &RoomId,
         content: impl MessageLikeEventContent,
     ) -> MegolmResult<RoomEncryptedEventContent> {
         let event_type = content.event_type().to_string();
         let content = serde_json::to_value(&content)?;
-
-        self.group_session_manager.encrypt(room_id, content, &event_type).await
+        self.encrypt_room_event_raw(room_id, content, &event_type).await
     }
 
     /// Encrypt a json [`Value`] content for the given room.
     ///
-    /// This method is equivalent to the [`encrypt()`] method but operates on an
-    /// arbitrary JSON value instead of strongly-typed event content struct.
+    /// This method is equivalent to the [`OlmMachine::encrypt_room_event()`]
+    /// method but operates on an arbitrary JSON value instead of strongly-typed
+    /// event content struct.
     ///
     /// # Arguments
     ///
@@ -686,9 +680,7 @@ impl OlmMachine {
     /// # Panics
     ///
     /// Panics if a group session for the given room wasn't shared beforehand.
-    ///
-    /// [`encrypt()`]: #method.encrypt
-    pub async fn encrypt_raw(
+    pub async fn encrypt_room_event_raw(
         &self,
         room_id: &RoomId,
         content: Value,
@@ -1964,7 +1956,7 @@ pub(crate) mod tests {
         let content = RoomMessageEventContent::text_plain(plaintext);
 
         let encrypted_content = alice
-            .encrypt(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
+            .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content.clone()))
             .await
             .unwrap();
 
