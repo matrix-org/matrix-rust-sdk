@@ -74,7 +74,7 @@ impl CrossSigningKey {
 
     /// Get the first key id and matching Ed25519 key we can find.
     pub fn get_first_key_and_id(&self) -> Option<(&DeviceKeyId, Ed25519PublicKey)> {
-        self.keys.iter().find_map(|(id, key)| key.ed25519().map(|k| (id.as_ref(), k)))
+        self.keys.iter().find_map(|(id, key)| Some((id.as_ref(), key.ed25519()?)))
     }
 }
 
