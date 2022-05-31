@@ -56,12 +56,13 @@ enum FeatureSet {
     Markdown,
     Socks,
     SsoLogin,
+    ExperimentalTimeline,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(clippy::enum_variant_names)]
 enum WasmFeatureSet {
-    MatrixQrcode,
+    MatrixSdkQrcode,
     MatrixSdkNoDefault,
     MatrixSdkBase,
     MatrixSdkCommon,
@@ -159,6 +160,7 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
         (FeatureSet::Markdown, "--features markdown"),
         (FeatureSet::Socks, "--features socks"),
         (FeatureSet::SsoLogin, "--features sso-login"),
+        (FeatureSet::ExperimentalTimeline, "--features experimental-timeline"),
     ]);
 
     let run = |arg_set: &str| {
@@ -185,7 +187,7 @@ fn run_crypto_tests() -> Result<()> {
     )
     .run()?;
     cmd!("rustup run stable cargo test -p matrix-sdk-crypto --features=backups_v1").run()?;
-    cmd!("rustup run stable cargo test -p matrix-crypto-ffi").run()?;
+    cmd!("rustup run stable cargo test -p matrix-sdk-crypto-ffi").run()?;
 
     Ok(())
 }
@@ -199,7 +201,7 @@ fn run_appservice_tests() -> Result<()> {
 
 fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixQrcode, "-p matrix-qrcode"),
+        (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode"),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
             "-p matrix-sdk --no-default-features --features rustls-tls",
@@ -260,7 +262,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 
 fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (WasmFeatureSet::MatrixQrcode, ("matrix-qrcode", "")),
+        (WasmFeatureSet::MatrixSdkQrcode, ("matrix-sdk-qrcode", "")),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
             ("matrix-sdk", "--no-default-features --features rustls-tls --lib"),

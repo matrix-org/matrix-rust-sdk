@@ -17,21 +17,21 @@ use std::sync::Arc;
 use ruma::{
     events::{
         presence::PresenceEvent,
-        room::{
-            member::{MembershipState, RoomMemberEventContent},
-            power_levels::SyncRoomPowerLevelsEvent,
-        },
+        room::{member::MembershipState, power_levels::SyncRoomPowerLevelsEvent},
     },
     MxcUri, UserId,
 };
 
-use crate::deserialized_responses::MemberEvent;
+use crate::{deserialized_responses::MemberEvent, MinimalRoomMemberEvent};
 
 /// A member of a room.
 #[derive(Clone, Debug)]
 pub struct RoomMember {
     pub(crate) event: Arc<MemberEvent>,
-    pub(crate) profile: Arc<Option<RoomMemberEventContent>>,
+    // The latest member event sent by the member themselves.
+    // Stored in addition to the latest member event overall to get displayname
+    // and avatar from, which should be ignored on events sent by others.
+    pub(crate) profile: Arc<Option<MinimalRoomMemberEvent>>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levels: Arc<Option<SyncRoomPowerLevelsEvent>>,
@@ -49,9 +49,9 @@ impl RoomMember {
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
         if let Some(p) = self.profile.as_ref() {
-            p.displayname.as_deref()
+            p.as_original().and_then(|e| e.content.displayname.as_deref())
         } else {
-            self.event.content().displayname.as_deref()
+            self.event.original_content()?.displayname.as_deref()
         }
     }
 
@@ -69,9 +69,10 @@ impl RoomMember {
 
     /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
-        match self.profile.as_ref() {
-            Some(p) => p.avatar_url.as_deref(),
-            None => self.event.content().avatar_url.as_deref(),
+        if let Some(p) = self.profile.as_ref() {
+            p.as_original().and_then(|e| e.content.avatar_url.as_deref())
+        } else {
+            self.event.original_content()?.avatar_url.as_deref()
         }
     }
 
@@ -91,13 +92,7 @@ impl RoomMember {
     pub fn power_level(&self) -> i64 {
         (*self.power_levels)
             .as_ref()
-            .map(|e| {
-                let pls = e.power_levels();
-                pls.users
-                    .get(self.user_id())
-                    .map(|p| (*p).into())
-                    .unwrap_or_else(|| pls.users_default.into())
-            })
+            .map(|e| e.power_levels().for_user(self.user_id()).into())
             .unwrap_or_else(|| if self.is_room_creator { 100 } else { 0 })
     }
 
@@ -112,9 +107,9 @@ impl RoomMember {
     /// Get the membership state of this member.
     pub fn membership(&self) -> &MembershipState {
         if let Some(p) = self.profile.as_ref() {
-            &p.membership
+            p.membership()
         } else {
-            &self.event.content().membership
+            self.event.membership()
         }
     }
 }

@@ -2,7 +2,12 @@
 name = "matrix-sdk-sled"
 version = "0.1.0"
 edition = "2021"
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+description = "Sled Storage backend for matrix-sdk for native environments"
+license = "Apache-2.0"
 rust-version = "1.60"
+readme = "README.md"
 
 [features]
 default = ["state-store"]
@@ -20,10 +25,10 @@ async-trait = "0.1.53"
 dashmap = "5.2.0"
 futures-core = "0.3.21"
 futures-util = { version = "0.3.21", default-features = false }
-matrix-sdk-base = { path = "../matrix-sdk-base", optional = true }
-matrix-sdk-common = { path = "../matrix-sdk-common" }
-matrix-sdk-crypto = { path = "../matrix-sdk-crypto", optional = true }
-matrix-sdk-store-encryption = { path = "../matrix-sdk-store-encryption" }
+matrix-sdk-base = { version = "0.5.0", path = "../matrix-sdk-base", optional = true }
+matrix-sdk-common = { version = "0.5.0", path = "../matrix-sdk-common" }
+matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto", optional = true }
+matrix-sdk-store-encryption = { version = "0.1.0", path = "../matrix-sdk-store-encryption" }
 ruma = "0.6.1"
 serde = "1.0.136"
 serde_json = "1.0.79"
@@ -35,7 +40,7 @@ tracing = "0.1.34"
 [dev-dependencies]
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
-matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
+matrix-sdk-test = { path = "../matrix-sdk-test" }
 once_cell = "1.10.0"
 tempfile = "3.3.0"
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }

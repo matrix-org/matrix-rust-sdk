@@ -9,7 +9,7 @@ name = "matrix-sdk-crypto"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.60"
-version = "0.4.1"
+version = "0.5.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
@@ -23,7 +23,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-qrcode = ["matrix-qrcode"]
+qrcode = ["matrix-sdk-qrcode"]
 backups_v1 = ["olm-rs", "bs58"]
 docsrs = []
 js = ["http"]
@@ -33,7 +33,6 @@ testing = ["http"]
 
 [dependencies]
 aes = "0.8.1"
-aes-gcm = "0.9.4"
 atomic = "0.5.1"
 async-trait = "0.1.53"
 base64 = "0.13.0"
@@ -43,9 +42,9 @@ ctr = "0.9.1"
 dashmap = "5.2.0"
 futures-util = { version = "0.3.21", default-features = false, features = ["alloc"] }
 hmac = "0.12.1"
-http = { version = "0.2.6", optional = true } # feature = testing only, or if `js` is enabled
-matrix-qrcode = { version = "0.2.0", path = "../matrix-qrcode", optional = true }
-matrix-sdk-common = { version = "0.4.0", path = "../matrix-sdk-common" }
+http = { version = "0.2.6", optional = true } # feature = testing only
+matrix-sdk-qrcode = { version = "0.3.0", path = "../matrix-sdk-qrcode", optional = true }
+matrix-sdk-common = { version = "0.5.0", path = "../matrix-sdk-common" }
 olm-rs = { version = "2.2.0", features = ["serde"], optional = true }
 pbkdf2 = { version = "0.11.0", default-features = false }
 rand = "0.8.5"
@@ -73,7 +72,7 @@ futures = { version = "0.3.21", default-features = false, features = ["executor"
 http = "0.2.6"
 indoc = "1.0.4"
 matches = "0.1.9"
-matrix-sdk-test = { version = "0.4.0", path = "../matrix-sdk-test" }
+matrix-sdk-test = { version = "0.5.0", path = "../matrix-sdk-test" }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
 tokio = { version = "1.7.0", default-features = false, features = ["macros", "rt-multi-thread"] }

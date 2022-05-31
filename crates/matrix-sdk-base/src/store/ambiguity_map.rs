@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use matrix_sdk_common::deserialized_responses::{AmbiguityChange, MemberEvent};
 use ruma::{
-    events::room::member::{MembershipState, OriginalSyncRoomMemberEvent},
+    events::room::member::{MembershipState, SyncRoomMemberEvent},
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use tracing::trace;
@@ -75,7 +75,7 @@ impl AmbiguityCache {
         &mut self,
         changes: &StateChanges,
         room_id: &RoomId,
-        member_event: &OriginalSyncRoomMemberEvent,
+        member_event: &SyncRoomMemberEvent,
     ) -> Result<()> {
         // Synapse seems to have a bug where it puts the same event into the
         // state and the timeline sometimes.
@@ -89,7 +89,7 @@ impl AmbiguityCache {
         if self
             .changes
             .get(room_id)
-            .map(|c| c.contains_key(&member_event.event_id))
+            .map(|c| c.contains_key(member_event.event_id()))
             .unwrap_or(false)
         {
             return Ok(());
@@ -106,9 +106,10 @@ impl AmbiguityCache {
             return Ok(());
         }
 
-        let disambiguated_member = old_map.as_mut().and_then(|o| o.remove(&member_event.state_key));
+        let disambiguated_member =
+            old_map.as_mut().and_then(|o| o.remove(member_event.state_key()));
         let ambiguated_member =
-            new_map.as_mut().and_then(|n| n.add(member_event.state_key.clone()));
+            new_map.as_mut().and_then(|n| n.add(member_event.state_key().clone()));
         let ambiguous = new_map.as_ref().map(|n| n.is_ambiguous()).unwrap_or(false);
 
         self.update(room_id, old_map, new_map);
@@ -119,9 +120,9 @@ impl AmbiguityCache {
             member_ambiguous: ambiguous,
         };
 
-        trace!("Handling display name ambiguity for {}: {:#?}", member_event.state_key, change);
+        trace!("Handling display name ambiguity for {}: {:#?}", member_event.state_key(), change);
 
-        self.add_change(room_id, member_event.event_id.clone(), change);
+        self.add_change(room_id, member_event.event_id().to_owned(), change);
 
         Ok(())
     }
@@ -151,36 +152,38 @@ impl AmbiguityCache {
         &mut self,
         changes: &StateChanges,
         room_id: &RoomId,
-        member_event: &OriginalSyncRoomMemberEvent,
+        member_event: &SyncRoomMemberEvent,
     ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
         use MembershipState::*;
 
         let old_event = if let Some(m) =
-            changes.members.get(room_id).and_then(|m| m.get(&member_event.state_key))
+            changes.members.get(room_id).and_then(|m| m.get(member_event.state_key()))
         {
-            Some(MemberEvent::Original(m.clone()))
+            Some(MemberEvent::Sync(m.clone()))
         } else {
-            self.store.get_member_event(room_id, &member_event.state_key).await?
+            self.store.get_member_event(room_id, member_event.state_key()).await?
         };
 
         let old_display_name = if let Some(event) = old_event {
-            if matches!(event.content().membership, Join | Invite) {
+            if matches!(event.membership(), Join | Invite) {
                 let display_name = if let Some(d) = changes
                     .profiles
                     .get(room_id)
-                    .and_then(|p| p.get(&member_event.state_key))
-                    .and_then(|p| p.displayname.as_deref())
+                    .and_then(|p| p.get(member_event.state_key()))
+                    .and_then(|p| p.as_original())
+                    .and_then(|p| p.content.displayname.as_deref())
                 {
                     Some(d.to_owned())
                 } else if let Some(d) = self
                     .store
-                    .get_profile(room_id, &member_event.state_key)
+                    .get_profile(room_id, member_event.state_key())
                     .await?
-                    .and_then(|c| c.displayname)
+                    .and_then(|p| p.into_original())
+                    .and_then(|p| p.content.displayname)
                 {
                     Some(d)
                 } else {
-                    event.content().displayname.clone()
+                    event.original_content().and_then(|c| c.displayname.clone())
                 };
 
                 Some(display_name.unwrap_or_else(|| event.user_id().localpart().to_owned()))
@@ -204,17 +207,16 @@ impl AmbiguityCache {
             None
         };
 
-        let new_map = if matches!(member_event.content.membership, Join | Invite) {
+        let new_map = if matches!(member_event.membership(), Join | Invite) {
             let new = member_event
-                .content
-                .displayname
-                .as_deref()
-                .unwrap_or_else(|| member_event.state_key.localpart());
+                .as_original()
+                .and_then(|ev| ev.content.displayname.as_deref())
+                .unwrap_or_else(|| member_event.state_key().localpart());
 
             // We don't allow other users to set the display name, so if we
             // have a more trusted version of the display
             // name use that.
-            let new_display_name = if member_event.sender.as_str() == member_event.state_key {
+            let new_display_name = if member_event.sender().as_str() == member_event.state_key() {
                 new
             } else if let Some(old) = old_display_name.as_deref() {
                 old

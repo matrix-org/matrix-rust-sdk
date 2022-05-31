@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::{
-    matrix_qrcode::{qrcode::QrCode, EncodingError},
+    matrix_sdk_qrcode::{qrcode::QrCode, EncodingError},
     CancelInfo, QrVerification as BaseQrVerification,
 };
 use ruma::UserId;

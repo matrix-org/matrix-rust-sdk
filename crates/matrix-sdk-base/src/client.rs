@@ -56,16 +56,16 @@ use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
         push_rules::PushRulesEvent,
-        room::member::{MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEvent},
+        room::member::{MembershipState, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-        StateEventType, SyncStateEvent,
+        StateEventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UInt, UserId,
 };
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::error::Error;
@@ -281,15 +281,15 @@ impl BaseClient {
                     #[allow(clippy::single_match)]
                     match &e {
                         AnySyncRoomEvent::State(s) => match s {
-                            AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) => {
+                            AnySyncStateEvent::RoomMember(member) => {
                                 ambiguity_cache.handle_event(changes, room_id, member).await?;
 
-                                match member.content.membership {
+                                match member.membership() {
                                     MembershipState::Join | MembershipState::Invite => {
-                                        user_ids.insert(member.state_key.clone());
+                                        user_ids.insert(member.state_key().to_owned());
                                     }
                                     _ => {
-                                        user_ids.remove(&member.state_key);
+                                        user_ids.remove(member.state_key());
                                     }
                                 }
 
@@ -297,19 +297,19 @@ impl BaseClient {
                                 // of profiles that the member set themselves to avoid
                                 // having confusing profile changes when a member gets
                                 // kicked/banned.
-                                if member.state_key == member.sender {
+                                if member.state_key() == member.sender() {
                                     changes
                                         .profiles
                                         .entry(room_id.to_owned())
                                         .or_default()
-                                        .insert(member.sender.clone(), member.content.clone());
+                                        .insert(member.sender().to_owned(), member.into());
                                 }
 
                                 changes
                                     .members
                                     .entry(room_id.to_owned())
                                     .or_default()
-                                    .insert(member.state_key.clone(), member.to_owned());
+                                    .insert(member.state_key().to_owned(), member.clone());
                             }
                             _ => {
                                 room_info.handle_state_event(s);
@@ -373,19 +373,25 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        let actions = push_rules.get_actions(&event.event, context).to_vec();
+                        if event
+                            .event
+                            .get_field::<OwnedUserId>("sender")?
+                            .map_or(false, |id| id != user_id)
+                        {
+                            let actions = push_rules.get_actions(&event.event, context).to_vec();
 
-                        if actions.iter().any(|a| matches!(a, Action::Notify)) {
-                            changes.add_notification(
-                                room_id,
-                                Notification::new(
-                                    actions,
-                                    event.event.clone(),
-                                    false,
-                                    room_id.to_owned(),
-                                    MilliSecondsSinceUnixEpoch::now(),
-                                ),
-                            );
+                            if actions.iter().any(|a| matches!(a, Action::Notify)) {
+                                changes.add_notification(
+                                    room_id,
+                                    Notification::new(
+                                        actions,
+                                        event.event.clone(),
+                                        false,
+                                        room_id.to_owned(),
+                                        MilliSecondsSinceUnixEpoch::now(),
+                                    ),
+                                );
+                            }
                         }
                         // TODO if there is an
                         // Action::SetTweak(Tweak::Highlight) we need to store
@@ -470,12 +476,12 @@ impl BaseClient {
 
             room_info.handle_state_event(&event);
 
-            if let AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) = event {
+            if let AnySyncStateEvent::RoomMember(member) = event {
                 ambiguity_cache.handle_event(changes, &room_id, &member).await?;
 
-                match member.content.membership {
+                match member.membership() {
                     MembershipState::Join | MembershipState::Invite => {
-                        user_ids.insert(member.state_key.clone());
+                        user_ids.insert(member.state_key().to_owned());
                     }
                     _ => (),
                 }
@@ -484,11 +490,11 @@ impl BaseClient {
                 // of profiles that the member set themselves to avoid
                 // having confusing profile changes when a member gets
                 // kicked/banned.
-                if member.state_key == member.sender {
-                    profiles.insert(member.sender.clone(), member.content.clone());
+                if member.state_key() == member.sender() {
+                    profiles.insert(member.sender().to_owned(), (&member).into());
                 }
 
-                members.insert(member.state_key.clone(), member);
+                members.insert(member.state_key().to_owned(), member);
             } else {
                 state_events
                     .entry(event.event_type())
@@ -859,12 +865,12 @@ impl BaseClient {
         let members: Vec<_> = response
             .chunk
             .iter()
-            .filter_map(|e| e.deserialize().ok())
-            .filter_map(|ev| match ev {
-                RoomMemberEvent::Original(ev) => Some(ev),
-                // FIXME: don't filter these out
-                // https://github.com/matrix-org/matrix-rust-sdk/issues/607
-                RoomMemberEvent::Redacted(_) => None,
+            .filter_map(|event| match event.deserialize() {
+                Ok(ev) => Some(ev),
+                Err(e) => {
+                    debug!(?event, "Failed to deserialize m.room.member event: {}", e);
+                    None
+                }
             })
             .collect();
 
@@ -880,32 +886,32 @@ impl BaseClient {
             let mut user_ids = BTreeSet::new();
 
             for member in &members {
-                let member: OriginalSyncRoomMemberEvent = member.clone().into();
+                let member: SyncRoomMemberEvent = member.clone().into();
 
-                if self.store.get_member_event(room_id, &member.state_key).await?.is_none() {
+                if self.store.get_member_event(room_id, member.state_key()).await?.is_none() {
                     #[cfg(feature = "e2e-encryption")]
-                    match member.content.membership {
+                    match member.membership() {
                         MembershipState::Join | MembershipState::Invite => {
-                            user_ids.insert(member.state_key.clone());
+                            user_ids.insert(member.state_key().to_owned());
                         }
                         _ => (),
                     }
 
                     ambiguity_cache.handle_event(&changes, room_id, &member).await?;
 
-                    if member.state_key == member.sender {
+                    if member.state_key() == member.sender() {
                         changes
                             .profiles
                             .entry(room_id.to_owned())
                             .or_default()
-                            .insert(member.sender.clone(), member.content.clone());
+                            .insert(member.sender().to_owned(), (&member).into());
                     }
 
                     changes
                         .members
                         .entry(room_id.to_owned())
                         .or_default()
-                        .insert(member.state_key.clone(), member);
+                        .insert(member.state_key().to_owned(), member);
                 }
             }
 
@@ -1238,7 +1244,10 @@ impl BaseClient {
         let user_display_name = if let Some(member) =
             changes.members.get(room_id).and_then(|members| members.get(user_id))
         {
-            member.content.displayname.clone().unwrap_or_else(|| user_id.localpart().to_owned())
+            member
+                .as_original()
+                .and_then(|ev| ev.content.displayname.clone())
+                .unwrap_or_else(|| user_id.localpart().to_owned())
         } else if let Some(member) = room.get_member(user_id).await? {
             member.name().to_owned()
         } else {
@@ -1291,8 +1300,10 @@ impl BaseClient {
         if let Some(member) =
             changes.members.get(&**room_id).and_then(|members| members.get(user_id))
         {
-            push_rules.user_display_name =
-                member.content.displayname.clone().unwrap_or_else(|| user_id.localpart().to_owned())
+            push_rules.user_display_name = member
+                .as_original()
+                .and_then(|ev| ev.content.displayname.clone())
+                .unwrap_or_else(|| user_id.localpart().to_owned())
         }
 
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes

@@ -30,10 +30,7 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
-        room::member::{
-            MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-            StrippedRoomMemberEvent,
-        },
+        room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
@@ -54,6 +51,7 @@ use super::{Result, RoomInfo, StateChanges, StateStore};
 use crate::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
+    MinimalRoomMemberEvent,
 };
 #[cfg(feature = "experimental-timeline")]
 use crate::{deserialized_responses::SyncRoomEvent, StoreError};
@@ -67,8 +65,8 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>>,
-    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, OriginalSyncRoomMemberEvent>>>,
-    profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, RoomMemberEventContent>>>,
+    members: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, SyncRoomMemberEvent>>>,
+    profiles: Arc<DashMap<OwnedRoomId, DashMap<OwnedUserId, MinimalRoomMemberEvent>>>,
     display_names: Arc<DashMap<OwnedRoomId, DashMap<String, BTreeSet<OwnedUserId>>>>,
     joined_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
     invited_user_ids: Arc<DashMap<OwnedRoomId, DashSet<OwnedUserId>>>,
@@ -156,43 +154,43 @@ impl MemoryStore {
 
         for (room, events) in &changes.members {
             for event in events.values() {
-                match event.content.membership {
+                match event.membership() {
                     MembershipState::Join => {
                         self.joined_user_ids
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key.clone());
+                            .insert(event.state_key().to_owned());
                         self.invited_user_ids
                             .entry(room.clone())
                             .or_default()
-                            .remove(&event.state_key);
+                            .remove(event.state_key());
                     }
                     MembershipState::Invite => {
                         self.invited_user_ids
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key.clone());
+                            .insert(event.state_key().to_owned());
                         self.joined_user_ids
                             .entry(room.clone())
                             .or_default()
-                            .remove(&event.state_key);
+                            .remove(event.state_key());
                     }
                     _ => {
                         self.joined_user_ids
                             .entry(room.clone())
                             .or_default()
-                            .remove(&event.state_key);
+                            .remove(event.state_key());
                         self.invited_user_ids
                             .entry(room.clone())
                             .or_default()
-                            .remove(&event.state_key);
+                            .remove(event.state_key());
                     }
                 }
 
                 self.members
                     .entry(room.clone())
                     .or_default()
-                    .insert(event.state_key.clone(), event.clone());
+                    .insert(event.state_key().to_owned(), event.clone());
             }
         }
 
@@ -497,7 +495,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<RoomMemberEventContent>> {
+    ) -> Result<Option<MinimalRoomMemberEvent>> {
         Ok(self.profiles.get(room_id).and_then(|p| p.get(user_id).map(|p| p.clone())))
     }
 
@@ -508,11 +506,11 @@ impl MemoryStore {
     ) -> Result<Option<MemberEvent>> {
         if let Some(e) = self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(e.into()))
+            Ok(Some(MemberEvent::Sync(e)))
         } else if let Some(e) =
             self.stripped_members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone()))
         {
-            Ok(Some(e.into()))
+            Ok(Some(MemberEvent::Stripped(e)))
         } else {
             Ok(None)
         }
@@ -743,7 +741,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<RoomMemberEventContent>> {
+    ) -> Result<Option<MinimalRoomMemberEvent>> {
         self.get_profile(room_id, user_id).await
     }
 

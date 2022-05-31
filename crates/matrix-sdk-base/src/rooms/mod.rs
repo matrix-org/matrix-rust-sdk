@@ -16,111 +16,14 @@ use ruma::{
             redaction::OriginalSyncRoomRedactionEvent, tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, EmptyStateKey, RedactContent,
-        RedactedEventContent, StateEventContent, StrippedStateEvent, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, RedactContent, RedactedEventContent,
+        StateEventContent, SyncStateEvent,
     },
-    EventId, OwnedEventId, OwnedUserId, RoomVersionId,
+    EventId, OwnedUserId, RoomVersionId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-// #[serde(bound)] instead of DeserializeOwned in type where clause does not
-// work, it can only be a single bound that replaces the default and if a helper
-// trait is used, the compiler still complains about Deserialize not being
-// implemented for C::Redacted.
-//
-// It is unclear why a Serialize bound on C::Redacted is not also required.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-enum MinimalStateEvent<C: StateEventContent<StateKey = EmptyStateKey> + RedactContent>
-where
-    C::Redacted:
-        StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
-{
-    Original(OriginalMinimalStateEvent<C>),
-    Redacted(RedactedMinimalStateEvent<C::Redacted>),
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct OriginalMinimalStateEvent<C>
-where
-    C: StateEventContent<StateKey = EmptyStateKey>,
-{
-    content: C,
-    event_id: Option<OwnedEventId>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct RedactedMinimalStateEvent<C>
-where
-    C: StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent,
-{
-    content: C,
-    event_id: Option<OwnedEventId>,
-}
-
-impl<C> MinimalStateEvent<C>
-where
-    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
-    C::Redacted:
-        StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
-{
-    fn event_id(&self) -> Option<&EventId> {
-        match self {
-            MinimalStateEvent::Original(ev) => ev.event_id.as_deref(),
-            MinimalStateEvent::Redacted(ev) => ev.event_id.as_deref(),
-        }
-    }
-
-    fn as_original(&self) -> Option<&OriginalMinimalStateEvent<C>> {
-        match self {
-            MinimalStateEvent::Original(ev) => Some(ev),
-            MinimalStateEvent::Redacted(_) => None,
-        }
-    }
-
-    fn redact(&mut self, room_version: &RoomVersionId) {
-        if let MinimalStateEvent::Original(ev) = self {
-            *self = MinimalStateEvent::Redacted(RedactedMinimalStateEvent {
-                content: ev.content.clone().redact(room_version),
-                event_id: ev.event_id.clone(),
-            });
-        }
-    }
-}
-
-impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
-where
-    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
-    C::Redacted: Clone
-        + StateEventContent<StateKey = EmptyStateKey>
-        + RedactedEventContent
-        + DeserializeOwned,
-{
-    fn from(ev: &SyncStateEvent<C>) -> Self {
-        match ev {
-            SyncStateEvent::Original(ev) => Self::Original(OriginalMinimalStateEvent {
-                content: ev.content.clone(),
-                event_id: Some(ev.event_id.clone()),
-            }),
-            SyncStateEvent::Redacted(ev) => Self::Redacted(RedactedMinimalStateEvent {
-                content: ev.content.clone(),
-                event_id: Some(ev.event_id.clone()),
-            }),
-        }
-    }
-}
-
-impl<C> From<&StrippedStateEvent<C>> for MinimalStateEvent<C>
-where
-    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
-    C::Redacted: Clone
-        + StateEventContent<StateKey = EmptyStateKey>
-        + RedactedEventContent
-        + DeserializeOwned,
-{
-    fn from(ev: &StrippedStateEvent<C>) -> Self {
-        Self::Original(OriginalMinimalStateEvent { content: ev.content.clone(), event_id: None })
-    }
-}
+use crate::MinimalStateEvent;
 
 /// The name of the room, either from the metadata or calculated
 /// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
@@ -337,9 +240,8 @@ trait OptionExt {
 
 impl<C> OptionExt for Option<MinimalStateEvent<C>>
 where
-    C: Clone + StateEventContent<StateKey = EmptyStateKey> + RedactContent,
-    C::Redacted:
-        StateEventContent<StateKey = EmptyStateKey> + RedactedEventContent + DeserializeOwned,
+    C: StateEventContent + RedactContent,
+    C::Redacted: StateEventContent + RedactedEventContent + DeserializeOwned,
 {
     fn has_event_id(&self, ev_id: &EventId) -> bool {
         self.as_ref().and_then(|ev| ev.event_id()).map_or(false, |id| id == ev_id)

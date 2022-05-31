@@ -26,19 +26,15 @@ use std::{
 };
 
 use futures_util::stream::{self, StreamExt};
-pub use matrix_sdk_base::crypto::{LocalTrust, MediaEncryptionInfo, RoomKeyImportResult};
-use matrix_sdk_base::{
-    crypto::{
-        store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
-        ToDeviceRequest,
-    },
-    deserialized_responses::RoomEvent,
+use matrix_sdk_base::crypto::{
+    store::CryptoStoreError, CrossSigningStatus, OutgoingRequest, RoomMessageRequest,
+    ToDeviceRequest,
 };
+pub use matrix_sdk_base::crypto::{LocalTrust, MediaEncryptionInfo, RoomKeyImportResult};
 use matrix_sdk_common::instant::Duration;
 #[cfg(feature = "e2e-encryption")]
 use ruma::{
-    api::client::config::set_global_account_data,
-    events::{GlobalAccountDataEventContent, SyncMessageLikeEvent},
+    api::client::config::set_global_account_data, events::GlobalAccountDataEventContent,
     OwnedDeviceId,
 };
 use ruma::{
@@ -54,10 +50,7 @@ use ruma::{
         uiaa::AuthData,
     },
     assign,
-    events::{
-        AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, GlobalAccountDataEventType,
-    },
-    serde::Raw,
+    events::GlobalAccountDataEventType,
     DeviceId, OwnedUserId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, trace, warn};
@@ -73,34 +66,6 @@ use crate::{
 };
 
 impl Client {
-    /// Tries to decrypt a `AnyRoomEvent`. Returns undecrypted room event when
-    /// decryption fails.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn decrypt_room_event(&self, event: Raw<AnyRoomEvent>) -> RoomEvent {
-        if let Some(machine) = self.olm_machine().await {
-            if let Ok(AnyRoomEvent::MessageLike(event)) = event.deserialize() {
-                if let AnyMessageLikeEvent::RoomEncrypted(_) = event {
-                    let room_id = event.room_id();
-                    // Turn the AnyMessageLikeEvent into a AnySyncMessageLikeEvent
-                    let event = event.clone().into();
-
-                    if let AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(
-                        e,
-                    )) = event
-                    {
-                        if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
-                            return decrypted;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback to still-encrypted room event
-
-        RoomEvent { event, encryption_info: None }
-    }
-
     /// Query the server for users device keys.
     ///
     /// # Panics

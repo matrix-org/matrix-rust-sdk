@@ -9,14 +9,14 @@ name = "matrix-sdk-common"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.60"
-version = "0.4.1"
+version = "0.5.0"
 
 [package.metadata.docs.rs]
 default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
-ruma = { version = "0.6.1", features = ["client-api-c"] }
+ruma = { version = "0.6.2", features = ["client-api-c"] }
 serde = "1.0.136"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -34,6 +34,7 @@ mod session;
 pub mod store;
 #[cfg(feature = "experimental-timeline")]
 mod timeline_stream;
+mod utils;
 
 pub use client::BaseClient;
 #[cfg(any(test, feature = "testing"))]
@@ -42,3 +43,6 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use rooms::{DisplayName, Room, RoomInfo, RoomMember, RoomType};
 pub use store::{StateChanges, StateStore, Store, StoreError};
+pub use utils::{
+    MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
+};

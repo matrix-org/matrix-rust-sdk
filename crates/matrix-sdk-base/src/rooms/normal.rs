@@ -46,10 +46,11 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{BaseRoomInfo, DisplayName, MinimalStateEvent, RoomMember};
+use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore},
+    MinimalStateEvent,
 };
 #[cfg(feature = "experimental-timeline")]
 use crate::{
@@ -449,9 +450,8 @@ impl Room {
             .get_users_with_display_name(
                 self.room_id(),
                 member_event
-                    .content()
-                    .displayname
-                    .as_deref()
+                    .original_content()
+                    .and_then(|c| c.displayname.as_deref())
                     .unwrap_or_else(|| user_id.localpart()),
             )
             .await?
@@ -813,7 +813,7 @@ mod test {
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{
                     MembershipState, OriginalSyncRoomMemberEvent, RoomMemberEventContent,
-                    StrippedRoomMemberEvent,
+                    StrippedRoomMemberEvent, SyncRoomMemberEvent,
                 },
                 name::RoomNameEventContent,
             },
@@ -824,8 +824,8 @@ mod test {
 
     use super::*;
     use crate::{
-        rooms::{MinimalStateEvent, OriginalMinimalStateEvent},
         store::{MemoryStore, StateChanges},
+        MinimalStateEvent, OriginalMinimalStateEvent,
     };
 
     fn make_room(room_type: RoomType) -> (Arc<MemoryStore>, Room) {
@@ -846,8 +846,8 @@ mod test {
         }
     }
 
-    fn make_member_event(user_id: &UserId, name: &str) -> OriginalSyncRoomMemberEvent {
-        OriginalSyncRoomMemberEvent {
+    fn make_member_event(user_id: &UserId, name: &str) -> SyncRoomMemberEvent {
+        SyncRoomMemberEvent::Original(OriginalSyncRoomMemberEvent {
             content: assign!(RoomMemberEventContent::new(MembershipState::Join), {
                 displayname: Some(name.to_owned())
             }),
@@ -856,7 +856,7 @@ mod test {
             event_id: event_id!("$h29iv0s1:example.com").to_owned(),
             origin_server_ts: MilliSecondsSinceUnixEpoch(208u32.into()),
             unsigned: StateUnsigned::default(),
-        }
+        })
     }
 
     #[tokio::test]

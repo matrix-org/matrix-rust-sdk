@@ -28,7 +28,7 @@ use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
     store::{Result as StoreResult, StateChanges, StateStore, StoreError},
-    RoomInfo,
+    MinimalStateEvent, RoomInfo,
 };
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
@@ -111,7 +111,7 @@ impl Into<StoreError> for SledStoreError {
                 )),
             },
             SledStoreError::StoreError(e) => e,
-            _ => StoreError::Backend(Box::new(self)),
+            _ => StoreError::backend(self),
         }
     }
 }
@@ -269,8 +269,7 @@ impl SledStore {
     }
 
     pub fn open() -> StoreResult<Self> {
-        let db =
-            Config::new().temporary(true).open().map_err(|e| StoreError::Backend(Box::new(e)))?;
+        let db = Config::new().temporary(true).open().map_err(StoreError::backend)?;
 
         SledStore::open_helper(db, None, None).map_err(|e| e.into())
     }
@@ -278,8 +277,7 @@ impl SledStore {
     // testing only
     #[cfg(test)]
     fn open_encrypted() -> StoreResult<Self> {
-        let db =
-            Config::new().temporary(true).open().map_err(|e| StoreError::Backend(Box::new(e)))?;
+        let db = Config::new().temporary(true).open().map_err(StoreError::backend)?;
 
         SledStore::open_helper(
             db,
@@ -321,19 +319,18 @@ impl SledStore {
     }
 
     fn upgrade(&self) -> StoreResult<()> {
-        let db_version =
-            self.inner.get(VERSION_KEY).map_err(|e| StoreError::Backend(Box::new(e)))?.map(|v| {
-                let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
-                u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
-            });
+        let db_version = self.inner.get(VERSION_KEY).map_err(StoreError::backend)?.map(|v| {
+            let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
+            u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
+        });
 
         let old_version = match db_version {
             None => {
                 // we are fresh, let's write the current version
                 self.inner
                     .insert(VERSION_KEY, DATABASE_VERSION.to_be_bytes().as_ref())
-                    .map_err(|e| StoreError::Backend(Box::new(e)))?;
-                self.inner.flush().map_err(|e| StoreError::Backend(Box::new(e)))?;
+                    .map_err(StoreError::backend)?;
+                self.inner.flush().map_err(StoreError::backend)?;
                 return Ok(());
             }
             Some(version) if version == DATABASE_VERSION => {
@@ -459,20 +456,20 @@ impl SledStore {
                         let profile_changes = changes.profiles.get(room);
 
                         for event in events.values() {
-                            let key = (room, &event.state_key);
+                            let key = (room, event.state_key());
 
-                            match event.content.membership {
+                            match event.membership() {
                                 MembershipState::Join => {
                                     joined.insert(
                                         self.encode_key(JOINED_USER_ID, &key),
-                                        event.state_key.as_str(),
+                                        event.state_key().as_str(),
                                     )?;
                                     invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
                                 }
                                 MembershipState::Invite => {
                                     invited.insert(
                                         self.encode_key(INVITED_USER_ID, &key),
-                                        event.state_key.as_str(),
+                                        event.state_key().as_str(),
                                     )?;
                                     joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
                                 }
@@ -489,7 +486,7 @@ impl SledStore {
                             )?;
 
                             if let Some(profile) =
-                                profile_changes.and_then(|p| p.get(&event.state_key))
+                                profile_changes.and_then(|p| p.get(event.state_key()))
                             {
                                 profiles.insert(
                                     self.encode_key(PROFILE, &key),
@@ -730,7 +727,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Result<Option<RoomMemberEventContent>> {
+    ) -> Result<Option<MinimalStateEvent<RoomMemberEventContent>>> {
         let db = self.clone();
         let key = self.encode_key(PROFILE, (room_id, user_id));
         spawn_blocking(move || db.profiles.get(key)?.map(|p| db.deserialize_event(&p)).transpose())
@@ -747,7 +744,7 @@ impl SledStore {
         let stripped_key = self.encode_key(STRIPPED_ROOM_MEMBER, (room_id, state_key));
         spawn_blocking(move || {
             if let Some(e) = db.members.get(key)?.map(|v| db.deserialize_event(&v)).transpose()? {
-                Ok(Some(MemberEvent::Original(e)))
+                Ok(Some(MemberEvent::Sync(e)))
             } else if let Some(e) = db
                 .stripped_members
                 .get(stripped_key)?
@@ -789,14 +786,12 @@ impl SledStore {
         let key = self.encode_key(INVITED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
-                ))
-                .map_err(StoreError::Identifier)
+                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
+                    .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(Box::new(e)))
+        .map_err(StoreError::backend)
     }
 
     pub async fn get_joined_user_ids(
@@ -807,14 +802,12 @@ impl SledStore {
         let key = self.encode_key(JOINED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
-                ))
-                .map_err(StoreError::Identifier)
+                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
+                    .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(Box::new(e)))
+        .map_err(StoreError::backend)
     }
 
     pub async fn get_stripped_invited_user_ids(
@@ -825,14 +818,12 @@ impl SledStore {
         let key = self.encode_key(STRIPPED_INVITED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.stripped_invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
-                ))
-                .map_err(StoreError::Identifier)
+                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
+                    .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(Box::new(e)))
+        .map_err(StoreError::backend)
     }
 
     pub async fn get_stripped_joined_user_ids(
@@ -843,14 +834,12 @@ impl SledStore {
         let key = self.encode_key(STRIPPED_JOINED_USER_ID, room_id);
         spawn_blocking(move || {
             stream::iter(db.stripped_joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(
-                    &u.map_err(|e| StoreError::Backend(Box::new(e)))?.1,
-                ))
-                .map_err(StoreError::Identifier)
+                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
+                    .map_err(StoreError::Identifier)
             }))
         })
         .await
-        .map_err(|e| StoreError::Backend(Box::new(e)))
+        .map_err(StoreError::backend)
     }
 
     pub async fn get_room_infos(&self) -> Result<impl Stream<Item = Result<RoomInfo>>> {
@@ -941,13 +930,13 @@ impl SledStore {
                 .scan_prefix(key)
                 .values()
                 .map(|u| {
-                    let v = u.map_err(|e| StoreError::Backend(Box::new(e)))?;
-                    db.deserialize_event(&v).map_err(|e| StoreError::Backend(Box::new(e)))
+                    let v = u.map_err(StoreError::backend)?;
+                    db.deserialize_event(&v).map_err(StoreError::backend)
                 })
                 .collect()
         })
         .await
-        .map_err(|e| StoreError::Backend(Box::new(e)))?
+        .map_err(StoreError::backend)?
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
@@ -1433,7 +1422,7 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> StoreResult<Option<RoomMemberEventContent>> {
+    ) -> StoreResult<Option<MinimalStateEvent<RoomMemberEventContent>>> {
         self.get_profile(room_id, user_id).await.map_err(Into::into)
     }
 
