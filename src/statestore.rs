@@ -1558,7 +1558,7 @@ mod postgres_integration_test {
     use sqlx::migrate::MigrateDatabase;
 
     use super::StoreResult;
-    async fn get_store_anyhow() -> anyhow::Result<impl StateStore> {
+    async fn get_store_result() -> crate::Result<impl StateStore> {
         let name = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
         let db_url = format!("postgres://postgres:postgres@localhost:5432/{}", name);
         if !sqlx::Postgres::database_exists(&db_url).await? {
@@ -1569,7 +1569,7 @@ mod postgres_integration_test {
         Ok(store)
     }
     async fn get_store() -> StoreResult<impl StateStore> {
-        get_store_anyhow()
+        get_store_result()
             .await
             .map_err(|e| StoreError::Backend(e.into()))
     }

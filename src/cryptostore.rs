@@ -1302,10 +1302,10 @@ mod postgres_integration_test {
     use matrix_sdk_crypto::cryptostore_integration_tests;
     use sqlx::migrate::MigrateDatabase;
 
-    async fn get_store_anyhow(
+    async fn get_store_result(
         name: String,
         passphrase: Option<&str>,
-    ) -> anyhow::Result<StateStore<sqlx::postgres::Postgres>> {
+    ) -> crate::Result<StateStore<sqlx::postgres::Postgres>> {
         let db_url = format!("postgres://postgres:postgres@localhost:5432/{}", name);
         if !sqlx::Postgres::database_exists(&db_url).await? {
             sqlx::Postgres::create_database(&db_url).await?;
@@ -1322,7 +1322,7 @@ mod postgres_integration_test {
         name: String,
         passphrase: Option<&str>,
     ) -> StateStore<sqlx::postgres::Postgres> {
-        match get_store_anyhow(name, passphrase).await {
+        match get_store_result(name, passphrase).await {
             Ok(v) => v,
             Err(e) => {
                 panic!("Could not open database: {:#?}", e);
