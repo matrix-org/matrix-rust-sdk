@@ -90,6 +90,7 @@ pub use matrix_sdk;
 pub use matrix_sdk::ruma;
 use matrix_sdk::{
     bytes::Bytes,
+    config::RequestConfig,
     event_handler::{EventHandler, EventHandlerResult, SyncEvent},
     reqwest::Url,
     Client, ClientBuildError, ClientBuilder, Session,
@@ -101,9 +102,9 @@ use ruma::{
             query::{query_room_alias::v1 as query_room, query_user_id::v1 as query_user},
             Registration,
         },
-        client::account::register,
+        client::{account::register, session::login, uiaa::UserIdentifier},
     },
-    assign, DeviceId, IdParseError, OwnedServerName, UserId,
+    assign, DeviceId, IdParseError, OwnedDeviceId, OwnedServerName, UserId,
 };
 use serde::de::DeserializeOwned;
 use tracing::info;
@@ -117,6 +118,111 @@ pub type Host = String;
 pub type Port = u16;
 
 const USER_KEY: &[u8] = b"appservice.users.";
+
+/// Builder for a virtual user
+#[derive(Debug)]
+pub struct VirtualUserBuilder<'a> {
+    appservice: &'a AppService,
+    localpart: &'a str,
+    device_id: Option<OwnedDeviceId>,
+    client_builder: ClientBuilder,
+    log_in: bool,
+    restored_session: Option<Session>,
+}
+
+impl<'a> VirtualUserBuilder<'a> {
+    /// Create a new virtual user builder
+    /// # Arguments
+    ///
+    /// * `localpart` - The localpart of the virtual user
+    pub fn new(appservice: &'a AppService, localpart: &'a str) -> Self {
+        Self {
+            appservice,
+            localpart,
+            device_id: None,
+            client_builder: Client::builder(),
+            log_in: false,
+            restored_session: None,
+        }
+    }
+
+    /// Set the device id of the virtual user
+    pub fn device_id(mut self, device_id: Option<OwnedDeviceId>) -> Self {
+        self.device_id = device_id;
+        self
+    }
+
+    /// Sets the client builder to use for the virtual user
+    pub fn client_builder(mut self, client_builder: ClientBuilder) -> Self {
+        self.client_builder = client_builder;
+        self
+    }
+
+    /// Log in as the virtual user
+    ///
+    /// In some cases it is necessary to log in as the virtual user, such as to
+    /// upload device keys
+    pub fn login(mut self) -> Self {
+        self.log_in = true;
+        self
+    }
+
+    /// Restore a persisted session
+    ///
+    /// This is primarily useful if you enable
+    /// [`VirtualUserBuilder::login()`] and want to restore a session
+    /// from a previous run.
+    pub fn restored_session(mut self, session: Session) -> Self {
+        self.restored_session = Some(session);
+        self
+    }
+
+    /// Build the virtual user
+    ///
+    /// # Errors
+    /// This function returns an error if an invalid localpart is provided.
+    pub async fn build(self) -> Result<Client> {
+        if let Some(client) = self.appservice.clients.get(self.localpart) {
+            return Ok(client.clone());
+        }
+
+        let user_id = UserId::parse_with_server_name(self.localpart, &self.appservice.server_name)?;
+
+        let mut builder = self.client_builder;
+
+        if !self.log_in && self.localpart != self.appservice.registration.sender_localpart {
+            builder = builder.assert_identity();
+        }
+
+        let client = builder
+            .homeserver_url(self.appservice.homeserver_url.clone())
+            .appservice_mode()
+            .build()
+            .await
+            .map_err(ClientBuildError::assert_valid_builder_args)?;
+
+        let session = if let Some(session) = self.restored_session {
+            session
+        } else if self.log_in && self.localpart != self.appservice.registration.sender_localpart {
+            self.appservice
+                .create_session(self.localpart, self.device_id.as_ref().map(|v| v.as_ref()), None)
+                .await?
+        } else {
+            // Don’t log in
+            Session {
+                access_token: self.appservice.registration.as_token.clone(),
+                user_id: user_id.clone(),
+                device_id: self.device_id.unwrap_or_else(DeviceId::new),
+            }
+        };
+
+        client.restore_login(session).await?;
+
+        self.appservice.clients.insert(self.localpart.to_owned(), client.clone());
+
+        Ok(client)
+    }
+}
 
 /// AppService Registration
 ///
@@ -252,7 +358,7 @@ impl AppService {
             AppService { homeserver_url, server_name, registration, clients, event_handler };
 
         // we create and cache the [`MainUser`] by default
-        appservice.create_and_cache_client(&sender_localpart, builder).await?;
+        appservice.virtual_user_builder(&sender_localpart).client_builder(builder).build().await?;
 
         Ok(appservice)
     }
@@ -280,10 +386,7 @@ impl AppService {
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
     pub async fn virtual_user_client(&self, localpart: impl AsRef<str>) -> Result<Client> {
-        let client =
-            self.virtual_user_client_with_client_builder(localpart, Client::builder()).await?;
-
-        Ok(client)
+        self.virtual_user_builder(localpart.as_ref()).build().await
     }
 
     /// Same as [`virtual_user_client()`][Self::virtual_user_client] but with
@@ -296,50 +399,42 @@ impl AppService {
         localpart: impl AsRef<str>,
         builder: ClientBuilder,
     ) -> Result<Client> {
-        // TODO: check if localpart is covered by namespace?
-        let localpart = localpart.as_ref();
-
-        let client = if let Some(client) = self.clients.get(localpart) {
-            client.clone()
-        } else {
-            self.create_and_cache_client(localpart, builder).await?
-        };
-
-        Ok(client)
+        self.virtual_user_builder(localpart.as_ref()).client_builder(builder).build().await
     }
 
-    async fn create_and_cache_client(
+    pub fn virtual_user_builder<'a>(&'a self, localpart: &'a str) -> VirtualUserBuilder<'a> {
+        VirtualUserBuilder::new(self, localpart)
+    }
+
+    /// Create a session using appservice login for a virtual user.
+    async fn create_session(
         &self,
-        localpart: &str,
-        mut builder: ClientBuilder,
-    ) -> Result<Client> {
-        let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
+        user: impl AsRef<str>,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<Session> {
+        let homeserver = self.homeserver_url.clone();
+        info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in as virtual user");
 
-        // The `as_token` in the `Session` maps to the [`MainUser`]
-        // (`sender_localpart`) by default, so we don't need to assert identity
-        // in that case
-        if localpart != self.registration.sender_localpart {
-            builder = builder.assert_identity();
-        }
+        let login_info = login::v3::LoginInfo::ApplicationService(
+            login::v3::ApplicationService::new(UserIdentifier::UserIdOrLocalpart(user.as_ref())),
+        );
 
-        let client = builder
-            .homeserver_url(self.homeserver_url.clone())
-            .appservice_mode()
-            .build()
-            .await
-            .map_err(ClientBuildError::assert_valid_builder_args)?;
+        let request = assign!(login::v3::Request::new(login_info), {
+            device_id: device_id.map(|d| d.into()),
+            initial_device_display_name
+        });
 
-        let session = Session {
-            access_token: self.registration.as_token.clone(),
-            user_id: user_id.clone(),
-            // TODO: expose & proper E2EE
-            device_id: DeviceId::new(),
-        };
+        let response = self
+            .get_cached_client(None)?
+            .send(request, Some(RequestConfig::short_retry().force_auth()))
+            .await?;
 
-        client.restore_login(session).await?;
-        self.clients.insert(localpart.to_owned(), client.clone());
-
-        Ok(client)
+        Ok(Session {
+            access_token: response.access_token,
+            user_id: response.user_id,
+            device_id: response.device_id,
+        })
     }
 
     /// Get cached [`Client`]
