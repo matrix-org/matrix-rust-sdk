@@ -70,8 +70,8 @@ impl Account {
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_display_name(&self) -> Result<Option<String>> {
-        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_display_name::v3::Request::new(&user_id);
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = get_display_name::v3::Request::new(user_id);
         let response = self.client.send(request, None).await?;
         Ok(response.displayname)
     }
@@ -93,8 +93,8 @@ impl Account {
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
-        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = set_display_name::v3::Request::new(&user_id, name);
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = set_display_name::v3::Request::new(user_id, name);
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -118,8 +118,8 @@ impl Account {
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_avatar_url(&self) -> Result<Option<OwnedMxcUri>> {
-        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_avatar_url::v3::Request::new(&user_id);
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = get_avatar_url::v3::Request::new(user_id);
 
         let config = Some(RequestConfig::new().force_auth());
 
@@ -131,8 +131,8 @@ impl Account {
     ///
     /// The avatar is unset if `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
-        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = set_avatar_url::v3::Request::new(&user_id, url);
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = set_avatar_url::v3::Request::new(user_id, url);
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -233,8 +233,8 @@ impl Account {
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_profile(&self) -> Result<get_profile::v3::Response> {
-        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = get_profile::v3::Request::new(&user_id);
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        let request = get_profile::v3::Request::new(user_id);
         Ok(self.client.send(request, None).await?)
     }
 

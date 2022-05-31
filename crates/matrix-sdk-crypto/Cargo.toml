@@ -47,8 +47,23 @@ sha2 = "0.10.2"
 thiserror = "1.0.30"
 tracing = "0.1.34"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
-ruma = { version = "0.6.2", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "e09c93f2c8df9770793abeec57ed984d5e1f3834" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.ruma]
+version = "0.6.1"
+features = ["client-api-c", "js", "rand", "signatures", "unstable-msc2676", "unstable-msc2677"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac/"
+rev = "d0e744287a14319c2a9148fef3747548c740fc36"
+features = ["js"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
+version = "0.6.1"
+features = ["client-api-c", "rand", "signatures", "unstable-msc2676", "unstable-msc2677"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac/"
+rev = "d0e744287a14319c2a9148fef3747548c740fc36"
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }

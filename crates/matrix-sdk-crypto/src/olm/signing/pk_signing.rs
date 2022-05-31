@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, convert::TryInto};
+use std::collections::BTreeMap;
 
-use ruma::{
-    encryption::KeyUsage, serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId,
-};
+use ruma::{encryption::KeyUsage, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
 use thiserror::Error;
@@ -25,7 +23,8 @@ use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyError};
 use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    types::{CrossSigningKey, CrossSigningKeySignatures, DeviceKeys},
+    olm::utility::SignJson,
+    types::{CrossSigningKey, DeviceKeys, Signatures},
     utilities::{encode, DecodeError},
     ReadOnlyUserIdentity,
 };
@@ -61,6 +60,12 @@ impl std::fmt::Debug for Signing {
 impl PartialEq for Signing {
     fn eq(&self, other: &Signing) -> bool {
         self.public_key == other.public_key
+    }
+}
+
+impl SignJson for Signing {
+    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+        self.inner.sign_json(value)
     }
 }
 
@@ -123,17 +128,14 @@ impl MasterSigning {
         let json_subkey = serde_json::to_value(&subkey).expect("Can't serialize cross signing key");
         let signature = self.inner.sign_json(json_subkey).expect("Can't sign cross signing keys");
 
-        subkey
-            .signatures
-            .entry(self.public_key.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key.to_base64().as_str().into(),
-                ),
-                signature.to_base64(),
-            );
+        subkey.signatures.add_signature(
+            self.public_key.user_id().to_owned(),
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                self.inner.public_key.to_base64().as_str().into(),
+            ),
+            signature,
+        );
     }
 }
 
@@ -170,22 +172,20 @@ impl UserSigning {
     pub fn sign_user_helper(
         &self,
         user: &ReadOnlyUserIdentity,
-    ) -> Result<CrossSigningKeySignatures, SignatureError> {
+    ) -> Result<Signatures, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
         let signature = self.inner.sign_json(serde_json::to_value(user_master)?)?;
 
-        let mut signatures = BTreeMap::new();
+        let mut signatures = Signatures::new();
 
-        signatures
-            .entry(self.public_key.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Ed25519,
-                    self.inner.public_key.to_base64().as_str().into(),
-                ),
-                signature.to_base64(),
-            );
+        signatures.add_signature(
+            self.public_key.user_id().to_owned(),
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                self.inner.public_key.to_base64().as_str().into(),
+            ),
+            signature,
+        );
 
         Ok(signatures)
     }
@@ -215,19 +215,17 @@ impl SelfSigning {
         Ok(Self { inner, public_key })
     }
 
-    pub fn sign_device_helper(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
-        self.inner.sign_json(value)
-    }
-
     pub fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
-        let signature = self.sign_device_helper(serde_json::to_value(&device_keys)?)?;
+        let serialized = serde_json::to_value(&device_keys)?;
+        let signature = self.inner.sign_json(serialized)?;
 
-        device_keys.signatures.entry(self.public_key.user_id().to_owned()).or_default().insert(
+        device_keys.signatures.add_signature(
+            self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
                 self.inner.public_key.to_base64().as_str().into(),
             ),
-            signature.to_base64(),
+            signature,
         );
 
         Ok(())
@@ -308,30 +306,21 @@ impl Signing {
             self.inner.public_key().into(),
         )]);
 
-        CrossSigningKey::new(user_id, vec![usage], keys, BTreeMap::new())
-    }
-
-    #[cfg(test)]
-    pub fn verify(
-        &self,
-        message: &str,
-        signature: &Ed25519Signature,
-    ) -> Result<(), SignatureError> {
-        Ok(self.public_key.verify(message.as_bytes(), signature)?)
-    }
-
-    pub fn sign_json(&self, mut json: Value) -> Result<Ed25519Signature, SignatureError> {
-        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
-        let _ = json_object.remove("signatures");
-        let _ = json_object.remove("unsigned");
-
-        let canonical_json: CanonicalJsonValue =
-            json.try_into().expect("Can't canonicalize the json value");
-
-        Ok(self.sign(&canonical_json.to_string()))
+        CrossSigningKey::new(user_id, vec![usage], keys, Default::default())
     }
 
     pub fn sign(&self, message: &str) -> Ed25519Signature {
         self.inner.sign(message.as_bytes())
+    }
+
+    #[cfg(test)]
+    pub fn verify_json(
+        &self,
+        user_id: &ruma::UserId,
+        key_id: &DeviceKeyId,
+        message: &mut Value,
+    ) -> Result<(), SignatureError> {
+        use crate::olm::VerifyJson;
+        self.public_key.verify_json(user_id, key_id, message)
     }
 }

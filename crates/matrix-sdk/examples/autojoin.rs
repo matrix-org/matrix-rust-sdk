@@ -10,7 +10,7 @@ async fn on_stripped_state_member(
     client: Client,
     room: Room,
 ) {
-    if room_member.state_key != client.user_id().await.unwrap() {
+    if room_member.state_key != client.user_id().unwrap() {
         return;
     }
 

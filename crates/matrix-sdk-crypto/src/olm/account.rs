@@ -35,7 +35,7 @@ use ruma::{
         },
         AnyToDeviceEvent, OlmV1Keys,
     },
-    serde::{CanonicalJsonValue, Raw},
+    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
     OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
@@ -49,8 +49,8 @@ use vodozemac::{
 };
 
 use super::{
-    EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
-    Session,
+    utility::SignJson, EncryptionSettings, InboundGroupSession, OutboundGroupSession,
+    PrivateCrossSigningIdentity, Session,
 };
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
@@ -739,7 +739,7 @@ impl ReadOnlyAccount {
             (*self.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (**a).clone()).collect(),
             keys,
-            BTreeMap::new(),
+            Default::default(),
         )
     }
 
@@ -752,10 +752,15 @@ impl ReadOnlyAccount {
         // get signed.
         let json_device_keys =
             serde_json::to_value(&device_keys).expect("device key is always safe to serialize");
+        let signature = self
+            .sign_json(json_device_keys)
+            .await
+            .expect("Newly created device keys can always be signed");
 
-        device_keys.signatures.entry(self.user_id().to_owned()).or_default().insert(
+        device_keys.signatures.add_signature(
+            self.user_id().to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-            self.sign_json(json_device_keys).await.to_base64(),
+            signature,
         );
 
         device_keys
@@ -773,11 +778,12 @@ impl ReadOnlyAccount {
         &self,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
-        let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?).await;
+        let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?).await?;
 
-        cross_signing_key.signatures.entry(self.user_id().to_owned()).or_default().insert(
+        cross_signing_key.signatures.add_signature(
+            self.user_id().to_owned(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            signature.to_base64(),
+            signature,
         );
 
         Ok(())
@@ -809,19 +815,8 @@ impl ReadOnlyAccount {
     ///
     /// * `json` - The value that should be converted into a canonical JSON
     /// string.
-    ///
-    /// # Panic
-    ///
-    /// Panics if the json value can't be serialized.
-    pub async fn sign_json(&self, mut json: Value) -> Ed25519Signature {
-        let object = json.as_object_mut().expect("Canonical json value isn't an object");
-        object.remove("unsigned");
-        object.remove("signatures");
-
-        let canonical_json: CanonicalJsonValue =
-            json.try_into().expect("Can't canonicalize the json value");
-
-        self.sign(&canonical_json.to_string()).await
+    pub async fn sign_json(&self, json: Value) -> Result<Ed25519Signature, SignatureError> {
+        self.inner.lock().await.sign_json(json)
     }
 
     /// Generate, sign and prepare one-time keys to be uploaded.
@@ -885,18 +880,16 @@ impl ReadOnlyAccount {
             SignedKey::new(key.to_owned())
         };
 
-        let signature =
-            self.sign_json(serde_json::to_value(&key).expect("Can't serialize a signed key")).await;
+        let signature = self
+            .sign_json(serde_json::to_value(&key).expect("Can't serialize a signed key"))
+            .await
+            .expect("Newly created one-time keys can always be signed");
 
-        let signatures = BTreeMap::from([(
+        key.signatures_mut().add_signature(
             self.user_id().to_owned(),
-            BTreeMap::from([(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                signature,
-            )]),
-        )]);
-
-        *key.signatures() = signatures;
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signature,
+        );
 
         key
     }
@@ -1012,8 +1005,7 @@ impl ReadOnlyAccount {
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
         let their_identity_key = Curve25519PublicKey::from_base64(their_identity_key)?;
-        let result =
-            self.inner.lock().await.create_inbound_session(&their_identity_key, message)?;
+        let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();

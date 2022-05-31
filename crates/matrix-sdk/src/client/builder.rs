@@ -295,12 +295,7 @@ impl ClientBuilder {
         let base_client = BaseClient::with_store_config(self.store_config);
 
         let mk_http_client = |homeserver| {
-            HttpClient::new(
-                inner_http_client.clone(),
-                homeserver,
-                base_client.session().clone(),
-                self.request_config,
-            )
+            HttpClient::new(inner_http_client.clone(), homeserver, self.request_config)
         };
 
         let homeserver = match homeserver_cfg {

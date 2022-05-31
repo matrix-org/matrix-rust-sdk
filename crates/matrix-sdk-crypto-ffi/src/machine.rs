@@ -3,6 +3,7 @@ use std::{
     convert::TryInto,
     io::Cursor,
     ops::Deref,
+    sync::Arc,
 };
 
 use base64::{decode_config, encode, STANDARD_NO_PAD};
@@ -32,7 +33,7 @@ use ruma::{
     },
     events::{
         key::verification::VerificationMethod, room::encrypted::OriginalSyncRoomEncryptedEvent,
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, EventContent,
+        AnySyncMessageLikeEvent,
     },
     DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
@@ -92,7 +93,7 @@ impl OlmMachine {
         let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
-        let store = Box::new(
+        let store = Arc::new(
             matrix_sdk_sled::CryptoStore::open_with_passphrase(path, passphrase.as_deref())
                 .map_err(|e| {
                     match e {
@@ -518,12 +519,11 @@ impl OlmMachine {
         content: &str,
     ) -> Result<String, CryptoStoreError> {
         let room_id = RoomId::parse(room_id)?;
-        let content: Box<RawValue> = serde_json::from_str(content)?;
+        let content: Value = serde_json::from_str(content)?;
 
-        let content = AnyMessageLikeEventContent::from_parts(event_type, &content)?;
         let encrypted_content = self
             .runtime
-            .block_on(self.inner.encrypt_room_event(&room_id, content))
+            .block_on(self.inner.encrypt_room_event_raw(&room_id, content, event_type))
             .expect("Encrypting an event produced an error");
 
         Ok(serde_json::to_string(&encrypted_content)?)

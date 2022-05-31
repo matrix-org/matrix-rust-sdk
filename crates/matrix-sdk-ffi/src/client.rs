@@ -106,7 +106,7 @@ impl Client {
 
     pub fn restore_token(&self) -> anyhow::Result<String> {
         RUNTIME.block_on(async move {
-            let session = self.client.session().await.expect("Missing session");
+            let session = self.client.session().expect("Missing session").clone();
             let homeurl = self.client.homeserver().await.into();
             Ok(serde_json::to_string(&RestoreToken {
                 session,
@@ -121,11 +121,8 @@ impl Client {
     }
 
     pub fn user_id(&self) -> anyhow::Result<String> {
-        let l = self.client.clone();
-        RUNTIME.block_on(async move {
-            let user_id = l.user_id().await.expect("No User ID found");
-            Ok(user_id.to_string())
-        })
+        let user_id = self.client.user_id().expect("No User ID found");
+        Ok(user_id.to_string())
     }
 
     pub fn display_name(&self) -> anyhow::Result<String> {
@@ -145,11 +142,8 @@ impl Client {
     }
 
     pub fn device_id(&self) -> anyhow::Result<String> {
-        let l = self.client.clone();
-        RUNTIME.block_on(async move {
-            let device_id = l.device_id().await.expect("No Device ID found");
-            Ok(device_id.to_string())
-        })
+        let device_id = self.client.device_id().expect("No Device ID found");
+        Ok(device_id.to_string())
     }
 
     pub fn get_media_content(&self, media_source: Arc<MediaSource>) -> anyhow::Result<Vec<u8>> {

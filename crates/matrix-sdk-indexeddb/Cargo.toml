@@ -8,13 +8,16 @@ edition = "2021"
 rust-version = "1.60"
 readme = "README.md"
 
+[package.metadata.docs.rs]
+all-features = true
+default-target = "wasm32-unknown-unknown"
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["e2e-encryption"]
 e2e-encryption = ["matrix-sdk-base/e2e-encryption", "matrix-sdk-crypto"]
 experimental-timeline = ["matrix-sdk-base/experimental-timeline"]
 
-[package.metadata.docs.rs]
-default-target = "wasm32-unknown-unknown"
 
 [dependencies]
 anyhow = "1.0.57"

@@ -16,8 +16,38 @@ use std::convert::TryInto;
 
 use ruma::{serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
 use serde_json::Value;
+use vodozemac::{olm::Account, Ed25519SecretKey, Ed25519Signature};
 
 use crate::error::SignatureError;
+
+pub trait SignJson {
+    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError>;
+
+    fn to_signable_json(mut value: Value) -> Result<String, SignatureError> {
+        let json_object = value.as_object_mut().ok_or(SignatureError::NotAnObject)?;
+        let _ = json_object.remove("signatures");
+        let _ = json_object.remove("unsigned");
+
+        let canonical_json: CanonicalJsonValue = value.try_into()?;
+        Ok(canonical_json.to_string())
+    }
+}
+
+impl SignJson for Account {
+    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+        let serialized = Self::to_signable_json(value)?;
+
+        Ok(self.sign(serialized.as_ref()))
+    }
+}
+
+impl SignJson for Ed25519SecretKey {
+    fn sign_json(&self, value: Value) -> Result<Ed25519Signature, SignatureError> {
+        let serialized = Self::to_signable_json(value)?;
+
+        Ok(self.sign(serialized.as_ref()))
+    }
+}
 
 pub trait VerifyJson {
     /// Verify a signed JSON object.

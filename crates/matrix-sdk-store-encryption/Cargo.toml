@@ -7,6 +7,9 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 rust-version = "1.60"
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 js = ["getrandom/js"]
 

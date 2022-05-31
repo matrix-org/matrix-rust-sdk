@@ -32,7 +32,7 @@ use crate::{
 };
 
 /// An enum representing the different modes a QR verification can be in.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QrVerificationData {
     /// The QR verification is verifying another user
     Verification(VerificationData),
@@ -375,7 +375,7 @@ impl QrVerificationData {
 ///
 /// This mode is used for verification between two users using their master
 /// cross signing keys.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationData {
     event_id: OwnedEventId,
     first_master_key: Ed25519PublicKey,
@@ -474,7 +474,7 @@ impl From<VerificationData> for QrVerificationData {
 /// This mode is used for verification between two devices of the same user
 /// where this device, that is creating this QR code, is trusting or owning
 /// the cross signing master key.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelfVerificationData {
     transaction_id: String,
     master_key: Ed25519PublicKey,
@@ -577,7 +577,7 @@ impl From<SelfVerificationData> for QrVerificationData {
 /// This mode is used for verification between two devices of the same user
 /// where this device, that is creating this QR code, is not trusting the
 /// cross signing master key.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelfVerificationNoMasterKey {
     transaction_id: String,
     device_key: Ed25519PublicKey,
