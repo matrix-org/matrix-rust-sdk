@@ -1563,13 +1563,13 @@ pub(crate) mod tests {
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
         OwnedDeviceKeyId, UserId,
     };
-    use serde_json::json;
     use vodozemac::Ed25519PublicKey;
 
     use super::testing::response_from_file;
     use crate::{
         machine::OlmMachine,
         olm::VerifyJson,
+        types::{DeviceKeys, SignedKey},
         verification::tests::{outgoing_request_to_event, request_to_event},
         EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
@@ -1718,14 +1718,14 @@ pub(crate) mod tests {
     async fn test_device_key_signing() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
-        let mut device_keys = machine.account.device_keys().await;
+        let device_keys = machine.account.device_keys().await;
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519;
 
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            json!(&mut device_keys),
+            &device_keys,
         );
         assert!(ret.is_ok());
     }
@@ -1751,14 +1751,14 @@ pub(crate) mod tests {
     async fn test_invalid_signature() {
         let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
-        let mut device_keys = machine.account.device_keys().await;
+        let device_keys = machine.account.device_keys().await;
 
         let key = Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap();
 
         let ret = key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            json!(&mut device_keys),
+            &device_keys,
         );
         assert!(ret.is_err());
     }
@@ -1771,14 +1771,18 @@ pub(crate) mod tests {
         let mut one_time_keys = machine.account.signed_one_time_keys().await;
         let ed25519_key = machine.account.identity_keys().ed25519;
 
-        let mut one_time_key =
-            one_time_keys.values_mut().next().expect("One time keys should be generated");
+        let one_time_key: SignedKey = one_time_keys
+            .values_mut()
+            .next()
+            .expect("One time keys should be generated")
+            .deserialize_as()
+            .unwrap();
 
         ed25519_key
             .verify_json(
                 &machine.user_id,
                 &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-                json!(&mut one_time_key),
+                &one_time_key,
             )
             .expect("One-time key has been signed successfully");
     }
@@ -1793,17 +1797,27 @@ pub(crate) mod tests {
         let mut request =
             machine.keys_for_upload().await.expect("Can't prepare initial key upload");
 
-        let ret = ed25519_key.verify_json(
-            &machine.user_id,
-            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            json!(&mut request.one_time_keys.values_mut().next()),
-        );
-        assert!(ret.is_ok());
+        let one_time_key: SignedKey = request
+            .one_time_keys
+            .values_mut()
+            .next()
+            .expect("One time keys should be generated")
+            .deserialize_as()
+            .unwrap();
 
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            json!(&mut request.device_keys.unwrap()),
+            &one_time_key,
+        );
+        assert!(ret.is_ok());
+
+        let device_keys: DeviceKeys = request.device_keys.unwrap().deserialize_as().unwrap();
+
+        let ret = ed25519_key.verify_json(
+            &machine.user_id,
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
+            &device_keys,
         );
         assert!(ret.is_ok());
 

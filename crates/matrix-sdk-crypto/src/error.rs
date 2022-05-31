@@ -179,6 +179,10 @@ pub enum SignatureError {
     #[error(transparent)]
     InvalidKey(#[from] vodozemac::KeyError),
 
+    /// The signature could not be decoded.
+    #[error("the given signature is not valid and can't be decoded")]
+    InvalidSignature,
+
     /// The signed object couldn't be deserialized.
     #[error(transparent)]
     JsonError(#[from] CanonicalJsonError),

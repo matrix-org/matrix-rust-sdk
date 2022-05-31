@@ -33,11 +33,10 @@ use ruma::{
     api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId,
     OwnedTransactionId, TransactionId,
 };
-use serde_json::Value;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
-    olm::{Account, InboundGroupSession},
+    olm::{Account, InboundGroupSession, SignedJsonObject},
     store::{BackupKeys, Changes, RecoveryKey, RoomKeyCounts, Store},
     types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
     CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest,
@@ -169,8 +168,12 @@ impl BackupMachine {
     }
 
     /// Check if our own device has signed the given signed JSON payload.
-    async fn check_own_device_signature(&self, auth_data: Value) -> SignatureState {
-        match self.account.is_signed(auth_data) {
+    async fn check_own_device_signature(
+        &self,
+        signatures: &Signatures,
+        auth_data: &str,
+    ) -> SignatureState {
+        match self.account.is_signed_by_raw(signatures, auth_data) {
             Ok(_) => SignatureState::ValidAndTrusted,
             Err(e) => match e {
                 crate::SignatureError::NoSignatureFound => SignatureState::Missing,
@@ -183,13 +186,14 @@ impl BackupMachine {
     /// JSON payload.
     async fn check_own_identity_signature(
         &self,
-        auth_data: Value,
+        signatures: &Signatures,
+        auth_data: &str,
     ) -> Result<SignatureState, CryptoStoreError> {
         let user_id = self.account.user_id();
         let identity = self.store.get_identity(user_id).await?;
 
         let ret = if let Some(identity) = identity.and_then(|i| i.own()) {
-            match identity.master_key().is_signed_by(auth_data) {
+            match identity.master_key().is_signed_by_raw(signatures, auth_data) {
                 Ok(_) => {
                     if identity.is_verified() {
                         SignatureState::ValidAndTrusted
@@ -211,8 +215,13 @@ impl BackupMachine {
 
     /// Check if the signed JSON payload `auth_data` has been signed by the
     /// `device`.
-    fn backup_signed_by_device(&self, device: Device, auth_data: Value) -> SignatureState {
-        if device.is_signed_by_device(auth_data).is_ok() {
+    fn backup_signed_by_device(
+        &self,
+        device: Device,
+        signatures: &Signatures,
+        auth_data: &str,
+    ) -> SignatureState {
+        if device.is_signed_by_device_raw(signatures, auth_data).is_ok() {
             if device.verified() {
                 SignatureState::ValidAndTrusted
             } else {
@@ -228,13 +237,13 @@ impl BackupMachine {
     async fn test_device_signatures(
         &self,
         signatures: &Signatures,
-        auth_data: Value,
+        auth_data: &str,
         compute_all_signatures: bool,
     ) -> Result<BTreeMap<OwnedDeviceId, SignatureState>, CryptoStoreError> {
         let mut result = BTreeMap::new();
 
-        if let Some(signatures) = signatures.get(self.account.user_id()) {
-            for device_key_id in signatures.keys() {
+        if let Some(user_signatures) = signatures.get(self.account.user_id()) {
+            for device_key_id in user_signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
                     // No need to check our own device here, we're doing that
                     // using the check_own_device_signature().
@@ -255,7 +264,7 @@ impl BackupMachine {
                         );
 
                         let state = if let Some(device) = device {
-                            self.backup_signed_by_device(device, auth_data.clone())
+                            self.backup_signed_by_device(device, signatures, auth_data)
                         } else {
                             trace!(
                                 device_id = %device_key_id.device_id(),
@@ -285,13 +294,21 @@ impl BackupMachine {
         compute_all_signatures: bool,
     ) -> Result<SignatureCheckResult, CryptoStoreError> {
         trace!(?auth_data, "Verifying backup auth data");
-        let serialized_auth_data = serde_json::to_value(auth_data.clone())?;
+
+        let serialized_auth_data = match auth_data.to_canonical_json() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error =? e, "Error while verifying backup, can't canonicalize auth data");
+                return Ok(Default::default());
+            }
+        };
 
         // Check if there's a signature from our own device.
-        let device_signature = self.check_own_device_signature(serialized_auth_data.clone()).await;
+        let device_signature =
+            self.check_own_device_signature(&auth_data.signatures, &serialized_auth_data).await;
         // Check if there's a signature from our own user identity.
         let user_identity_signature =
-            self.check_own_identity_signature(serialized_auth_data.clone()).await?;
+            self.check_own_identity_signature(&auth_data.signatures, &serialized_auth_data).await?;
 
         // Collect all the other signatures if there isn't already a valid one,
         // or if we're told to collect all of them anyways.
@@ -300,7 +317,7 @@ impl BackupMachine {
         {
             self.test_device_signatures(
                 &auth_data.signatures,
-                serialized_auth_data,
+                &serialized_auth_data,
                 compute_all_signatures,
             )
             .await?
@@ -311,7 +328,7 @@ impl BackupMachine {
         Ok(SignatureCheckResult { device_signature, user_identity_signature, other_signatures })
     }
 
-    /// Verify some backup auth data that we downloaded from the server.
+    /// Verify some backup info that we downloaded from the server.
     ///
     /// # Arguments
     ///
@@ -327,14 +344,12 @@ impl BackupMachine {
     /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
     pub async fn verify_backup(
         &self,
-        backup_version: Value,
+        backup_info: RoomKeyBackupInfo,
         compute_all_signatures: bool,
     ) -> Result<SignatureCheckResult, CryptoStoreError> {
-        let auth_data: RoomKeyBackupInfo = serde_json::from_value(backup_version)?;
+        trace!(?backup_info, "Verifying backup auth data");
 
-        trace!(?auth_data, "Verifying backup auth data");
-
-        if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = auth_data {
+        if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = backup_info {
             self.verify_auth_data_v1(data, compute_all_signatures).await
         } else {
             Ok(Default::default())
@@ -554,7 +569,7 @@ mod tests {
     };
     use serde_json::json;
 
-    use crate::{store::RecoveryKey, OlmError, OlmMachine};
+    use crate::{store::RecoveryKey, types::RoomKeyBackupInfo, OlmError, OlmMachine};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -648,6 +663,8 @@ mod tests {
             auth_data.clone().try_into().expect("Canonicalizing should always work");
         let serialized = canonical_json.to_string();
 
+        let backup_version: RoomKeyBackupInfo = serde_json::from_value(backup_version).unwrap();
+
         let state = backup_machine
             .verify_backup(backup_version, false)
             .await
@@ -666,6 +683,7 @@ mod tests {
                 "signatures": signatures,
             }
         });
+        let backup_version: RoomKeyBackupInfo = serde_json::from_value(backup_version).unwrap();
 
         let state = backup_machine
             .verify_backup(backup_version, false)
@@ -691,6 +709,8 @@ mod tests {
                 "signatures": signatures,
             }
         });
+        let backup_version: RoomKeyBackupInfo = serde_json::from_value(backup_version).unwrap();
+
         let state = backup_machine
             .verify_backup(backup_version, false)
             .await
