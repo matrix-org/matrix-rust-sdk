@@ -1,7 +1,6 @@
 use super::BaseClient;
 use ruma::{
     api::client::sync::{sync_events::v3, sliding_sync_events},
-    RoomId,
 };
 use crate::{
     rooms::RoomType,
@@ -27,7 +26,7 @@ impl BaseClient {
         let sliding_sync_events::Response {
             // not applicable.
             // next_batch,
-            mut rooms,
+            rooms,
             lists,
             // FIXME: missing compared to v3::Response
             //presence,
@@ -84,7 +83,7 @@ impl BaseClient {
     
                 if let Some(r) = store.get_room(&room_id) {
                     let mut room_info = r.clone_info();
-                    room_info.mark_as_invited();
+                    room_info.mark_as_invited(); // FIXME: this might not be accurate
                     changes.add_room(room_info);
                 }
                 
@@ -95,7 +94,7 @@ impl BaseClient {
                 
                 let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
-                room_info.mark_as_joined();
+                room_info.mark_as_joined(); // FIXME: this might not be accurate
 
 
                 // FIXME not yet supported by sliding sync. 
@@ -103,7 +102,7 @@ impl BaseClient {
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
-                let mut user_ids = self
+                let user_ids = self
                     .handle_state(
                         &room_data.required_state,
                         &mut room_info,

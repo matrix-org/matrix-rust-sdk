@@ -127,6 +127,7 @@ impl Default for RoomListEntry {
 #[derive(Debug, Clone)]
 /// Room info as giving by the SlidingSync Feature
 pub struct SlidingSyncRoom {
+    room_id: OwnedRoomId,
     inner: sliding_sync_events::SlidingSyncRoom,
     is_loading_more: futures_signals::signal::Mutable<bool>,
     prev_batch: futures_signals::signal::Mutable<Option<String>>,
@@ -134,12 +135,35 @@ pub struct SlidingSyncRoom {
 }
 
 impl SlidingSyncRoom {
+
+    fn from(room_id: OwnedRoomId, mut inner: sliding_sync_events::SlidingSyncRoom) -> Self {
+        let sliding_sync_events::SlidingSyncRoom {
+            timeline,
+            ..
+        } =  inner;
+        // we overwrite to only keep one copy
+        inner.timeline = vec![];
+        Self {
+            room_id,
+            is_loading_more: futures_signals::signal::Mutable::new(false),
+            prev_batch: futures_signals::signal::Mutable::new(inner.prev_batch.clone()),
+            timeline: Arc::new(futures_signals::signal_vec::MutableVec::new_with_values(timeline)),
+            inner,
+        }
+    }
+
+    pub fn room_id(&self) -> &OwnedRoomId {
+        &self.room_id
+    }
+
     pub fn timeline(&self) -> AliveRoomTimeline {
         self.timeline.clone()
     }
+
     pub fn name(&self) -> &Option<String> {
         &self.inner.name
     }
+
     pub fn received_newer_timeline(&self, items: &Vec<Raw<AnySyncRoomEvent>>) {
         let mut timeline = self.timeline.lock_mut();
         for e in items {
@@ -152,23 +176,6 @@ impl std::ops::Deref for SlidingSyncRoom {
     type Target = sliding_sync_events::SlidingSyncRoom;
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl From<sliding_sync_events::SlidingSyncRoom> for SlidingSyncRoom {
-    fn from(mut inner: sliding_sync_events::SlidingSyncRoom) -> Self {
-        let sliding_sync_events::SlidingSyncRoom {
-            timeline,
-            ..
-        } =  inner;
-        // we overwrite to only keep one copy
-        inner.timeline = vec![];
-        Self {
-            is_loading_more: futures_signals::signal::Mutable::new(false),
-            prev_batch: futures_signals::signal::Mutable::new(inner.prev_batch.clone()),
-            timeline: Arc::new(futures_signals::signal_vec::MutableVec::new_with_values(timeline)),
-            inner,
-        }
     }
 }
 
@@ -343,7 +350,7 @@ impl SlidingSync {
                         updated.push(id.clone())
                     }
                 } else {
-                    rooms_map.insert_cloned(id.clone(), room_data.clone().into());
+                    rooms_map.insert_cloned(id.clone(), SlidingSyncRoom::from(id.clone(), room_data.clone()));
                     updated.push(id.clone());
                 }
             }
@@ -675,6 +682,10 @@ impl SlidingSyncView {
             .map(|r| r.inner.clone())
             .take(count)
             .collect()
+    }
+    /// Return the room_id at the given index
+    pub fn get_room_id(&self, index: usize) -> Option<OwnedRoomId> {
+        self.rooms_list.lock_ref().get(index).map(|e| e.room_id()).flatten()
     }
 
     fn room_ops(&self, ops: &Vec<sliding_sync_events::SyncOp>) -> anyhow::Result<()> {
