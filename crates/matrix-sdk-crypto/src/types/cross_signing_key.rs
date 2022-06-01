@@ -72,7 +72,13 @@ impl CrossSigningKey {
         Raw::from_json(to_raw_value(&self).expect("Coulnd't serialize cross signing keys"))
     }
 
-    /// Get the first key id and matching Ed25519 key we can find.
+    /// Get the Ed25519 cross-signing key (and its ID).
+    ///
+    /// Structurally, a cross-signing key could contain more than one actual
+    /// key. However, the spec [forbids this][cross_signing_key_spec] (see
+    /// the `keys` field description), so we just get the first one.
+    ///
+    /// [cross_signing_key_spec]: https//spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysdevice_signingupload
     pub fn get_first_key_and_id(&self) -> Option<(&DeviceKeyId, Ed25519PublicKey)> {
         self.keys.iter().find_map(|(id, key)| Some((id.as_ref(), key.ed25519()?)))
     }
@@ -100,7 +106,8 @@ impl SigningKey {
         }
     }
 
-    /// Get the Ed25519 key, if it is an Ed25519 key.
+    /// Get the Ed25519 key, if the cross-signing key is actually an Ed25519
+    /// key.
     pub fn ed25519(&self) -> Option<Ed25519PublicKey> {
         if let SigningKey::Ed25519(k) = self {
             Some(*k)

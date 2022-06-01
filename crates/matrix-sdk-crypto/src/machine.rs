@@ -1453,6 +1453,9 @@ impl OlmMachine {
 
     /// Sign the given message using our device key and if available cross
     /// signing master key.
+    ///
+    /// Presently, this should only be used for signing the server-side room
+    /// key backups.
     pub async fn sign(&self, message: &str) -> Signatures {
         let mut signatures = Signatures::new();
 

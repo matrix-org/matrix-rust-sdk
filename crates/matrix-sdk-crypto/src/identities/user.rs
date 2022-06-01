@@ -424,7 +424,7 @@ impl MasterPubkey {
         self.0.get_first_key_and_id().map(|(_, k)| k)
     }
 
-    /// Check if the given json is signed by this master key.
+    /// Check if the given JSON is signed by this master key.
     pub fn is_signed_by(&self, json: Value) -> Result<(), SignatureError> {
         if let Some((key_id, key)) = self.0.get_first_key_and_id() {
             key.verify_json(&self.0.user_id, key_id, json)
