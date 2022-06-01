@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use napi::bindgen_prelude::{Either3, Either5, ToNapiValue};
+use napi::bindgen_prelude::{Either7, ToNapiValue};
 use napi_derive::*;
 use ruma::{
     events::room::encrypted::OriginalSyncRoomEncryptedEvent, DeviceKeyAlgorithm,
@@ -104,24 +104,22 @@ impl OlmMachine {
     }
 
     // We could be tempted to use `requests::OutgoingRequests` as its
-    // a type alias for this giant `Either` chain. But `napi` won't
-    // unfold it properly into a valid TypeScript definition, so…
-    // let's copy-paste :-(.
+    // a type alias for this giant `Either7`. But `napi` won't unfold
+    // it properly into a valid TypeScript definition, so…  let's
+    // copy-paste :-(.
     #[napi]
     pub async fn outgoing_requests(
         &self,
     ) -> Result<
         Vec<
-            Either5<
+            Either7<
                 requests::KeysUploadRequest,
                 requests::KeysQueryRequest,
                 requests::KeysClaimRequest,
                 requests::ToDeviceRequest,
-                Either3<
-                    requests::SignatureUploadRequest,
-                    requests::RoomMessageRequest,
-                    requests::KeysBackupRequest,
-                >,
+                requests::SignatureUploadRequest,
+                requests::RoomMessageRequest,
+                requests::KeysBackupRequest,
             >,
         >,
         napi::Error,
