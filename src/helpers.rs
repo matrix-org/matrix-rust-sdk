@@ -351,7 +351,7 @@ pub trait SupportedDatabase: Database + Sealed {
     fn member_remove_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {
         sqlx::query(
             r#"
-                DELETE FROM statestore_memberships
+                DELETE FROM statestore_members
                 WHERE room_id = $1 AND user_id = $2
             "#,
         )

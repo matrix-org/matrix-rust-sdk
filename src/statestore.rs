@@ -1306,8 +1306,7 @@ where
 #[cfg(test)]
 #[allow(unused_imports, unreachable_pub, clippy::unwrap_used)]
 mod tests {
-    use crate::Result;
-    use crate::{StateStore, SupportedDatabase};
+    use crate::{Result, StateStore, SupportedDatabase};
     use ruma::{MxcUri, OwnedMxcUri};
     use sqlx::{
         database::HasArguments, migrate::Migrate, ColumnIndex, Database, Decode, Encode, Executor,

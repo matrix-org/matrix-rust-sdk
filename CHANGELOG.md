@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes
 - Use upserts instead of plain inserts for `cryptostore_outbound_group_session`. (#6)
+- Removing a user will not cause syncing to fail due to a nonexistant statestore_memberships table
 
 ## [0.1.0-beta.2] - 2022-05-23
 ### Added
