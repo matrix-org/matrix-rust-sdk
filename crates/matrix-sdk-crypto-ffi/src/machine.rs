@@ -1357,7 +1357,17 @@ impl OlmMachine {
             .map(|(k, v)| {
                 (
                     k.to_string(),
-                    v.into_iter().map(|(k, v)| (k.to_string(), v.to_base64())).collect(),
+                    v.into_iter()
+                        .map(|(k, v)| {
+                            (
+                                k.to_string(),
+                                match v {
+                                    Ok(s) => s.to_base64(),
+                                    Err(i) => i.source,
+                                },
+                            )
+                        })
+                        .collect(),
                 )
             })
             .collect()

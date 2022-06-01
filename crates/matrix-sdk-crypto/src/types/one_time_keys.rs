@@ -181,7 +181,7 @@ mod tests {
             && k
                 .signatures()
                 .get(user_id).unwrap().get(&DeviceKeyId::from_parts("other".into(), device_id))
-                == Some(&custom_signature)
+                == Some(&Ok(custom_signature))
         );
 
         let serialized = serde_json::to_value(key).expect("Can't reserialize a signed key");

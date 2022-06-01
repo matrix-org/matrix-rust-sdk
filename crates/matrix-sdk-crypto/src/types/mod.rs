@@ -38,15 +38,13 @@ use vodozemac::Ed25519Signature;
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
-/// There are three important cases here:
+/// There are two important cases here:
 ///
 /// 1. If the claimed algorithm is supported *and* the payload has an expected
 ///    format, the signature will be represent by the enum variant corresponding
 ///    to that algorithm. For example, decodeable Ed25519 signatures are
 ///    represented as `Ed25519(...)`.
-/// 2. If the claimed algorithm is supported but the payload is not in the right
-///    format, the signature is represented as `Invalid(...)`.
-/// 3. If the claimed algorithm is unsupported, the signature is represented as
+/// 2. If the claimed algorithm is unsupported, the signature is represented as
 ///    `Other(...)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Signature {
@@ -55,10 +53,16 @@ pub enum Signature {
     /// A digital signature in an unsupported algorithm. The raw signature bytes
     /// are represented as a base64-encoded string.
     Other(String),
-    /// A digital signature claiming to be in a supported algorithm, but which
-    /// we are unable to decode, so it is invalid. The raw signature bytes are
-    /// kept as an unmodified string.
-    Invalid(String),
+}
+
+/// Represents a signature that could not be decoded.
+///
+/// This will currently only hold invalid Ed25519 signatures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidSignature {
+    /// The base64 encoded string that is claimed to contain a signature but
+    /// could not be decoded.
+    pub source: String,
 }
 
 impl Signature {
@@ -76,7 +80,6 @@ impl Signature {
         match self {
             Signature::Ed25519(s) => s.to_base64(),
             Signature::Other(s) => s.to_owned(),
-            Signature::Invalid(s) => s.to_owned(),
         }
     }
 }
@@ -88,8 +91,10 @@ impl From<Ed25519Signature> for Signature {
 }
 
 /// Signatures for a signed object.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Signatures(BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Signature>>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signatures(
+    BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>>,
+);
 
 impl Signatures {
     /// Create a new, empty, signatures collection.
@@ -104,18 +109,21 @@ impl Signatures {
         signer: OwnedUserId,
         key_id: OwnedDeviceKeyId,
         signature: Ed25519Signature,
-    ) -> Option<Signature> {
-        self.0.entry(signer).or_insert_with(Default::default).insert(key_id, signature.into())
+    ) -> Option<Result<Signature, InvalidSignature>> {
+        self.0.entry(signer).or_insert_with(Default::default).insert(key_id, Ok(signature.into()))
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given
     /// key id.
     pub fn get_signature(&self, signer: &UserId, key_id: &DeviceKeyId) -> Option<Ed25519Signature> {
-        self.get(signer)?.get(key_id)?.ed25519()
+        self.get(signer)?.get(key_id)?.as_ref().ok()?.ed25519()
     }
 
     /// Get the map of signatures that belong to the given user.
-    pub fn get(&self, signer: &UserId) -> Option<&BTreeMap<OwnedDeviceKeyId, Signature>> {
+    pub fn get(
+        &self,
+        signer: &UserId,
+    ) -> Option<&BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>> {
         self.0.get(signer)
     }
 
@@ -142,10 +150,12 @@ impl Default for Signatures {
 }
 
 impl IntoIterator for Signatures {
-    type Item = (OwnedUserId, BTreeMap<OwnedDeviceKeyId, Signature>);
+    type Item = (OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>);
 
-    type IntoIter =
-        std::collections::btree_map::IntoIter<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Signature>>;
+    type IntoIter = std::collections::btree_map::IntoIter<
+        OwnedUserId,
+        BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>,
+    >;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -170,8 +180,8 @@ impl<'de> Deserialize<'de> for Signatures {
                         let signature = match algorithm {
                             DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
                                 .map(|s| s.into())
-                                .unwrap_or_else(|_| Signature::Invalid(s)),
-                            _ => Signature::Other(s),
+                                .map_err(|_| InvalidSignature { source: s }),
+                            _ => Ok(Signature::Other(s)),
                         };
 
                         Ok((key_id, signature))
@@ -194,7 +204,22 @@ impl Serialize for Signatures {
         let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, String>> = self
             .0
             .iter()
-            .map(|(u, m)| (u, m.iter().map(|(d, s)| (d, s.to_base64())).collect()))
+            .map(|(u, m)| {
+                (
+                    u,
+                    m.iter()
+                        .map(|(d, s)| {
+                            (
+                                d,
+                                match s {
+                                    Ok(s) => s.to_base64(),
+                                    Err(i) => i.source.to_owned(),
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            })
             .collect();
 
         serde::Serialize::serialize(&signatures, serializer)
