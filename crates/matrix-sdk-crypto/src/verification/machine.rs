@@ -159,11 +159,34 @@ impl VerificationMachine {
             .unwrap_or_default()
     }
 
+    /// Add a new `VerificationRequest` object to the cache, this will cancel
+    /// any duplicates we have going on, including the newly inserted one, with
+    /// a given user.
     fn insert_request(&self, request: VerificationRequest) {
-        self.requests
-            .entry(request.other_user().to_owned())
-            .or_default()
-            .insert(request.flow_id().as_str().to_owned(), request);
+        let entry = self.requests.entry(request.other_user().to_owned()).or_default();
+        let user_requests = entry.value();
+
+        // Cancel all the old verifications requests as well as the new one we
+        // have for this user if someone tries to have two verifications going
+        // on at once.
+        for old in user_requests {
+            let old_verification = old.value();
+
+            if !old_verification.is_cancelled() {
+                if let Some(r) = old_verification.cancel() {
+                    self.verifications.add_request(r.into())
+                }
+
+                if let Some(r) = request.cancel() {
+                    self.verifications.add_request(r.into())
+                }
+            }
+        }
+
+        // We still want to add the new verification request, in case users
+        // want to inspect the verification object a matching
+        // `m.key.verification.request` produced.
+        user_requests.insert(request.flow_id().as_str().to_owned(), request);
     }
 
     pub fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
