@@ -509,7 +509,7 @@ pub trait SupportedDatabase: Database + Sealed {
         )
     }
 
-    /// Stores an outbound group session
+    /// Upserts an outbound group session
     ///
     /// # Arguments
     /// * `$1` - The hashed room id
@@ -521,6 +521,8 @@ pub trait SupportedDatabase: Database + Sealed {
             r#"
                 INSERT INTO cryptostore_outbound_group_session (room_id, session_data)
                 VALUES ($1, $2)
+                ON CONFLICT (room_id)
+                DO UPDATE SET session_data = $2
             "#,
         )
     }

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking Changes
 - The Error type was changed from anyhow to thiserror.
 
+### Fixes
+- Use upserts instead of plain inserts for `cryptostore_outbound_group_session`. (#6)
+
 ## [0.1.0-beta.2] - 2022-05-23
 ### Added
 - A `CryptoStore` implementation

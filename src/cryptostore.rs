@@ -1299,8 +1299,13 @@ mod postgres_integration_test {
 
     use crate::StateStore;
 
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{
+        cryptostore_integration_tests, olm::OutboundGroupSession, EncryptionSettings,
+    };
+    use matrix_sdk_test::async_test;
+    use ruma::{device_id, room_id};
     use sqlx::migrate::MigrateDatabase;
+    use vodozemac::olm::Account;
 
     async fn get_store_result(
         name: String,
@@ -1330,6 +1335,26 @@ mod postgres_integration_test {
         }
     }
 
+    #[async_test]
+    #[allow(clippy::unwrap_used)]
+    async fn cryptostore_outbound_group_session() {
+        let store = get_store("cryptostore_outbound_group_session".to_owned(), None).await;
+        for _ in 0..2 {
+            let mut txn = store.db.begin().await.unwrap();
+            let outbound_group_session = OutboundGroupSession::new(
+                From::from(device_id!("ALICEDEVICE")),
+                Arc::new(Account::new().identity_keys()),
+                room_id!("!test:localhost"),
+                EncryptionSettings::default(),
+            );
+            store
+                .save_outbound_group_session(&mut txn, outbound_group_session)
+                .await
+                .unwrap();
+            txn.commit().await.unwrap();
+        }
+    }
+
     cryptostore_integration_tests! { integration }
 }
 
@@ -1340,15 +1365,20 @@ mod sqlite_integration_test {
 
     use crate::StateStore;
 
-    use matrix_sdk_crypto::cryptostore_integration_tests;
+    use matrix_sdk_crypto::{
+        cryptostore_integration_tests, olm::OutboundGroupSession, EncryptionSettings,
+    };
+    use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
+    use ruma::{device_id, room_id};
     use sqlx::migrate::MigrateDatabase;
     use tempfile::{tempdir, TempDir};
+    use vodozemac::olm::Account;
 
     #[allow(clippy::unwrap_used)]
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store_anyhow(
+    async fn get_store_result(
         name: String,
         passphrase: Option<&str>,
     ) -> crate::Result<StateStore<sqlx::sqlite::Sqlite>> {
@@ -1366,11 +1396,31 @@ mod sqlite_integration_test {
 
     #[allow(clippy::panic)]
     async fn get_store(name: String, passphrase: Option<&str>) -> StateStore<sqlx::sqlite::Sqlite> {
-        match get_store_anyhow(name, passphrase).await {
+        match get_store_result(name, passphrase).await {
             Ok(v) => v,
             Err(e) => {
                 panic!("Could not open database: {:#?}", e);
             }
+        }
+    }
+
+    #[async_test]
+    #[allow(clippy::unwrap_used)]
+    async fn cryptostore_outbound_group_session() {
+        let store = get_store("cryptostore_outbound_group_session".to_owned(), None).await;
+        for _ in 0..2 {
+            let mut txn = store.db.begin().await.unwrap();
+            let outbound_group_session = OutboundGroupSession::new(
+                From::from(device_id!("ALICEDEVICE")),
+                Arc::new(Account::new().identity_keys()),
+                room_id!("!test:localhost"),
+                EncryptionSettings::default(),
+            );
+            store
+                .save_outbound_group_session(&mut txn, outbound_group_session)
+                .await
+                .unwrap();
+            txn.commit().await.unwrap();
         }
     }
 
