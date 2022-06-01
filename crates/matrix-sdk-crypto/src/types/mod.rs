@@ -36,15 +36,28 @@ use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserI
 use serde::{Deserialize, Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
-/// An enum over all the signature types.
+/// Represents a potentially decoded signature (but *not* a validated one).
+///
+/// There are three important cases here:
+///
+/// 1. If the claimed algorithm is supported *and* the payload has an expected
+///    format, the signature will be represent by the enum variant corresponding
+///    to that algorithm. For example, decodeable Ed25519 signatures are
+///    represented as `Ed25519(...)`.
+/// 2. If the claimed algorithm is supported but the payload is not in the right
+///    format, the signature is represented as `Invalid(...)`.
+/// 3. If the claimed algorithm is unsupported, the signature is represented as
+///    `Other(...)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Signature {
     /// A Ed25519 digital signature.
     Ed25519(Ed25519Signature),
-    /// An unknown digital signature as a base64 encoded string.
+    /// A digital signature in an unsupported algorithm. The raw signature bytes
+    /// are represented as a base64-encoded string.
     Other(String),
-    /// An invalid signature that could not be decoded, left unmodified as a
-    /// string.
+    /// A digital signature claiming to be in a supported algorithm, but which
+    /// we are unable to decode, so it is invalid. The raw signature bytes are
+    /// kept as an unmodified string.
     Invalid(String),
 }
 
