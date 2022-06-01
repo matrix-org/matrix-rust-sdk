@@ -510,61 +510,41 @@ mod tests {
 
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
+    use ruma::TransactionId;
 
     use super::{Sas, VerificationMachine};
     use crate::{
         olm::PrivateCrossSigningIdentity,
         store::MemoryStore,
         verification::{
+            cache::VerificationCache,
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
+            test::{alice_device_id, alice_id, setup_stores},
             tests::wrap_any_to_device_content,
-            VerificationStore,
+            FlowId, VerificationStore,
         },
-        ReadOnlyAccount, ReadOnlyDevice,
+        ReadOnlyAccount, VerificationRequest,
     };
 
-    fn alice_id() -> &'static UserId {
-        user_id!("@alice:example.org")
-    }
+    async fn verification_machine() -> (VerificationMachine, VerificationStore) {
+        let (store, bob_store) = setup_stores().await;
 
-    fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
-    }
+        let machine = VerificationMachine {
+            store,
+            verifications: VerificationCache::new(),
+            requests: Default::default(),
+        };
 
-    fn bob_id() -> &'static UserId {
-        user_id!("@bob:example.org")
-    }
-
-    fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVCIE")
+        (machine, bob_store)
     }
 
     async fn setup_verification_machine() -> (VerificationMachine, Sas) {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
-        let store = MemoryStore::new();
-        let bob_store = MemoryStore::new();
+        let (machine, bob_store) = verification_machine().await;
 
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
-        let alice_device = ReadOnlyDevice::from_account(&alice).await;
-
-        store.save_devices(vec![bob_device]).await;
-        bob_store.save_devices(vec![alice_device.clone()]).await;
-
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
-        let bob_store = VerificationStore {
-            account: bob,
-            inner: Arc::new(bob_store),
-            private_identity: identity,
-        };
+        let alice_device =
+            bob_store.get_device(alice_id(), alice_device_id()).await.unwrap().unwrap();
 
         let identities = bob_store.get_identities(alice_device).await.unwrap();
-        let machine = VerificationMachine::new(
-            alice,
-            Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())).into(),
-            Arc::new(store),
-        );
         let (bob_sas, start_content) = Sas::start(identities, TransactionId::new(), true, None);
 
         machine
@@ -650,5 +630,108 @@ mod tests {
         assert!(!alice_machine.verifications.outgoing_requests().is_empty());
         alice_machine.garbage_collect();
         assert!(alice_machine.verifications.is_empty());
+    }
+
+    /// Test to ensure that we cancel both verifications if a second one gets
+    /// started while another one is going on.
+    #[async_test]
+    async fn double_verification_cancellation() {
+        let (machine, bob_store) = verification_machine().await;
+
+        let alice_device =
+            bob_store.get_device(alice_id(), alice_device_id()).await.unwrap().unwrap();
+        let identities = bob_store.get_identities(alice_device).await.unwrap();
+
+        // Start the first sas verification.
+        let (bob_sas, start_content) =
+            Sas::start(identities.clone(), TransactionId::new(), true, None);
+
+        machine
+            .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))
+            .await
+            .unwrap();
+
+        let alice_sas = machine.get_sas(bob_sas.user_id(), bob_sas.flow_id().as_str()).unwrap();
+
+        // We're not yet cancelled.
+        assert!(!alice_sas.is_cancelled());
+
+        let second_transaction_id = TransactionId::new();
+        let (bob_sas, start_content) =
+            Sas::start(identities, second_transaction_id.clone(), true, None);
+        machine
+            .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))
+            .await
+            .unwrap();
+
+        let second_sas = machine.get_sas(bob_sas.user_id(), bob_sas.flow_id().as_str()).unwrap();
+
+        // Make sure we fetched the new one.
+        assert_eq!(second_sas.flow_id().as_str(), second_transaction_id);
+
+        // Make sure both of them are cancelled.
+        assert!(alice_sas.is_cancelled());
+        assert!(second_sas.is_cancelled());
+    }
+
+    /// Test to ensure that we cancel both verification requests if a second one
+    /// gets started while another one is going on.
+    #[async_test]
+    async fn double_verification_request_cancellation() {
+        let (machine, bob_store) = verification_machine().await;
+
+        // Start the first verification request.
+        let flow_id = FlowId::ToDevice("TEST_FLOW_ID".into());
+
+        let bob_request = VerificationRequest::new(
+            VerificationCache::new(),
+            bob_store.clone(),
+            flow_id.clone(),
+            alice_id(),
+            vec![],
+            None,
+        );
+
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+
+        machine
+            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .await
+            .unwrap();
+
+        let alice_request =
+            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+
+        // We're not yet cancelled.
+        assert!(!alice_request.is_cancelled());
+
+        let second_transaction_id = TransactionId::new();
+        let bob_request = VerificationRequest::new(
+            VerificationCache::new(),
+            bob_store,
+            second_transaction_id.clone().into(),
+            alice_id(),
+            vec![],
+            None,
+        );
+
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+
+        machine
+            .receive_any_event(&wrap_any_to_device_content(bob_request.other_user(), content))
+            .await
+            .unwrap();
+
+        let second_request =
+            machine.get_request(bob_request.other_user(), bob_request.flow_id().as_str()).unwrap();
+
+        // Make sure we fetched the new one.
+        assert_eq!(second_request.flow_id().as_str(), second_transaction_id);
+
+        // Make sure both of them are cancelled.
+        assert!(alice_request.is_cancelled());
+        assert!(second_request.is_cancelled());
     }
 }

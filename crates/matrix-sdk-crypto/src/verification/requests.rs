@@ -1213,72 +1213,19 @@ mod tests {
 
     use std::convert::{TryFrom, TryInto};
 
-    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, event_id, room_id, user_id, DeviceId, UserId};
+    use ruma::{event_id, room_id};
 
     use super::VerificationRequest;
     use crate::{
-        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{Changes, CryptoStore, MemoryStore},
         verification::{
             cache::VerificationCache,
             event_enums::{OutgoingContent, ReadyContent, RequestContent, StartContent},
-            FlowId, VerificationStore,
+            test::{alice_id, bob_id, setup_stores},
+            FlowId,
         },
         ReadOnlyDevice,
     };
-
-    fn alice_id() -> &'static UserId {
-        user_id!("@alice:example.org")
-    }
-
-    fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
-    }
-
-    fn bob_id() -> &'static UserId {
-        user_id!("@bob:example.org")
-    }
-
-    fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVCIE")
-    }
-
-    async fn setup_stores() -> (VerificationStore, VerificationStore) {
-        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
-        let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let alice_identity = Mutex::new(PrivateCrossSigningIdentity::empty(alice_id()));
-
-        let alice_store = VerificationStore {
-            account: alice,
-            inner: alice_store.into(),
-            private_identity: alice_identity.into(),
-        };
-
-        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
-        let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let bob_identity = Mutex::new(PrivateCrossSigningIdentity::empty(bob_id()));
-
-        let bob_store = VerificationStore {
-            account: bob.clone(),
-            inner: bob_store.into(),
-            private_identity: bob_identity.into(),
-        };
-
-        let alice_device = ReadOnlyDevice::from_account(&alice_store.account).await;
-        let bob_device = ReadOnlyDevice::from_account(&bob_store.account).await;
-
-        let mut changes = Changes::default();
-        changes.devices.new.push(bob_device.clone());
-        alice_store.save_changes(changes).await.unwrap();
-
-        let mut changes = Changes::default();
-        changes.devices.new.push(alice_device.clone());
-        bob_store.save_changes(changes).await.unwrap();
-
-        (alice_store, bob_store)
-    }
 
     #[async_test]
     async fn test_request_accepting() {
