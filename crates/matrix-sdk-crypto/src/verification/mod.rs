@@ -56,7 +56,8 @@ use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
     store::{Changes, CryptoStore},
     types::Signatures,
-    CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+    CryptoStoreError, LocalTrust, OutgoingVerificationRequest, ReadOnlyDevice,
+    ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
 };
 
 #[derive(Clone, Debug)]
@@ -770,5 +771,64 @@ pub(crate) mod tests {
 
             _ => unreachable!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use matrix_sdk_common::locks::Mutex;
+    use ruma::{device_id, user_id, DeviceId, UserId};
+
+    use super::VerificationStore;
+    use crate::{
+        olm::PrivateCrossSigningIdentity, store::MemoryStore, ReadOnlyAccount, ReadOnlyDevice,
+    };
+
+    pub fn alice_id() -> &'static UserId {
+        user_id!("@alice:example.org")
+    }
+
+    pub fn alice_device_id() -> &'static DeviceId {
+        device_id!("JLAFKJWSCS")
+    }
+
+    pub fn bob_id() -> &'static UserId {
+        user_id!("@bob:example.org")
+    }
+
+    pub fn bob_device_id() -> &'static DeviceId {
+        device_id!("BOBDEVCIE")
+    }
+
+    pub(crate) async fn setup_stores() -> (VerificationStore, VerificationStore) {
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let alice_store = MemoryStore::new();
+        let alice_identity = Mutex::new(PrivateCrossSigningIdentity::empty(alice_id()));
+
+        let bob = ReadOnlyAccount::new(bob_id(), bob_device_id());
+        let bob_store = MemoryStore::new();
+        let bob_identity = Mutex::new(PrivateCrossSigningIdentity::empty(bob_id()));
+
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+
+        alice_store.save_devices(vec![bob_device]).await;
+        bob_store.save_devices(vec![alice_device]).await;
+
+        let alice_store = VerificationStore {
+            account: alice,
+            inner: Arc::new(alice_store),
+            private_identity: alice_identity.into(),
+        };
+
+        let bob_store = VerificationStore {
+            account: bob.clone(),
+            inner: Arc::new(bob_store),
+            private_identity: bob_identity.into(),
+        };
+
+        (alice_store, bob_store)
     }
 }
