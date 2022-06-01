@@ -1107,9 +1107,10 @@ impl RequestState<Ready> {
                         } else {
                             true
                         };
+
                         if start_new {
                             info!("Started a new SAS verification.");
-                            self.verification_cache.insert_sas(s);
+                            self.verification_cache.replace_sas(s);
                         }
                     }
                     Err(c) => {

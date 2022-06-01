@@ -236,6 +236,14 @@ impl Verification {
             Verification::QrV1(v) => v.is_self_verification(),
         }
     }
+
+    fn cancel(&self) -> Option<OutgoingVerificationRequest> {
+        match self {
+            Verification::SasV1(v) => v.cancel(),
+            #[cfg(feature = "qrcode")]
+            Verification::QrV1(v) => v.cancel(),
+        }
+    }
 }
 
 impl From<Sas> for Verification {
