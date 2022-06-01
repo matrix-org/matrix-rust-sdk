@@ -996,9 +996,9 @@ impl BaseClient {
         }
     }
 
-    /// Get a to-device request that will share a group session for a room.
+    /// Get a to-device request that will share a room key with users in a room.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
+    pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
         match self.olm_machine() {
             Some(o) => {
                 let (history_visibility, settings) = self
@@ -1020,7 +1020,7 @@ impl BaseClient {
                 let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
                 let settings = EncryptionSettings::new(settings, history_visibility);
 
-                Ok(o.share_group_session(room_id, members.map(Deref::deref), settings).await?)
+                Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

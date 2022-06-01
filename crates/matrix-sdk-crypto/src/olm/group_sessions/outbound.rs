@@ -258,13 +258,8 @@ impl OutboundGroupSession {
 
     /// Encrypt a room message for the given room.
     ///
-    /// Beware that a group session needs to be shared before this method can be
-    /// called using the `share_group_session()` method.
-    ///
-    /// Since group sessions can expire or become invalid if the room membership
-    /// changes client authors should check with the
-    /// `should_share_group_session()` method if a new group session needs to
-    /// be shared.
+    /// Beware that a room key needs to be shared before this method
+    /// can be called using the `share_room_key()` method.
     ///
     /// # Arguments
     ///

@@ -163,7 +163,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
-                .share_group_session(
+                .share_room_key(
                     room_id,
                     users.iter().map(Deref::deref),
                     EncryptionSettings::default(),
@@ -191,7 +191,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("sled store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
-                .share_group_session(
+                .share_room_key(
                     room_id,
                     users.iter().map(Deref::deref),
                     EncryptionSettings::default(),

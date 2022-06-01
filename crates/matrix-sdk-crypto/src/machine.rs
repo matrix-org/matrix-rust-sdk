@@ -634,8 +634,8 @@ impl OlmMachine {
 
     /// Encrypt a room message for the given room.
     ///
-    /// Beware that a group session needs to be shared before this method can be
-    /// called using the [`OlmMachine::share_group_session`] method.
+    /// Beware that a room key needs to be shared before this method
+    /// can be called using the [`OlmMachine::share_room_key`] method.
     ///
     /// # Arguments
     ///
@@ -647,9 +647,7 @@ impl OlmMachine {
     ///
     /// # Panics
     ///
-    /// Panics if a group session for the given room wasn't shared beforehand.
-    ///
-    /// [`share_group_session`]: Self::share_group_session
+    /// Panics if a room key for the given room wasn't shared beforehand.
     pub async fn encrypt_room_event(
         &self,
         room_id: &RoomId,
@@ -697,21 +695,21 @@ impl OlmMachine {
         self.group_session_manager.invalidate_group_session(room_id).await
     }
 
-    /// Get to-device requests to share a group session with users in a room.
+    /// Get to-device requests to share a room key with users in a room.
     ///
     /// # Arguments
     ///
-    /// `room_id` - The room id of the room where the group session will be
+    /// `room_id` - The room id of the room where the room key will be
     /// used.
     ///
-    /// `users` - The list of users that should receive the group session.
-    pub async fn share_group_session(
+    /// `users` - The list of users that should receive the room key.
+    pub async fn share_room_key(
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        self.group_session_manager.share_group_session(room_id, users, encryption_settings).await
+        self.group_session_manager.share_room_key(room_id, users, encryption_settings).await
     }
 
     /// Receive an unencrypted verification event.
@@ -1891,7 +1889,7 @@ pub(crate) mod tests {
         let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
-            .share_group_session(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+            .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
             .await
             .unwrap();
 
@@ -1937,7 +1935,7 @@ pub(crate) mod tests {
         let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
-            .share_group_session(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+            .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
             .await
             .unwrap();
 
