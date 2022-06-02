@@ -369,6 +369,19 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                async fn test_sync_token_saving() {
+
+                    let mut changes = StateChanges::default();
+                    let store = get_store().await.unwrap();
+                    let sync_token = "t392-516_47314_0_7_1".to_owned();
+
+                    changes.sync_token = Some(sync_token.clone());
+                    assert_eq!(store.get_sync_token().await.unwrap(), None);
+                    assert_eq!(store.save_changes(&changes).await.unwrap(), ());
+                    assert_eq!(store.get_sync_token().await.unwrap(), Some(sync_token));
+                }
+
+                #[async_test]
                 async fn test_stripped_member_saving() {
                     let store = get_store().await.unwrap();
                     let room_id = room_id!("!test_stripped_member_saving:localhost");

@@ -123,6 +123,7 @@ const VERSION_KEY: &str = "state-store-version";
 
 const ACCOUNT_DATA: &str = "account-data";
 const CUSTOM: &str = "custom";
+const SYNC_TOKEN: &str = "sync_token";
 const DISPLAY_NAME: &str = "display-name";
 const INVITED_USER_ID: &str = "invited-user-id";
 const JOINED_USER_ID: &str = "joined-user-id";
@@ -411,10 +412,11 @@ impl SledStore {
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
-        Ok(self
+        self
             .session
-            .get("sync_token".encode())?
-            .map(|t| String::from_utf8_lossy(&t).to_string()))
+            .get(SYNC_TOKEN.encode())?
+            .map(|t| self.deserialize_value(&t))
+            .transpose()
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
@@ -667,7 +669,8 @@ impl SledStore {
         let ret: Result<(), TransactionError<SledStoreError>> = (&self.session, &self.account_data)
             .transaction(|(session, account_data)| {
                 if let Some(s) = &changes.sync_token {
-                    session.insert("sync_token".encode(), s.as_str())?;
+                    session.insert(SYNC_TOKEN.encode(), self.serialize_value(s)
+                        .map_err(ConflictableTransactionError::Abort)?)?;
                 }
 
                 for (event_type, event) in &changes.account_data {
