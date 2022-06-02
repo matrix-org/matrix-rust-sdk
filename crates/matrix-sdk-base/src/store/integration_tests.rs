@@ -359,6 +359,16 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                async fn test_filter_saving() {
+                    let store = get_store().await.unwrap();
+                    let test_name = "filter_name";
+                    let filter_id = "filter_id_1234";
+                    assert_eq!(store.get_filter(test_name).await.unwrap(), None);
+                    assert_eq!(store.save_filter(test_name, filter_id).await.unwrap(), ());
+                    assert_eq!(store.get_filter(test_name).await.unwrap(), Some(filter_id.to_owned()));
+                }
+
+                #[async_test]
                 async fn test_stripped_member_saving() {
                     let store = get_store().await.unwrap();
                     let room_id = room_id!("!test_stripped_member_saving:localhost");
