@@ -18,7 +18,7 @@ pub async fn run_client(
     let username = match client.account().get_display_name().await? {
         Some(u) => u,
         None => {
-            client.user_id().await.ok_or_else(|| eyre!("Looks like you didn't login"))?.to_string()
+            client.user_id().ok_or_else(|| eyre!("Looks like you didn't login"))?.to_string()
         }
     };
 

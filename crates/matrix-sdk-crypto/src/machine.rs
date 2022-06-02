@@ -129,7 +129,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
 
         OlmMachine::with_store(user_id, device_id, store)
             .await
@@ -139,14 +139,13 @@ impl OlmMachine {
     fn new_helper(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Box<dyn CryptoStore>,
+        store: Arc<dyn CryptoStore>,
         account: ReadOnlyAccount,
         user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
         let user_id: Arc<UserId> = user_id.into();
         let user_identity = Arc::new(Mutex::new(user_identity));
 
-        let store: Arc<dyn CryptoStore> = store.into();
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
         let store =
@@ -216,7 +215,7 @@ impl OlmMachine {
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
-        store: Box<dyn CryptoStore>,
+        store: Arc<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
@@ -636,7 +635,7 @@ impl OlmMachine {
     /// Encrypt a room message for the given room.
     ///
     /// Beware that a group session needs to be shared before this method can be
-    /// called using the [`share_group_session`] method.
+    /// called using the [`OlmMachine::share_group_session`] method.
     ///
     /// # Arguments
     ///
@@ -1506,6 +1505,7 @@ impl OlmMachine {
         &self.backup_machine
     }
 }
+
 #[cfg(any(feature = "testing", test))]
 pub(crate) mod testing {
     #![allow(dead_code)]
@@ -1706,7 +1706,7 @@ pub(crate) mod tests {
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut device_keys),
+            json!(&mut device_keys),
         );
         assert!(ret.is_ok());
     }
@@ -1739,7 +1739,7 @@ pub(crate) mod tests {
         let ret = key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut device_keys),
+            json!(&mut device_keys),
         );
         assert!(ret.is_err());
     }
@@ -1759,7 +1759,7 @@ pub(crate) mod tests {
             .verify_json(
                 &machine.user_id,
                 &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-                &mut json!(&mut one_time_key),
+                json!(&mut one_time_key),
             )
             .expect("One-time key has been signed successfully");
     }
@@ -1777,14 +1777,14 @@ pub(crate) mod tests {
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut request.one_time_keys.values_mut().next()),
+            json!(&mut request.one_time_keys.values_mut().next()),
         );
         assert!(ret.is_ok());
 
         let ret = ed25519_key.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
-            &mut json!(&mut request.device_keys.unwrap()),
+            json!(&mut request.device_keys.unwrap()),
         );
         assert!(ret.is_ok());
 

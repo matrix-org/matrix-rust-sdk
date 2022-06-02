@@ -32,10 +32,10 @@ use ruma::{
         AnyToDeviceEventContent,
     },
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedUserId, UserId,
+    OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::warn;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
@@ -47,7 +47,7 @@ use crate::{
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, Session, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
-    types::{DeviceKey, DeviceKeys, SignedKey},
+    types::{DeviceKey, DeviceKeys, Signatures, SignedKey},
     verification::VerificationMachine,
     OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
 };
@@ -433,7 +433,7 @@ impl ReadOnlyDevice {
     }
 
     /// Get a map containing all the device signatures.
-    pub fn signatures(&self) -> &BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
+    pub fn signatures(&self) -> &Signatures {
         &self.inner.signatures
     }
 
@@ -559,7 +559,7 @@ impl ReadOnlyDevice {
         Ok(())
     }
 
-    pub(crate) fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
+    pub(crate) fn is_signed_by_device(&self, json: Value) -> Result<(), SignatureError> {
         let key = self.ed25519_key().ok_or(SignatureError::MissingSigningKey)?;
 
         key.verify_json(
@@ -577,15 +577,16 @@ impl ReadOnlyDevice {
         &self,
         device_keys: &DeviceKeys,
     ) -> Result<(), SignatureError> {
-        let mut device_keys = serde_json::to_value(device_keys)?;
-        self.is_signed_by_device(&mut device_keys)
+        let device_keys = serde_json::to_value(device_keys)?;
+        self.is_signed_by_device(device_keys)
     }
 
     pub(crate) fn verify_one_time_key(
         &self,
         one_time_key: &SignedKey,
     ) -> Result<(), SignatureError> {
-        self.is_signed_by_device(&mut json!(&one_time_key))
+        let one_time_key = serde_json::to_value(one_time_key)?;
+        self.is_signed_by_device(one_time_key)
     }
 
     /// Mark the device as deleted.

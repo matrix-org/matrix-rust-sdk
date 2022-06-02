@@ -28,7 +28,7 @@ use ruma::{
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
+    DeviceKeyId, EventId, OwnedDeviceId, OwnedDeviceKeyId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
@@ -40,7 +40,7 @@ use crate::{
     error::SignatureError,
     olm::VerifyJson,
     store::{Changes, IdentityChanges},
-    types::{CrossSigningKey, DeviceKeys, SigningKey},
+    types::{CrossSigningKey, DeviceKeys, Signatures, SigningKey},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
@@ -404,7 +404,7 @@ impl MasterPubkey {
     }
 
     /// Get the signatures map of this cross signing key.
-    pub fn signatures(&self) -> &BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
+    pub fn signatures(&self) -> &Signatures {
         &self.0.signatures
     }
 
@@ -456,12 +456,7 @@ impl MasterPubkey {
         }
 
         if let SigningKey::Ed25519(key) = key {
-            key.verify_json(
-                &self.0.user_id,
-                key_id,
-                &mut to_value(subkey.cross_signing_key())
-                    .map_err(|_| SignatureError::NotAnObject)?,
-            )
+            key.verify_json(&self.0.user_id, key_id, to_value(subkey.cross_signing_key())?)
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }
@@ -506,11 +501,7 @@ impl UserSigningPubkey {
         // TODO check that the usage is OK.
 
         if let SigningKey::Ed25519(key) = key {
-            key.verify_json(
-                &self.0.user_id,
-                key_id.as_str().try_into()?,
-                &mut to_value(&master_key.0).map_err(|_| SignatureError::NotAnObject)?,
-            )
+            key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, to_value(&master_key.0)?)
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }
@@ -541,10 +532,10 @@ impl SelfSigningPubkey {
         let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
         // TODO check that the usage is OK.
 
-        let mut device = to_value(device_keys)?;
+        let device = to_value(device_keys)?;
 
         if let SigningKey::Ed25519(key) = key {
-            key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, &mut device)
+            key.verify_json(&self.0.user_id, key_id.as_str().try_into()?, device)
         } else {
             Err(SignatureError::UnsupportedAlgorithm)
         }

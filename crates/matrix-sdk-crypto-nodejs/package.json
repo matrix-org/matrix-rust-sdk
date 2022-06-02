@@ -1,0 +1,27 @@
+{
+  "name": "matrix-sdk-crypto",
+  "version": "0.5.0",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "matrix-sdk-crypto",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin"
+      ]
+    }
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@napi-rs/cli": "^2.9.0",
+    "ava": "^4.2.0"
+  },
+  "engines": {
+    "node": ">= 10"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "test": "ava"
+  }
+}

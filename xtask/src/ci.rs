@@ -66,7 +66,7 @@ enum WasmFeatureSet {
     MatrixSdkNoDefault,
     MatrixSdkBase,
     MatrixSdkCommon,
-    MatrixSdkCrypto,
+    MatrixSdkCryptoJs,
     MatrixSdkIndexeddbStoresNoCrypto,
     MatrixSdkIndexeddbStores,
     IndexeddbNoCrypto,
@@ -208,7 +208,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common"),
-        (WasmFeatureSet::MatrixSdkCrypto, "-p matrix-sdk-crypto"),
+        (WasmFeatureSet::MatrixSdkCryptoJs, "-p matrix-sdk-crypto-js"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
             "-p matrix-sdk --no-default-features --features indexeddb,rustls-tls",
@@ -269,7 +269,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
         ),
         (WasmFeatureSet::MatrixSdkBase, ("matrix-sdk-base", "")),
         (WasmFeatureSet::MatrixSdkCommon, ("matrix-sdk-common", "")),
-        (WasmFeatureSet::MatrixSdkCrypto, ("matrix-sdk-crypto", "")),
+        (WasmFeatureSet::MatrixSdkCryptoJs, ("matrix-sdk-crypto-js", "")),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
             ("matrix-sdk", "--no-default-features --features indexeddb,rustls-tls --lib"),

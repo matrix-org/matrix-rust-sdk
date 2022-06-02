@@ -9,6 +9,10 @@ license = "Apache-2.0"
 rust-version = "1.60"
 readme = "README.md"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["state-store"]
 
