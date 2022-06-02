@@ -84,7 +84,7 @@ impl From<PendingBackup> for OutgoingRequest {
     }
 }
 
-/// The result over a signature check of a signed JSON object.
+/// The result of a signature check of a signed JSON object.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SignatureCheckResult {
     /// The result of the signature check using the public key of our own
@@ -99,14 +99,14 @@ pub struct SignatureCheckResult {
 }
 
 impl SignatureCheckResult {
-    /// Is the result considered to be trusted.
+    /// Is the result considered to be trusted?
     ///
     /// This tells us if the result has a valid signature from any of the
     /// following:
     ///
     /// * Our own device
-    /// * Our own user identity, if the identity is trusted as well
-    /// * Any of our own devices, given that the device is trusted as well
+    /// * Our own user identity, provided the identity is trusted as well
+    /// * Any of our own devices, provided the device is trusted as well
     pub fn trusted(&self) -> bool {
         self.device_signature.trusted()
             || self.user_identity_signature.trusted()
@@ -130,12 +130,12 @@ pub enum SignatureState {
 }
 
 impl SignatureState {
-    /// Is the state considered to be trusted.
+    /// Is the state considered to be trusted?
     pub fn trusted(self) -> bool {
         self == SignatureState::ValidAndTrusted
     }
 
-    /// Did we find a valid signature.
+    /// Did we find a valid signature?
     pub fn signed(self) -> bool {
         self == SignatureState::ValidButNotTrusted && self == SignatureState::ValidAndTrusted
     }
@@ -168,7 +168,7 @@ impl BackupMachine {
         self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
     }
 
-    /// Check if our own device has signed the given JSON `Value`.
+    /// Check if our own device has signed the given signed JSON payload.
     async fn check_own_device_signature(&self, auth_data: Value) -> SignatureState {
         match self.account.is_signed(auth_data) {
             Ok(_) => SignatureState::ValidAndTrusted,
@@ -179,8 +179,8 @@ impl BackupMachine {
         }
     }
 
-    /// Check if our own cross-signing user identity has signed the given JSON
-    /// `Value`.
+    /// Check if our own cross-signing user identity has signed the given signed
+    /// JSON payload.
     async fn check_own_identity_signature(
         &self,
         auth_data: Value,
@@ -223,7 +223,8 @@ impl BackupMachine {
         }
     }
 
-    /// Check if the JSON `Value` has been signed by any of our devices.
+    /// Check if the signed JSON payload `auth_data` has been signed by any of
+    /// our devices.
     ///
     /// This method will abort as soon as it finds a signature from a trusted
     /// device if the `check_all` argument is set to `false`. If the `check_all`
@@ -245,6 +246,9 @@ impl BackupMachine {
                     if device_key_id.device_id() == self.account.device_id() {
                         continue;
                     } else {
+                        // We might iterate over some non-device signatures as well, but in this
+                        // case there's no corresponding device and we get `Ok(None)` here, so
+                        // things still work out.
                         let device = self
                             .store
                             .get_device(self.store.user_id(), device_key_id.device_id())
