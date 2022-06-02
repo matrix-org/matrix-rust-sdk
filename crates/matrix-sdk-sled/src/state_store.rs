@@ -461,14 +461,16 @@ impl SledStore {
                                 MembershipState::Join => {
                                     joined.insert(
                                         self.encode_key(JOINED_USER_ID, &key),
-                                        event.state_key().as_str(),
+                                        self.serialize_value(event.state_key())
+                                            .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                     invited.remove(self.encode_key(INVITED_USER_ID, &key))?;
                                 }
                                 MembershipState::Invite => {
                                     invited.insert(
                                         self.encode_key(INVITED_USER_ID, &key),
-                                        event.state_key().as_str(),
+                                        self.serialize_value(event.state_key())
+                                            .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                     joined.remove(self.encode_key(JOINED_USER_ID, &key))?;
                                 }
@@ -552,7 +554,8 @@ impl SledStore {
                                 MembershipState::Join => {
                                     stripped_joined.insert(
                                         self.encode_key(STRIPPED_JOINED_USER_ID, &key),
-                                        event.state_key.as_str(),
+                                        self.serialize_value(&event.state_key)
+                                            .map_err(ConflictableTransactionError::Abort)?
                                     )?;
                                     stripped_invited
                                         .remove(self.encode_key(STRIPPED_INVITED_USER_ID, &key))?;
@@ -560,7 +563,8 @@ impl SledStore {
                                 MembershipState::Invite => {
                                     stripped_invited.insert(
                                         self.encode_key(STRIPPED_INVITED_USER_ID, &key),
-                                        event.state_key.as_str(),
+                                        self.serialize_value(&event.state_key)
+                                            .map_err(ConflictableTransactionError::Abort)?
                                     )?;
                                     stripped_joined
                                         .remove(self.encode_key(STRIPPED_JOINED_USER_ID, &key))?;
@@ -784,9 +788,9 @@ impl SledStore {
         let db = self.clone();
         let key = self.encode_key(INVITED_USER_ID, room_id);
         spawn_blocking(move || {
-            stream::iter(db.invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
-                    .map_err(StoreError::Identifier)
+            stream::iter(db.invited_user_ids.scan_prefix(key).map(move |u| {
+                db.deserialize_value(&u.map_err(StoreError::backend)?.1)
+                    .map_err(StoreError::backend)
             }))
         })
         .await
@@ -800,9 +804,9 @@ impl SledStore {
         let db = self.clone();
         let key = self.encode_key(JOINED_USER_ID, room_id);
         spawn_blocking(move || {
-            stream::iter(db.joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
-                    .map_err(StoreError::Identifier)
+            stream::iter(db.joined_user_ids.scan_prefix(key).map(move |u| {
+                db.deserialize_value(&u.map_err(StoreError::backend)?.1)
+                    .map_err(StoreError::backend)
             }))
         })
         .await
@@ -816,9 +820,9 @@ impl SledStore {
         let db = self.clone();
         let key = self.encode_key(STRIPPED_INVITED_USER_ID, room_id);
         spawn_blocking(move || {
-            stream::iter(db.stripped_invited_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
-                    .map_err(StoreError::Identifier)
+            stream::iter(db.stripped_invited_user_ids.scan_prefix(key).map(move |u| {
+                db.deserialize_value(&u.map_err(StoreError::backend)?.1)
+                    .map_err(StoreError::backend)
             }))
         })
         .await
@@ -832,9 +836,9 @@ impl SledStore {
         let db = self.clone();
         let key = self.encode_key(STRIPPED_JOINED_USER_ID, room_id);
         spawn_blocking(move || {
-            stream::iter(db.stripped_joined_user_ids.scan_prefix(key).map(|u| {
-                UserId::parse(String::from_utf8_lossy(&u.map_err(StoreError::backend)?.1))
-                    .map_err(StoreError::Identifier)
+            stream::iter(db.stripped_joined_user_ids.scan_prefix(key).map(move |u| {
+                db.deserialize_value(&u.map_err(StoreError::backend)?.1)
+                    .map_err(StoreError::backend)
             }))
         })
         .await
