@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use napi::bindgen_prelude::ToNapiValue;
+use napi::bindgen_prelude::{BigInt, ToNapiValue};
 use napi_derive::*;
 
 use crate::events;
@@ -50,10 +50,10 @@ pub struct EncryptionSettings {
 
     /// How long the session should be used before changing it,
     /// expressed in microseconds.
-    pub rotation_period: u32,
+    pub rotation_period: BigInt,
 
     /// How many messages should be sent before changing the session.
-    pub rotation_period_messages: u32,
+    pub rotation_period_messages: BigInt,
 
     /// The history visibility of the room when the session was
     /// created.
@@ -66,8 +66,16 @@ impl Default for EncryptionSettings {
 
         Self {
             algorithm: default.algorithm.into(),
-            rotation_period: default.rotation_period.as_micros().try_into().unwrap(),
-            rotation_period_messages: default.rotation_period_msgs.try_into().unwrap(),
+            rotation_period: {
+                let n: u64 = default.rotation_period.as_micros().try_into().unwrap();
+
+                n.into()
+            },
+            rotation_period_messages: {
+                let n: u64 = default.rotation_period_msgs.try_into().unwrap();
+
+                n.into()
+            },
             history_visibility: default.history_visibility.into(),
         }
     }
@@ -85,10 +93,10 @@ impl EncryptionSettings {
 impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     fn from(value: &EncryptionSettings) -> Self {
         Self {
-            algorithm: value.algorithm.clone().into(),
-            rotation_period: Duration::from_micros(value.rotation_period.into()),
-            rotation_period_msgs: value.rotation_period_messages.into(),
-            history_visibility: value.history_visibility.clone().into(),
+            algorithm: value.algorithm.into(),
+            rotation_period: Duration::from_micros(value.rotation_period.get_u64().1),
+            rotation_period_msgs: value.rotation_period_messages.get_u64().1,
+            history_visibility: value.history_visibility.into(),
         }
     }
 }
