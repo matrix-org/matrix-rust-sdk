@@ -967,15 +967,18 @@ impl SledStore {
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let custom = self.custom.clone();
-        let key = key.to_owned();
-        spawn_blocking(move || Ok(custom.get(key)?.map(|v| v.to_vec()))).await?
+        let me = self.clone();
+        let key = self.encode_key(CUSTOM, key);
+        spawn_blocking(move || custom.get(key)?.map(move |v| me.deserialize_value(&v)).transpose()).await?
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        let ret = self.custom.insert(key, value)?.map(|v| v.to_vec());
+        let key = self.encode_key(CUSTOM, key);
+        let me = self.clone();
+        let ret = self.custom.insert(key, me.serialize_value(&value)?)?.map(|v| me.deserialize_value(&v)).transpose();
         self.inner.flush_async().await?;
 
-        Ok(ret)
+        ret
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {

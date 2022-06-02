@@ -39,6 +39,12 @@ impl<T: EncodeKey + ?Sized> EncodeKey for &T {
     }
 }
 
+impl EncodeKey for &[u8] {
+    fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
+        (*self).into()
+    }
+}
+
 impl EncodeKey for str {
     fn encode_as_bytes(&self) -> Cow<'_, [u8]> {
         self.as_bytes().into()
