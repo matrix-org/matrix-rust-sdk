@@ -29,11 +29,16 @@ impl DeviceLists {
         self.inner.is_empty()
     }
 
+    /// List of users who have updated their device identity keys or
+    /// who now share an encrypted room with the client since the
+    /// previous sync.
     #[napi(getter)]
     pub fn changed(&self) -> Vec<identifiers::UserId> {
         self.inner.changed.iter().map(|user| identifiers::UserId::new_with(user.clone())).collect()
     }
 
+    /// List of users who no longer share encrypted rooms since the
+    /// previous sync response.
     #[napi(getter)]
     pub fn left(&self) -> Vec<identifiers::UserId> {
         self.inner.left.iter().map(|user| identifiers::UserId::new_with(user.clone())).collect()

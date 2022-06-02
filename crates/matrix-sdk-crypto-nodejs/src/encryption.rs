@@ -93,6 +93,7 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     }
 }
 
+/// The verification state of the device that sent an event to us.
 #[napi]
 pub enum VerificationState {
     /// The device is trusted.
