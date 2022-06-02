@@ -398,15 +398,16 @@ impl SledStore {
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.session.insert(self.encode_key(SESSION, ("filter", filter_name)), filter_id)?;
+        self.session.insert(self.encode_key(SESSION, ("filter", filter_name)), self.serialize_value(&filter_id)?)?;
         Ok(())
     }
 
     pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        Ok(self
+        self
             .session
             .get(self.encode_key(SESSION, ("filter", filter_name)))?
-            .map(|f| String::from_utf8_lossy(&f).to_string()))
+            .map(|f| self.deserialize_value(&f))
+            .transpose()
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
