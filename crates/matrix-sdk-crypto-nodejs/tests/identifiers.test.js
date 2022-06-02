@@ -1,6 +1,6 @@
 const { UserId, DeviceId, RoomId, ServerName } = require('../');
 
-describe('UserId', () => {
+describe(UserId.name, () => {
     test('cannot be invalid', () => {
         expect(() => { new UserId('@foobar') }).toThrow();
     });
@@ -24,7 +24,7 @@ describe('UserId', () => {
     })
 });
 
-describe('DeviceId', () => {
+describe(DeviceId.name, () => {
     const device = new DeviceId('foo');
 
     test('can read the device ID as a string', () => {
@@ -32,7 +32,7 @@ describe('DeviceId', () => {
     })
 });
 
-describe('RoomId', () => {
+describe(RoomId.name, () => {
     test('cannot be invalid', () => {
         expect(() => { new RoomId('!foo') }).toThrow();
     });
@@ -52,7 +52,7 @@ describe('RoomId', () => {
     });
 });
 
-describe('ServerName', () => {
+describe(ServerName.name, () => {
     test('cannot be invalid', () => {
         expect(() => { new ServerName('@foobar') }).toThrow()
     });

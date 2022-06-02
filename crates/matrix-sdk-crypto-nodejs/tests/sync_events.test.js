@@ -1,6 +1,6 @@
 const { DeviceLists, UserId } = require('../');
 
-describe('DeviceLists', () => {
+describe(DeviceLists.name, () => {
     test('can be empty', () => {
         const empty = new DeviceLists([], []);
 
