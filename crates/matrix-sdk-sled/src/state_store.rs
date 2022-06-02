@@ -949,7 +949,7 @@ impl SledStore {
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
         self.media.insert(
             self.encode_key(MEDIA, (request.source.unique_key(), request.format.unique_key())),
-            data,
+            self.serialize_value(&data)?,
         )?;
 
         self.inner.flush_async().await?;
@@ -962,7 +962,7 @@ impl SledStore {
         let key =
             self.encode_key(MEDIA, (request.source.unique_key(), request.format.unique_key()));
 
-        spawn_blocking(move || Ok(db.media.get(key)?.map(|m| m.to_vec()))).await?
+        spawn_blocking(move || db.media.get(key)?.map(move |m| db.deserialize_value(&m)).transpose()).await?
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
