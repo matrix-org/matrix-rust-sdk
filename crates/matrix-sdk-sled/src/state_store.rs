@@ -399,24 +399,22 @@ impl SledStore {
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.session.insert(self.encode_key(SESSION, ("filter", filter_name)), self.serialize_value(&filter_id)?)?;
+        self.session.insert(
+            self.encode_key(SESSION, ("filter", filter_name)),
+            self.serialize_value(&filter_id)?,
+        )?;
         Ok(())
     }
 
     pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        self
-            .session
+        self.session
             .get(self.encode_key(SESSION, ("filter", filter_name)))?
             .map(|f| self.deserialize_value(&f))
             .transpose()
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
-        self
-            .session
-            .get(SYNC_TOKEN.encode())?
-            .map(|t| self.deserialize_value(&t))
-            .transpose()
+        self.session.get(SYNC_TOKEN.encode())?.map(|t| self.deserialize_value(&t)).transpose()
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
@@ -558,7 +556,7 @@ impl SledStore {
                                     stripped_joined.insert(
                                         self.encode_key(STRIPPED_JOINED_USER_ID, &key),
                                         self.serialize_value(&event.state_key)
-                                            .map_err(ConflictableTransactionError::Abort)?
+                                            .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                     stripped_invited
                                         .remove(self.encode_key(STRIPPED_INVITED_USER_ID, &key))?;
@@ -567,7 +565,7 @@ impl SledStore {
                                     stripped_invited.insert(
                                         self.encode_key(STRIPPED_INVITED_USER_ID, &key),
                                         self.serialize_value(&event.state_key)
-                                            .map_err(ConflictableTransactionError::Abort)?
+                                            .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                     stripped_joined
                                         .remove(self.encode_key(STRIPPED_JOINED_USER_ID, &key))?;
@@ -669,8 +667,10 @@ impl SledStore {
         let ret: Result<(), TransactionError<SledStoreError>> = (&self.session, &self.account_data)
             .transaction(|(session, account_data)| {
                 if let Some(s) = &changes.sync_token {
-                    session.insert(SYNC_TOKEN.encode(), self.serialize_value(s)
-                        .map_err(ConflictableTransactionError::Abort)?)?;
+                    session.insert(
+                        SYNC_TOKEN.encode(),
+                        self.serialize_value(s).map_err(ConflictableTransactionError::Abort)?,
+                    )?;
                 }
 
                 for (event_type, event) in &changes.account_data {
@@ -962,20 +962,28 @@ impl SledStore {
         let key =
             self.encode_key(MEDIA, (request.source.unique_key(), request.format.unique_key()));
 
-        spawn_blocking(move || db.media.get(key)?.map(move |m| db.deserialize_value(&m)).transpose()).await?
+        spawn_blocking(move || {
+            db.media.get(key)?.map(move |m| db.deserialize_value(&m)).transpose()
+        })
+        .await?
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let custom = self.custom.clone();
         let me = self.clone();
         let key = self.encode_key(CUSTOM, key);
-        spawn_blocking(move || custom.get(key)?.map(move |v| me.deserialize_value(&v)).transpose()).await?
+        spawn_blocking(move || custom.get(key)?.map(move |v| me.deserialize_value(&v)).transpose())
+            .await?
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let key = self.encode_key(CUSTOM, key);
         let me = self.clone();
-        let ret = self.custom.insert(key, me.serialize_value(&value)?)?.map(|v| me.deserialize_value(&v)).transpose();
+        let ret = self
+            .custom
+            .insert(key, me.serialize_value(&value)?)?
+            .map(|v| me.deserialize_value(&v))
+            .transpose();
         self.inner.flush_async().await?;
 
         ret

@@ -1479,8 +1479,7 @@ mod tests {
     use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
-        let db_name =
-            format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated().to_string());
+        let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated().to_string());
         Ok(IndexeddbStore::open_helper(db_name, None).await?)
     }
 
