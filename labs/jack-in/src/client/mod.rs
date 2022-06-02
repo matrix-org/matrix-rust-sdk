@@ -8,7 +8,6 @@ use tuirealm::tui::{backend::CrosstermBackend, Terminal};
 
 pub mod state;
 
-use futures_signals::signal::SignalExt;
 use matrix_sdk::{ruma::OwnedRoomId, Client, SlidingSyncState, SlidingSyncViewBuilder};
 
 pub async fn run_client(

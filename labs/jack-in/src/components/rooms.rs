@@ -130,11 +130,9 @@ impl Component<Msg, JackInEvent> for Rooms {
                 }
                 Event::Keyboard(KeyEvent { code: Key::Enter, modifiers: KeyModifiers::NONE }) => {
                     if let Some(idx) = self.tablestate.selected() {
-                        if let Some(room) = self.sstate.view().get_rooms(None, None).get(idx) {
-                            warn!("selecting, {:?}", room.room_id);
-                            return Some(Msg::SelectRoom(
-                                room.room_id.clone().map(|v| RoomId::parse(v).expect("is valid")),
-                            ));
+                        if let Some(room_id) = self.sstate.view().get_room_id(idx) {
+                            warn!("selecting, {:?}", room_id);
+                            return Some(Msg::SelectRoom(Some(room_id)));
                         }
                     }
                     return None;

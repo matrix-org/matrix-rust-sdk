@@ -27,7 +27,7 @@ impl StatusBar {
 }
 
 impl MockComponent for StatusBar {
-    fn view(&mut self, frame: &mut Frame, area: Rect) {
+    fn view(&mut self, frame: &mut Frame<'_>, area: Rect) {
         let title = ("Status".to_owned(), Alignment::Left);
 
         let borders = self
