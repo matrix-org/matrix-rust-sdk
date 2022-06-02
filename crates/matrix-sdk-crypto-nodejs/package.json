@@ -20,7 +20,6 @@
     "node": ">= 10"
   },
   "scripts": {
-    "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "test": "ava"
   }

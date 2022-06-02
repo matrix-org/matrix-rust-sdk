@@ -166,7 +166,7 @@ macro_rules! request {
             ) -> Result<Self, Self::Error> {
                 let mut map = serde_json::Map::new();
                 $(
-                    map.insert(stringify!($field).to_owned(), serde_json::to_value(&request.$field).unwrap());
+                    map.insert(stringify!($field).to_owned(), serde_json::to_value(&request.$field)?);
                 )+
                 let value = serde_json::Value::Object(map);
 
@@ -197,8 +197,6 @@ pub type OutgoingRequests = Either7<
     KeysBackupRequest,
 >;
 
-// JavaScript has no complex enums like Rust. To return structs of
-// different types, we have no choice that playing with `Either`.
 pub(crate) struct OutgoingRequest(pub(crate) matrix_sdk_crypto::OutgoingRequest);
 
 impl TryFrom<OutgoingRequest> for OutgoingRequests {

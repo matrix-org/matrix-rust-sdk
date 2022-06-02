@@ -17,6 +17,7 @@ impl From<Error> for napi::Error {
     }
 }
 
+/// Helper to replace the `E` to `Error` to `napi::Error` conversion.
 pub fn into_err<E>(error: E) -> napi::Error
 where
     E: std::error::Error,

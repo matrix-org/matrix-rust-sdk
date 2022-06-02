@@ -1,11 +1,8 @@
 //! The crypto specific Olm objects.
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    time::Duration,
-};
+use std::collections::{BTreeMap, HashMap};
 
-use napi::bindgen_prelude::{Either7, ToNapiValue};
+use napi::bindgen_prelude::Either7;
 use napi_derive::*;
 use ruma::{
     events::room::encrypted::OriginalSyncRoomEncryptedEvent, DeviceKeyAlgorithm,
@@ -14,7 +11,7 @@ use ruma::{
 use serde_json::Value as JsonValue;
 
 use crate::{
-    events, identifiers, into_err, requests, responses, responses::response_from_string,
+    encryption, identifiers, into_err, requests, responses, responses::response_from_string,
     sync_events,
 };
 
@@ -27,10 +24,26 @@ pub struct OlmMachine {
 
 #[napi]
 impl OlmMachine {
-    // napi doesn't support `#[napi(factory)]` with an `async fn`. So
-    // we create a normal `async fn` function, and then, we create a
-    // constructor that raises an error.
+    // JavaScript doesn't support asynchronous constructor. So let's
+    // use a factory pattern, where the constructor cannot be used (it
+    // returns an error), and a new method is provided to construct
+    // the object. napi provides `#[napi(factory)]` to address those
+    // needs automatically. Unfortunately, it doesn't support
+    // asynchronous factory methods.
+    //
+    // So let's do this manually. The `initialize` async method _is_
+    // the factory function. We also manually implement the
+    // constructor to raise an error when called.
 
+    /// Create a new memory-based `OlmMachine` asynchronously.
+    ///
+    /// The created machine will keep the encryption keys only in
+    /// memory and once the object is dropped the keys will be lost.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id`, the unique ID of the user that owns this machine.
+    /// * `device_id`, the unique id of the device that owns this machine.
     #[napi]
     pub async fn initialize(
         user_id: &identifiers::UserId,
@@ -44,27 +57,49 @@ impl OlmMachine {
         }
     }
 
+    /// It's not possible to construct an `OlmMachine` with its
+    /// constructor because building an `OlmMachine` is
+    /// asynchronous. Please use the `finalize` method.
     #[napi(constructor)]
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> napi::Error {
         napi::Error::from_reason("To build an `OldMachine`, please use the `initialize` method")
     }
 
+    /// The unique user ID that owns this `OlmMachine` instance.
     #[napi(getter)]
     pub fn user_id(&self) -> identifiers::UserId {
         identifiers::UserId::new_with(self.inner.user_id().to_owned())
     }
 
+    /// The unique device ID that identifies this `OlmMachine`.
     #[napi(getter)]
     pub fn device_id(&self) -> identifiers::DeviceId {
         identifiers::DeviceId::new_with(self.inner.device_id().to_owned())
     }
 
+    /// Get the public parts of our Olm identity keys.
     #[napi(getter)]
     pub fn identity_keys(&self) -> IdentityKeys {
         self.inner.identity_keys().into()
     }
 
+    /// Handle a to-device and one-time key counts from a sync response.
+    ///
+    /// This will decrypt and handle to-device events returning the
+    /// decrypted versions of them, as a JSON-encoded string.
+    ///
+    /// To decrypt an event from the room timeline, please use
+    /// `decrypt_room_event`.
+    ///
+    /// # Arguments
+    ///
+    /// * `to_device_events`, thhe to-device events of the current sync
+    ///   response.
+    /// * `changed_devices`, the list of devices that changed in this sync
+    ///   response.
+    /// * `one_time_keys_count`, the current one-time keys counts that the sync
+    ///   response returned.
     #[napi]
     pub async fn receive_sync_changes(
         &self,
@@ -80,12 +115,12 @@ impl OlmMachine {
             .filter_map(|(key, value)| {
                 Some((DeviceKeyAlgorithm::from(key.as_str()), UInt::new(*value as u64)?))
             })
-            .collect::<BTreeMap<DeviceKeyAlgorithm, UInt>>();
+            .collect::<BTreeMap<_, _>>();
         let unused_fallback_keys = Some(
             unused_fallback_keys
                 .into_iter()
                 .map(|key| DeviceKeyAlgorithm::from(key.as_str()))
-                .collect::<Vec<DeviceKeyAlgorithm>>(),
+                .collect::<Vec<_>>(),
         );
 
         serde_json::to_string(
@@ -103,15 +138,23 @@ impl OlmMachine {
         .map_err(into_err)
     }
 
-    // We could be tempted to use `requests::OutgoingRequests` as its
-    // a type alias for this giant `Either7`. But `napi` won't unfold
-    // it properly into a valid TypeScript definition, so…  let's
-    // copy-paste :-(.
+    /// Get the outgoing requests that need to be sent out.
+    ///
+    /// This returns a list of `KeysUploadRequest`, or
+    /// `KeysQueryRequest`, or `KeysClaimRequest`, or
+    /// `ToDeviceRequest`, or `SignatureUploadRequest`, or
+    /// `RoomMessageRequest`, or `KeysBackupRequest`. Those requests
+    /// need to be sent out to the server and the responses need to be
+    /// passed back to the state machine using `mark_request_as_sent`.
     #[napi]
     pub async fn outgoing_requests(
         &self,
     ) -> Result<
         Vec<
+            // We could be tempted to use `requests::OutgoingRequests` as its
+            // a type alias for this giant `Either7`. But `napi` won't unfold
+            // it properly into a valid TypeScript definition, so…  let's
+            // copy-paste :-(.
             Either7<
                 requests::KeysUploadRequest,
                 requests::KeysQueryRequest,
@@ -135,6 +178,15 @@ impl OlmMachine {
             .map_err(into_err)
     }
 
+    /// Mark the request with the given request ID as sent.
+    ///
+    /// # Arguments
+    ///
+    /// * `request_id`, the unique ID of the request that was sent out. This is
+    ///   needed to couple the response with the now sent out request.
+    /// * `request_type`, the request type associated to the request ID.
+    /// * `response`, the response that was received from the server after the
+    ///   outgoing request was sent out.
     #[napi]
     pub async fn mark_request_as_sent(
         &self,
@@ -153,6 +205,33 @@ impl OlmMachine {
             .map_err(into_err)
     }
 
+    /// Get the a key claiming request for the user/device pairs that
+    /// we are missing Olm sessions for.
+    ///
+    /// Returns `null` if no key claiming request needs to be sent
+    /// out.
+    ///
+    /// Sessions need to be established between devices so group
+    /// sessions for a room can be shared with them.
+    ///
+    /// This should be called every time a group session needs to be
+    /// shared as well as between sync calls. After a sync some
+    /// devices may request room keys without us having a valid Olm
+    /// session with them, making it impossible to server the room key
+    /// request, thus it’s necessary to check for missing sessions
+    /// between sync as well.
+    ///
+    /// Note: Care should be taken that only one such request at a
+    /// time is in flight, e.g. using a lock.
+    ///
+    /// The response of a successful key claiming requests needs to be
+    /// passed to the `OlmMachine` with the `mark_request_as_sent`.
+    ///
+    /// # Arguments
+    ///
+    /// * `users`, the list of users that we should check if we lack a session
+    ///   with one of their devices. This can be an empty array when calling
+    ///   this method between sync requests.
     #[napi]
     pub async fn get_missing_sessions(
         &self,
@@ -179,6 +258,17 @@ impl OlmMachine {
         }
     }
 
+    /// Update the tracked users.
+    ///
+    /// This will mark users that weren’t seen before for a key query
+    /// and tracking.
+    ///
+    /// If the user is already known to the Olm machine it will not be
+    /// considered for a key query.
+    ///
+    /// # Arguments
+    ///
+    /// * `users`, an array over user IDs that should be marked for tracking.
     #[napi]
     pub async fn update_tracked_users(&self, users: Vec<&identifiers::UserId>) {
         let users =
@@ -187,12 +277,19 @@ impl OlmMachine {
         self.inner.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
     }
 
+    /// Get to-device requests to share a room key with users in a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id`, the room ID of the room where the room key will be used.
+    /// * `users`, the list of users that should receive the room key.
+    /// * `encryption_settings`, the encryption settings.
     #[napi]
     pub async fn share_room_key(
         &self,
         room_id: &identifiers::RoomId,
         users: Vec<&identifiers::UserId>,
-        encryption_settings: &EncryptionSettings,
+        encryption_settings: &encryption::EncryptionSettings,
     ) -> Result<String, napi::Error> {
         let room_id = room_id.inner.clone();
         let users =
@@ -210,6 +307,15 @@ impl OlmMachine {
         .map_err(into_err)
     }
 
+    /// Encrypt a JSON-encoded conetnt for the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id`, the ID of the room for which the message should be
+    ///   encrypted.
+    /// * `event_type`, the plaintext type of the event.
+    /// * `content`, the JSON-encoded content of the message that should be
+    ///   encrypted.
     #[napi]
     pub async fn encrypt_room_event(
         &self,
@@ -230,6 +336,12 @@ impl OlmMachine {
         .map_err(into_err)
     }
 
+    /// Decrypt an event from a room timeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `event`, the event that should be decrypted.
+    /// * `room_id`, the ID of the room where the event was sent to.
     #[napi]
     pub async fn decrypt_room_event(
         &self,
@@ -291,6 +403,7 @@ impl Curve25519PublicKey {
     }
 }
 
+/// Struct holding the two public identity keys of an account.
 #[napi]
 pub struct IdentityKeys {
     ed25519: Ed25519PublicKey,
@@ -317,94 +430,6 @@ impl From<matrix_sdk_crypto::olm::IdentityKeys> for IdentityKeys {
         Self {
             ed25519: Ed25519PublicKey { inner: value.ed25519 },
             curve25519: Curve25519PublicKey { inner: value.curve25519 },
-        }
-    }
-}
-
-/// An encryption algorithm to be used to encrypt messages sent to a
-/// room.
-#[napi]
-pub enum EncryptionAlgorithm {
-    /// Olm version 1 using Curve25519, AES-256, and SHA-256.
-    OlmV1Curve25519AesSha2,
-
-    /// Megolm version 1 using AES-256 and SHA-256.
-    MegolmV1AesSha2,
-}
-
-impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
-    fn from(value: EncryptionAlgorithm) -> Self {
-        use EncryptionAlgorithm::*;
-
-        match value {
-            OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
-            MegolmV1AesSha2 => Self::MegolmV1AesSha2,
-        }
-    }
-}
-
-impl From<ruma::EventEncryptionAlgorithm> for EncryptionAlgorithm {
-    fn from(value: ruma::EventEncryptionAlgorithm) -> Self {
-        use ruma::EventEncryptionAlgorithm::*;
-
-        match value {
-            OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
-            MegolmV1AesSha2 => Self::MegolmV1AesSha2,
-            _ => unreachable!("Unknown variant"),
-        }
-    }
-}
-
-/// Settings for an encrypted room.
-///
-/// This determines the algorithm and rotation periods of a group
-/// session.
-#[napi]
-pub struct EncryptionSettings {
-    /// The encryption algorithm that should be used in the room.
-    pub algorithm: EncryptionAlgorithm,
-
-    /// How long the session should be used before changing it,
-    /// expressed in microseconds.
-    pub rotation_period: u32,
-
-    /// How many messages should be sent before changing the session.
-    pub rotation_period_messages: u32,
-
-    /// The history visibility of the room when the session was
-    /// created.
-    pub history_visibility: events::HistoryVisibility,
-}
-
-impl Default for EncryptionSettings {
-    fn default() -> Self {
-        let default = matrix_sdk_crypto::olm::EncryptionSettings::default();
-
-        Self {
-            algorithm: default.algorithm.into(),
-            rotation_period: default.rotation_period.as_micros().try_into().unwrap(),
-            rotation_period_messages: default.rotation_period_msgs.try_into().unwrap(),
-            history_visibility: default.history_visibility.into(),
-        }
-    }
-}
-
-#[napi]
-impl EncryptionSettings {
-    /// Create a new `EncryptionSettings` with default values.
-    #[napi(constructor)]
-    pub fn new() -> EncryptionSettings {
-        Self::default()
-    }
-}
-
-impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
-    fn from(value: &EncryptionSettings) -> Self {
-        Self {
-            algorithm: value.algorithm.clone().into(),
-            rotation_period: Duration::from_micros(value.rotation_period.into()),
-            rotation_period_msgs: value.rotation_period_messages.into(),
-            history_visibility: value.history_visibility.clone().into(),
         }
     }
 }

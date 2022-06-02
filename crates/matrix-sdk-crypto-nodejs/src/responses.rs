@@ -1,6 +1,5 @@
 use matrix_sdk_common::deserialized_responses::{AlgorithmInfo, EncryptionInfo};
 use matrix_sdk_crypto::IncomingResponse;
-use napi::bindgen_prelude::ToNapiValue;
 use napi_derive::*;
 pub(crate) use ruma::api::client::{
     backup::add_backup_keys::v3::Response as KeysBackupResponse,
@@ -14,7 +13,7 @@ pub(crate) use ruma::api::client::{
 };
 use ruma::api::IncomingResponse as RumaIncomingResponse;
 
-use crate::{identifiers, into_err, requests::RequestType};
+use crate::{encryption, identifiers, into_err, requests::RequestType};
 
 pub(crate) fn response_from_string(body: &str) -> http::Result<http::Response<Vec<u8>>> {
     http::Response::builder().status(200).body(body.as_bytes().to_vec())
@@ -127,9 +126,10 @@ impl<'a> From<&'a OwnedResponse> for IncomingResponse<'a> {
     }
 }
 
+/// A decrypted room event.
 #[napi]
 pub struct DecryptedRoomEvent {
-    /// The decrypted event, JSON-encoded.
+    /// The JSON-encoded decrypted event.
     #[napi(readonly)]
     pub event: String,
 
@@ -189,7 +189,7 @@ impl DecryptedRoomEvent {
     /// decryption. It may change in the future if a device gets
     /// verified or deleted.
     #[napi(getter)]
-    pub fn verification_state(&self) -> Option<VerificationState> {
+    pub fn verification_state(&self) -> Option<encryption::VerificationState> {
         Some((&self.encryption_info.as_ref()?.verification_state).into())
     }
 }
@@ -197,29 +197,5 @@ impl DecryptedRoomEvent {
 impl From<matrix_sdk_common::deserialized_responses::RoomEvent> for DecryptedRoomEvent {
     fn from(value: matrix_sdk_common::deserialized_responses::RoomEvent) -> Self {
         Self { event: value.event.json().get().to_owned(), encryption_info: value.encryption_info }
-    }
-}
-
-#[napi]
-pub enum VerificationState {
-    /// The device is trusted.
-    Trusted,
-
-    /// The device is not trusted.
-    Untrusted,
-
-    /// The device is not known to us.
-    UnknownDevice,
-}
-
-impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
-    fn from(value: &matrix_sdk_common::deserialized_responses::VerificationState) -> Self {
-        use matrix_sdk_common::deserialized_responses::VerificationState::*;
-
-        match value {
-            Trusted => Self::Trusted,
-            Untrusted => Self::Untrusted,
-            UnknownDevice => Self::UnknownDevice,
-        }
     }
 }

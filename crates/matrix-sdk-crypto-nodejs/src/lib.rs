@@ -16,12 +16,13 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 //#![warn(missing_docs, missing_debug_implementations)]
 
+pub mod encryption;
 mod errors;
 pub mod events;
-pub mod responses;
 pub mod identifiers;
 pub mod machine;
 pub mod requests;
+pub mod responses;
 pub mod sync_events;
 
 use crate::errors::into_err;
