@@ -676,14 +676,35 @@ impl StoreConfig {
     ///
     /// The crypto store must be opened before being set.
     #[cfg(feature = "e2e-encryption")]
-    pub fn crypto_store(mut self, store: impl CryptoStore + 'static) -> Self {
-        self.crypto_store = Some(Arc::new(store));
+    pub fn crypto_store(self, store: impl CryptoStore + 'static) -> Self {
+        self.crypto_store_shared(Arc::new(store))
+    }
+
+    /// Set a custom implementation of a shared `CryptoStore`.
+    ///
+    /// This allows a single connection to the cryptostore to be shared between
+    /// multiple Clients for the same user. It also allows you to manually use
+    /// an `OlmMachine` for lower-level control over the way messages are
+    /// encrypted.
+    ///
+    /// The crypto store must be opened before being set.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn crypto_store_shared(mut self, store: Arc<dyn CryptoStore>) -> Self {
+        self.crypto_store = Some(store);
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
-    pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
-        self.state_store = Some(Arc::new(store));
+    pub fn state_store(self, store: impl StateStore + 'static) -> Self {
+        self.state_store_shared(Arc::new(store))
+    }
+
+    /// Set a custom implementation of a shared `StateStore`.
+    ///
+    /// This allows a single connection to the statestore to be shared between
+    /// multiple Clients for the same user.
+    pub fn state_store_shared(mut self, store: Arc<dyn StateStore>) -> Self {
+        self.state_store = Some(store);
         self
     }
 }
