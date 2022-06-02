@@ -6,6 +6,7 @@ pub mod backward_stream;
 pub mod client;
 pub mod messages;
 pub mod room;
+pub mod session_verification;
 mod uniffi_api;
 
 use std::{fs, path, sync::Arc};
@@ -23,7 +24,7 @@ pub static RUNTIME: Lazy<Runtime> =
 
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
-pub use self::{backward_stream::*, client::*, messages::*, room::*};
+pub use self::{backward_stream::*, client::*, messages::*, room::*, session_verification::*};
 
 pub fn guest_client(base_path: String, homeurl: String) -> anyhow::Result<Arc<Client>> {
     let builder = new_client_builder(base_path, homeurl.clone())?.homeserver_url(&homeurl);
