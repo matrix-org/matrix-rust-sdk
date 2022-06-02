@@ -17,6 +17,7 @@ use std::{
     convert::TryFrom,
     ops::Deref,
     sync::Arc,
+    time::Duration,
 };
 
 use futures_util::future::join_all;
@@ -46,10 +47,87 @@ enum DeviceChange {
     None,
 }
 
+/// A listener that can notify if a `/keys/query` response has been received.
+#[derive(Clone, Debug)]
+pub(crate) struct KeysQueryListener {
+    inner: Arc<event_listener::Event>,
+    store: Store,
+}
+
+/// Error type notifying that a timeout has elapsed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Elapsed(());
+
+/// Result type telling us if a `/keys/query` response was expected for a given
+/// user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UserKeyQueryResult {
+    WasPending,
+    WasNotPending,
+}
+
+impl KeysQueryListener {
+    pub(crate) fn new(store: Store) -> Self {
+        Self { inner: event_listener::Event::new().into(), store }
+    }
+
+    /// Notify our listeners that we received a `/keys/query` response.
+    fn notify(&self) {
+        self.inner.notify(usize::MAX);
+    }
+
+    /// Wait for a `/keys/query` response to be received if one is expected for
+    /// the given user.
+    ///
+    /// If the given timeout has elapsed the method will stop waiting and return
+    /// an error.
+    pub async fn wait_if_user_pending(
+        &self,
+        timeout: Duration,
+        user: &UserId,
+    ) -> Result<UserKeyQueryResult, Elapsed> {
+        let users_for_key_query = self.store.users_for_key_query();
+
+        if users_for_key_query.contains(user) {
+            if let Err(e) = self.wait(timeout).await {
+                warn!(
+                    user_id =% user,
+                    "The user has a pending `/key/query` request which did \
+                    not finish yet, some devices might be missing."
+                );
+
+                Err(e)
+            } else {
+                Ok(UserKeyQueryResult::WasPending)
+            }
+        } else {
+            Ok(UserKeyQueryResult::WasNotPending)
+        }
+    }
+
+    /// Wait for a `/keys/query` response to be received.
+    ///
+    /// If the given timeout has elapsed the method will stop waiting and return
+    /// an error.
+    pub async fn wait(&self, timeout: Duration) -> Result<(), Elapsed> {
+        let listener = self.inner.listen();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::time::timeout(timeout, async { listener.await }).await.map_err(|_| Elapsed(()))?;
+
+        // TODO we should ensure that this is async on wasm as well.
+        #[cfg(target_arch = "wasm32")]
+        listener.wait_timeout(timeout);
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
+    keys_query_listener: KeysQueryListener,
     store: Store,
 }
 
@@ -57,11 +135,17 @@ impl IdentityManager {
     const MAX_KEY_QUERY_USERS: usize = 250;
 
     pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceId>, store: Store) -> Self {
-        IdentityManager { user_id, device_id, store }
+        let keys_query_listener = KeysQueryListener::new(store.clone());
+
+        IdentityManager { user_id, device_id, store, keys_query_listener }
     }
 
     fn user_id(&self) -> &UserId {
         &self.user_id
+    }
+
+    pub fn listen_for_received_queries(&self) -> KeysQueryListener {
+        self.keys_query_listener.clone()
     }
 
     /// Receive a successful keys query response.
@@ -128,6 +212,8 @@ impl IdentityManager {
             ?changed_identities,
             "Finished handling of the keys/query response"
         );
+
+        self.keys_query_listener.notify();
 
         Ok((devices, identities))
     }
