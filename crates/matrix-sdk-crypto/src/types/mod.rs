@@ -228,10 +228,10 @@ impl Serialize for Signatures {
     }
 }
 
-// Vodozemac serializes curve keys directly as a byteslice, while matrix likes
-// to base64 encode all byte slices.
+// Vodozemac serializes Curve25519 keys directly as a byteslice, while Matrix
+// likes to base64 encode all byte slices.
 //
-// This ensures that we serialize/deserialize in a Matrix compatible way.
+// This ensures that we serialize/deserialize in a Matrix-compatible way.
 fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
 where
     D: serde::Deserializer<'de>,

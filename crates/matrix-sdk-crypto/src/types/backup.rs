@@ -29,15 +29,15 @@ pub struct MegolmV1AuthData {
     ///The Curve25519 public key used to encrypt the backups.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     pub public_key: Curve25519PublicKey,
-    /// Optional. Signatures of the auth_data, as Signed JSON
+    /// *Optional.* Signatures of the auth_data, as Signed JSON.
     #[serde(default)]
     pub signatures: Signatures,
     #[serde(flatten)]
     extra: BTreeMap<String, Value>,
 }
 
-/// Information of a room key backup, can be used to upload a new backup version
-/// as defined in the [spec].
+/// Information pertaining to a room key backup. Can be used to upload a new
+/// backup version as defined in the [spec].
 ///
 /// [spec]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3room_keysversion
 #[derive(Clone, Debug, Deserialize)]
