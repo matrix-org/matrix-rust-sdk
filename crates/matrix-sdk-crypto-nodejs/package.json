@@ -1,26 +1,26 @@
 {
-  "name": "matrix-sdk-crypto",
-  "version": "0.5.0",
-  "main": "index.js",
-  "types": "index.d.ts",
-  "napi": {
     "name": "matrix-sdk-crypto",
-    "triples": {
-      "additional": [
-        "aarch64-apple-darwin"
-      ]
+    "version": "0.5.0",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "napi": {
+        "name": "matrix-sdk-crypto",
+        "triples": {
+            "additional": [
+                "aarch64-apple-darwin"
+            ]
+        }
+    },
+    "license": "MIT",
+    "devDependencies": {
+        "@napi-rs/cli": "^2.9.0",
+        "jest": "^28.1.0"
+    },
+    "engines": {
+        "node": ">= 10"
+    },
+    "scripts": {
+        "build": "napi build --platform --release --strip",
+        "test": "jest"
     }
-  },
-  "license": "MIT",
-  "devDependencies": {
-    "@napi-rs/cli": "^2.9.0",
-    "ava": "^4.2.0"
-  },
-  "engines": {
-    "node": ">= 10"
-  },
-  "scripts": {
-    "build": "napi build --platform --release",
-    "test": "ava"
-  }
 }
