@@ -50,7 +50,7 @@ use std::sync::{
 };
 
 pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
-pub(crate) use manager::IdentityManager;
+pub(crate) use manager::{IdentityManager, KeysQueryListener, UserKeyQueryResult};
 use serde::{Deserialize, Deserializer, Serializer};
 pub use user::{
     MasterPubkey, OwnUserIdentity, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
