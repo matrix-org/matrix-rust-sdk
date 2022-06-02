@@ -798,14 +798,24 @@ pub trait SupportedDatabase: Database + Sealed {
 #[cfg(feature = "postgres")]
 impl SupportedDatabase for sqlx::postgres::Postgres {
     fn get_migrator() -> &'static Migrator {
-        &sqlx::migrate!("./migrations/postgres")
+        /// The migrator for postgres
+        static MIGRATOR: Migrator = Migrator {
+            migrations: sqlx::migrate!("./migrations/postgres").migrations,
+            ignore_missing: true,
+        };
+        &MIGRATOR
     }
 }
 
 #[cfg(feature = "sqlite")]
 impl SupportedDatabase for sqlx::sqlite::Sqlite {
     fn get_migrator() -> &'static Migrator {
-        &sqlx::migrate!("./migrations/sqlite")
+        /// The migrator for sqlite
+        static MIGRATOR: Migrator = Migrator {
+            migrations: sqlx::migrate!("./migrations/sqlite").migrations,
+            ignore_missing: true,
+        };
+        &MIGRATOR
     }
 
     fn media_load_query<'q>() -> Query<'q, Self, <Self as HasArguments<'q>>::Arguments> {

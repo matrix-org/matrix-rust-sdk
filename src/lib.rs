@@ -32,6 +32,10 @@
 //!
 //! If you are using the `store_config` function, the store will be automatically unlocked for you.
 //!
+//! ### Using your existing application database
+//!
+//! Make sure to set `ignore_missing` to true in your migrator, otherwise the migration will not find the migrations in this repository and fail.
+//!
 //! ## About Trait bounds
 //!
 //! The list of trait bounds may seem daunting, however all enabled database backends are supported.
