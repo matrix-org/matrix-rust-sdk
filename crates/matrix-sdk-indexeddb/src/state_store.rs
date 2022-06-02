@@ -1474,11 +1474,14 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use matrix_sdk_base::statestore_integration_tests;
+    use uuid::Uuid;
 
     use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
-        Ok(IndexeddbStore::open().await?)
+        let db_name =
+            format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated().to_string());
+        Ok(IndexeddbStore::open_helper(db_name, None).await?)
     }
 
     statestore_integration_tests! { integration }
