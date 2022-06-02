@@ -1567,12 +1567,13 @@ pub(crate) mod testing {
 pub(crate) mod tests {
     use std::{collections::BTreeMap, iter, sync::Arc};
 
+    use matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{
         api::{
             client::{
                 keys::{claim_keys, get_keys, upload_keys},
-                sync::sync_events::v3::ToDevice,
+                sync::sync_events::v3::{DeviceLists, ToDevice},
             },
             IncomingResponse,
         },
@@ -1594,19 +1595,27 @@ pub(crate) mod tests {
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
         OwnedDeviceKeyId, UserId,
     };
-    use vodozemac::Ed25519PublicKey;
+    use serde_json::json;
+    use vodozemac::{
+        megolm::{GroupSession, SessionConfig},
+        Ed25519PublicKey,
+    };
 
     use super::testing::response_from_file;
     use crate::{
+        error::EventError,
         machine::OlmMachine,
         olm::VerifyJson,
         types::{
-            events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
+            events::{
+                room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+                ToDeviceEvent,
+            },
             DeviceKeys, SignedKey,
         },
         utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
+        EncryptionSettings, OlmError, ReadOnlyDevice, ToDeviceRequest,
     };
 
     /// These keys need to be periodically uploaded to the server.
@@ -2308,5 +2317,74 @@ pub(crate) mod tests {
 
         assert!(alice_sas.is_done());
         assert!(bob_device.is_verified());
+    }
+
+    #[async_test]
+    async fn room_key_over_megolm() {
+        let (alice, bob) = get_machine_pair_with_setup_sessions().await;
+        let room_id = room_id!("!test:example.org");
+
+        let to_device_requests = alice
+            .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        let event = ToDeviceEvent {
+            sender: alice.user_id().to_owned(),
+            content: to_device_requests_to_content(to_device_requests),
+            other: Default::default(),
+        };
+        let event = json_convert(&event).unwrap();
+        let mut to_device = ToDevice::new();
+        to_device.events.push(event);
+        let changed_devices = DeviceLists::new();
+        let key_counts = Default::default();
+
+        let _ =
+            bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+
+        let group_session = GroupSession::new(SessionConfig::version_1());
+        let session_key = group_session.session_key();
+        let session_id = group_session.session_id();
+
+        let content = json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "room_id": room_id,
+            "session_id": session_id,
+            "session_key": session_key.to_base64(),
+
+        });
+
+        let encrypted_content =
+            alice.encrypt_room_event_raw(room_id, content, "m.room_key").await.unwrap();
+        let event = json!({
+            "sender": alice.user_id(),
+            "content": encrypted_content,
+            "type": "m.room.encrypted",
+        });
+
+        let event: EncryptedToDeviceEvent = serde_json::from_value(event).unwrap();
+
+        assert_matches!(
+            bob.decrypt_to_device_event(&event).await,
+            Err(OlmError::EventError(EventError::UnsupportedAlgorithm))
+        );
+
+        let event: Raw<AnyToDeviceEvent> = json_convert(&event).unwrap();
+        let mut to_device = ToDevice::new();
+        to_device.events.push(event.clone());
+
+        bob.receive_sync_changes(to_device, &changed_devices, &key_counts, None).await.unwrap();
+
+        let session = bob
+            .store
+            .get_inbound_group_session(
+                room_id,
+                &alice.account.identity_keys().curve25519.to_base64(),
+                &session_id,
+            )
+            .await;
+
+        assert!(session.unwrap().is_none());
     }
 }
