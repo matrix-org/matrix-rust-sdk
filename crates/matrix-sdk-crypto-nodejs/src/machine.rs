@@ -62,8 +62,10 @@ impl OlmMachine {
     /// asynchronous. Please use the `finalize` method.
     #[napi(constructor)]
     #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> napi::Error {
-        napi::Error::from_reason("To build an `OldMachine`, please use the `initialize` method")
+    pub fn new() -> Result<(), napi::Error> {
+        Err(napi::Error::from_reason(
+            "To build an `OldMachine`, please use the `initialize` method",
+        ))
     }
 
     /// The unique user ID that owns this `OlmMachine` instance.
