@@ -330,7 +330,7 @@ impl IndexeddbStore {
 
         obj.put_key_val(
             &self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)),
-            &JsValue::from_str(filter_id),
+            &self.serialize_event(&filter_id)?,
         )?;
 
         tx.await.into_result()?;
@@ -339,13 +339,13 @@ impl IndexeddbStore {
     }
 
     pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
-        Ok(self
-            .inner
+        self.inner
             .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
             .object_store(KEYS::SESSION)?
             .get(&self.encode_key(KEYS::FILTER, (KEYS::FILTER, filter_name)))?
             .await?
-            .and_then(|f| f.as_string()))
+            .map(|f| self.deserialize_event(f))
+            .transpose()
     }
 
     pub async fn get_sync_token(&self) -> Result<Option<String>> {
@@ -675,7 +675,7 @@ impl IndexeddbStore {
                     let metadata: Option<TimelineMetadata> = timeline_metadata_store
                         .get(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id))?
                         .await?
-                        .map(|v| v.into_serde())
+                        .map(|v| self.deserialize_event(&v))
                         .transpose()?;
                     if let Some(mut metadata) = metadata {
                         if !timeline.sync && Some(&timeline.start) != metadata.end.as_ref() {
@@ -834,7 +834,7 @@ impl IndexeddbStore {
 
                 timeline_metadata_store.put_key_val_owned(
                     &self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id),
-                    &JsValue::from_serde(&metadata)?,
+                    &self.serialize_event(&metadata)?,
                 )?;
             }
         }
