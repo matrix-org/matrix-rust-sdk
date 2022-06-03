@@ -1152,7 +1152,7 @@ impl SledStore {
         let metadata: Option<TimelineMetadata> = db
             .room_timeline_metadata
             .get(key.as_slice())?
-            .map(|v| serde_json::from_slice(&v).map_err(StoreError::Json))
+            .map(|v| self.deserialize_value(&v))
             .transpose()?;
         let metadata = match metadata {
             Some(m) => m,
@@ -1371,7 +1371,7 @@ impl SledStore {
 
             timeline_metadata_batch.insert(
                 self.encode_key(TIMELINE_METADATA, &room_id),
-                serde_json::to_vec(&metadata)?,
+                self.serialize_value(&metadata)?,
             );
         }
 
