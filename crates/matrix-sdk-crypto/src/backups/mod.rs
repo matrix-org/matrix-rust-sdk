@@ -225,16 +225,11 @@ impl BackupMachine {
 
     /// Check if the signed JSON payload `auth_data` has been signed by any of
     /// our devices.
-    ///
-    /// This method will abort as soon as it finds a signature from a trusted
-    /// device if the `check_all` argument is set to `false`. If the `check_all`
-    /// argument is set to `true`, the method will check and find the
-    /// `SignatureState` for all the signatures that were given.
-    async fn backup_signed_by_any_trusted_device(
+    async fn test_device_signatures(
         &self,
         signatures: &Signatures,
         auth_data: Value,
-        check_all: bool,
+        compute_all_signatures: bool,
     ) -> Result<BTreeMap<OwnedDeviceId, SignatureState>, CryptoStoreError> {
         let mut result = BTreeMap::new();
 
@@ -273,7 +268,7 @@ impl BackupMachine {
 
                         // Abort the loop if we found a trusted and valid
                         // signature, unless we should check all of them.
-                        if state.trusted() && !check_all {
+                        if state.trusted() && !compute_all_signatures {
                             break;
                         }
                     }
@@ -287,7 +282,7 @@ impl BackupMachine {
     async fn verify_auth_data_v1(
         &self,
         auth_data: MegolmV1AuthData,
-        check_all: bool,
+        compute_all_signatures: bool,
     ) -> Result<SignatureCheckResult, CryptoStoreError> {
         trace!(?auth_data, "Verifying backup auth data");
         let serialized_auth_data = serde_json::to_value(auth_data.clone())?;
@@ -300,39 +295,47 @@ impl BackupMachine {
 
         // Collect all the other signatures if there isn't already a valid one,
         // or if we're told to collect all of them anyways.
-        let other_signatures =
-            if !device_signature.trusted() || !user_identity_signature.trusted() || check_all {
-                self.backup_signed_by_any_trusted_device(
-                    &auth_data.signatures,
-                    serialized_auth_data,
-                    check_all,
-                )
-                .await?
-            } else {
-                Default::default()
-            };
+        let other_signatures = if !(device_signature.trusted() || user_identity_signature.trusted())
+            || compute_all_signatures
+        {
+            self.test_device_signatures(
+                &auth_data.signatures,
+                serialized_auth_data,
+                compute_all_signatures,
+            )
+            .await?
+        } else {
+            Default::default()
+        };
 
         Ok(SignatureCheckResult { device_signature, user_identity_signature, other_signatures })
     }
 
     /// Verify some backup auth data that we downloaded from the server.
     ///
-    /// The auth data should be fetched from the server using the
-    /// [`/room_keys/version`] endpoint.
+    /// # Arguments
     ///
-    /// [`BackupAlgorithm`]: ruma::api::client::backup::BackupAlgorithm
+    /// * `backup_version`: The backup version that should be verified. Should
+    /// be fetched from the server using the [`/room_keys/version`] endpoint.
+    ///
+    /// * `compute_all_signatures`: *Useful for debugging only*. If this
+    ///   parameter is `true`, the internal machinery will compute the trust
+    ///   state for all signatures before returning, instead of short-circuiting
+    ///   on the first trusted signature. Has no impact on whether the backup
+    ///   will be considered verified.
+    ///
     /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
     pub async fn verify_backup(
         &self,
         backup_version: Value,
-        check_all: bool,
+        compute_all_signatures: bool,
     ) -> Result<SignatureCheckResult, CryptoStoreError> {
         let auth_data: RoomKeyBackupInfo = serde_json::from_value(backup_version)?;
 
         trace!(?auth_data, "Verifying backup auth data");
 
         if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = auth_data {
-            self.verify_auth_data_v1(data, check_all).await
+            self.verify_auth_data_v1(data, compute_all_signatures).await
         } else {
             Ok(Default::default())
         }
