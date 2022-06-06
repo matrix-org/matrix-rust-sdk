@@ -232,15 +232,18 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `users`, the list of users that we should check if we lack a session
-    ///   with one of their devices. This can be an empty array when calling
-    ///   this method between sync requests.
+    ///   with one of their devices. This can be an empty array or `null` when
+    ///   calling this method between sync requests.
     #[napi]
     pub async fn get_missing_sessions(
         &self,
-        users: Vec<&identifiers::UserId>,
+        users: Option<Vec<&identifiers::UserId>>,
     ) -> Result<Option<requests::KeysClaimRequest>, napi::Error> {
-        let users =
-            users.into_iter().map(|user| user.inner.clone()).collect::<Vec<ruma::OwnedUserId>>();
+        let users = users
+            .unwrap_or_default()
+            .into_iter()
+            .map(|user| user.inner.clone())
+            .collect::<Vec<ruma::OwnedUserId>>();
 
         match self
             .inner

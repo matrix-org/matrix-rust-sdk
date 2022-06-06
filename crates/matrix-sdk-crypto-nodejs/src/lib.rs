@@ -24,5 +24,7 @@ pub mod machine;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;
+#[cfg(feature = "tracing")]
+pub mod tracing;
 
 use crate::errors::into_err;
