@@ -22,7 +22,7 @@ use ruma::api::client::keys::{
 pub struct KeysUploadRequest {
     /// The request ID.
     #[napi(readonly)]
-    pub request_id: String,
+    pub id: String,
 
     /// A JSON-encoded object of form:
     ///
@@ -31,6 +31,15 @@ pub struct KeysUploadRequest {
     /// ```
     #[napi(readonly)]
     pub body: String,
+}
+
+#[napi]
+impl KeysUploadRequest {
+    /// Get its request type.
+    #[napi(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysUpload
+    }
 }
 
 /// Data for a request to the `/keys/query` API endpoint
@@ -43,7 +52,7 @@ pub struct KeysUploadRequest {
 pub struct KeysQueryRequest {
     /// The request ID.
     #[napi(readonly)]
-    pub request_id: String,
+    pub id: String,
 
     /// A JSON-encoded object of form:
     ///
@@ -52,6 +61,15 @@ pub struct KeysQueryRequest {
     /// ```
     #[napi(readonly)]
     pub body: String,
+}
+
+#[napi]
+impl KeysQueryRequest {
+    /// Get its request type.
+    #[napi(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysQuery
+    }
 }
 
 /// Data for a request to the `/keys/claim` API endpoint
@@ -65,7 +83,7 @@ pub struct KeysQueryRequest {
 pub struct KeysClaimRequest {
     /// The request ID.
     #[napi(readonly)]
-    pub request_id: String,
+    pub id: String,
 
     /// A JSON-encoded object of form:
     ///
@@ -74,6 +92,15 @@ pub struct KeysClaimRequest {
     /// ```
     #[napi(readonly)]
     pub body: String,
+}
+
+#[napi]
+impl KeysClaimRequest {
+    /// Get its request type.
+    #[napi(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysClaim
+    }
 }
 
 /// Data for a request to the `/sendToDevice` API endpoint
@@ -86,7 +113,7 @@ pub struct KeysClaimRequest {
 pub struct ToDeviceRequest {
     /// The request ID.
     #[napi(readonly)]
-    pub request_id: String,
+    pub id: String,
 
     /// A JSON-encoded object of form:
     ///
@@ -95,6 +122,15 @@ pub struct ToDeviceRequest {
     /// ```
     #[napi(readonly)]
     pub body: String,
+}
+
+#[napi]
+impl ToDeviceRequest {
+    /// Get its request type.
+    #[napi(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::ToDevice
+    }
 }
 
 /// Data for a request to the `/keys/signatures/upload` API endpoint
@@ -107,7 +143,7 @@ pub struct ToDeviceRequest {
 pub struct SignatureUploadRequest {
     /// The request ID.
     #[napi(readonly)]
-    pub request_id: String,
+    pub id: String,
 
     /// A JSON-encoded object of form:
     ///
@@ -118,6 +154,15 @@ pub struct SignatureUploadRequest {
     pub body: String,
 }
 
+#[napi]
+impl SignatureUploadRequest {
+    /// Get its request type.
+    #[napi(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::SignatureUpload
+    }
+}
+
 /// A customized owned request type for sending out room messages
 /// ([specification]).
 ///
@@ -126,7 +171,7 @@ pub struct SignatureUploadRequest {
 pub struct RoomMessageRequest {
     /// The request ID.
     #[napi(readonly)]
-    pub request_id: String,
+    pub id: String,
 
     /// A JSON-encoded object of form:
     ///
@@ -137,6 +182,15 @@ pub struct RoomMessageRequest {
     pub body: String,
 }
 
+#[napi]
+impl RoomMessageRequest {
+    /// Get its request type.
+    #[napi(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::RoomMessage
+    }
+}
+
 /// A request that will back up a batch of room keys to the server
 /// ([specification]).
 ///
@@ -145,7 +199,7 @@ pub struct RoomMessageRequest {
 pub struct KeysBackupRequest {
     /// The request ID.
     #[napi(readonly)]
-    pub request_id: String,
+    pub id: String,
 
     /// A JSON-encoded object of form:
     ///
@@ -154,6 +208,15 @@ pub struct KeysBackupRequest {
     /// ```
     #[napi(readonly)]
     pub body: String,
+}
+
+#[napi]
+impl KeysBackupRequest {
+    /// Get its request type.
+    #[napi(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysBackup
+    }
 }
 
 macro_rules! request {
@@ -171,7 +234,7 @@ macro_rules! request {
                 let value = serde_json::Value::Object(map);
 
                 Ok($request {
-                    request_id,
+                    id: request_id,
                     body: serde_json::to_string(&value)?.into(),
                 })
             }
