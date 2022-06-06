@@ -2,6 +2,14 @@ const { DeviceLists, UserId } = require('../');
 
 describe(DeviceLists.name, () => {
     test('can be empty', () => {
+        const empty = new DeviceLists();
+
+        expect(empty.isEmpty()).toStrictEqual(true);
+        expect(empty.changed).toHaveLength(0);
+        expect(empty.left).toHaveLength(0);
+    });
+
+    test('can be coerced empty', () => {
         const empty = new DeviceLists([], []);
 
         expect(empty.isEmpty()).toStrictEqual(true);

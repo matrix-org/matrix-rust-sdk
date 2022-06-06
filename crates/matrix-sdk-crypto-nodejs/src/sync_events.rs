@@ -14,11 +14,15 @@ pub struct DeviceLists {
 impl DeviceLists {
     /// Create an empty `DeviceLists`.
     #[napi(constructor)]
-    pub fn new(changed: Vec<&identifiers::UserId>, left: Vec<&identifiers::UserId>) -> Self {
+    pub fn new(
+        changed: Option<Vec<&identifiers::UserId>>,
+        left: Option<Vec<&identifiers::UserId>>,
+    ) -> Self {
         let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
 
-        inner.changed = changed.into_iter().map(|user| user.inner.clone()).collect();
-        inner.left = left.into_iter().map(|user| user.inner.clone()).collect();
+        inner.changed =
+            changed.unwrap_or_default().into_iter().map(|user| user.inner.clone()).collect();
+        inner.left = left.unwrap_or_default().into_iter().map(|user| user.inner.clone()).collect();
 
         Self { inner }
     }
