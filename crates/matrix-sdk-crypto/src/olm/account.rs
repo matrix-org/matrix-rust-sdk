@@ -685,7 +685,7 @@ impl ReadOnlyAccount {
     /// correctly canonicalized and make sure that the object you are checking
     /// the signature for is allowed to be signed by our own device.
     #[cfg(feature = "backups_v1")]
-    pub fn is_signed_by_raw(
+    pub fn has_signed_raw(
         &self,
         signatures: &crate::types::Signatures,
         canonical_json: &str,

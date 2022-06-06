@@ -173,7 +173,7 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
     ) -> SignatureState {
-        match self.account.is_signed_by_raw(signatures, auth_data) {
+        match self.account.has_signed_raw(signatures, auth_data) {
             Ok(_) => SignatureState::ValidAndTrusted,
             Err(e) => match e {
                 crate::SignatureError::NoSignatureFound => SignatureState::Missing,
@@ -193,7 +193,7 @@ impl BackupMachine {
         let identity = self.store.get_identity(user_id).await?;
 
         let ret = if let Some(identity) = identity.and_then(|i| i.own()) {
-            match identity.master_key().is_signed_by_raw(signatures, auth_data) {
+            match identity.master_key().has_signed_raw(signatures, auth_data) {
                 Ok(_) => {
                     if identity.is_verified() {
                         SignatureState::ValidAndTrusted
@@ -221,7 +221,7 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
     ) -> SignatureState {
-        if device.is_signed_by_device_raw(signatures, auth_data).is_ok() {
+        if device.has_signed_raw(signatures, auth_data).is_ok() {
             if device.verified() {
                 SignatureState::ValidAndTrusted
             } else {
