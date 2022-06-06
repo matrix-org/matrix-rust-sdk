@@ -572,7 +572,7 @@ impl ReadOnlyDevice {
     /// correctly canonicalized and make sure that the object you are checking
     /// the signature for is allowed to be signed by a device.
     #[cfg(feature = "backups_v1")]
-    pub(crate) fn is_signed_by_device_raw(
+    pub(crate) fn has_signed_raw(
         &self,
         signatures: &Signatures,
         canonical_json: &str,
@@ -584,10 +584,7 @@ impl ReadOnlyDevice {
         key.verify_canonicalized_json(user_id, key_id, signatures, canonical_json)
     }
 
-    fn is_signed_by_device(
-        &self,
-        signed_object: &impl SignedJsonObject,
-    ) -> Result<(), SignatureError> {
+    fn has_signed(&self, signed_object: &impl SignedJsonObject) -> Result<(), SignatureError> {
         let key = self.ed25519_key().ok_or(SignatureError::MissingSigningKey)?;
         let user_id = self.user_id();
         let key_id = &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
@@ -599,14 +596,14 @@ impl ReadOnlyDevice {
         &self,
         device_keys: &DeviceKeys,
     ) -> Result<(), SignatureError> {
-        self.is_signed_by_device(device_keys)
+        self.has_signed(device_keys)
     }
 
     pub(crate) fn verify_one_time_key(
         &self,
         one_time_key: &SignedKey,
     ) -> Result<(), SignatureError> {
-        self.is_signed_by_device(one_time_key)
+        self.has_signed(one_time_key)
     }
 
     /// Mark the device as deleted.
