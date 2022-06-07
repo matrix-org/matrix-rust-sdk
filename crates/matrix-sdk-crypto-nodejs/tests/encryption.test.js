@@ -8,7 +8,7 @@ describe('EncryptionAlgorithm', () => {
 });
 
 describe(EncryptionSettings.name, () => {
-    test('can be instantiated with defalut values', () => {
+    test('can be instantiated with default values', () => {
         const es = new EncryptionSettings();
 
         expect(es.algorithm).toStrictEqual(EncryptionAlgorithm.MegolmV1AesSha2);
