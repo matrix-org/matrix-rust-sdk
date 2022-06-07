@@ -37,7 +37,7 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
-#[cfg(any(feature = "e2e-encryption", feature = "appservice"))]
+#[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
     api::{
@@ -193,20 +193,6 @@ impl Client {
 
     pub(crate) fn base_client(&self) -> &BaseClient {
         &self.inner.base_client
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn olm_machine(&self) -> Option<&matrix_sdk_base::crypto::OlmMachine> {
-        self.base_client().olm_machine()
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn mark_request_as_sent(
-        &self,
-        request_id: &TransactionId,
-        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
-    ) -> Result<(), matrix_sdk_base::Error> {
-        self.base_client().mark_request_as_sent(request_id, response).await
     }
 
     /// Change the homeserver URL used by this client.

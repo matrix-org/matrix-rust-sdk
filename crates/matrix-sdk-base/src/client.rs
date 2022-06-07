@@ -34,23 +34,15 @@ use matrix_sdk_common::{
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::{CryptoStore, CryptoStoreError, MemoryStore as MemoryCryptoStore},
-    Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
-    OutgoingRequest, ToDeviceRequest, UserDevices,
+    store::{CryptoStore, MemoryStore as MemoryCryptoStore},
+    EncryptionSettings, MegolmError, OlmError, OlmMachine, ToDeviceRequest,
 };
 #[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
-use ruma::{
-    api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
-    events::{
-        room::{
-            encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility,
-            redaction::SyncRoomRedactionEvent,
-        },
-        AnySyncMessageLikeEvent, MessageLikeEventContent, SyncMessageLikeEvent,
-    },
-    DeviceId, OwnedTransactionId, TransactionId,
+use ruma::events::{
+    room::{history_visibility::HistoryVisibility, redaction::SyncRoomRedactionEvent},
+    AnySyncMessageLikeEvent, SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
@@ -946,56 +938,6 @@ impl BaseClient {
         self.store.get_filter(filter_name).await
     }
 
-    /// Get the outgoing requests that need to be sent out.
-    ///
-    /// This returns a list of `OutGoingRequest`, those requests need to be sent
-    /// out to the server and the responses need to be passed back to the state
-    /// machine using [`mark_request_as_sent`].
-    ///
-    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    #[cfg(feature = "e2e-encryption")]
-    pub async fn outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
-        match self.olm_machine() {
-            Some(o) => o.outgoing_requests().await,
-            None => Ok(vec![]),
-        }
-    }
-
-    /// Mark the request with the given request id as sent.
-    ///
-    /// # Arguments
-    ///
-    /// * `request_id` - The unique id of the request that was sent out. This is
-    /// needed to couple the response with the now sent out request.
-    ///
-    /// * `response` - The response that was received from the server after the
-    /// outgoing request was sent out.
-    #[cfg(feature = "e2e-encryption")]
-    pub async fn mark_request_as_sent<'a>(
-        &self,
-        request_id: &TransactionId,
-        response: impl Into<IncomingResponse<'a>>,
-    ) -> Result<()> {
-        match self.olm_machine() {
-            Some(o) => Ok(o.mark_request_as_sent(request_id, response).await?),
-            None => Ok(()),
-        }
-    }
-
-    /// Get a tuple of device and one-time keys that need to be uploaded.
-    ///
-    /// Returns an empty error if no keys need to be uploaded.
-    #[cfg(feature = "e2e-encryption")]
-    pub async fn get_missing_sessions(
-        &self,
-        users: impl Iterator<Item = &UserId>,
-    ) -> Result<Option<(OwnedTransactionId, KeysClaimRequest)>> {
-        match self.olm_machine() {
-            Some(o) => Ok(o.get_missing_sessions(users).await?),
-            None => Ok(None),
-        }
-    }
-
     /// Get a to-device request that will share a room key with users in a room.
     #[cfg(feature = "e2e-encryption")]
     pub async fn share_room_key(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
@@ -1033,120 +975,6 @@ impl BaseClient {
     /// * `room_id` - The id of the room that should be fetched.
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
         self.store.get_room(room_id)
-    }
-
-    /// Encrypt a message event content.
-    #[cfg(feature = "e2e-encryption")]
-    pub async fn encrypt(
-        &self,
-        room_id: &RoomId,
-        content: impl MessageLikeEventContent,
-    ) -> Result<RoomEncryptedEventContent> {
-        match self.olm_machine() {
-            Some(o) => Ok(o.encrypt_room_event(room_id, content).await?),
-            None => panic!("Olm machine wasn't started"),
-        }
-    }
-
-    /// Invalidate the currently active outbound group session for the given
-    /// room.
-    ///
-    /// Returns true if a session was invalidated, false if there was no session
-    /// to invalidate.
-    #[cfg(feature = "e2e-encryption")]
-    pub async fn invalidate_group_session(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<bool, CryptoStoreError> {
-        match self.olm_machine() {
-            Some(o) => o.invalidate_group_session(room_id).await,
-            None => Ok(false),
-        }
-    }
-
-    /// Get a specific device of a user.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that the device belongs to.
-    ///
-    /// * `device_id` - The unique id of the device.
-    ///
-    /// Returns a `Device` if one is found and the crypto store didn't throw an
-    /// error.
-    ///
-    /// This will always return None if the client hasn't been logged in.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::convert::TryFrom;
-    /// # use matrix_sdk_base::BaseClient;
-    /// # use ruma::{device_id, user_id};
-    /// # use futures::executor::block_on;
-    /// # let alice = user_id!("@alice:example.org").to_owned();
-    /// # block_on(async {
-    /// # let client = BaseClient::new();
-    /// let device = client.get_device(&alice, device_id!("DEVICEID")).await;
-    ///
-    /// println!("{:?}", device);
-    /// # });
-    /// ```
-    #[cfg(feature = "e2e-encryption")]
-    pub async fn get_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<Device>, CryptoStoreError> {
-        if let Some(olm) = self.olm_machine() {
-            olm.get_device(user_id, device_id).await
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Get a map holding all the devices of an user.
-    ///
-    /// This will always return an empty map if the client hasn't been logged
-    /// in.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that the devices belong to.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the client hasn't been logged in and the crypto layer thus
-    /// hasn't been initialized.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// # use matrix_sdk_base::BaseClient;
-    /// # use ruma::user_id;
-    /// # use futures::executor::block_on;
-    /// # let alice = user_id!("@alice:example.org");
-    /// # block_on(async {
-    /// # let client = BaseClient::new();
-    /// let devices = client.get_user_devices(alice).await.unwrap();
-    ///
-    /// for device in devices.devices() {
-    ///     println!("{:?}", device);
-    /// }
-    /// # });
-    /// ```
-    #[cfg(feature = "e2e-encryption")]
-    pub async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<UserDevices, CryptoStoreError> {
-        if let Some(olm) = self.olm_machine() {
-            Ok(olm.get_user_devices(user_id).await?)
-        } else {
-            // TODO remove this panic.
-            panic!("The client hasn't been logged in")
-        }
     }
 
     /// Get the olm machine.
