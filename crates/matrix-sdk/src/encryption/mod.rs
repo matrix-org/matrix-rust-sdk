@@ -135,10 +135,12 @@ impl Client {
             };
 
             use ruma::events::room::ThumbnailInfo;
-            let thumbnail_info = assign!(
-                thumbnail.info.as_ref().map(|info| ThumbnailInfo::from(info.clone())).unwrap_or_default(),
-                { mimetype: Some(thumbnail.content_type.as_ref().to_owned()) }
-            );
+
+            #[rustfmt::skip]
+            let thumbnail_info =
+                assign!(thumbnail.info.map(ThumbnailInfo::from).unwrap_or_default(), {
+                    mimetype: Some(thumbnail.content_type.as_ref().to_owned())
+                });
 
             (Some(MediaSource::Encrypted(Box::new(file))), Some(Box::new(thumbnail_info)))
         } else {
@@ -164,14 +166,11 @@ impl Client {
         use ruma::events::room::{self, message, MediaSource};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(
-                    info.map(room::ImageInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 let content =
                     assign!(message::ImageMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -179,12 +178,9 @@ impl Client {
                 message::MessageType::Image(content)
             }
             mime::AUDIO => {
-                let info = assign!(
-                    info.map(message::AudioInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                    }
-                );
+                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                });
                 let content =
                     assign!(message::AudioMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -192,14 +188,11 @@ impl Client {
                 message::MessageType::Audio(content)
             }
             mime::VIDEO => {
-                let info = assign!(
-                    info.map(message::VideoInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 let content =
                     assign!(message::VideoMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -207,14 +200,11 @@ impl Client {
                 message::MessageType::Video(content)
             }
             _ => {
-                let info = assign!(
-                    info.map(message::FileInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 let content =
                     assign!(message::FileMessageEventContent::encrypted(body.to_owned(), file), {
                         info: Some(Box::new(info))
@@ -253,14 +243,11 @@ impl Client {
         // invitee that the room should be a DM.
         let invite = &[user_id.clone()];
 
-        let request = assign!(
-            ruma::api::client::room::create_room::v3::Request::new(),
-            {
-                invite,
-                is_direct: true,
-                preset: Some(RoomPreset::TrustedPrivateChat),
-            }
-        );
+        let request = assign!(ruma::api::client::room::create_room::v3::Request::new(), {
+            invite,
+            is_direct: true,
+            preset: Some(RoomPreset::TrustedPrivateChat),
+        });
 
         let response = self.send(request, None).await?;
 

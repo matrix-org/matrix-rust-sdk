@@ -2190,14 +2190,11 @@ impl Client {
         use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(
-                    info.map(room::ImageInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info,
-                    }
-                );
+                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info,
+                });
                 message::MessageType::Image(message::ImageMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2205,12 +2202,9 @@ impl Client {
                 ))
             }
             mime::AUDIO => {
-                let info = assign!(
-                    info.map(message::AudioInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                    }
-                );
+                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                });
                 message::MessageType::Audio(message::AudioMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2218,14 +2212,11 @@ impl Client {
                 ))
             }
             mime::VIDEO => {
-                let info = assign!(
-                    info.map(message::VideoInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 message::MessageType::Video(message::VideoMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2233,14 +2224,11 @@ impl Client {
                 ))
             }
             _ => {
-                let info = assign!(
-                    info.map(message::FileInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 message::MessageType::File(message::FileMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -3540,8 +3528,9 @@ pub(crate) mod tests {
                     uiaa::Password::new(
                         uiaa::UserIdentifier::UserIdOrLocalpart("example"),
                         "wordpass",
-                    ),
-                    { session: info.session.as_deref() }
+                    ), {
+                        session: info.session.as_deref(),
+                    }
                 ));
 
                 client.delete_devices(devices, Some(auth_data)).await.unwrap();
