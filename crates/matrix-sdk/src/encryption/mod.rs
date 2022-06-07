@@ -586,7 +586,7 @@ impl Encryption {
     ///             let verification = device.request_verification().await?;
     ///         }
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_device(
         &self,
@@ -626,7 +626,7 @@ impl Encryption {
     /// for device in devices.devices() {
     ///     println!("{:?}", device);
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices, Error> {
         let devices = self
@@ -668,7 +668,7 @@ impl Encryption {
     ///
     ///     let verification = user.request_verification().await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn get_user_identity(
         &self,
@@ -735,7 +735,7 @@ impl Encryption {
     ///         panic!("Error durign cross signing bootstrap {:#?}", e);
     ///     }
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
         let olm = self.client.olm_machine().ok_or(Error::AuthenticationRequired)?;
 
@@ -805,7 +805,7 @@ impl Encryption {
     ///     .encryption()
     ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == room_id)
     ///     .await?;
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_keys(
@@ -866,7 +866,7 @@ impl Encryption {
     ///     "Imported {} room keys out of {}",
     ///     result.imported_count, result.total_count
     /// );
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn import_keys(

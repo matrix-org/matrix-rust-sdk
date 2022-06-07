@@ -859,7 +859,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event_raw(content, "m.room.member", "").await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn send_state_event_raw(
         &self,
