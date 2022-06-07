@@ -111,7 +111,15 @@ to learn more about the `RUST_LOG` environment variable.
 
 ## Documentation
 
-TBD.
+To generate the documentation, please run the following command:
+
+```sh
+$ npm run doc
+```
+
+The documentation is generated in the `./docs` directory.
+
+
 
 [Node.js]: https://nodejs.org/
 [`matrix-sdk-crypto`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-crypto

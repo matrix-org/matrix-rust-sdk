@@ -14,13 +14,15 @@
     "license": "MIT",
     "devDependencies": {
         "@napi-rs/cli": "^2.9.0",
-        "jest": "^28.1.0"
+        "jest": "^28.1.0",
+        "typedoc": "^0.22.17"
     },
     "engines": {
         "node": ">= 10"
     },
     "scripts": {
         "build": "napi build --platform --release --strip",
-        "test": "jest --verbose"
+        "test": "jest --verbose",
+        "doc": "typedoc --tsconfig ."
     }
 }
