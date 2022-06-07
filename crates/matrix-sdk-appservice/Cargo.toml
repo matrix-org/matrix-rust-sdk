@@ -38,6 +38,7 @@ ruma = { version = "0.6.1", features = ["client-api-c", "appservice-api-s"] }
 serde = "1.0.136"
 serde_json = "1.0.79"
 serde_yaml = "0.8.23"
+tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread"] }
 thiserror = "1.0.30"
 tracing = "0.1.34"
 url = "2.2.2"

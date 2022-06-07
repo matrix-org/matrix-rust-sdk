@@ -353,7 +353,9 @@ impl Joined {
             // session as using it would end up in undecryptable
             // messages.
             if let Err(r) = response {
-                self.client.base_client().invalidate_group_session(self.inner.room_id()).await?;
+                if let Some(machine) = self.client.olm_machine() {
+                    machine.invalidate_group_session(self.inner.room_id()).await?;
+                }
                 return Err(r);
             }
         }

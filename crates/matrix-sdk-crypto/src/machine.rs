@@ -42,11 +42,12 @@ use ruma::{
         secret::request::SecretName,
         AnyMessageLikeEvent, AnyRoomEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceKeyId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
+use vodozemac::Ed25519Signature;
 use zeroize::Zeroize;
 
 #[cfg(feature = "backups_v1")]
@@ -66,8 +67,9 @@ use crate::{
         Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
         SecretImportError, Store,
     },
+    types::Signatures,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CrossSigningKeyExport, ReadOnlyDevice, RoomKeyImportResult, ToDeviceRequest,
+    CrossSigningKeyExport, ReadOnlyDevice, RoomKeyImportResult, SignatureError, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1437,58 +1439,37 @@ impl OlmMachine {
         self.store.import_cross_signing_keys(export).await
     }
 
-    async fn sign_account(
+    async fn sign_with_master_key(
         &self,
         message: &str,
-        signatures: &mut BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
-    ) {
-        let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id());
-        let signature = self.account.sign(message).await;
-
-        signatures
-            .entry(self.user_id().to_owned())
-            .or_default()
-            .insert(device_key_id, signature.to_base64());
-    }
-
-    async fn sign_master(
-        &self,
-        message: &str,
-        signatures: &mut BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
-    ) -> Result<(), crate::SignatureError> {
+    ) -> Result<(OwnedDeviceKeyId, Ed25519Signature), SignatureError> {
         let identity = &*self.user_identity.lock().await;
+        let key_id = identity.master_key_id().await.ok_or(SignatureError::MissingSigningKey)?;
 
-        let master_key: OwnedDeviceId = identity
-            .master_public_key()
-            .await
-            .and_then(|m| m.get_first_key().map(|k| k.to_owned()))
-            .ok_or(crate::SignatureError::MissingSigningKey)?
-            .to_base64()
-            .into();
-
-        let device_key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key);
         let signature = identity.sign(message).await?;
 
-        signatures
-            .entry(self.user_id().to_owned())
-            .or_default()
-            .insert(device_key_id, signature.to_base64());
-
-        Ok(())
+        Ok((key_id, signature))
     }
 
     /// Sign the given message using our device key and if available cross
     /// signing master key.
-    pub async fn sign(
-        &self,
-        message: &str,
-    ) -> BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> {
-        let mut signatures: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
+    ///
+    /// Presently, this should only be used for signing the server-side room
+    /// key backups.
+    pub async fn sign(&self, message: &str) -> Signatures {
+        let mut signatures = Signatures::new();
 
-        self.sign_account(message, &mut signatures).await;
+        let key_id = self.account.signing_key_id();
+        let signature = self.account.sign(message).await;
+        signatures.add_signature(self.user_id().to_owned(), key_id, signature);
 
-        if let Err(e) = self.sign_master(message, &mut signatures).await {
-            warn!(error = ?e, "Couldn't sign the message using the cross signing master key")
+        match self.sign_with_master_key(message).await {
+            Ok((key_id, signature)) => {
+                signatures.add_signature(self.user_id().to_owned(), key_id, signature);
+            }
+            Err(e) => {
+                warn!(error = ?e, "Couldn't sign the message using the cross signing master key")
+            }
         }
 
         signatures

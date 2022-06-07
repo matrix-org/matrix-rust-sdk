@@ -211,9 +211,7 @@ mod handlers {
             ruma::api::IncomingRequest::try_from_http_request(request, &[txn_id])
                 .map_err(Error::from)?;
 
-        let client = appservice.get_cached_client(None)?;
-        client.receive_transaction(incoming_transaction).await.map_err(Error::from)?;
-
+        appservice.receive_transaction(incoming_transaction).await?;
         Ok(warp::reply::json(&String::from("{}")))
     }
 }

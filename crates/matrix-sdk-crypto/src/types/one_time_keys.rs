@@ -21,11 +21,11 @@
 use std::collections::BTreeMap;
 
 use ruma::serde::Raw;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::Curve25519PublicKey;
 
-use super::Signatures;
+use super::{deserialize_curve_key, serialize_curve_key, Signatures};
 
 /// A key for the SignedCurve25519 algorithm
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -43,26 +43,6 @@ pub struct SignedKey {
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
-}
-
-// Vodozemac serializes curve keys directly as a byteslice, while matrix likes
-// to base64 encode all byte slices.
-//
-// This ensures that we serialize/deserialize in a Matrix compatible way.
-fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let key: String = Deserialize::deserialize(de)?;
-    Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
-}
-
-fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let key = key.to_base64();
-    s.serialize_str(&key)
 }
 
 fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
@@ -181,7 +161,7 @@ mod tests {
             && k
                 .signatures()
                 .get(user_id).unwrap().get(&DeviceKeyId::from_parts("other".into(), device_id))
-                == Some(&custom_signature)
+                == Some(&Ok(custom_signature))
         );
 
         let serialized = serde_json::to_value(key).expect("Can't reserialize a signed key");

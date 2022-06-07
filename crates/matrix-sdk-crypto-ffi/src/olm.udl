@@ -390,7 +390,7 @@ interface OlmMachine {
     [Throws=CryptoStoreError]
     Request? backup_room_keys();
     [Throws=CryptoStoreError]
-    void save_recovery_key(string? key, string? version);
+    void save_recovery_key(BackupRecoveryKey? key, string? version);
     [Throws=CryptoStoreError]
     RoomKeyCounts room_key_counts();
     [Throws=CryptoStoreError]
@@ -412,9 +412,9 @@ dictionary MegolmV1BackupKey {
     string backup_algorithm;
 };
 
-dictionary BackupKeys {
-    string recovery_key;
-    string backup_version;
+interface BackupKeys {
+    BackupRecoveryKey recovery_key();
+    string backup_version();
 };
 
 dictionary RoomKeyCounts {

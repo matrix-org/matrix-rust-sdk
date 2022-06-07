@@ -516,6 +516,11 @@ impl ReadOnlyAccount {
         *self.identity_keys
     }
 
+    /// Get the key ID of our Ed25519 signing key.
+    pub fn signing_key_id(&self) -> OwnedDeviceKeyId {
+        DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id())
+    }
+
     /// Update the uploaded key count.
     ///
     /// # Arguments

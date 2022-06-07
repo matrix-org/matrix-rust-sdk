@@ -29,6 +29,16 @@
 //! The crate is in an experimental state. Follow
 //! [matrix-org/matrix-rust-sdk#228] for progress.
 //!
+//! # Registration
+//!
+//! The crate relies on the registration being always in sync with the actual
+//! registration used by the homeserver. That's because it's required for the
+//! access tokens and because membership states for virtual users are determined
+//! based on the registered namespace.
+//!
+//! **Note:** Non-exclusive registration namespaces are not yet supported and
+//! hence might lead to undefined behavior.
+//!
 //! # Quickstart
 //!
 //! ```no_run
@@ -90,6 +100,7 @@ pub use matrix_sdk;
 pub use matrix_sdk::ruma;
 use matrix_sdk::{
     bytes::Bytes,
+    config::RequestConfig,
     event_handler::{EventHandler, EventHandlerResult, SyncEvent},
     reqwest::Url,
     Client, ClientBuildError, ClientBuilder, Session,
@@ -98,15 +109,19 @@ use regex::Regex;
 use ruma::{
     api::{
         appservice::{
+            event::push_events,
             query::{query_room_alias::v1 as query_room, query_user_id::v1 as query_user},
             Registration,
         },
-        client::account::register,
+        client::{account::register, session::login, sync::sync_events, uiaa::UserIdentifier},
     },
-    assign, DeviceId, IdParseError, OwnedServerName, UserId,
+    assign,
+    events::{room::member::MembershipState, AnyRoomEvent, AnyStateEvent},
+    DeviceId, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedServerName, UserId,
 };
-use serde::de::DeserializeOwned;
-use tracing::info;
+use serde::{de::DeserializeOwned, Deserialize};
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
 
 mod error;
 pub mod event_handler;
@@ -117,6 +132,112 @@ pub type Host = String;
 pub type Port = u16;
 
 const USER_KEY: &[u8] = b"appservice.users.";
+pub const USER_MEMBER: &[u8] = b"appservice.users.membership.";
+
+/// Builder for a virtual user
+#[derive(Debug)]
+pub struct VirtualUserBuilder<'a> {
+    appservice: &'a AppService,
+    localpart: &'a str,
+    device_id: Option<OwnedDeviceId>,
+    client_builder: ClientBuilder,
+    log_in: bool,
+    restored_session: Option<Session>,
+}
+
+impl<'a> VirtualUserBuilder<'a> {
+    /// Create a new virtual user builder
+    /// # Arguments
+    ///
+    /// * `localpart` - The localpart of the virtual user
+    pub fn new(appservice: &'a AppService, localpart: &'a str) -> Self {
+        Self {
+            appservice,
+            localpart,
+            device_id: None,
+            client_builder: Client::builder(),
+            log_in: false,
+            restored_session: None,
+        }
+    }
+
+    /// Set the device id of the virtual user
+    pub fn device_id(mut self, device_id: Option<OwnedDeviceId>) -> Self {
+        self.device_id = device_id;
+        self
+    }
+
+    /// Sets the client builder to use for the virtual user
+    pub fn client_builder(mut self, client_builder: ClientBuilder) -> Self {
+        self.client_builder = client_builder;
+        self
+    }
+
+    /// Log in as the virtual user
+    ///
+    /// In some cases it is necessary to log in as the virtual user, such as to
+    /// upload device keys
+    pub fn login(mut self) -> Self {
+        self.log_in = true;
+        self
+    }
+
+    /// Restore a persisted session
+    ///
+    /// This is primarily useful if you enable
+    /// [`VirtualUserBuilder::login()`] and want to restore a session
+    /// from a previous run.
+    pub fn restored_session(mut self, session: Session) -> Self {
+        self.restored_session = Some(session);
+        self
+    }
+
+    /// Build the virtual user
+    ///
+    /// # Errors
+    /// This function returns an error if an invalid localpart is provided.
+    pub async fn build(self) -> Result<Client> {
+        if let Some(client) = self.appservice.clients.get(self.localpart) {
+            return Ok(client.clone());
+        }
+
+        let user_id = UserId::parse_with_server_name(self.localpart, &self.appservice.server_name)?;
+
+        let mut builder = self.client_builder;
+
+        if !self.log_in && self.localpart != self.appservice.registration.sender_localpart {
+            builder = builder.assert_identity();
+        }
+
+        let client = builder
+            .homeserver_url(self.appservice.homeserver_url.clone())
+            .appservice_mode()
+            .build()
+            .await
+            .map_err(ClientBuildError::assert_valid_builder_args)?;
+
+        let session = if let Some(session) = self.restored_session {
+            session
+        } else if self.log_in && self.localpart != self.appservice.registration.sender_localpart {
+            self.appservice
+                .create_session(self.localpart, self.device_id.as_ref().map(|v| v.as_ref()), None)
+                .await?
+        } else {
+            // Don’t log in
+            Session {
+                access_token: self.appservice.registration.as_token.clone(),
+                user_id: user_id.clone(),
+                device_id: self.device_id.unwrap_or_else(DeviceId::new),
+            }
+        };
+
+        client.restore_login(session).await?;
+
+        self.appservice.clients.insert(self.localpart.to_owned(), client.clone());
+
+        Ok(client)
+    }
+}
 
 /// AppService Registration
 ///
@@ -252,7 +373,7 @@ impl AppService {
             AppService { homeserver_url, server_name, registration, clients, event_handler };
 
         // we create and cache the [`MainUser`] by default
-        appservice.create_and_cache_client(&sender_localpart, builder).await?;
+        appservice.virtual_user_builder(&sender_localpart).client_builder(builder).build().await?;
 
         Ok(appservice)
     }
@@ -280,10 +401,7 @@ impl AppService {
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
     pub async fn virtual_user_client(&self, localpart: impl AsRef<str>) -> Result<Client> {
-        let client =
-            self.virtual_user_client_with_client_builder(localpart, Client::builder()).await?;
-
-        Ok(client)
+        self.virtual_user_builder(localpart.as_ref()).build().await
     }
 
     /// Same as [`virtual_user_client()`][Self::virtual_user_client] but with
@@ -296,50 +414,42 @@ impl AppService {
         localpart: impl AsRef<str>,
         builder: ClientBuilder,
     ) -> Result<Client> {
-        // TODO: check if localpart is covered by namespace?
-        let localpart = localpart.as_ref();
-
-        let client = if let Some(client) = self.clients.get(localpart) {
-            client.clone()
-        } else {
-            self.create_and_cache_client(localpart, builder).await?
-        };
-
-        Ok(client)
+        self.virtual_user_builder(localpart.as_ref()).client_builder(builder).build().await
     }
 
-    async fn create_and_cache_client(
+    pub fn virtual_user_builder<'a>(&'a self, localpart: &'a str) -> VirtualUserBuilder<'a> {
+        VirtualUserBuilder::new(self, localpart)
+    }
+
+    /// Create a session using appservice login for a virtual user.
+    async fn create_session(
         &self,
-        localpart: &str,
-        mut builder: ClientBuilder,
-    ) -> Result<Client> {
-        let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
+        user: impl AsRef<str>,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<Session> {
+        let homeserver = self.homeserver_url.clone();
+        info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in as virtual user");
 
-        // The `as_token` in the `Session` maps to the [`MainUser`]
-        // (`sender_localpart`) by default, so we don't need to assert identity
-        // in that case
-        if localpart != self.registration.sender_localpart {
-            builder = builder.assert_identity();
-        }
+        let login_info = login::v3::LoginInfo::ApplicationService(
+            login::v3::ApplicationService::new(UserIdentifier::UserIdOrLocalpart(user.as_ref())),
+        );
 
-        let client = builder
-            .homeserver_url(self.homeserver_url.clone())
-            .appservice_mode()
-            .build()
-            .await
-            .map_err(ClientBuildError::assert_valid_builder_args)?;
+        let request = assign!(login::v3::Request::new(login_info), {
+            device_id: device_id.map(|d| d.into()),
+            initial_device_display_name
+        });
 
-        let session = Session {
-            access_token: self.registration.as_token.clone(),
-            user_id: user_id.clone(),
-            // TODO: expose & proper E2EE
-            device_id: DeviceId::new(),
-        };
+        let response = self
+            .get_cached_client(None)?
+            .send(request, Some(RequestConfig::short_retry().force_auth()))
+            .await?;
 
-        client.restore_login(session).await?;
-        self.clients.insert(localpart.to_owned(), client.clone());
-
-        Ok(client)
+        Ok(Session {
+            access_token: response.access_token,
+            user_id: response.user_id,
+            device_id: response.device_id,
+        })
     }
 
     /// Get cached [`Client`]
@@ -489,7 +599,7 @@ impl AppService {
         let key = [USER_KEY, localpart.as_ref().as_bytes()].concat();
         let store = client.store().get_custom_value(&key).await?;
         let registered =
-            store.and_then(|vec| vec.get(0).copied()).map_or(false, |b| b == u8::from(true));
+            store.and_then(|vec| vec.first().copied()).map_or(false, |b| b == u8::from(true));
         Ok(registered)
     }
 
@@ -530,6 +640,108 @@ impl AppService {
     /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
     pub fn warp_filter(&self) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
         webserver::warp_filter(self.clone())
+    }
+
+    /// Receive an incoming [transaction], pushing the contained events to
+    /// active virtual clients.
+    ///
+    /// [transaction]: https://spec.matrix.org/v1.2/application-service-api/#put_matrixappv1transactionstxnid
+    pub async fn receive_transaction(
+        &self,
+        transaction: push_events::v1::IncomingRequest,
+    ) -> Result<()> {
+        let client = self.get_cached_client(None)?;
+
+        // Find membership events affecting members in our namespace, and update
+        // membership accordingly
+        for event in transaction.events.iter() {
+            let event = match event.deserialize() {
+                Ok(AnyRoomEvent::State(AnyStateEvent::RoomMember(event))) => event,
+                _ => continue,
+            };
+            if !self.user_id_is_in_namespace(event.state_key())? {
+                continue;
+            }
+            let localpart = event.state_key().localpart();
+            client
+                .store()
+                .set_custom_value(
+                    &[USER_MEMBER, event.room_id().as_bytes(), localpart.as_bytes(), b"."].concat(),
+                    event.membership().to_string().into_bytes(),
+                )
+                .await?;
+        }
+
+        /// Helper type for extracting the room id for an event
+        #[derive(Debug, Deserialize)]
+        struct EventRoomId {
+            room_id: Option<OwnedRoomId>,
+        }
+
+        // Spawn a task for each client that constructs and pushes a sync event
+        let mut tasks: Vec<JoinHandle<_>> = Vec::new();
+        let transaction = Arc::new(transaction);
+        for virt_client in self.clients.iter() {
+            let client = client.clone();
+            let virt_client = virt_client.clone();
+            let transaction = transaction.clone();
+
+            let task = tokio::spawn(async move {
+                let user_id = match virt_client.user_id() {
+                    Some(user_id) => user_id,
+                    // Unauthenticated client. (should that be possible?)
+                    None => return Ok(()),
+                };
+                let mut response = sync_events::v3::Response::new(transaction.txn_id.to_string());
+
+                // Clients expect events to be grouped per room, where the group also denotes
+                // what the client's membership of the given room is. We take the
+                // all the events in the transaction and sort them into appropriate
+                // groups, falling back to a membership of "join" if it's unknown.
+                for raw_event in &transaction.events {
+                    let room_id = match raw_event.deserialize_as::<EventRoomId>()?.room_id {
+                        Some(room_id) => room_id,
+                        None => {
+                            warn!("Transaction contained event with no ID");
+                            continue;
+                        }
+                    };
+                    let key = &[USER_MEMBER, room_id.as_bytes(), b".", user_id.as_bytes()].concat();
+                    let membership = match client.store().get_custom_value(key).await? {
+                        Some(value) => String::from_utf8(value).ok().map(MembershipState::from),
+                        None => None,
+                    };
+
+                    match membership.unwrap_or(MembershipState::Join) {
+                        MembershipState::Join => {
+                            let room = response.rooms.join.entry(room_id).or_default();
+                            room.timeline.events.push(raw_event.clone().cast())
+                        }
+                        MembershipState::Leave | MembershipState::Ban => {
+                            let room = response.rooms.leave.entry(room_id).or_default();
+                            room.timeline.events.push(raw_event.clone().cast())
+                        }
+                        MembershipState::Knock => {
+                            response.rooms.knock.entry(room_id).or_default();
+                        }
+                        MembershipState::Invite => {
+                            response.rooms.invite.entry(room_id).or_default();
+                        }
+                        _ => debug!("Membership type we don't know how to handle"),
+                    }
+                }
+                virt_client.receive_transaction(&transaction.txn_id, response).await?;
+                Ok::<_, Error>(())
+            });
+
+            tasks.push(task);
+        }
+        for task in tasks {
+            if let Err(e) = task.await {
+                warn!("Joining sync task failed: {}", e);
+            }
+        }
+        Ok(())
     }
 
     /// Convenience method that runs an http server depending on the selected

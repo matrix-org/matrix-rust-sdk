@@ -359,6 +359,28 @@ macro_rules! statestore_integration_tests {
                 }
 
                 #[async_test]
+                async fn test_filter_saving() {
+                    let store = get_store().await.unwrap();
+                    let test_name = "filter_name";
+                    let filter_id = "filter_id_1234";
+                    assert_eq!(store.get_filter(test_name).await.unwrap(), None);
+                    store.save_filter(test_name, filter_id).await.unwrap();
+                    assert_eq!(store.get_filter(test_name).await.unwrap(), Some(filter_id.to_owned()));
+                }
+
+                #[async_test]
+                async fn test_sync_token_saving() {
+                    let mut changes = StateChanges::default();
+                    let store = get_store().await.unwrap();
+                    let sync_token = "t392-516_47314_0_7_1".to_owned();
+
+                    changes.sync_token = Some(sync_token.clone());
+                    assert_eq!(store.get_sync_token().await.unwrap(), None);
+                    store.save_changes(&changes).await.unwrap();
+                    assert_eq!(store.get_sync_token().await.unwrap(), Some(sync_token));
+                }
+
+                #[async_test]
                 async fn test_stripped_member_saving() {
                     let store = get_store().await.unwrap();
                     let room_id = room_id!("!test_stripped_member_saving:localhost");
@@ -625,7 +647,7 @@ macro_rules! statestore_integration_tests {
 
                     // Add sync response
                     let sync = SyncResponse::try_from_http_response(
-                        Response::builder().body(serde_json::to_vec(&*test_json::MORE_SYNC).unwrap()).unwrap(),
+                        Response::builder().body(serde_json::to_vec(&*test_json::MORE_SYNC).expect("Parsing MORE_SYNC failed")).unwrap(),
                         )
                         .unwrap();
 
@@ -643,7 +665,7 @@ macro_rules! statestore_integration_tests {
                         );
                     let mut changes = StateChanges::new(sync.next_batch.clone());
                     changes.add_timeline(room_id, timeline_slice);
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("Saving room timeline failed");
 
                     check_timeline_events(room_id, &store, &stored_events, timeline.prev_batch.as_deref())
                         .await;
@@ -651,7 +673,7 @@ macro_rules! statestore_integration_tests {
                     // Add message response
                     let messages = MessageResponse::try_from_http_response(
                         Response::builder()
-                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1).unwrap())
+                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1).expect("Parsing SYNC_ROOM_MESSAGES_BATCH_1 failed"))
                         .unwrap(),
                         )
                         .unwrap();
@@ -669,14 +691,14 @@ macro_rules! statestore_integration_tests {
                         TimelineSlice::new(events, messages.start.clone(), messages.end.clone(), false, false);
                     let mut changes = StateChanges::default();
                     changes.add_timeline(room_id, timeline_slice);
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("Saving room update timeline failed");
 
                     check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
 
                     // Add second message response
                     let messages = MessageResponse::try_from_http_response(
                         Response::builder()
-                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2).unwrap())
+                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2).expect("Parsing SYNC_ROOM_MESSAGES_BATCH_2 failed"))
                         .unwrap(),
                         )
                         .unwrap();
@@ -694,7 +716,7 @@ macro_rules! statestore_integration_tests {
                         TimelineSlice::new(events, messages.start.clone(), messages.end.clone(), false, false);
                     let mut changes = StateChanges::default();
                     changes.add_timeline(room_id, timeline_slice);
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("Saving room update timeline 2 failed");
 
                     check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
 
@@ -722,7 +744,7 @@ macro_rules! statestore_integration_tests {
                         );
                     let mut changes = StateChanges::new(sync.next_batch.clone());
                     changes.add_timeline(room_id, timeline_slice);
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("Saving room update timeline 3 failed");
 
                     check_timeline_events(room_id, &store, &stored_events, messages.end.as_deref()).await;
 
@@ -737,7 +759,7 @@ macro_rules! statestore_integration_tests {
                         );
                     let mut changes = StateChanges::default();
                     changes.add_timeline(room_id, timeline_slice);
-                    store.save_changes(&changes).await.unwrap();
+                    store.save_changes(&changes).await.expect("Saving room update timeline 4 failed");
 
                     check_timeline_events(room_id, &store, &Vec::new(), end_token.as_deref()).await;
                 }

@@ -37,7 +37,7 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
-#[cfg(feature = "e2e-encryption")]
+#[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
     api::{
@@ -195,20 +195,6 @@ impl Client {
         &self.inner.base_client
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn olm_machine(&self) -> Option<&matrix_sdk_base::crypto::OlmMachine> {
-        self.base_client().olm_machine()
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn mark_request_as_sent(
-        &self,
-        request_id: &TransactionId,
-        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
-    ) -> Result<(), matrix_sdk_base::Error> {
-        self.base_client().mark_request_as_sent(request_id, response).await
-    }
-
     /// Change the homeserver URL used by this client.
     ///
     /// # Arguments
@@ -246,22 +232,26 @@ impl Client {
         Ok(res.capabilities)
     }
 
-    /// Process a [transaction] received from the homeserver
+    /// Process a [transaction] received from the homeserver which has been
+    /// converted into a sync response.
     ///
     /// # Arguments
     ///
-    /// * `incoming_transaction` - The incoming transaction received from the
-    ///   homeserver.
+    /// * `transaction_id` - The id of the transaction, used to guard against
+    ///   the same transaction being sent twice. This guarding currently isn't
+    ///   implemented.
+    /// * `incoming_transaction` - The sync response converted from a
+    ///   transaction received from the homeserver.
     ///
     /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
     #[cfg(feature = "appservice")]
     pub async fn receive_transaction(
         &self,
-        incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest,
+        _transaction_id: &TransactionId,
+        sync_response: sync_events::v3::Response,
     ) -> Result<()> {
-        let txn_id = incoming_transaction.txn_id.clone();
-        let response = incoming_transaction.try_into_sync_response(txn_id.as_str())?;
-        self.process_sync(response).await?;
+        // TODO: transaction id checking, see PR #560
+        self.process_sync(sync_response).await?;
 
         Ok(())
     }

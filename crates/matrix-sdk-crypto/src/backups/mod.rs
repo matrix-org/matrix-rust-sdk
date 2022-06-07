@@ -1,4 +1,4 @@
-// Copyright 2021 The Matrix.org Foundation C.I.C.
+// Copyright 2021, 2022 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,17 +30,17 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceKeyId,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, TransactionId,
+    api::client::backup::RoomKeyBackup, serde::Raw, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId,
+    OwnedTransactionId, TransactionId,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     olm::{Account, InboundGroupSession},
     store::{BackupKeys, Changes, RecoveryKey, RoomKeyCounts, Store},
-    CryptoStoreError, KeysBackupRequest, OutgoingRequest,
+    types::{MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
+    CryptoStoreError, Device, KeysBackupRequest, OutgoingRequest,
 };
 
 mod keys;
@@ -84,6 +84,69 @@ impl From<PendingBackup> for OutgoingRequest {
     }
 }
 
+/// The result of a signature check of a signed JSON object.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SignatureCheckResult {
+    /// The result of the signature check using the public key of our own
+    /// device.
+    pub device_signature: SignatureState,
+    /// The result of the signature check using the public key of our own
+    /// user identity.
+    pub user_identity_signature: SignatureState,
+    /// The result of signature checks using public keys of other devices we
+    /// own.
+    pub other_signatures: BTreeMap<OwnedDeviceId, SignatureState>,
+}
+
+impl SignatureCheckResult {
+    /// Is the result considered to be trusted?
+    ///
+    /// This tells us if the result has a valid signature from any of the
+    /// following:
+    ///
+    /// * Our own device
+    /// * Our own user identity, provided the identity is trusted as well
+    /// * Any of our own devices, provided the device is trusted as well
+    pub fn trusted(&self) -> bool {
+        self.device_signature.trusted()
+            || self.user_identity_signature.trusted()
+            || self.other_signatures.values().any(|s| s.trusted())
+    }
+}
+
+/// The result of a signature check.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignatureState {
+    /// The signature is missing.
+    Missing,
+    /// The signature is invalid.
+    Invalid,
+    /// The signature is valid but the device or user identity that created the
+    /// signature is not trusted.
+    ValidButNotTrusted,
+    /// The signature is valid and the device or user identity that created the
+    /// signature is trusted.
+    ValidAndTrusted,
+}
+
+impl SignatureState {
+    /// Is the state considered to be trusted?
+    pub fn trusted(self) -> bool {
+        self == SignatureState::ValidAndTrusted
+    }
+
+    /// Did we find a valid signature?
+    pub fn signed(self) -> bool {
+        self == SignatureState::ValidButNotTrusted && self == SignatureState::ValidAndTrusted
+    }
+}
+
+impl Default for SignatureState {
+    fn default() -> Self {
+        Self::Missing
+    }
+}
+
 impl BackupMachine {
     const BACKUP_BATCH_SIZE: usize = 100;
 
@@ -105,77 +168,177 @@ impl BackupMachine {
         self.backup_key.read().await.as_ref().map(|b| b.backup_version().is_some()).unwrap_or(false)
     }
 
-    /// Verify some backup auth data that we downloaded from the server.
-    ///
-    /// The auth data should be fetched from the server using the
-    /// [`/room_keys/version`] endpoint.
-    ///
-    /// Ruma models this using the [`BackupAlgorithm`] struct, but care needs to
-    /// be taken if that struct is used. Some clients might use unspecced fields
-    /// and the given Ruma struct will lose the unspecced fields after a
-    /// serialization cycle.
-    ///
-    /// [`BackupAlgorithm`]: ruma::api::client::backup::BackupAlgorithm
-    /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
-    pub async fn verify_backup(
-        &self,
-        serialized_auth_data: Value,
-    ) -> Result<bool, CryptoStoreError> {
-        #[derive(Debug, Serialize, Deserialize)]
-        struct AuthData {
-            public_key: String,
-            #[serde(default)]
-            signatures: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>>,
-            #[serde(flatten)]
-            extra: BTreeMap<String, Value>,
+    /// Check if our own device has signed the given signed JSON payload.
+    async fn check_own_device_signature(&self, auth_data: Value) -> SignatureState {
+        match self.account.is_signed(auth_data) {
+            Ok(_) => SignatureState::ValidAndTrusted,
+            Err(e) => match e {
+                crate::SignatureError::NoSignatureFound => SignatureState::Missing,
+                _ => SignatureState::Invalid,
+            },
         }
+    }
 
-        let auth_data: AuthData = serde_json::from_value(serialized_auth_data.clone())?;
+    /// Check if our own cross-signing user identity has signed the given signed
+    /// JSON payload.
+    async fn check_own_identity_signature(
+        &self,
+        auth_data: Value,
+    ) -> Result<SignatureState, CryptoStoreError> {
+        let user_id = self.account.user_id();
+        let identity = self.store.get_identity(user_id).await?;
 
-        trace!(?auth_data, "Verifying backup auth data");
+        let ret = if let Some(identity) = identity.and_then(|i| i.own()) {
+            match identity.master_key().is_signed_by(auth_data) {
+                Ok(_) => {
+                    if identity.is_verified() {
+                        SignatureState::ValidAndTrusted
+                    } else {
+                        SignatureState::ValidButNotTrusted
+                    }
+                }
+                Err(e) => match e {
+                    crate::SignatureError::NoSignatureFound => SignatureState::Missing,
+                    _ => SignatureState::Invalid,
+                },
+            }
+        } else {
+            SignatureState::Missing
+        };
 
-        Ok(if let Some(signatures) = auth_data.signatures.get(self.store.user_id()) {
+        Ok(ret)
+    }
+
+    /// Check if the signed JSON payload `auth_data` has been signed by the
+    /// `device`.
+    fn backup_signed_by_device(&self, device: Device, auth_data: Value) -> SignatureState {
+        if device.is_signed_by_device(auth_data).is_ok() {
+            if device.verified() {
+                SignatureState::ValidAndTrusted
+            } else {
+                SignatureState::ValidButNotTrusted
+            }
+        } else {
+            SignatureState::Invalid
+        }
+    }
+
+    /// Check if the signed JSON payload `auth_data` has been signed by any of
+    /// our devices.
+    async fn test_device_signatures(
+        &self,
+        signatures: &Signatures,
+        auth_data: Value,
+        compute_all_signatures: bool,
+    ) -> Result<BTreeMap<OwnedDeviceId, SignatureState>, CryptoStoreError> {
+        let mut result = BTreeMap::new();
+
+        if let Some(signatures) = signatures.get(self.account.user_id()) {
             for device_key_id in signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
+                    // No need to check our own device here, we're doing that
+                    // using the check_own_device_signature().
                     if device_key_id.device_id() == self.account.device_id() {
-                        let result = self.account.is_signed(serialized_auth_data.clone());
-
-                        trace!(?result, "Checking auth data signature of our own device");
-
-                        if result.is_ok() {
-                            return Ok(true);
-                        }
+                        continue;
                     } else {
+                        // We might iterate over some non-device signatures as well, but in this
+                        // case there's no corresponding device and we get `Ok(None)` here, so
+                        // things still work out.
                         let device = self
                             .store
                             .get_device(self.store.user_id(), device_key_id.device_id())
                             .await?;
 
                         trace!(
-                            device_id = device_key_id.device_id().as_str(),
+                            device_id = %device_key_id.device_id(),
                             "Checking backup auth data for device"
                         );
 
-                        if let Some(device) = device {
-                            if device.verified()
-                                && device.is_signed_by_device(serialized_auth_data.clone()).is_ok()
-                            {
-                                return Ok(true);
-                            }
+                        let state = if let Some(device) = device {
+                            self.backup_signed_by_device(device, auth_data.clone())
                         } else {
                             trace!(
-                                device_id = device_key_id.device_id().as_str(),
+                                device_id = %device_key_id.device_id(),
                                 "Device not found, can't check signature"
                             );
+                            SignatureState::Missing
+                        };
+
+                        result.insert(device_key_id.device_id().to_owned(), state);
+
+                        // Abort the loop if we found a trusted and valid
+                        // signature, unless we should check all of them.
+                        if state.trusted() && !compute_all_signatures {
+                            break;
                         }
                     }
                 }
             }
+        }
 
-            false
+        Ok(result)
+    }
+
+    async fn verify_auth_data_v1(
+        &self,
+        auth_data: MegolmV1AuthData,
+        compute_all_signatures: bool,
+    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+        trace!(?auth_data, "Verifying backup auth data");
+        let serialized_auth_data = serde_json::to_value(auth_data.clone())?;
+
+        // Check if there's a signature from our own device.
+        let device_signature = self.check_own_device_signature(serialized_auth_data.clone()).await;
+        // Check if there's a signature from our own user identity.
+        let user_identity_signature =
+            self.check_own_identity_signature(serialized_auth_data.clone()).await?;
+
+        // Collect all the other signatures if there isn't already a valid one,
+        // or if we're told to collect all of them anyways.
+        let other_signatures = if !(device_signature.trusted() || user_identity_signature.trusted())
+            || compute_all_signatures
+        {
+            self.test_device_signatures(
+                &auth_data.signatures,
+                serialized_auth_data,
+                compute_all_signatures,
+            )
+            .await?
         } else {
-            false
-        })
+            Default::default()
+        };
+
+        Ok(SignatureCheckResult { device_signature, user_identity_signature, other_signatures })
+    }
+
+    /// Verify some backup auth data that we downloaded from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `backup_version`: The backup version that should be verified. Should
+    /// be fetched from the server using the [`/room_keys/version`] endpoint.
+    ///
+    /// * `compute_all_signatures`: *Useful for debugging only*. If this
+    ///   parameter is `true`, the internal machinery will compute the trust
+    ///   state for all signatures before returning, instead of short-circuiting
+    ///   on the first trusted signature. Has no impact on whether the backup
+    ///   will be considered verified.
+    ///
+    /// [`/room_keys/version`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientv3room_keysversion
+    pub async fn verify_backup(
+        &self,
+        backup_version: Value,
+        compute_all_signatures: bool,
+    ) -> Result<SignatureCheckResult, CryptoStoreError> {
+        let auth_data: RoomKeyBackupInfo = serde_json::from_value(backup_version)?;
+
+        trace!(?auth_data, "Verifying backup auth data");
+
+        if let RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(data) = auth_data {
+            self.verify_auth_data_v1(data, compute_all_signatures).await
+        } else {
+            Ok(Default::default())
+        }
     }
 
     /// Activate the given backup key to be used to encrypt and backup room
@@ -386,7 +549,10 @@ impl BackupMachine {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, DeviceId, RoomId, UserId};
+    use ruma::{
+        device_id, room_id, signatures::CanonicalJsonValue, user_id, DeviceId, RoomId, UserId,
+    };
+    use serde_json::json;
 
     use crate::{store::RecoveryKey, OlmError, OlmMachine};
 
@@ -462,5 +628,79 @@ mod tests {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
 
         backup_flow(machine).await
+    }
+
+    #[async_test]
+    async fn verify_auth_data() -> Result<(), OlmError> {
+        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let backup_machine = machine.backup_machine();
+
+        let auth_data = json!({
+            "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+        });
+
+        let backup_version = json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": auth_data,
+        });
+
+        let canonical_json: CanonicalJsonValue =
+            auth_data.clone().try_into().expect("Canonicalizing should always work");
+        let serialized = canonical_json.to_string();
+
+        let state = backup_machine
+            .verify_backup(backup_version, false)
+            .await
+            .expect("Verifying should work");
+        assert!(!state.trusted());
+        assert!(!state.device_signature.trusted());
+        assert!(!state.user_identity_signature.trusted());
+        assert!(!state.other_signatures.values().any(|s| s.trusted()));
+
+        let signatures = machine.sign(&serialized).await;
+
+        let backup_version = json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+                "signatures": signatures,
+            }
+        });
+
+        let state = backup_machine
+            .verify_backup(backup_version, false)
+            .await
+            .expect("Verifying should work");
+
+        assert!(state.trusted());
+        assert!(state.device_signature.trusted());
+        assert!(!state.user_identity_signature.trusted());
+        assert!(!state.other_signatures.values().any(|s| s.trusted()));
+
+        machine
+            .bootstrap_cross_signing(true)
+            .await
+            .expect("Bootstraping a new identity always works");
+
+        let signatures = machine.sign(&serialized).await;
+
+        let backup_version = json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+                "signatures": signatures,
+            }
+        });
+        let state = backup_machine
+            .verify_backup(backup_version, false)
+            .await
+            .expect("Verifying should work");
+
+        assert!(state.trusted());
+        assert!(state.device_signature.trusted());
+        assert!(state.user_identity_signature.trusted());
+        assert!(!state.other_signatures.values().any(|s| s.trusted()));
+
+        Ok(())
     }
 }

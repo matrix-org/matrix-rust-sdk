@@ -46,11 +46,11 @@ use crate::{
     error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
     parse_user_id,
     responses::{response_from_string, OutgoingVerificationRequest, OwnedResponse},
-    BackupKeys, BootstrapCrossSigningResult, ConfirmVerificationResult, CrossSigningKeyExport,
-    CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, KeyImportError,
-    KeysImportResult, MegolmV1BackupKey, ProgressListener, QrCode, Request, RequestType,
-    RequestVerificationResult, RoomKeyCounts, ScanResult, SignatureUploadRequest, StartSasResult,
-    UserIdentity, Verification, VerificationRequest,
+    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, ConfirmVerificationResult,
+    CrossSigningKeyExport, CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists,
+    KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener, QrCode, Request,
+    RequestType, RequestVerificationResult, RoomKeyCounts, ScanResult, SignatureUploadRequest,
+    StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
 /// A high level state machine that handles E2EE for Matrix.
@@ -1336,16 +1336,29 @@ impl OlmMachine {
     /// key.
     pub fn save_recovery_key(
         &self,
-        key: Option<String>,
+        key: Option<Arc<BackupRecoveryKey>>,
         version: Option<String>,
     ) -> Result<(), CryptoStoreError> {
-        let key = key.map(|k| RecoveryKey::from_base64(&k)).transpose().ok().flatten();
+        let key = key.map(|k| {
+            // We need to clone here due to FFI limitations but RecoveryKey does
+            // not want to expose clone since it's private key material.
+            let mut encoded = k.to_base64();
+            let key = RecoveryKey::from_base64(&encoded)
+                .expect("Encoding and decoding from base64 should always work");
+            encoded.zeroize();
+            key
+        });
         Ok(self.runtime.block_on(self.inner.backup_machine().save_recovery_key(key, version))?)
     }
 
     /// Get the backup keys we have saved in our crypto store.
-    pub fn get_backup_keys(&self) -> Result<Option<BackupKeys>, CryptoStoreError> {
-        Ok(self.runtime.block_on(self.inner.backup_machine().get_backup_keys())?.try_into().ok())
+    pub fn get_backup_keys(&self) -> Result<Option<Arc<BackupKeys>>, CryptoStoreError> {
+        Ok(self
+            .runtime
+            .block_on(self.inner.backup_machine().get_backup_keys())?
+            .try_into()
+            .ok()
+            .map(Arc::new))
     }
 
     /// Sign the given message using our device key and if available cross
@@ -1354,14 +1367,46 @@ impl OlmMachine {
         self.runtime
             .block_on(self.inner.sign(message))
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v.into_iter().map(|(k, v)| (k.to_string(), v)).collect()))
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    v.into_iter()
+                        .map(|(k, v)| {
+                            (
+                                k.to_string(),
+                                match v {
+                                    Ok(s) => s.to_base64(),
+                                    Err(i) => i.source,
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            })
             .collect()
     }
 
     /// Check if the given backup has been verified by us or by another of our
     /// devices that we trust.
-    pub fn verify_backup(&self, auth_data: &str) -> Result<bool, CryptoStoreError> {
-        let auth_data = serde_json::from_str(auth_data)?;
-        Ok(self.runtime.block_on(self.inner.backup_machine().verify_backup(auth_data))?)
+    ///
+    /// The `backup_info` should be a JSON encoded object with the following
+    /// format:
+    ///
+    /// ```json
+    /// {
+    ///     "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+    ///     "auth_data": {
+    ///         "public_key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",
+    ///         "signatures": {}
+    ///     }
+    /// }
+    /// ```
+    pub fn verify_backup(&self, backup_info: &str) -> Result<bool, CryptoStoreError> {
+        let backup_info = serde_json::from_str(backup_info)?;
+
+        Ok(self
+            .runtime
+            .block_on(self.inner.backup_machine().verify_backup(backup_info, false))?
+            .trusted())
     }
 }
