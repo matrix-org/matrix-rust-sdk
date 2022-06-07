@@ -705,10 +705,7 @@ impl Encryption {
     /// # Examples
     /// ```no_run
     /// # use std::{convert::TryFrom, collections::BTreeMap};
-    /// # use matrix_sdk::{
-    /// #     ruma::{api::client::uiaa, assign},
-    /// #     Client,
-    /// # };
+    /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
@@ -717,18 +714,15 @@ impl Encryption {
     /// # let client = Client::new(homeserver).await?;
     /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.uiaa_response() {
-    ///         let auth_data = uiaa::AuthData::Password(assign!(
-    ///             uiaa::Password::new(
-    ///                 uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-    ///                 "wordpass",
-    ///             ), {
-    ///                 session: response.session.as_deref(),
-    ///             }
-    ///         ));
+    ///         let mut password = uiaa::Password::new(
+    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
+    ///             "wordpass",
+    ///         );
+    ///         password.session = response.session.as_deref();
     ///
     ///         client
     ///             .encryption()
-    ///             .bootstrap_cross_signing(Some(auth_data))
+    ///             .bootstrap_cross_signing(Some(uiaa::AuthData::Password(auth_data)))
     ///             .await
     ///             .expect("Couldn't bootstrap cross signing")
     ///     } else {

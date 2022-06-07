@@ -1124,20 +1124,20 @@ impl Client {
     /// #         account::register::{v3::Request as RegistrationRequest, RegistrationKind},
     /// #         uiaa,
     /// #     },
-    /// #     assign, DeviceId,
+    /// #     DeviceId,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     ///
-    /// let request = assign!(RegistrationRequest::new(), {
-    ///     username: Some("user"),
-    ///     password: Some("password"),
-    ///     auth: Some(uiaa::AuthData::FallbackAcknowledgement(
-    ///         uiaa::FallbackAcknowledgement::new("foobar"),
-    ///     )),
-    /// });
+    /// let mut request = RegistrationRequest::new();
+    /// request.username = Some("user");
+    /// request.password = Some("password");
+    /// request.auth = Some(uiaa::AuthData::FallbackAcknowledgement(
+    ///     uiaa::FallbackAcknowledgement::new("foobar"),
+    /// ));
+    ///
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.register(request).await;
     /// # })
@@ -1351,6 +1351,7 @@ impl Client {
     /// `get_public_rooms_filtered::Request` itself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use url::Url;
@@ -1358,18 +1359,16 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// use matrix_sdk::{
-    ///     ruma::{
-    ///         api::client::directory::get_public_rooms_filtered::v3::Request,
-    ///         directory::Filter,
-    ///         assign,
-    ///     }
+    /// use matrix_sdk::ruma::{
+    ///     api::client::directory::get_public_rooms_filtered,
+    ///     directory::Filter,
     /// };
     /// # let mut client = Client::new(homeserver).await?;
     ///
-    /// let generic_search_term = Some("rust");
-    /// let filter = assign!(Filter::new(), { generic_search_term });
-    /// let request = assign!(Request::new(), { filter });
+    /// let mut filter = Filter::new();
+    /// filter.generic_search_term = Some("rust");
+    /// let mut request = get_public_rooms_filtered::v3::Request::new();
+    /// request.filter = filter;
     ///
     /// let response = client.public_rooms_filtered(request).await?;
     ///
@@ -1576,7 +1575,7 @@ impl Client {
     /// #            client::uiaa,
     /// #            error::{FromHttpResponseError, ServerError},
     /// #        },
-    /// #        assign, device_id,
+    /// #        device_id,
     /// #    },
     /// #    Client, Error, config::SyncSettings,
     /// # };
@@ -1591,17 +1590,14 @@ impl Client {
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.uiaa_response() {
-    ///         let auth_data = uiaa::AuthData::Password(assign!(
-    ///             uiaa::Password::new(
-    ///                 uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-    ///                 "wordpass",
-    ///             ), {
-    ///                 session: info.session.as_deref(),
-    ///             }
-    ///         ));
+    ///         let mut password = uiaa::Password::new(
+    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
+    ///             "wordpass",
+    ///         );
+    ///         password.session = info.session.as_deref();
     ///
     ///         client
-    ///             .delete_devices(devices, Some(auth_data))
+    ///             .delete_devices(devices, Some(uiaa::AuthData::Password(auth_data)))
     ///             .await?;
     ///     }
     /// }

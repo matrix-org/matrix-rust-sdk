@@ -790,7 +790,7 @@ impl Joined {
     ///         macros::EventContent,
     ///         room::member::{RoomMemberEventContent, MembershipState},
     ///     },
-    ///     assign, mxc_uri,
+    ///     mxc_uri,
     /// };
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
@@ -798,9 +798,8 @@ impl Joined {
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
-    /// let content = assign!(RoomMemberEventContent::new(MembershipState::Join), {
-    ///    avatar_url: Some(avatar_url),
-    /// });
+    /// let mut content = RoomMemberEventContent::new(MembershipState::Join);
+    /// content.avatar_url = Some(avatar_url);
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event(content, "").await?;
