@@ -1,6 +1,4 @@
-const { initTracing, OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings } = require('../');
-
-//initTracing();
+const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../');
 
 describe(OlmMachine.name, () => {
     test('cannot be instantiated with the constructor', () => {
@@ -83,7 +81,7 @@ describe(OlmMachine.name, () => {
         }
     });
 
-    describe('can mark requests as sent and get missing sessions', () => {
+    describe('setup workflow to mark requests as sent', () => {
         let m;
         let ougoingRequests;
 
@@ -154,17 +152,201 @@ describe(OlmMachine.name, () => {
             }
         });
 
-        test('can get missing sessions', async () => {
-            const request = await m.getMissingSessions([user]);
+        /*
+        test('can share a room key', async () => {
+            const m = await machine();
 
-            expect(request).toBeInstanceOf(KeysClaimRequest);
-            expect(request.id).toBeDefined();
-            expect(request.type).toStrictEqual(RequestType.KeysClaim);
+            console.log(await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings()));
+        });
+        */
 
-            const body = JSON.parse(request.body);
-            expect(body.one_time_keys).toBeDefined();
-            expect(body.one_time_keys[user.toString()]).toBeDefined();
-            expect(body.timeout).toBeDefined();
+        /*
+        test('can encode a roomt event', async () => {
+            console.log(m.encryptRoomEvent(
+                room,
+                'm.room.message',
+                JSON.stringify({
+                    "body": "Hello Alice!",
+                    "msgtype": "m.text",
+                    "format": "org.matrix.custom.html",
+                    "formatted_body": "Hello <a href='https://matrix.to/#/@alice:example.org'>Alice</a>!"
+                }),
+            ));
+
+        });
+        */
+    });
+
+    describe('setup workflow to encrypt/decrypt events', () => {
+        let m;
+        const user = new UserId('@alice:example.org');
+        const device = new DeviceId('JLAFKJWSCS');
+        const room = new RoomId('!test:localhost');
+
+        beforeAll(async () => {
+            m = await machine(user, device);
+        });
+        
+        test('can pass keysquery and keysclaim requests directly', async () => {
+            {
+                // derived from https://github.com/matrix-org/matrix-rust-sdk/blob/7f49618d350fab66b7e1dc4eaf64ec25ceafd658/benchmarks/benches/crypto_bench/keys_query.json
+                const hypothetical_response = JSON.stringify({
+                    "device_keys": {
+                        "@example:localhost": {
+                            "AFGUOBTZWM": {
+                                "algorithms": [
+                                    "m.olm.v1.curve25519-aes-sha2",
+                                    "m.megolm.v1.aes-sha2"
+                                ],
+                                "device_id": "AFGUOBTZWM",
+                                "keys": {
+                                    "curve25519:AFGUOBTZWM": "boYjDpaC+7NkECQEeMh5dC+I1+AfriX0VXG2UV7EUQo",
+                                    "ed25519:AFGUOBTZWM": "NayrMQ33ObqMRqz6R9GosmHdT6HQ6b/RX/3QlZ2yiec"
+                                },
+                                "signatures": {
+                                    "@example:localhost": {
+                                        "ed25519:AFGUOBTZWM": "RoSWvru1jj6fs2arnTedWsyIyBmKHMdOu7r9gDi0BZ61h9SbCK2zLXzuJ9ZFLao2VvA0yEd7CASCmDHDLYpXCA"
+                                    }
+                                },
+                                "user_id": "@example:localhost",
+                                "unsigned": {
+                                    "device_display_name": "rust-sdk"
+                                }
+                            },
+                        }
+                    },
+                    "failures": {},
+                    "master_keys": {
+                        "@example:localhost": {
+                            "user_id": "@example:localhost",
+                            "usage": [
+                                "master"
+                            ],
+                            "keys": {
+                                "ed25519:n2lpJGx0LiKnuNE1IucZP3QExrD4SeRP0veBHPe3XUU": "n2lpJGx0LiKnuNE1IucZP3QExrD4SeRP0veBHPe3XUU"
+                            },
+                            "signatures": {
+                                "@example:localhost": {
+                                    "ed25519:TCSJXPWGVS": "+j9G3L41I1fe0++wwusTTQvbboYW0yDtRWUEujhwZz4MAltjLSfJvY0hxhnz+wHHmuEXvQDen39XOpr1p29sAg"
+                                }
+                            }
+                        }
+                    },
+                    "self_signing_keys": {
+                        "@example:localhost": {
+                            "user_id": "@example:localhost",
+                            "usage": [
+                                "self_signing"
+                            ],
+                            "keys": {
+                                "ed25519:kQXOuy639Yt47mvNTdrIluoC6DMvfbZLYbxAmwiDyhI": "kQXOuy639Yt47mvNTdrIluoC6DMvfbZLYbxAmwiDyhI"
+                            },
+                            "signatures": {
+                                "@example:localhost": {
+                                    "ed25519:n2lpJGx0LiKnuNE1IucZP3QExrD4SeRP0veBHPe3XUU": "q32ifix/qyRpvmegw2BEJklwoBCAJldDNkcX+fp+lBA4Rpyqtycxge6BA4hcJdxYsy3oV0IHRuugS8rJMMFyAA"
+                                }
+                            }
+                        }
+                    },
+                    "user_signing_keys": {
+                        "@example:localhost": {
+                            "user_id": "@example:localhost",
+                            "usage": [
+                                "user_signing"
+                            ],
+                            "keys": {
+                                "ed25519:g4ED07Fnqf3GzVWNN1pZ0IFrPQVdqQf+PYoJNH4eE0s": "g4ED07Fnqf3GzVWNN1pZ0IFrPQVdqQf+PYoJNH4eE0s"
+                            },
+                            "signatures": {
+                                "@example:localhost": {
+                                    "ed25519:n2lpJGx0LiKnuNE1IucZP3QExrD4SeRP0veBHPe3XUU": "nKQu8alQKDefNbZz9luYPcNj+Z+ouQSot4fU/A23ELl1xrI06QVBku/SmDx0sIW1ytso0Cqwy1a+3PzCa1XABg"
+                                }
+                            }
+                        }
+                    }
+                });
+                const marked = await m.markRequestAsSent('foo', RequestType.KeysQuery, hypothetical_response);
+            }
+
+            {
+                // derived from https://github.com/matrix-org/matrix-rust-sdk/blob/7f49618d350fab66b7e1dc4eaf64ec25ceafd658/benchmarks/benches/crypto_bench/keys_claim.json
+                const hypothetical_response = JSON.stringify({
+                    "one_time_keys": {
+                        "@example:localhost": {
+                            "AFGUOBTZWM": {
+                                "signed_curve25519:AAAABQ": {
+                                    "key": "9IGouMnkB6c6HOd4xUsNv4i3Dulb4IS96TzDordzOws",
+                                    "signatures": {
+                                        "@example:localhost": {
+                                            "ed25519:AFGUOBTZWM": "2bvUbbmJegrV0eVP/vcJKuIWC3kud+V8+C0dZtg4dVovOSJdTP/iF36tQn2bh5+rb9xLlSeztXBdhy4c+LiOAg"
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    },
+                    "failures": {}
+                });
+                const marked = await m.markRequestAsSent('bar', RequestType.KeysClaim, hypothetical_response);
+            }
+        });
+
+        test('can share a room key', async () => {
+            const other_users = [new UserId('@example:localhost')];
+
+            const requests = JSON.parse(await m.shareRoomKey(room, other_users, new EncryptionSettings()));
+
+            expect(requests).toHaveLength(1);
+            expect(requests[0].event_type).toBeDefined();
+            expect(requests[0].txn_id).toBeDefined();
+            expect(requests[0].messages).toBeDefined();
+            expect(requests[0].messages['@example:localhost']).toBeDefined();
+        });
+
+        let encrypted;
+
+        test('can encrypt an event', async () => {
+            encrypted = JSON.parse(await m.encryptRoomEvent(
+                room,
+                'm.room.message',
+                JSON.stringify({
+                    "hello": "world"
+                }),
+            ));
+
+            expect(encrypted.algorithm).toBeDefined();
+            expect(encrypted.ciphertext).toBeDefined();
+            expect(encrypted.sender_key).toBeDefined();
+            expect(encrypted.device_id).toStrictEqual(device.toString());
+            expect(encrypted.session_id).toBeDefined();
+        });
+
+        test('can decrypt an event', async () => {
+            const decrypted = await m.decryptRoomEvent(
+                JSON.stringify({
+                    "type": "m.room.encrypted",
+                    "event_id": "$xxxxx:example.org",
+                    "origin_server_ts": Date.now(),
+                    "sender": user.toString(),
+                    content: encrypted,
+                    unsigned: {
+                        "age": 1234
+                    }
+                }),
+                room,
+            );
+
+            expect(decrypted).toBeInstanceOf(DecryptedRoomEvent);
+
+            const event = JSON.parse(decrypted.event);
+            expect(event.content.hello).toStrictEqual("world");
+
+            expect(decrypted.sender.toString()).toStrictEqual(user.toString());
+            expect(decrypted.senderDevice.toString()).toStrictEqual(device.toString());
+            expect(decrypted.senderCurve25519Key).toBeDefined();
+            expect(decrypted.senderClaimedEd25519Key).toBeDefined();
+            expect(decrypted.forwardingCurve25519KeyChain).toHaveLength(0);
+            expect(decrypted.verificationState).toStrictEqual(VerificationState.Trusted);
         });
     });
 
@@ -173,12 +355,4 @@ describe(OlmMachine.name, () => {
 
         expect(await m.updateTrackedUsers([user])).toStrictEqual(undefined);
     });
-
-    /*
-    test('can share a room key', async () => {
-        const m = await machine();
-
-        console.log(await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings()));
-    });
-    */
 });
