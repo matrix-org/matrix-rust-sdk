@@ -30,9 +30,9 @@ impl Deref for Room {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            Self::Joined(room) => &*room,
-            Self::Left(room) => &*room,
-            Self::Invited(room) => &*room,
+            Self::Joined(room) => room,
+            Self::Left(room) => room,
+            Self::Invited(room) => room,
         }
     }
 }
