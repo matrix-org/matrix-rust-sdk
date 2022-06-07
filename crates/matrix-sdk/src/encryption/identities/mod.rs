@@ -55,7 +55,7 @@
 //!     // Let's just mark it as verified.
 //!     device.verify().await?;
 //! }
-//! # anyhow::Result::<()>::Ok(()) });
+//! # anyhow::Ok(()) });
 //! ```
 //!
 //! Verifying a user identity works largely the same:
@@ -81,7 +81,7 @@
 //!     // Let's just mark it as verified.
 //!     user.verify().await?;
 //! }
-//! # anyhow::Result::<()>::Ok(()) });
+//! # anyhow::Ok(()) });
 //! ```
 //!
 //! [cross signing keys]: https://spec.matrix.org/unstable/client-server-api/#cross-signing

@@ -1075,7 +1075,7 @@ impl Client {
     /// };
     ///
     /// client.restore_login(session).await?;
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// The `Session` object can also be created from the response the
@@ -1097,7 +1097,7 @@ impl Client {
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`login`]: #method.login
@@ -1415,7 +1415,7 @@ impl Client {
     ///     .await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn upload(
         &self,
