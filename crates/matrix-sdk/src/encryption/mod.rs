@@ -66,6 +66,26 @@ use crate::{
 };
 
 impl Client {
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) fn olm_machine(&self) -> Option<&matrix_sdk_base::crypto::OlmMachine> {
+        self.base_client().olm_machine()
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn mark_request_as_sent(
+        &self,
+        request_id: &TransactionId,
+        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
+    ) -> Result<(), matrix_sdk_base::Error> {
+        Ok(self
+            .olm_machine()
+            .expect(
+                "We should have an olm machine once we try to mark E2EE related requests as sent",
+            )
+            .mark_request_as_sent(request_id, response)
+            .await?)
+    }
+
     /// Query the server for users device keys.
     ///
     /// # Panics
@@ -286,7 +306,12 @@ impl Client {
     ) -> Result<()> {
         let _lock = self.inner.key_claim_lock.lock().await;
 
-        if let Some((request_id, request)) = self.base_client().get_missing_sessions(users).await? {
+        if let Some((request_id, request)) = self
+            .olm_machine()
+            .ok_or(Error::AuthenticationRequired)?
+            .get_missing_sessions(users)
+            .await?
+        {
             let response = self.send(request, None).await?;
             self.mark_request_as_sent(&request_id, &response).await?;
         }
@@ -436,8 +461,10 @@ impl Client {
             warn!("Error while claiming one-time keys {:?}", e);
         }
 
-        let outgoing_requests = stream::iter(self.base_client().outgoing_requests().await?)
-            .map(|r| self.send_outgoing_request(r));
+        let outgoing_requests = stream::iter(
+            self.olm_machine().ok_or(Error::AuthenticationRequired)?.outgoing_requests().await?,
+        )
+        .map(|r| self.send_outgoing_request(r));
 
         let requests = outgoing_requests.buffer_unordered(MAX_CONCURRENT_REQUESTS);
 
@@ -566,9 +593,12 @@ impl Encryption {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>, CryptoStoreError> {
-        let device = self.client.base_client().get_device(user_id, device_id).await?;
-
-        Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
+        if let Some(machine) = self.client.olm_machine() {
+            let device = machine.get_device(user_id, device_id).await?;
+            Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get a map holding all the devices of an user.
@@ -598,11 +628,13 @@ impl Encryption {
     /// }
     /// # anyhow::Result::<()>::Ok(()) });
     /// ```
-    pub async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<UserDevices, CryptoStoreError> {
-        let devices = self.client.base_client().get_user_devices(user_id).await?;
+    pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices, Error> {
+        let devices = self
+            .client
+            .olm_machine()
+            .ok_or(Error::AuthenticationRequired)?
+            .get_user_devices(user_id)
+            .await?;
 
         Ok(UserDevices { inner: devices, client: self.client.clone() })
     }
