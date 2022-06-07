@@ -1,4 +1,4 @@
-const { initTracing, OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, EncryptionSettings } = require('../');
+const { initTracing, OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings } = require('../');
 
 //initTracing();
 
@@ -61,19 +61,21 @@ describe(OlmMachine.name, () => {
 
         expect(outgoingRequests).toHaveLength(2);
 
-        expect(outgoingRequests[0]).toBeInstanceOf(KeysUploadRequest);
-        expect(outgoingRequests[0].id).toBeDefined();
-        expect(outgoingRequests[0].type).toStrictEqual(RequestType.KeysUpload);
         {
+            expect(outgoingRequests[0]).toBeInstanceOf(KeysUploadRequest);
+            expect(outgoingRequests[0].id).toBeDefined();
+            expect(outgoingRequests[0].type).toStrictEqual(RequestType.KeysUpload);
+
             const body = JSON.parse(outgoingRequests[0].body);
             expect(body.device_keys).toBeDefined();
             expect(body.one_time_keys).toBeDefined();
         }
 
-        expect(outgoingRequests[1]).toBeInstanceOf(KeysQueryRequest);
-        expect(outgoingRequests[1].id).toBeDefined();
-        expect(outgoingRequests[1].type).toStrictEqual(RequestType.KeysQuery);
         {
+            expect(outgoingRequests[1]).toBeInstanceOf(KeysQueryRequest);
+            expect(outgoingRequests[1].id).toBeDefined();
+            expect(outgoingRequests[1].type).toStrictEqual(RequestType.KeysQuery);
+
             const body = JSON.parse(outgoingRequests[1].body);
             expect(body.timeout).toBeDefined();
             expect(body.device_keys).toBeDefined();
@@ -81,78 +83,89 @@ describe(OlmMachine.name, () => {
         }
     });
 
-    test('can mark requests as sent', async () => {
-        const m = await machine(new UserId('@alice:example.org'), new DeviceId('DEVICEID'));
+    describe('can mark requests as sent and get missing sessions', () => {
+        let m;
+        let ougoingRequests;
 
-        const toDeviceEvents = JSON.stringify({});
-        const changedDevices = new DeviceLists();
-        const oneTimeKeyCounts = {};
-        const unusedFallbackKeys = [];
+        beforeAll(async () => {
+            m = await machine(new UserId('@alice:example.org'), new DeviceId('DEVICEID'));
 
-        const receiveSyncChanges = await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys);
-        const outgoingRequests = await m.outgoingRequests();
+            const toDeviceEvents = JSON.stringify({});
+            const changedDevices = new DeviceLists();
+            const oneTimeKeyCounts = {};
+            const unusedFallbackKeys = [];
 
-        expect(outgoingRequests).toHaveLength(2);
+            const receiveSyncChanges = await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys);
+            outgoingRequests = await m.outgoingRequests();
 
-        {
-            const request = outgoingRequests[0];
-            expect(request).toBeInstanceOf(KeysUploadRequest);
+            expect(outgoingRequests).toHaveLength(2);
+        });
 
-            // https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysupload
-            const hypothetical_response = JSON.stringify({
-                "one_time_key_counts": {
-                    "curve25519": 10,
-                    "signed_curve25519": 20
-                }
-            });
-            const marked = await m.markRequestAsSent(request.id, request.type, hypothetical_response);
-            expect(marked).toStrictEqual(true);
-        }
+        test('can mark requests as sent', async () => {
+            {
+                const request = outgoingRequests[0];
+                expect(request).toBeInstanceOf(KeysUploadRequest);
 
-        {
-            const request = outgoingRequests[1];
-            expect(request).toBeInstanceOf(KeysQueryRequest);
-
-            // https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysquery
-            const hypothetical_response = JSON.stringify({
-                "device_keys": {
-                    "@alice:example.org": {
-                        "JLAFKJWSCS": {
-                            "algorithms": [
-                                "m.olm.v1.curve25519-aes-sha2",
-                                "m.megolm.v1.aes-sha2"
-                            ],
-                            "device_id": "JLAFKJWSCS",
-                            "keys": {
-                                "curve25519:JLAFKJWSCS": "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4",
-                                "ed25519:JLAFKJWSCS": "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
-                            },
-                            "signatures": {
-                                "@alice:example.org": {
-                                    "ed25519:JLAFKJWSCS": "m53Wkbh2HXkc3vFApZvCrfXcX3AI51GsDHustMhKwlv3TuOJMj4wistcOTM8q2+e/Ro7rWFUb9ZfnNbwptSUBA"
-                                }
-                            },
-                            "unsigned": {
-                                "device_display_name": "Alice's mobile phone"
-                            },
-                            "user_id": "@alice:example.org"
-                        }
+                // https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysupload
+                const hypothetical_response = JSON.stringify({
+                    "one_time_key_counts": {
+                        "curve25519": 10,
+                        "signed_curve25519": 20
                     }
-                },
-                "failures": {}
-            });
-            const marked = await m.markRequestAsSent(request.id, request.type, hypothetical_response);
-            expect(marked).toStrictEqual(true);
+                });
+                const marked = await m.markRequestAsSent(request.id, request.type, hypothetical_response);
+                expect(marked).toStrictEqual(true);
+            }
 
-            console.log(await m.getMissingSessions([user]));
-        }
-    });
+            {
+                const request = outgoingRequests[1];
+                expect(request).toBeInstanceOf(KeysQueryRequest);
 
-    /*
-    test('can get missing sessions', async () => {
-        const m = await machine();
+                // https://spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysquery
+                const hypothetical_response = JSON.stringify({
+                    "device_keys": {
+                        "@alice:example.org": {
+                            "JLAFKJWSCS": {
+                                "algorithms": [
+                                    "m.olm.v1.curve25519-aes-sha2",
+                                    "m.megolm.v1.aes-sha2"
+                                ],
+                                "device_id": "JLAFKJWSCS",
+                                "keys": {
+                                    "curve25519:JLAFKJWSCS": "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4",
+                                    "ed25519:JLAFKJWSCS": "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
+                                },
+                                "signatures": {
+                                    "@alice:example.org": {
+                                        "ed25519:JLAFKJWSCS": "m53Wkbh2HXkc3vFApZvCrfXcX3AI51GsDHustMhKwlv3TuOJMj4wistcOTM8q2+e/Ro7rWFUb9ZfnNbwptSUBA"
+                                    }
+                                },
+                                "unsigned": {
+                                    "device_display_name": "Alice's mobile phone"
+                                },
+                                "user_id": "@alice:example.org"
+                            }
+                        }
+                    },
+                    "failures": {}
+                });
+                const marked = await m.markRequestAsSent(request.id, request.type, hypothetical_response);
+                expect(marked).toStrictEqual(true);
+            }
+        });
 
-        expect(await m.getMissingSessions([user])).toStrictEqual(null);
+        test('can get missing sessions', async () => {
+            const request = await m.getMissingSessions([user]);
+
+            expect(request).toBeInstanceOf(KeysClaimRequest);
+            expect(request.id).toBeDefined();
+            expect(request.type).toStrictEqual(RequestType.KeysClaim);
+
+            const body = JSON.parse(request.body);
+            expect(body.one_time_keys).toBeDefined();
+            expect(body.one_time_keys[user.toString()]).toBeDefined();
+            expect(body.timeout).toBeDefined();
+        });
     });
 
     test('can update tracked users', async () => {
@@ -161,6 +174,7 @@ describe(OlmMachine.name, () => {
         expect(await m.updateTrackedUsers([user])).toStrictEqual(undefined);
     });
 
+    /*
     test('can share a room key', async () => {
         const m = await machine();
 
