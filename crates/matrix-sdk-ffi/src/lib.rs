@@ -87,17 +87,16 @@ fn new_client_builder(base_path: String, home: String) -> anyhow::Result<ClientB
 }
 
 fn new_client_builder_with_config(base_path: String, home: String, config: ClientConfig, user: &UserId) -> anyhow::Result<ClientBuilder> {
-    let builder = new_client_builder(base_path, home)?;
+    let mut builder = new_client_builder(base_path, home)?;
+    if let Some(homeserver) = config.homeserver {
+        builder = builder.homeserver_url(&homeserver);
+    } else {
+        builder = builder.server_name_from_user_id(&user);
+    }
 
-    let builder = match config.homeserver {
-        Some(homeserver) => builder.homeserver_url(&homeserver),
-        None => builder.user_id_server(&user)
-    };
-
-    let builder = match config.http_proxy {
-        Some(proxy) => builder.proxy(proxy),
-        None => builder
-    };
+    if let Some(proxy) = config.http_proxy {
+        builder = builder.proxy(proxy);
+    }
 
     Ok(builder)
 }
