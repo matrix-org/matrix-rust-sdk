@@ -72,7 +72,7 @@ impl Default for EncryptionSettings {
                 n.into()
             },
             rotation_period_messages: {
-                let n: u64 = default.rotation_period_msgs.try_into().unwrap();
+                let n = default.rotation_period_msgs;
 
                 n.into()
             },
