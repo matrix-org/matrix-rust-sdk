@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
+    time::Duration,
 };
 
 use dashmap::DashMap;
@@ -1012,7 +1013,7 @@ impl OlmMachine {
         device_id: &DeviceId,
     ) -> StoreResult<EncryptionInfo> {
         let verification_state = if let Some(device) =
-            self.get_device(sender, device_id).await?.filter(|d| {
+            self.get_device(sender, device_id, None).await?.filter(|d| {
                 d.curve25519_key().map(|k| k.to_base64() == session.sender_key()).unwrap_or(false)
             }) {
             if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
@@ -1165,6 +1166,14 @@ impl OlmMachine {
         self.identity_manager.update_tracked_users(users).await;
     }
 
+    async fn wait_if_user_pending(&self, user_id: &UserId, timeout: Option<Duration>) {
+        if let Some(timeout) = timeout {
+            let listener = self.identity_manager.listen_for_received_queries();
+
+            let _ = listener.wait_if_user_pending(timeout, user_id).await;
+        }
+    }
+
     /// Get a specific device of a user.
     ///
     /// # Arguments
@@ -1172,6 +1181,11 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that the device belongs to.
     ///
     /// * `device_id` - The unique id of the device.
+    ///
+    /// * `timeout` - The amount of time we should wait before returning if the
+    /// user's device list has been marked as stale. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being
+    /// processed and sent out.
     ///
     /// Returns a `Device` if one is found and the crypto store didn't throw an
     /// error.
@@ -1186,7 +1200,7 @@ impl OlmMachine {
     /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
-    /// let device = machine.get_device(&alice, device_id!("DEVICEID")).await;
+    /// let device = machine.get_device(&alice, device_id!("DEVICEID"), None).await;
     ///
     /// println!("{:?}", device);
     /// # });
@@ -1195,7 +1209,9 @@ impl OlmMachine {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
+        timeout: Option<Duration>,
     ) -> StoreResult<Option<Device>> {
+        self.wait_if_user_pending(user_id, timeout).await;
         self.store.get_device(user_id, device_id).await
     }
 
@@ -1205,9 +1221,19 @@ impl OlmMachine {
     ///
     /// * `user_id` - The unique id of the user that the identity belongs to
     ///
+    /// * `timeout` - The amount of time we should wait before returning if the
+    /// user's device list has been marked as stale. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being
+    /// processed and sent out.
+    ///
     /// Returns a `UserIdentities` enum if one is found and the crypto store
     /// didn't throw an error.
-    pub async fn get_identity(&self, user_id: &UserId) -> StoreResult<Option<UserIdentities>> {
+    pub async fn get_identity(
+        &self,
+        user_id: &UserId,
+        timeout: Option<Duration>,
+    ) -> StoreResult<Option<UserIdentities>> {
+        self.wait_if_user_pending(user_id, timeout).await;
         self.store.get_identity(user_id).await
     }
 
@@ -1216,6 +1242,11 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `user_id` - The unique id of the user that the devices belong to.
+    ///
+    /// * `timeout` - The amount of time we should wait before returning if the
+    /// user's device list has been marked as stale. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being
+    /// processed and sent out.
     ///
     /// # Example
     ///
@@ -1227,14 +1258,19 @@ impl OlmMachine {
     /// # let alice = user_id!("@alice:example.org").to_owned();
     /// # block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
-    /// let devices = machine.get_user_devices(&alice).await.unwrap();
+    /// let devices = machine.get_user_devices(&alice, None).await.unwrap();
     ///
     /// for device in devices.devices() {
     ///     println!("{:?}", device);
     /// }
     /// # });
     /// ```
-    pub async fn get_user_devices(&self, user_id: &UserId) -> StoreResult<UserDevices> {
+    pub async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+        timeout: Option<Duration>,
+    ) -> StoreResult<UserDevices> {
+        self.wait_if_user_pending(user_id, timeout).await;
         self.store.get_user_devices(user_id).await
     }
 
@@ -1639,7 +1675,8 @@ pub(crate) mod tests {
     async fn get_machine_pair_with_setup_sessions() -> (OlmMachine, OlmMachine) {
         let (alice, bob) = get_machine_pair_with_session().await;
 
-        let bob_device = alice.get_device(&bob.user_id, &bob.device_id).await.unwrap().unwrap();
+        let bob_device =
+            alice.get_device(&bob.user_id, &bob.device_id, None).await.unwrap().unwrap();
 
         let (session, content) = bob_device
             .encrypt(AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
@@ -1846,7 +1883,8 @@ pub(crate) mod tests {
     async fn test_olm_encryption() {
         let (alice, bob) = get_machine_pair_with_session().await;
 
-        let bob_device = alice.get_device(&bob.user_id, &bob.device_id).await.unwrap().unwrap();
+        let bob_device =
+            alice.get_device(&bob.user_id, &bob.device_id, None).await.unwrap().unwrap();
 
         let event = ToDeviceEvent {
             sender: alice.user_id().to_owned(),
@@ -1971,7 +2009,8 @@ pub(crate) mod tests {
     async fn interactive_verification() {
         let (alice, bob) = get_machine_pair_with_setup_sessions().await;
 
-        let bob_device = alice.get_device(bob.user_id(), bob.device_id()).await.unwrap().unwrap();
+        let bob_device =
+            alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
         assert!(!bob_device.verified());
 
@@ -2031,7 +2070,7 @@ pub(crate) mod tests {
         assert!(bob_device.verified());
 
         let alice_device =
-            bob.get_device(alice.user_id(), alice.device_id()).await.unwrap().unwrap();
+            bob.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
 
         assert!(!alice_device.verified());
         bob.handle_verification_event(&event).await;
@@ -2045,7 +2084,8 @@ pub(crate) mod tests {
 
         // ----------------------------------------------------------------------------
         // On Alice's device:
-        let bob_device = alice.get_device(bob.user_id(), bob.device_id()).await.unwrap().unwrap();
+        let bob_device =
+            alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
         assert!(!bob_device.verified());
 
@@ -2184,7 +2224,7 @@ pub(crate) mod tests {
         let event = msgs.first().map(|r| outgoing_request_to_event(bob.user_id(), r)).unwrap();
 
         let alice_device =
-            bob.get_device(alice.user_id(), alice.device_id()).await.unwrap().unwrap();
+            bob.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
 
         assert!(!bob_sas.is_done());
         assert!(!alice_device.verified());

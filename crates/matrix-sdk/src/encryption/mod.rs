@@ -594,7 +594,7 @@ impl Encryption {
         device_id: &DeviceId,
     ) -> Result<Option<Device>, CryptoStoreError> {
         if let Some(machine) = self.client.olm_machine() {
-            let device = machine.get_device(user_id, device_id).await?;
+            let device = machine.get_device(user_id, device_id, None).await?;
             Ok(device.map(|d| Device { inner: d, client: self.client.clone() }))
         } else {
             Ok(None)
@@ -633,7 +633,7 @@ impl Encryption {
             .client
             .olm_machine()
             .ok_or(Error::AuthenticationRequired)?
-            .get_user_devices(user_id)
+            .get_user_devices(user_id, None)
             .await?;
 
         Ok(UserDevices { inner: devices, client: self.client.clone() })
@@ -677,7 +677,7 @@ impl Encryption {
         use crate::encryption::identities::UserIdentity;
 
         if let Some(olm) = self.client.olm_machine() {
-            let identity = olm.get_identity(user_id).await?;
+            let identity = olm.get_identity(user_id, None).await?;
 
             Ok(identity.map(|i| match i {
                 matrix_sdk_base::crypto::UserIdentities::Own(i) => {
