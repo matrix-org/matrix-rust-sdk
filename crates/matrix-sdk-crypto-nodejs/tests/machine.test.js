@@ -151,30 +151,6 @@ describe(OlmMachine.name, () => {
                 expect(marked).toStrictEqual(true);
             }
         });
-
-        /*
-        test('can share a room key', async () => {
-            const m = await machine();
-
-            console.log(await m.shareRoomKey(room, [new UserId('@bob:example.org')], new EncryptionSettings()));
-        });
-        */
-
-        /*
-        test('can encode a roomt event', async () => {
-            console.log(m.encryptRoomEvent(
-                room,
-                'm.room.message',
-                JSON.stringify({
-                    "body": "Hello Alice!",
-                    "msgtype": "m.text",
-                    "format": "org.matrix.custom.html",
-                    "formatted_body": "Hello <a href='https://matrix.to/#/@alice:example.org'>Alice</a>!"
-                }),
-            ));
-
-        });
-        */
     });
 
     describe('setup workflow to encrypt/decrypt events', () => {

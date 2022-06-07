@@ -21,6 +21,6 @@
     },
     "scripts": {
         "build": "napi build --platform --release --strip",
-        "test": "jest"
+        "test": "jest --verbose"
     }
 }

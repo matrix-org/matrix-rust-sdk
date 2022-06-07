@@ -312,7 +312,7 @@ impl OlmMachine {
         .map_err(into_err)
     }
 
-    /// Encrypt a JSON-encoded conetnt for the given room.
+    /// Encrypt a JSON-encoded content for the given room.
     ///
     /// # Arguments
     ///
