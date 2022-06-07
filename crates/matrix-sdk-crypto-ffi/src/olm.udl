@@ -280,17 +280,17 @@ interface OlmMachine {
     string encrypt([ByRef] string room_id, [ByRef] string event_type, [ByRef] string content);
 
     [Throws=CryptoStoreError]
-    UserIdentity? get_identity([ByRef] string user_id);
+    UserIdentity? get_identity([ByRef] string user_id, u32 timeout);
     [Throws=SignatureError]
     SignatureUploadRequest verify_identity([ByRef] string user_id);
     [Throws=CryptoStoreError]
-    Device? get_device([ByRef] string user_id, [ByRef] string device_id);
+    Device? get_device([ByRef] string user_id, [ByRef] string device_id, u32 timeout);
     [Throws=CryptoStoreError]
     void mark_device_as_trusted([ByRef] string user_id, [ByRef] string device_id);
     [Throws=SignatureError]
     SignatureUploadRequest verify_device([ByRef] string user_id, [ByRef] string device_id);
     [Throws=CryptoStoreError]
-    sequence<Device> get_user_devices([ByRef] string user_id);
+    sequence<Device> get_user_devices([ByRef] string user_id, u32 timeout);
 
     [Throws=CryptoStoreError]
     boolean is_user_tracked([ByRef] string user_id);
