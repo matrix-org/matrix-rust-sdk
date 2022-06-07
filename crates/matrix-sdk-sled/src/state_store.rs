@@ -62,9 +62,9 @@ use tokio::task::spawn_blocking;
 
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
-use crate::encode_key::EncodeKey;
 #[cfg(feature = "experimental-timeline")]
 use crate::encode_key::ENCODE_SEPARATOR;
+use crate::encode_key::{EncodeKey, EncodeUnchecked};
 #[cfg(feature = "crypto-store")]
 pub use crate::CryptoStore;
 
@@ -971,13 +971,13 @@ impl SledStore {
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let custom = self.custom.clone();
         let me = self.clone();
-        let key = self.encode_key(CUSTOM, key);
+        let key = self.encode_key(CUSTOM, EncodeUnchecked::from(key));
         spawn_blocking(move || custom.get(key)?.map(move |v| me.deserialize_value(&v)).transpose())
             .await?
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        let key = self.encode_key(CUSTOM, key);
+        let key = self.encode_key(CUSTOM, EncodeUnchecked::from(key));
         let me = self.clone();
         let ret = self
             .custom
