@@ -12,6 +12,7 @@ pub(crate) use ruma::api::client::{
     to_device::send_event_to_device::v3::Response as ToDeviceResponse,
 };
 use ruma::api::IncomingResponse as RumaIncomingResponse;
+use wasm_bindgen::prelude::*;
 
 use crate::requests::RequestType;
 
