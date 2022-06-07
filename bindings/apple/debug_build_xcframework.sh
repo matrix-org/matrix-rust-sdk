@@ -20,13 +20,12 @@ TARGET_DIR="${SRC_ROOT}/target"
 GENERATED_DIR="${SRC_ROOT}/generated"
 mkdir -p ${GENERATED_DIR}
 
-# Release for now. Debug builds cause crashes deep inside the Tokio runtime.
-REL_FLAG="--release"
-REL_TYPE_DIR="release"
+REL_FLAG=""
+REL_TYPE_DIR="debug"
 
 # iOS Simulator
-cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
-cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
+cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
 lipo -create \
   "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
