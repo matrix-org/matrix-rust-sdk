@@ -45,9 +45,10 @@ pub fn guest_client(base_path: String, homeurl: String) -> anyhow::Result<Arc<Cl
 
 pub fn login_with_token(base_path: String, restore_token: String) -> anyhow::Result<Arc<Client>> {
     let RestoreToken { session, homeurl, is_guest } = serde_json::from_str(&restore_token)?;
+
     let builder = new_client_builder(base_path, session.user_id.to_string())?
-        .homeserver_url(&homeurl)
-        .user_id(&session.user_id);
+        .homeserver_url(&homeurl);
+
     // First we need to log in.
     RUNTIME.block_on(async move {
         let client = builder.build().await?;
@@ -61,12 +62,15 @@ pub fn login_new_client(
     base_path: String,
     username: String,
     password: String,
+    config: ClientConfig
 ) -> anyhow::Result<Arc<Client>> {
-    let builder = new_client_builder(base_path, username.clone())?;
-    let user = Box::<UserId>::try_from(username)?;
+    let user = Box::<UserId>::try_from(username.clone())?;
+    let builder = new_client_builder_with_config(base_path, username, config, &user)?;
+
     // First we need to log in.
     RUNTIME.block_on(async move {
-        let client = builder.user_id(&user).build().await?;
+        let client = builder.build().await?;
+
         client.login(user, &password, None, None).await?;
         let c = Client::new(client, ClientState { is_guest: false, ..ClientState::default() });
         Ok(Arc::new(c))
@@ -80,6 +84,28 @@ fn new_client_builder(base_path: String, home: String) -> anyhow::Result<ClientB
     let store_config = make_store_config(&data_path, None)?;
 
     Ok(MatrixClient::builder().user_agent("rust-sdk-ios").store_config(store_config))
+}
+
+fn new_client_builder_with_config(base_path: String, home: String, config: ClientConfig, user: &UserId) -> anyhow::Result<ClientBuilder> {
+    let builder = new_client_builder(base_path, home)?;
+
+    let builder = match config.homeserver {
+        Some(homeserver) => builder.homeserver_url(&homeserver),
+        None => builder.user_id_server(&user)
+    };
+
+    let builder = match config.http_proxy {
+        Some(proxy) => builder.proxy(proxy),
+        None => builder
+    };
+
+    Ok(builder)
+}
+
+#[derive(Default, Debug)]
+pub struct ClientConfig {
+    homeserver: Option<String>,
+    http_proxy: Option<String>,
 }
 
 #[derive(Default, Debug)]

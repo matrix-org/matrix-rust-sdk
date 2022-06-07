@@ -1,6 +1,6 @@
 namespace sdk {
     [Throws=ClientError]
-    Client login_new_client(string base_path, string username, string password);
+    Client login_new_client(string base_path, string username, string password, ClientConfig config);
 
     [Throws=ClientError]
     Client guest_client(string base_path, string homeserver);
@@ -11,6 +11,11 @@ namespace sdk {
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
     string gen_transaction_id();
+};
+
+dictionary ClientConfig {
+    string? homeserver;
+    string? http_proxy;
 };
 
 [Error]

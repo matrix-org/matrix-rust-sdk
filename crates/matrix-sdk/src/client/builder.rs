@@ -99,7 +99,7 @@ impl ClientBuilder {
     /// This method is mutually exclusive with
     /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
     /// set last will be used.
-    pub fn user_id(self, user_id: &UserId) -> Self {
+    pub fn user_id_server(self, user_id: &UserId) -> Self {
         self.server_name(user_id.server_name())
     }
 
