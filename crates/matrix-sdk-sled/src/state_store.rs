@@ -1242,7 +1242,7 @@ impl SledStore {
                 let metadata: Option<TimelineMetadata> = self
                     .room_timeline_metadata
                     .get(self.encode_key(TIMELINE_METADATA, &room_id))?
-                    .map(|v| serde_json::from_slice(&v).map_err(StoreError::Json))
+                    .map(|item| self.deserialize_value(&item))
                     .transpose()?;
                 if let Some(mut metadata) = metadata {
                     if !timeline.sync && Some(&timeline.start) != metadata.end.as_ref() {
