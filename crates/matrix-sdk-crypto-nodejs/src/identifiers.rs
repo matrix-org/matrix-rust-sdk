@@ -1,6 +1,7 @@
 //! Types for [Matrix](https://matrix.org/) identifiers for devices,
 //! events, keys, rooms, servers, users and URIs.
 
+use napi::Result;
 use napi_derive::*;
 
 use crate::into_err;
@@ -24,7 +25,7 @@ impl UserId {
 impl UserId {
     /// Parse/validate and create a new `UserId`.
     #[napi(constructor)]
-    pub fn new(id: String) -> Result<UserId, napi::Error> {
+    pub fn new(id: String) -> Result<UserId> {
         Ok(Self::new_with(ruma::UserId::parse(id.as_str()).map_err(into_err)?))
     }
 
@@ -109,7 +110,7 @@ impl RoomId {
 impl RoomId {
     /// Parse/validate and create a new `RoomId`.
     #[napi(constructor)]
-    pub fn new(id: String) -> Result<RoomId, napi::Error> {
+    pub fn new(id: String) -> Result<RoomId> {
         Ok(Self::new_with(ruma::RoomId::parse(id).map_err(into_err)?))
     }
 
@@ -149,7 +150,7 @@ pub struct ServerName {
 impl ServerName {
     /// Parse/validate and create a new `ServerName`.
     #[napi(constructor)]
-    pub fn new(name: String) -> Result<ServerName, napi::Error> {
+    pub fn new(name: String) -> Result<ServerName> {
         Ok(Self { inner: ruma::ServerName::parse(name).map_err(into_err)? })
     }
 
