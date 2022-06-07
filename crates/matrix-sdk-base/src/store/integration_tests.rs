@@ -364,20 +364,19 @@ macro_rules! statestore_integration_tests {
                     let test_name = "filter_name";
                     let filter_id = "filter_id_1234";
                     assert_eq!(store.get_filter(test_name).await.unwrap(), None);
-                    assert_eq!(store.save_filter(test_name, filter_id).await.unwrap(), ());
+                    store.save_filter(test_name, filter_id).await.unwrap();
                     assert_eq!(store.get_filter(test_name).await.unwrap(), Some(filter_id.to_owned()));
                 }
 
                 #[async_test]
                 async fn test_sync_token_saving() {
-
                     let mut changes = StateChanges::default();
                     let store = get_store().await.unwrap();
                     let sync_token = "t392-516_47314_0_7_1".to_owned();
 
                     changes.sync_token = Some(sync_token.clone());
                     assert_eq!(store.get_sync_token().await.unwrap(), None);
-                    assert_eq!(store.save_changes(&changes).await.unwrap(), ());
+                    store.save_changes(&changes).await.unwrap();
                     assert_eq!(store.get_sync_token().await.unwrap(), Some(sync_token));
                 }
 
