@@ -835,6 +835,8 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::time::Duration;
+
     use matrix_sdk_test::async_test;
     use ruma::device_id;
 
@@ -853,7 +855,13 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
 
+        let listener = manager.listen_for_received_queries();
+
+        let task = tokio::task::spawn(async move { listener.wait(Duration::from_secs(10)).await });
+
         manager.receive_keys_query_response(&other_key_query()).await.unwrap();
+
+        assert!(task.await.unwrap().is_ok());
 
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
