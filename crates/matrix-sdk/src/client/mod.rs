@@ -1597,7 +1597,7 @@ impl Client {
     ///         password.session = info.session.as_deref();
     ///
     ///         client
-    ///             .delete_devices(devices, Some(uiaa::AuthData::Password(auth_data)))
+    ///             .delete_devices(devices, Some(uiaa::AuthData::Password(password)))
     ///             .await?;
     ///     }
     /// }
