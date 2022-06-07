@@ -63,7 +63,7 @@ pub fn login_new_client(
     password: String,
 ) -> anyhow::Result<Arc<Client>> {
     let builder = new_client_builder(base_path, username.clone())?;
-    let user = Box::<UserId>::try_from(username)?;
+    let user = UserId::parse(username)?;
     // First we need to log in.
     RUNTIME.block_on(async move {
         let client = builder.user_id(&user).build().await?;
