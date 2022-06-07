@@ -709,7 +709,7 @@ impl Encryption {
     ///
     ///         client
     ///             .encryption()
-    ///             .bootstrap_cross_signing(Some(uiaa::AuthData::Password(auth_data)))
+    ///             .bootstrap_cross_signing(Some(uiaa::AuthData::Password(password)))
     ///             .await
     ///             .expect("Couldn't bootstrap cross signing")
     ///     } else {
