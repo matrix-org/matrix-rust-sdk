@@ -156,8 +156,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - A successful login response that contains our access
-    ///   token
-    /// and device id.
+    ///   token and device id.
     pub async fn receive_login_response(
         &self,
         response: &api::session::login::v3::Response,
@@ -174,8 +173,8 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `session` - An session that the user already has from a
-    /// previous login call.
+    /// * `session` - An session that the user already has from a previous login
+    ///   call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         self.store.restore_session(session.clone()).await?;
 
