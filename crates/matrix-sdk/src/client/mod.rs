@@ -71,7 +71,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::sync::OnceCell;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -1204,14 +1204,17 @@ impl Client {
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
     /// # });
+    #[instrument(skip(self, definition))]
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
         definition: FilterDefinition<'_>,
     ) -> Result<String> {
         if let Some(filter) = self.inner.base_client.get_filter(filter_name).await? {
+            debug!("Found filter locally");
             Ok(filter)
         } else {
+            debug!("Didn't find filter locally");
             let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?;
             let request = FilterUploadRequest::new(user_id, definition);
             let response = self.send(request, None).await?;

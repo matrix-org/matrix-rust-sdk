@@ -176,6 +176,7 @@ impl BaseClient {
     /// * `session` - An session that the user already has from a previous login
     ///   call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
+        debug!(user_id = %session.user_id, device_id = %session.device_id, "Restoring login");
         self.store.restore_session(session.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]

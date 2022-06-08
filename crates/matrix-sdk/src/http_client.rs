@@ -131,6 +131,7 @@ impl HttpClient {
             return Err(HttpError::NotClientRequest);
         }
 
+        trace!("Serializing request");
         let request = if !self.request_config.assert_identity {
             let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
                 // Small optimization: Don't take the session lock if we know the auth token
@@ -166,12 +167,13 @@ impl HttpClient {
         };
 
         let request = request.map(|body| body.freeze());
+
+        trace!("Sending request");
         let response = self.inner.send_request(request, config).await?;
 
         trace!("Got response: {:?}", response);
 
         let response = Request::IncomingResponse::try_from_http_response(response)?;
-
         Ok(response)
     }
 
