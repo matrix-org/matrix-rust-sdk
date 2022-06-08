@@ -65,8 +65,8 @@ use ruma::{
     assign,
     events::room::MediaSource,
     presence::PresenceState,
-    DeviceId, MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
-    RoomOrAliasId, ServerName, UInt, UserId,
+    MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, OwnedUserId, RoomAliasId, RoomId,
+    RoomOrAliasId, ServerName, UInt,
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
@@ -257,8 +257,8 @@ impl Client {
     }
 
     /// Is the client logged in.
-    pub fn logged_in(&self) -> bool {
-        self.inner.base_client.logged_in()
+    pub async fn logged_in(&self) -> bool {
+        self.inner.base_client.logged_in().await
     }
 
     /// The Homeserver of the client.
@@ -267,13 +267,15 @@ impl Client {
     }
 
     /// Get the user id of the current owner of the client.
-    pub fn user_id(&self) -> Option<&UserId> {
-        self.inner.base_client.session().map(|s| s.user_id.as_ref())
+    pub async fn user_id(&self) -> Option<OwnedUserId> {
+        let session = self.inner.base_client.session().read().await;
+        session.as_ref().cloned().map(|s| s.user_id)
     }
 
     /// Get the device id that identifies the current session.
-    pub fn device_id(&self) -> Option<&DeviceId> {
-        self.inner.base_client.session().map(|s| s.device_id.as_ref())
+    pub async fn device_id(&self) -> Option<OwnedDeviceId> {
+        let session = self.inner.base_client.session().read().await;
+        session.as_ref().map(|s| s.device_id.clone())
     }
 
     /// Get the whole session info of this client.
@@ -282,8 +284,8 @@ impl Client {
     ///
     /// Can be used with [`Client::restore_login`] to restore a previously
     /// logged in session.
-    pub fn session(&self) -> Option<&Session> {
-        self.inner.base_client.session()
+    pub async fn session(&self) -> Option<Session> {
+        self.inner.base_client.session().read().await.clone()
     }
 
     /// Get a reference to the store.
@@ -1102,7 +1104,6 @@ impl Client {
     ///
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
-        self.inner.http_client.set_session(session.clone());
         Ok(self.inner.base_client.restore_login(session).await?)
     }
 
@@ -1216,8 +1217,8 @@ impl Client {
             Ok(filter)
         } else {
             debug!("Didn't find filter locally");
-            let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?;
-            let request = FilterUploadRequest::new(user_id, definition);
+            let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+            let request = FilterUploadRequest::new(&user_id, definition);
             let response = self.send(request, None).await?;
 
             self.inner.base_client.receive_filter_upload(filter_name, &response).await?;
@@ -2397,7 +2398,7 @@ pub(crate) mod tests {
 
         client.login("example", "wordpass", None, None).await.unwrap();
 
-        let logged_in = client.logged_in();
+        let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
 
         assert_eq!(client.homeserver().await, homeserver);
@@ -2414,7 +2415,7 @@ pub(crate) mod tests {
 
         client.login("example", "wordpass", None, None).await.unwrap();
 
-        let logged_in = client.logged_in();
+        let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
 
         assert_eq!(client.homeserver().await.as_str(), "https://example.org/");
@@ -2431,7 +2432,7 @@ pub(crate) mod tests {
 
         client.login("example", "wordpass", None, None).await.unwrap();
 
-        let logged_in = client.logged_in();
+        let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
 
         assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
@@ -2475,7 +2476,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let logged_in = client.logged_in();
+        let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
     }
 
@@ -2507,7 +2508,7 @@ pub(crate) mod tests {
 
         client.login_with_token("averysmalltoken", None, None).await.unwrap();
 
-        let logged_in = client.logged_in();
+        let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
     }
 
@@ -2546,7 +2547,7 @@ pub(crate) mod tests {
             .create();
 
         let client = logged_in_client().await;
-        let session = client.session().unwrap().clone();
+        let session = client.session().await.unwrap().clone();
 
         let room = client.get_joined_room(room_id);
         assert!(room.is_none());

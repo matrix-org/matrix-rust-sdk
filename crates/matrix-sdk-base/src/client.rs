@@ -78,6 +78,9 @@ pub type Token = String;
 /// accordingly updates its state.
 #[derive(Clone)]
 pub struct BaseClient {
+    /// The current client session containing our user id, device id and access
+    /// token.
+    session: Arc<RwLock<Option<Session>>>,
     /// The current sync token that should be used for the next sync call.
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
@@ -96,7 +99,7 @@ pub struct BaseClient {
 impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
-            .field("session", &self.session())
+            .field("session", &self.session)
             .field("sync_token", &self.sync_token)
             .finish()
     }
@@ -121,6 +124,7 @@ impl BaseClient {
             config.crypto_store.unwrap_or_else(|| Box::new(MemoryCryptoStore::default())).into();
 
         BaseClient {
+            session: store.session.clone(),
             sync_token: store.sync_token.clone(),
             store,
             #[cfg(feature = "e2e-encryption")]
@@ -130,16 +134,10 @@ impl BaseClient {
         }
     }
 
-    /// Get the user login session.
-    ///
-    /// If the client is currently logged in, this will return a
-    /// [`Session`][crate::session::Session] object which can later be given to
-    /// [`BaseClient::restore_login`].
-    ///
-    /// Returns a session object if the client is logged in. Otherwise returns
-    /// `None`.
-    pub fn session(&self) -> Option<&Session> {
-        self.store.session()
+    /// The current client session containing our user id, device id and access
+    /// token.
+    pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
+        &self.session
     }
 
     /// Get a reference to the store.
@@ -148,8 +146,10 @@ impl BaseClient {
     }
 
     /// Is the client logged in.
-    pub fn logged_in(&self) -> bool {
-        self.store.session().is_some()
+    pub async fn logged_in(&self) -> bool {
+        // TODO turn this into a atomic bool so this method doesn't need to be
+        // async.
+        self.session.read().await.is_some()
     }
 
     /// Receive a login response and update the session of the client.
@@ -195,7 +195,21 @@ impl BaseClient {
             }
         }
 
+        *self.session.write().await = Some(session);
+
         Ok(())
+    }
+
+    /// Get the user login session.
+    ///
+    /// If the client is currently logged in, this will return a
+    /// `matrix_sdk::Session` object which can later be given to
+    /// `restore_login`.
+    ///
+    /// Returns a session object if the client is logged in. Otherwise returns
+    /// `None`.
+    pub async fn get_session(&self) -> Option<Session> {
+        self.session.read().await.clone()
     }
 
     /// Get the current, if any, sync token of the client.
@@ -1003,7 +1017,7 @@ impl BaseClient {
             .transpose()?
         {
             Ok(event.content.global)
-        } else if let Some(session) = self.session() {
+        } else if let Some(session) = self.get_session().await {
             Ok(Ruleset::server_default(&session.user_id))
         } else {
             Ok(Ruleset::new())

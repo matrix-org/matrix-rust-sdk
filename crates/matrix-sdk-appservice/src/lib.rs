@@ -687,8 +687,8 @@ impl AppService {
             let transaction = transaction.clone();
 
             let task = tokio::spawn(async move {
-                let user_id = match virt_client.user_id() {
-                    Some(user_id) => user_id.localpart(),
+                let user_id = match virt_client.user_id().await {
+                    Some(user_id) => user_id.localpart().to_owned(),
                     // Unauthenticated client. (should that be possible?)
                     None => return Ok(()),
                 };

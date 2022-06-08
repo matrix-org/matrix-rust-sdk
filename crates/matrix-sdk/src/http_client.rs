@@ -17,7 +17,6 @@ use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duratio
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
-use matrix_sdk_base::once_cell::sync::OnceCell;
 use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 use reqwest::Response;
 use ruma::api::{
@@ -96,7 +95,7 @@ pub trait HttpSend: AsyncTraitDeps {
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) homeserver: Arc<RwLock<Url>>,
-    pub(crate) session: OnceCell<Session>,
+    pub(crate) session: Arc<RwLock<Option<Session>>>,
     pub(crate) request_config: RequestConfig,
 }
 
@@ -104,9 +103,10 @@ impl HttpClient {
     pub(crate) fn new(
         inner: Arc<dyn HttpSend>,
         homeserver: Arc<RwLock<Url>>,
+        session: Arc<RwLock<Option<Session>>>,
         request_config: RequestConfig,
     ) -> Self {
-        HttpClient { inner, homeserver, session: Default::default(), request_config }
+        HttpClient { inner, homeserver, session, request_config }
     }
 
     #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
@@ -131,18 +131,21 @@ impl HttpClient {
         }
 
         trace!("Serializing request");
+        let access_token;
+
         let request = if !self.request_config.assert_identity {
             let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
                 // Small optimization: Don't take the session lock if we know the auth token
                 // isn't going to be used anyways.
                 SendAccessToken::None
             } else {
-                match self.session() {
+                match self.session.read().await.as_ref() {
                     Some(session) => {
+                        access_token = session.access_token.clone();
                         if config.force_auth {
-                            SendAccessToken::Always(&session.access_token)
+                            SendAccessToken::Always(&access_token)
                         } else {
-                            SendAccessToken::IfRequired(&session.access_token)
+                            SendAccessToken::IfRequired(&access_token)
                         }
                     }
                     None => SendAccessToken::None,
@@ -155,12 +158,18 @@ impl HttpClient {
                 &server_versions,
             )?
         } else {
+            let (send_access_token, user_id) = {
+                let session = self.session.read().await;
+                let session = session.as_ref().ok_or(HttpError::UserIdRequired)?;
+
+                access_token = session.access_token.clone();
+                (SendAccessToken::Always(&access_token), session.user_id.clone())
+            };
+
             request.try_into_http_request_with_user_id::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
-                SendAccessToken::Always(
-                    &self.session().ok_or(HttpError::UserIdRequired)?.access_token,
-                ),
-                &self.session().ok_or(HttpError::UserIdRequired)?.user_id,
+                send_access_token,
+                &user_id,
                 &server_versions,
             )?
         };
@@ -174,14 +183,6 @@ impl HttpClient {
 
         let response = Request::IncomingResponse::try_from_http_response(response)?;
         Ok(response)
-    }
-
-    pub(crate) fn set_session(&self, session: Session) {
-        self.session.set(session).expect("A session was already set");
-    }
-
-    fn session(&self) -> Option<&Session> {
-        self.session.get()
     }
 }
 
