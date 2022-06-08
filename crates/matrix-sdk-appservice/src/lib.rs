@@ -666,7 +666,7 @@ impl AppService {
             client
                 .store()
                 .set_custom_value(
-                    &[USER_MEMBER, event.room_id().as_bytes(), localpart.as_bytes(), b"."].concat(),
+                    &[USER_MEMBER, event.room_id().as_bytes(), b".", localpart.as_bytes()].concat(),
                     event.membership().to_string().into_bytes(),
                 )
                 .await?;
@@ -688,7 +688,7 @@ impl AppService {
 
             let task = tokio::spawn(async move {
                 let user_id = match virt_client.user_id() {
-                    Some(user_id) => user_id,
+                    Some(user_id) => user_id.localpart(),
                     // Unauthenticated client. (should that be possible?)
                     None => return Ok(()),
                 };
