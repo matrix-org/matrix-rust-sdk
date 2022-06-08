@@ -1111,11 +1111,10 @@ impl Client {
     /// # Arguments
     ///
     /// * `registration` - The easiest way to create this request is using the
-    ///   [`register::v3::Request`]
-    /// itself.
-    ///
+    ///   [`register::v3::Request`] itself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
