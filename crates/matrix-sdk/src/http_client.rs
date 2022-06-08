@@ -92,7 +92,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ) -> Result<http::Response<Bytes>, HttpError>;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) homeserver: Arc<RwLock<Url>>,
