@@ -18,6 +18,12 @@ use matrix_sdk_common::{
 
 impl BaseClient {
 
+
+    /// Process a response from a sliding sync call.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The response that we received after a successful sliding sync.
     pub async fn process_sliding_sync(
         &self,
         response: sliding_sync_events::Response,
@@ -72,7 +78,7 @@ impl BaseClient {
         // FIXME not yet supported by sliding sync. 
         // self.handle_account_data(&account_data.events, &mut changes).await;
         
-        let push_rules = self.get_push_rules(&changes).await?;
+        let _push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
 
@@ -102,7 +108,7 @@ impl BaseClient {
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
-                let user_ids = self
+                let _user_ids = self
                     .handle_state(
                         &room_data.required_state,
                         &mut room_info,

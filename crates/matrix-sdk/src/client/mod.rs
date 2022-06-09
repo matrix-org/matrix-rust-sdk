@@ -27,7 +27,6 @@ use anymap2::any::CloneAnySendSync;
 pub use async_once_cell::OnceCell;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
-use futures_util::stream::StreamExt;
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
