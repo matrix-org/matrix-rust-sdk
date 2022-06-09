@@ -11,6 +11,23 @@ use ruma::{
     RoomId, TransactionId, UserId,
 };
 
+/// Hold any data to be used as an encoding key
+/// without checking for the existence of `ENCODE_SEPARATOR` within
+pub struct EncodeUnchecked<'a>(&'a [u8]);
+
+impl<'a> EncodeUnchecked<'a> {
+    /// Wrap any `[u8]`
+    pub fn from(bytes: &'a [u8]) -> Self {
+        EncodeUnchecked(bytes)
+    }
+}
+
+impl<'a> EncodeKey for EncodeUnchecked<'a> {
+    fn encode_as_bytes(&self) -> Cow<'a, [u8]> {
+        (self.0).into()
+    }
+}
+
 pub const ENCODE_SEPARATOR: u8 = 0xff;
 
 pub trait EncodeKey {

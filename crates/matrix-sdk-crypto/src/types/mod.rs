@@ -23,26 +23,48 @@
 //!    way, meaning the white-space and field order won't be preserved but the
 //!    data will.
 
+mod backup;
 mod cross_signing_key;
 mod device_keys;
 mod one_time_keys;
 
 use std::collections::BTreeMap;
 
+pub use backup::*;
 pub use cross_signing_key::*;
 pub use device_keys::*;
 pub use one_time_keys::*;
 use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize, Serializer};
-use vodozemac::Ed25519Signature;
+use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
-/// An enum over all the signature types.
+/// Represents a potentially decoded signature (but *not* a validated one).
+///
+/// There are two important cases here:
+///
+/// 1. If the claimed algorithm is supported *and* the payload has an expected
+///    format, the signature will be represent by the enum variant corresponding
+///    to that algorithm. For example, decodeable Ed25519 signatures are
+///    represented as `Ed25519(...)`.
+/// 2. If the claimed algorithm is unsupported, the signature is represented as
+///    `Other(...)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Signature {
     /// A Ed25519 digital signature.
     Ed25519(Ed25519Signature),
-    /// An unknown digital signature as a base64 encoded string.
+    /// A digital signature in an unsupported algorithm. The raw signature bytes
+    /// are represented as a base64-encoded string.
     Other(String),
+}
+
+/// Represents a signature that could not be decoded.
+///
+/// This will currently only hold invalid Ed25519 signatures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidSignature {
+    /// The base64 encoded string that is claimed to contain a signature but
+    /// could not be decoded.
+    pub source: String,
 }
 
 impl Signature {
@@ -71,8 +93,10 @@ impl From<Ed25519Signature> for Signature {
 }
 
 /// Signatures for a signed object.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Signatures(BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Signature>>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signatures(
+    BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>>,
+);
 
 impl Signatures {
     /// Create a new, empty, signatures collection.
@@ -87,18 +111,21 @@ impl Signatures {
         signer: OwnedUserId,
         key_id: OwnedDeviceKeyId,
         signature: Ed25519Signature,
-    ) -> Option<Signature> {
-        self.0.entry(signer).or_insert_with(Default::default).insert(key_id, signature.into())
+    ) -> Option<Result<Signature, InvalidSignature>> {
+        self.0.entry(signer).or_insert_with(Default::default).insert(key_id, Ok(signature.into()))
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given
     /// key id.
     pub fn get_signature(&self, signer: &UserId, key_id: &DeviceKeyId) -> Option<Ed25519Signature> {
-        self.get(signer)?.get(key_id)?.ed25519()
+        self.get(signer)?.get(key_id)?.as_ref().ok()?.ed25519()
     }
 
     /// Get the map of signatures that belong to the given user.
-    pub fn get(&self, signer: &UserId) -> Option<&BTreeMap<OwnedDeviceKeyId, Signature>> {
+    pub fn get(
+        &self,
+        signer: &UserId,
+    ) -> Option<&BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>> {
         self.0.get(signer)
     }
 
@@ -125,10 +152,12 @@ impl Default for Signatures {
 }
 
 impl IntoIterator for Signatures {
-    type Item = (OwnedUserId, BTreeMap<OwnedDeviceKeyId, Signature>);
+    type Item = (OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>);
 
-    type IntoIter =
-        std::collections::btree_map::IntoIter<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Signature>>;
+    type IntoIter = std::collections::btree_map::IntoIter<
+        OwnedUserId,
+        BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>,
+    >;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -152,9 +181,9 @@ impl<'de> Deserialize<'de> for Signatures {
                         let algorithm = key_id.algorithm();
                         let signature = match algorithm {
                             DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
-                                .map_err(serde::de::Error::custom)?
-                                .into(),
-                            _ => Signature::Other(s),
+                                .map(|s| s.into())
+                                .map_err(|_| InvalidSignature { source: s }),
+                            _ => Ok(Signature::Other(s)),
                         };
 
                         Ok((key_id, signature))
@@ -177,9 +206,44 @@ impl Serialize for Signatures {
         let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, String>> = self
             .0
             .iter()
-            .map(|(u, m)| (u, m.iter().map(|(d, s)| (d, s.to_base64())).collect()))
+            .map(|(u, m)| {
+                (
+                    u,
+                    m.iter()
+                        .map(|(d, s)| {
+                            (
+                                d,
+                                match s {
+                                    Ok(s) => s.to_base64(),
+                                    Err(i) => i.source.to_owned(),
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            })
             .collect();
 
         serde::Serialize::serialize(&signatures, serializer)
     }
+}
+
+// Vodozemac serializes Curve25519 keys directly as a byteslice, while Matrix
+// likes to base64 encode all byte slices.
+//
+// This ensures that we serialize/deserialize in a Matrix-compatible way.
+fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let key: String = Deserialize::deserialize(de)?;
+    Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
+}
+
+fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let key = key.to_base64();
+    s.serialize_str(&key)
 }

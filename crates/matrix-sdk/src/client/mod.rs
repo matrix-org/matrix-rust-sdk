@@ -38,7 +38,7 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
-#[cfg(feature = "e2e-encryption")]
+#[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
     api::{
@@ -196,20 +196,6 @@ impl Client {
         &self.inner.base_client
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn olm_machine(&self) -> Option<&matrix_sdk_base::crypto::OlmMachine> {
-        self.base_client().olm_machine()
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn mark_request_as_sent(
-        &self,
-        request_id: &TransactionId,
-        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
-    ) -> Result<(), matrix_sdk_base::Error> {
-        self.base_client().mark_request_as_sent(request_id, response).await
-    }
-
     /// Change the homeserver URL used by this client.
     ///
     /// # Arguments
@@ -247,22 +233,26 @@ impl Client {
         Ok(res.capabilities)
     }
 
-    /// Process a [transaction] received from the homeserver
+    /// Process a [transaction] received from the homeserver which has been
+    /// converted into a sync response.
     ///
     /// # Arguments
     ///
-    /// * `incoming_transaction` - The incoming transaction received from the
-    ///   homeserver.
+    /// * `transaction_id` - The id of the transaction, used to guard against
+    ///   the same transaction being sent twice. This guarding currently isn't
+    ///   implemented.
+    /// * `incoming_transaction` - The sync response converted from a
+    ///   transaction received from the homeserver.
     ///
     /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
     #[cfg(feature = "appservice")]
     pub async fn receive_transaction(
         &self,
-        incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest,
+        _transaction_id: &TransactionId,
+        sync_response: sync_events::v3::Response,
     ) -> Result<()> {
-        let txn_id = incoming_transaction.txn_id.clone();
-        let response = incoming_transaction.try_into_sync_response(txn_id.as_str())?;
-        self.process_sync(response).await?;
+        // TODO: transaction id checking, see PR #560
+        self.process_sync(sync_response).await?;
 
         Ok(())
     }
@@ -1086,7 +1076,7 @@ impl Client {
     /// };
     ///
     /// client.restore_login(session).await?;
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// The `Session` object can also be created from the response the
@@ -1108,7 +1098,7 @@ impl Client {
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`login`]: #method.login
@@ -1135,20 +1125,20 @@ impl Client {
     /// #         account::register::{v3::Request as RegistrationRequest, RegistrationKind},
     /// #         uiaa,
     /// #     },
-    /// #     assign, DeviceId,
+    /// #     DeviceId,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     ///
-    /// let request = assign!(RegistrationRequest::new(), {
-    ///     username: Some("user"),
-    ///     password: Some("password"),
-    ///     auth: Some(uiaa::AuthData::FallbackAcknowledgement(
-    ///         uiaa::FallbackAcknowledgement::new("foobar"),
-    ///     )),
-    /// });
+    /// let mut request = RegistrationRequest::new();
+    /// request.username = Some("user");
+    /// request.password = Some("password");
+    /// request.auth = Some(uiaa::AuthData::FallbackAcknowledgement(
+    ///     uiaa::FallbackAcknowledgement::new("foobar"),
+    /// ));
+    ///
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.register(request).await;
     /// # })
@@ -1362,6 +1352,7 @@ impl Client {
     /// `get_public_rooms_filtered::Request` itself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use url::Url;
@@ -1369,18 +1360,16 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// use matrix_sdk::{
-    ///     ruma::{
-    ///         api::client::directory::get_public_rooms_filtered::v3::Request,
-    ///         directory::Filter,
-    ///         assign,
-    ///     }
+    /// use matrix_sdk::ruma::{
+    ///     api::client::directory::get_public_rooms_filtered,
+    ///     directory::Filter,
     /// };
     /// # let mut client = Client::new(homeserver).await?;
     ///
-    /// let generic_search_term = Some("rust");
-    /// let filter = assign!(Filter::new(), { generic_search_term });
-    /// let request = assign!(Request::new(), { filter });
+    /// let mut filter = Filter::new();
+    /// filter.generic_search_term = Some("rust");
+    /// let mut request = get_public_rooms_filtered::v3::Request::new();
+    /// request.filter = filter;
     ///
     /// let response = client.public_rooms_filtered(request).await?;
     ///
@@ -1426,7 +1415,7 @@ impl Client {
     ///     .await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn upload(
         &self,
@@ -1587,7 +1576,7 @@ impl Client {
     /// #            client::uiaa,
     /// #            error::{FromHttpResponseError, ServerError},
     /// #        },
-    /// #        assign, device_id,
+    /// #        device_id,
     /// #    },
     /// #    Client, Error, config::SyncSettings,
     /// # };
@@ -1602,17 +1591,14 @@ impl Client {
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.uiaa_response() {
-    ///         let auth_data = uiaa::AuthData::Password(assign!(
-    ///             uiaa::Password::new(
-    ///                 uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-    ///                 "wordpass",
-    ///             ), {
-    ///                 session: info.session.as_deref(),
-    ///             }
-    ///         ));
+    ///         let mut password = uiaa::Password::new(
+    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
+    ///             "wordpass",
+    ///         );
+    ///         password.session = info.session.as_deref();
     ///
     ///         client
-    ///             .delete_devices(devices, Some(auth_data))
+    ///             .delete_devices(devices, Some(uiaa::AuthData::Password(password)))
     ///             .await?;
     ///     }
     /// }
@@ -2205,14 +2191,11 @@ impl Client {
         use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(
-                    info.map(room::ImageInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info,
-                    }
-                );
+                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info,
+                });
                 message::MessageType::Image(message::ImageMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2220,12 +2203,9 @@ impl Client {
                 ))
             }
             mime::AUDIO => {
-                let info = assign!(
-                    info.map(message::AudioInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                    }
-                );
+                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                });
                 message::MessageType::Audio(message::AudioMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2233,14 +2213,11 @@ impl Client {
                 ))
             }
             mime::VIDEO => {
-                let info = assign!(
-                    info.map(message::VideoInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 message::MessageType::Video(message::VideoMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2248,14 +2225,11 @@ impl Client {
                 ))
             }
             _ => {
-                let info = assign!(
-                    info.map(message::FileInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 message::MessageType::File(message::FileMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -3557,8 +3531,9 @@ pub(crate) mod tests {
                     uiaa::Password::new(
                         uiaa::UserIdentifier::UserIdOrLocalpart("example"),
                         "wordpass",
-                    ),
-                    { session: info.session.as_deref() }
+                    ), {
+                        session: info.session.as_deref(),
+                    }
                 ));
 
                 client.delete_devices(devices, Some(auth_data)).await.unwrap();

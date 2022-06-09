@@ -13,8 +13,8 @@ use zeroize::Zeroize;
 
 /// The private part of the backup key, the one used for recovery.
 pub struct BackupRecoveryKey {
-    inner: RecoveryKey,
-    passphrase_info: Option<PassphraseInfo>,
+    pub(crate) inner: RecoveryKey,
+    pub(crate) passphrase_info: Option<PassphraseInfo>,
 }
 
 /// Error type for the decryption of backed up room keys.

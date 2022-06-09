@@ -1,3 +1,13 @@
+# Pass the rustflags specified to host dependencies (build scripts, proc-macros)
+# when a `--target` is passed to Cargo. Historically this was not the case, and
+# because of that, cross-compilation would not set the rustflags configured
+# below in `target.'cfg(all())'` for them, resulting in cache invalidation.
+#
+# Since this is an unstable feature (enabled at the bottom of the file), this
+# setting is unfortunately ignored on stable toolchains, but it's still better
+# to have it apply on nightly than using the old behavior for all toolchains.
+target-applies-to-host = false
+
 [alias]
 xtask = "run --package xtask --"
 
@@ -23,3 +33,8 @@ rustflags = [
     "-Wclippy::str_to_string",
     "-Wclippy::todo",
 ]
+
+# activate the target-applies-to-host feature.
+# Required for `target-applies-to-host` at the top to take effect.
+[unstable]
+target-applies-to-host = true

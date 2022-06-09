@@ -6,8 +6,7 @@ use matrix_sdk::{
     config::SyncSettings,
     room::Room,
     ruma::{
-        api::client::filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
-        assign,
+        api::client::filter::{FilterDefinition, LazyLoadOptions},
         events::{AnySyncMessageLikeEvent, AnySyncRoomEvent, SyncMessageLikeEvent},
     },
     store::make_store_config,
@@ -73,15 +72,10 @@ async fn main() -> anyhow::Result<()> {
 
     let client = login(homeserver_url, &username, &password).await;
 
-    let room_event_filter = assign!(RoomEventFilter::default(), {
-        lazy_load_options: LazyLoadOptions::Enabled {include_redundant_members: false},
-    });
-    let filter = assign!(FilterDefinition::default(), {
-        room: assign!(RoomFilter::empty(), {
-            include_leave: true,
-            state: room_event_filter,
-        }),
-    });
+    let mut filter = FilterDefinition::default();
+    filter.room.include_leave = true;
+    filter.room.state.lazy_load_options =
+        LazyLoadOptions::Enabled { include_redundant_members: false };
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_secs(30)).filter(filter.into());
     let (sender, receiver) = oneshot::channel::<()>();

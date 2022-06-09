@@ -27,14 +27,14 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           profile: minimal
           override: true
 
       - name: Install targets
         run: |
-          rustup target add aarch64-apple-ios-sim
-          rustup target add x86_64-apple-ios
+          rustup target add aarch64-apple-ios-sim --toolchain nightly
+          rustup target add x86_64-apple-ios --toolchain nightly
 
       - name: Load cache
         uses: Swatinem/rust-cache@v1

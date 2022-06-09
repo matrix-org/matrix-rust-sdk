@@ -231,8 +231,8 @@ impl OlmMachine {
 
     /// Encrypt a room message for the given room.
     ///
-    /// Beware that a group session needs to be shared before this
-    /// method can be called using the `share_group_session` method.
+    /// Beware that a room key needs to be shared before this
+    /// method can be called using the `share_room_key` method.
     ///
     /// `room_id` is the ID of the room for which the message should
     /// be encrypted. `event_type` is the type of the event. `content`
@@ -274,13 +274,13 @@ impl OlmMachine {
         future_to_promise(async move { Ok(me.invalidate_group_session(&room_id).await?) })
     }
 
-    /// Get to-device requests to share a group session with users in a room.
+    /// Get to-device requests to share a room key with users in a room.
     ///
     /// `room_id` is the room ID. `users` is an array of `UserId`
     /// objects. `encryption_settings` are an `EncryptionSettings`
     /// object.
-    #[wasm_bindgen(js_name = "shareGroupSession")]
-    pub fn share_group_session(
+    #[wasm_bindgen(js_name = "shareRoomKey")]
+    pub fn share_room_key(
         &self,
         room_id: &identifiers::RoomId,
         users: &Array,
@@ -298,12 +298,8 @@ impl OlmMachine {
 
         Ok(future_to_promise(async move {
             Ok(serde_json::to_string(
-                &me.share_group_session(
-                    &room_id,
-                    users.iter().map(AsRef::as_ref),
-                    encryption_settings,
-                )
-                .await?,
+                &me.share_room_key(&room_id, users.iter().map(AsRef::as_ref), encryption_settings)
+                    .await?,
             )?)
         }))
     }
