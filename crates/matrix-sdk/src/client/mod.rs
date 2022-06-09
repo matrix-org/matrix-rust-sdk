@@ -268,12 +268,12 @@ impl Client {
 
     /// Get the user id of the current owner of the client.
     pub fn user_id(&self) -> Option<&UserId> {
-        self.inner.base_client.session().map(|s| s.user_id.as_ref())
+        self.session().map(|s| s.user_id.as_ref())
     }
 
     /// Get the device id that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
-        self.inner.base_client.session().map(|s| s.device_id.as_ref())
+        self.session().map(|s| s.device_id.as_ref())
     }
 
     /// Get the whole session info of this client.
@@ -283,7 +283,7 @@ impl Client {
     /// Can be used with [`Client::restore_login`] to restore a previously
     /// logged in session.
     pub fn session(&self) -> Option<&Session> {
-        self.inner.base_client.session()
+        self.inner.http_client.session.get()
     }
 
     /// Get a reference to the store.
@@ -1102,7 +1102,6 @@ impl Client {
     ///
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
-        self.inner.http_client.set_session(session.clone());
         Ok(self.inner.base_client.restore_login(session).await?)
     }
 
@@ -2397,6 +2396,7 @@ pub(crate) mod tests {
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
+        assert!(client.inner.http_client.session.get().is_some());
 
         assert_eq!(client.homeserver().await, homeserver);
     }
