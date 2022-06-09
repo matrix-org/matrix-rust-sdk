@@ -100,15 +100,15 @@ turned on:
 $ npm run build -- --features tracing
 ```
 
-Now, you can use the `RUST_LOG` environment variable to tweak the log filtering, such as:
+Now, you can use the `MATRIX_LOG` environment variable to tweak the log filtering, such as:
 
 ```sh
-$ RUST_LOG=debug npm run test
+$ MATRIX_LOG=debug npm run test
 ```
 
 See
 [`tracing-subscriber`](https://tracing.rs/tracing_subscriber/index.html)
-to learn more about the `RUST_LOG` environment variable.
+to learn more about the `RUST_LOG`/`MATRIX_LOG` environment variable.
 
 ## Documentation
 
