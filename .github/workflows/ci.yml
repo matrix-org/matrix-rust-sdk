@@ -119,3 +119,48 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
+
+  test-nodejs:
+    name: linux / node.js (${{ matrix.node-version }})
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        node-version: [12.17, 14.0, 15.0, 16.0]
+        include:
+          - node-version: 16.0
+            build-doc: true
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install NPM dependencies
+        run: cd crates/matrix-sdk-crypto-nodejs && npm install
+
+      - name: Build the Node.js binding
+        run: cd crates/matrix-sdk-crypto-nodejs && npm run build
+
+      - name: Test the Node.js binding
+        run: cd crates/matrix-sdk-crypto-nodejs && npm run test
+
+      - if: ${{ matrix.build-doc }}
+        name: Build the documentation
+        run: cd crates/matrix-sdk-crypto-nodejs && npm run doc
