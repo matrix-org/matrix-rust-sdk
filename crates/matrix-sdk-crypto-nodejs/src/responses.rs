@@ -142,7 +142,7 @@ impl DecryptedRoomEvent {
     /// unless the `verification_state` is as well trusted.
     #[napi(getter)]
     pub fn sender(&self) -> Option<identifiers::UserId> {
-        Some(identifiers::UserId::new_with(self.encryption_info.as_ref()?.sender.clone()))
+        Some(identifiers::UserId::from(self.encryption_info.as_ref()?.sender.clone()))
     }
 
     /// The device ID of the device that sent us the event, note this
@@ -150,7 +150,7 @@ impl DecryptedRoomEvent {
     /// trusted.
     #[napi(getter)]
     pub fn sender_device(&self) -> Option<identifiers::DeviceId> {
-        Some(identifiers::DeviceId::new_with(self.encryption_info.as_ref()?.sender_device.clone()))
+        Some(identifiers::DeviceId::from(self.encryption_info.as_ref()?.sender_device.clone()))
     }
 
     /// The Curve25519 key of the device that created the megolm

@@ -1,7 +1,6 @@
 //! Types for [Matrix](https://matrix.org/) identifiers for devices,
 //! events, keys, rooms, servers, users and URIs.
 
-use napi::Result;
 use napi_derive::*;
 
 use crate::into_err;
@@ -15,8 +14,8 @@ pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
 
-impl UserId {
-    pub(crate) fn new_with(inner: ruma::OwnedUserId) -> Self {
+impl From<ruma::OwnedUserId> for UserId {
+    fn from(inner: ruma::OwnedUserId) -> Self {
         Self { inner }
     }
 }
@@ -25,8 +24,8 @@ impl UserId {
 impl UserId {
     /// Parse/validate and create a new `UserId`.
     #[napi(constructor)]
-    pub fn new(id: String) -> Result<UserId> {
-        Ok(Self::new_with(ruma::UserId::parse(id.as_str()).map_err(into_err)?))
+    pub fn new(id: String) -> napi::Result<Self> {
+        Ok(Self::from(ruma::UserId::parse(id.as_str()).map_err(into_err)?))
     }
 
     /// Returns the user's localpart.
@@ -69,8 +68,8 @@ pub struct DeviceId {
     pub(crate) inner: ruma::OwnedDeviceId,
 }
 
-impl DeviceId {
-    pub(crate) fn new_with(inner: ruma::OwnedDeviceId) -> Self {
+impl From<ruma::OwnedDeviceId> for DeviceId {
+    fn from(inner: ruma::OwnedDeviceId) -> Self {
         Self { inner }
     }
 }
@@ -79,8 +78,8 @@ impl DeviceId {
 impl DeviceId {
     /// Create a new `DeviceId`.
     #[napi(constructor)]
-    pub fn new(id: String) -> DeviceId {
-        Self::new_with(id.into())
+    pub fn new(id: String) -> Self {
+        Self::from(Into::<ruma::OwnedDeviceId>::into(id))
     }
 
     /// Return the device ID as a string.
@@ -100,8 +99,8 @@ pub struct RoomId {
     pub(crate) inner: ruma::OwnedRoomId,
 }
 
-impl RoomId {
-    pub(crate) fn new_with(inner: ruma::OwnedRoomId) -> Self {
+impl From<ruma::OwnedRoomId> for RoomId {
+    fn from(inner: ruma::OwnedRoomId) -> Self {
         Self { inner }
     }
 }
@@ -110,8 +109,8 @@ impl RoomId {
 impl RoomId {
     /// Parse/validate and create a new `RoomId`.
     #[napi(constructor)]
-    pub fn new(id: String) -> Result<RoomId> {
-        Ok(Self::new_with(ruma::RoomId::parse(id).map_err(into_err)?))
+    pub fn new(id: String) -> napi::Result<Self> {
+        Ok(Self::from(ruma::RoomId::parse(id).map_err(into_err)?))
     }
 
     /// Returns the user's localpart.
@@ -150,7 +149,7 @@ pub struct ServerName {
 impl ServerName {
     /// Parse/validate and create a new `ServerName`.
     #[napi(constructor)]
-    pub fn new(name: String) -> Result<ServerName> {
+    pub fn new(name: String) -> napi::Result<Self> {
         Ok(Self { inner: ruma::ServerName::parse(name).map_err(into_err)? })
     }
 

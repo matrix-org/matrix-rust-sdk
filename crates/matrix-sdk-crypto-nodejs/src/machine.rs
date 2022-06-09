@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use napi::{bindgen_prelude::Either7, Result};
+use napi::bindgen_prelude::Either7;
 use napi_derive::*;
 use ruma::{
     events::room::encrypted::OriginalSyncRoomEncryptedEvent, DeviceKeyAlgorithm,
@@ -62,7 +62,7 @@ impl OlmMachine {
     /// asynchronous. Please use the `finalize` method.
     #[napi(constructor)]
     #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> Result<()> {
+    pub fn new() -> napi::Result<()> {
         Err(napi::Error::from_reason(
             "To build an `OldMachine`, please use the `initialize` method",
         ))
@@ -71,13 +71,13 @@ impl OlmMachine {
     /// The unique user ID that owns this `OlmMachine` instance.
     #[napi(getter)]
     pub fn user_id(&self) -> identifiers::UserId {
-        identifiers::UserId::new_with(self.inner.user_id().to_owned())
+        identifiers::UserId::from(self.inner.user_id().to_owned())
     }
 
     /// The unique device ID that identifies this `OlmMachine`.
     #[napi(getter)]
     pub fn device_id(&self) -> identifiers::DeviceId {
-        identifiers::DeviceId::new_with(self.inner.device_id().to_owned())
+        identifiers::DeviceId::from(self.inner.device_id().to_owned())
     }
 
     /// Get the public parts of our Olm identity keys.
@@ -109,14 +109,12 @@ impl OlmMachine {
         changed_devices: &sync_events::DeviceLists,
         one_time_key_counts: HashMap<String, u32>,
         unused_fallback_keys: Vec<String>,
-    ) -> Result<String> {
+    ) -> napi::Result<String> {
         let to_device_events = serde_json::from_str(to_device_events.as_ref()).map_err(into_err)?;
         let changed_devices = changed_devices.inner.clone();
         let one_time_key_counts = one_time_key_counts
             .iter()
-            .filter_map(|(key, value)| {
-                Some((DeviceKeyAlgorithm::from(key.as_str()), UInt::new(*value as u64)?))
-            })
+            .map(|(key, value)| (DeviceKeyAlgorithm::from(key.as_str()), UInt::from(*value)))
             .collect::<BTreeMap<_, _>>();
         let unused_fallback_keys = Some(
             unused_fallback_keys
@@ -151,7 +149,7 @@ impl OlmMachine {
     #[napi]
     pub async fn outgoing_requests(
         &self,
-    ) -> Result<
+    ) -> napi::Result<
         Vec<
             // We could be tempted to use `requests::OutgoingRequests` as its
             // a type alias for this giant `Either7`. But `napi` won't unfold
@@ -175,7 +173,7 @@ impl OlmMachine {
             .into_iter()
             .map(requests::OutgoingRequest)
             .map(TryFrom::try_from)
-            .collect::<std::result::Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>, _>>()
             .map_err(into_err)
     }
 
@@ -194,7 +192,7 @@ impl OlmMachine {
         request_id: String,
         request_type: requests::RequestType,
         response: String,
-    ) -> Result<bool> {
+    ) -> napi::Result<bool> {
         let transaction_id = OwnedTransactionId::from(request_id);
         let response = response_from_string(response.as_str()).map_err(into_err)?;
         let incoming_response = responses::OwnedResponse::try_from((request_type, response))?;
@@ -237,19 +235,10 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: Option<Vec<&identifiers::UserId>>,
-    ) -> Result<Option<requests::KeysClaimRequest>> {
-        let users = users
-            .unwrap_or_default()
-            .into_iter()
-            .map(|user| user.inner.clone())
-            .collect::<Vec<ruma::OwnedUserId>>();
+    ) -> napi::Result<Option<requests::KeysClaimRequest>> {
+        let users = users.iter().flatten().map(|user| user.inner.as_ref());
 
-        match self
-            .inner
-            .get_missing_sessions(users.iter().map(AsRef::as_ref))
-            .await
-            .map_err(into_err)?
-        {
+        match self.inner.get_missing_sessions(users).await.map_err(into_err)? {
             Some((transaction_id, keys_claim_request)) => Ok(Some(
                 requests::KeysClaimRequest::try_from((
                     transaction_id.to_string(),
@@ -294,7 +283,7 @@ impl OlmMachine {
         room_id: &identifiers::RoomId,
         users: Vec<&identifiers::UserId>,
         encryption_settings: &encryption::EncryptionSettings,
-    ) -> Result<String> {
+    ) -> napi::Result<String> {
         let room_id = room_id.inner.clone();
         let users =
             users.into_iter().map(|user| user.inner.clone()).collect::<Vec<ruma::OwnedUserId>>();
@@ -326,7 +315,7 @@ impl OlmMachine {
         room_id: &identifiers::RoomId,
         event_type: String,
         content: String,
-    ) -> Result<String> {
+    ) -> napi::Result<String> {
         let room_id = room_id.inner.clone();
         let content: JsonValue = serde_json::from_str(content.as_str()).map_err(into_err)?;
 
@@ -351,7 +340,7 @@ impl OlmMachine {
         &self,
         event: String,
         room_id: &identifiers::RoomId,
-    ) -> Result<responses::DecryptedRoomEvent> {
+    ) -> napi::Result<responses::DecryptedRoomEvent> {
         let event: OriginalSyncRoomEncryptedEvent =
             serde_json::from_str(event.as_str()).map_err(into_err)?;
         let room_id = room_id.inner.clone();
