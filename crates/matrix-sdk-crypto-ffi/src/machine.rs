@@ -140,10 +140,12 @@ impl OlmMachine {
     ///
     /// * `user_id` - The unique id of the user that the identity belongs to
     ///
-    /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    /// * `timeout` - The time in seconds we should wait before returning if
+    /// the user's device list has been marked as stale. Passing a 0 as the
+    /// timeout means that we won't wait at all. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out. Namely, this waits for a `/keys/query` response to be
+    /// received.
     pub fn get_identity(
         &self,
         user_id: &str,
@@ -217,10 +219,12 @@ impl OlmMachine {
     ///
     /// * `device_id` - The id of the device itself.
     ///
-    /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    /// * `timeout` - The time in seconds we should wait before returning if
+    /// the user's device list has been marked as stale. Passing a 0 as the
+    /// timeout means that we won't wait at all. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out. Namely, this waits for a `/keys/query` response to be
+    /// received.
     pub fn get_device(
         &self,
         user_id: &str,
@@ -290,10 +294,12 @@ impl OlmMachine {
     ///
     /// * `user_id` - The id of the device owner.
     ///
-    /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    /// * `timeout` - The time in seconds we should wait before returning if
+    /// the user's device list has been marked as stale. Passing a 0 as the
+    /// timeout means that we won't wait at all. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out. Namely, this waits for a `/keys/query` response to be
+    /// received.
     pub fn get_user_devices(
         &self,
         user_id: &str,
