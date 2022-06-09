@@ -58,6 +58,10 @@ impl UserId {
     }
 }
 
+pub(crate) fn lower_user_ids_to_ruma(users: Vec<&UserId>) -> impl Iterator<Item = &ruma::UserId> {
+    users.into_iter().map(|user| user.inner.as_ref())
+}
+
 /// A Matrix key ID.
 ///
 /// Device identifiers in Matrix are completely opaque character

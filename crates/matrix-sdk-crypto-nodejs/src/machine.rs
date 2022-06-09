@@ -49,11 +49,12 @@ impl OlmMachine {
         user_id: &identifiers::UserId,
         device_id: &identifiers::DeviceId,
     ) -> Self {
-        let user_id = user_id.inner.clone();
-        let device_id = device_id.inner.clone();
-
         OlmMachine {
-            inner: matrix_sdk_crypto::OlmMachine::new(user_id.as_ref(), device_id.as_ref()).await,
+            inner: matrix_sdk_crypto::OlmMachine::new(
+                user_id.inner.as_ref(),
+                device_id.inner.as_ref(),
+            )
+            .await,
         }
     }
 
@@ -111,7 +112,7 @@ impl OlmMachine {
         unused_fallback_keys: Vec<String>,
     ) -> napi::Result<String> {
         let to_device_events = serde_json::from_str(to_device_events.as_ref()).map_err(into_err)?;
-        let changed_devices = changed_devices.inner.clone();
+        let changed_devices = &changed_devices.inner;
         let one_time_key_counts = one_time_key_counts
             .iter()
             .map(|(key, value)| (DeviceKeyAlgorithm::from(key.as_str()), UInt::from(*value)))
@@ -128,7 +129,7 @@ impl OlmMachine {
                 .inner
                 .receive_sync_changes(
                     to_device_events,
-                    &changed_devices,
+                    changed_devices,
                     &one_time_key_counts,
                     unused_fallback_keys.as_deref(),
                 )
@@ -236,9 +237,12 @@ impl OlmMachine {
         &self,
         users: Option<Vec<&identifiers::UserId>>,
     ) -> napi::Result<Option<requests::KeysClaimRequest>> {
-        let users = users.iter().flatten().map(|user| user.inner.as_ref());
-
-        match self.inner.get_missing_sessions(users).await.map_err(into_err)? {
+        match self
+            .inner
+            .get_missing_sessions(identifiers::lower_user_ids_to_ruma(users.unwrap_or_default()))
+            .await
+            .map_err(into_err)?
+        {
             Some((transaction_id, keys_claim_request)) => Ok(Some(
                 requests::KeysClaimRequest::try_from((
                     transaction_id.to_string(),
@@ -264,10 +268,7 @@ impl OlmMachine {
     /// * `users`, an array over user IDs that should be marked for tracking.
     #[napi]
     pub async fn update_tracked_users(&self, users: Vec<&identifiers::UserId>) {
-        let users =
-            users.into_iter().map(|user| user.inner.clone()).collect::<Vec<ruma::OwnedUserId>>();
-
-        self.inner.update_tracked_users(users.iter().map(AsRef::as_ref)).await;
+        self.inner.update_tracked_users(identifiers::lower_user_ids_to_ruma(users)).await;
     }
 
     /// Get to-device requests to share a room key with users in a room.
@@ -284,16 +285,15 @@ impl OlmMachine {
         users: Vec<&identifiers::UserId>,
         encryption_settings: &encryption::EncryptionSettings,
     ) -> napi::Result<String> {
-        let room_id = room_id.inner.clone();
-        let users =
-            users.into_iter().map(|user| user.inner.clone()).collect::<Vec<ruma::OwnedUserId>>();
+        let room_id = room_id.inner.as_ref();
+        let users = identifiers::lower_user_ids_to_ruma(users);
         let encryption_settings =
             matrix_sdk_crypto::olm::EncryptionSettings::from(encryption_settings);
 
         serde_json::to_string(
             &self
                 .inner
-                .share_room_key(&room_id, users.iter().map(AsRef::as_ref), encryption_settings)
+                .share_room_key(room_id, users, encryption_settings)
                 .await
                 .map_err(into_err)?,
         )
@@ -316,13 +316,13 @@ impl OlmMachine {
         event_type: String,
         content: String,
     ) -> napi::Result<String> {
-        let room_id = room_id.inner.clone();
+        let room_id = room_id.inner.as_ref();
         let content: JsonValue = serde_json::from_str(content.as_str()).map_err(into_err)?;
 
         serde_json::to_string(
             &self
                 .inner
-                .encrypt_room_event_raw(&room_id, content, event_type.as_ref())
+                .encrypt_room_event_raw(room_id, content, event_type.as_ref())
                 .await
                 .map_err(into_err)?,
         )
@@ -343,8 +343,8 @@ impl OlmMachine {
     ) -> napi::Result<responses::DecryptedRoomEvent> {
         let event: OriginalSyncRoomEncryptedEvent =
             serde_json::from_str(event.as_str()).map_err(into_err)?;
-        let room_id = room_id.inner.clone();
-        let room_event = self.inner.decrypt_room_event(&event, &room_id).await.map_err(into_err)?;
+        let room_id = room_id.inner.as_ref();
+        let room_event = self.inner.decrypt_room_event(&event, room_id).await.map_err(into_err)?;
 
         Ok(room_event.into())
     }

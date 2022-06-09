@@ -20,9 +20,8 @@ impl DeviceLists {
     ) -> Self {
         let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
 
-        inner.changed =
-            changed.unwrap_or_default().into_iter().map(|user| user.inner.clone()).collect();
-        inner.left = left.unwrap_or_default().into_iter().map(|user| user.inner.clone()).collect();
+        inner.changed = changed.into_iter().flatten().map(|user| user.inner.clone()).collect();
+        inner.left = left.into_iter().flatten().map(|user| user.inner.clone()).collect();
 
         Self { inner }
     }
@@ -38,13 +37,13 @@ impl DeviceLists {
     /// previous sync.
     #[napi(getter)]
     pub fn changed(&self) -> Vec<identifiers::UserId> {
-        self.inner.changed.iter().map(|user| identifiers::UserId::from(user.clone())).collect()
+        self.inner.changed.iter().map(|user| identifiers::UserId::from(user.to_owned())).collect()
     }
 
     /// List of users who no longer share encrypted rooms since the
     /// previous sync response.
     #[napi(getter)]
     pub fn left(&self) -> Vec<identifiers::UserId> {
-        self.inner.left.iter().map(|user| identifiers::UserId::from(user.clone())).collect()
+        self.inner.left.iter().map(|user| identifiers::UserId::from(user.to_owned())).collect()
     }
 }
