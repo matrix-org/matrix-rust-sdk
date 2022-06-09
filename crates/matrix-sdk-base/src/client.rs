@@ -37,7 +37,6 @@ use matrix_sdk_crypto::{
     store::{CryptoStore, MemoryStore as MemoryCryptoStore},
     EncryptionSettings, MegolmError, OlmError, OlmMachine, ToDeviceRequest,
 };
-#[cfg(feature = "e2e-encryption")]
 use once_cell::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
@@ -138,7 +137,7 @@ impl BaseClient {
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
     /// `None`.
-    pub fn session(&self) -> Option<&Session> {
+    pub fn session(&self) -> Arc<OnceCell<Session>> {
         self.store.session()
     }
 
@@ -149,7 +148,7 @@ impl BaseClient {
 
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
-        self.store.session().is_some()
+        self.store.session.get().is_some()
     }
 
     /// Receive a login response and update the session of the client.
@@ -1003,7 +1002,7 @@ impl BaseClient {
             .transpose()?
         {
             Ok(event.content.global)
-        } else if let Some(session) = self.session() {
+        } else if let Some(session) = self.store.session.get() {
             Ok(Ruleset::server_default(&session.user_id))
         } else {
             Ok(Ruleset::new())

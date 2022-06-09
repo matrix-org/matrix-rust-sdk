@@ -96,7 +96,7 @@ pub trait HttpSend: AsyncTraitDeps {
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) homeserver: Arc<RwLock<Url>>,
-    pub(crate) session: OnceCell<Session>,
+    pub(crate) session: Arc<OnceCell<Session>>,
     pub(crate) request_config: RequestConfig,
 }
 
@@ -104,9 +104,10 @@ impl HttpClient {
     pub(crate) fn new(
         inner: Arc<dyn HttpSend>,
         homeserver: Arc<RwLock<Url>>,
+        session: Arc<OnceCell<Session>>,
         request_config: RequestConfig,
     ) -> Self {
-        HttpClient { inner, homeserver, session: Default::default(), request_config }
+        HttpClient { inner, homeserver, session, request_config }
     }
 
     #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
@@ -172,10 +173,6 @@ impl HttpClient {
         let response = Request::IncomingResponse::try_from_http_response(response)?;
 
         Ok(response)
-    }
-
-    pub(crate) fn set_session(&self, session: Session) {
-        self.session.set(session).expect("A session was already set");
     }
 
     fn session(&self) -> Option<&Session> {

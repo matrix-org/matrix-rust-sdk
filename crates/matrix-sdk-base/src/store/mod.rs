@@ -432,8 +432,8 @@ impl Store {
 
     /// The current [`Session`] containing our user id, device id and access
     /// token.
-    pub fn session(&self) -> Option<&Session> {
-        self.session.get()
+    pub fn session(&self) -> Arc<OnceCell<Session>> {
+        self.session.clone()
     }
 
     /// Get all the rooms this store knows about.
@@ -466,7 +466,7 @@ impl Store {
     /// Lookup the stripped Room for the given RoomId, or create one, if it
     /// didn't exist yet in the store
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
-        let user_id = &self.session().expect("Creating room while not being logged in").user_id;
+        let user_id = &self.session.get().expect("Creating room while not being logged in").user_id;
 
         self.stripped_rooms
             .entry(room_id.to_owned())
@@ -481,7 +481,7 @@ impl Store {
             return self.get_or_create_stripped_room(room_id).await;
         }
 
-        let user_id = &self.session().expect("Creating room while not being logged in").user_id;
+        let user_id = &self.session.get().expect("Creating room while not being logged in").user_id;
 
         self.rooms
             .entry(room_id.to_owned())
