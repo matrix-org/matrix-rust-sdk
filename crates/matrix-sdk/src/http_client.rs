@@ -17,14 +17,13 @@ use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duratio
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
-use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
+use matrix_sdk_common::AsyncTraitDeps;
 use reqwest::Response;
 use ruma::api::{
     error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
     OutgoingRequestAppserviceExt, SendAccessToken,
 };
 use tracing::trace;
-use url::Url;
 
 use crate::{config::RequestConfig, error::HttpError, Session};
 
@@ -94,17 +93,12 @@ pub trait HttpSend: AsyncTraitDeps {
 #[derive(Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
-    pub(crate) homeserver: Arc<RwLock<Url>>,
     pub(crate) request_config: RequestConfig,
 }
 
 impl HttpClient {
-    pub(crate) fn new(
-        inner: Arc<dyn HttpSend>,
-        homeserver: Arc<RwLock<Url>>,
-        request_config: RequestConfig,
-    ) -> Self {
-        HttpClient { inner, homeserver, request_config }
+    pub(crate) fn new(inner: Arc<dyn HttpSend>, request_config: RequestConfig) -> Self {
+        HttpClient { inner, request_config }
     }
 
     #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
@@ -112,6 +106,7 @@ impl HttpClient {
         &self,
         request: Request,
         config: Option<RequestConfig>,
+        homeserver: String,
         session: Option<&Session>,
         server_versions: Arc<[MatrixVersion]>,
     ) -> Result<Request::IncomingResponse, HttpError>
@@ -149,13 +144,13 @@ impl HttpClient {
             };
 
             request.try_into_http_request::<BytesMut>(
-                &self.homeserver.read().await.to_string(),
+                &homeserver,
                 send_access_token,
                 &server_versions,
             )?
         } else {
             request.try_into_http_request_with_user_id::<BytesMut>(
-                &self.homeserver.read().await.to_string(),
+                &homeserver,
                 SendAccessToken::Always(&session.ok_or(HttpError::UserIdRequired)?.access_token),
                 &session.ok_or(HttpError::UserIdRequired)?.user_id,
                 &server_versions,
