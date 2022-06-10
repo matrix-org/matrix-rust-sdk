@@ -134,7 +134,7 @@ pub(crate) struct ClientInner {
     /// User session data.
     pub(crate) base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    server_versions: OnceCell<Arc<[MatrixVersion]>>,
+    server_versions: OnceCell<Box<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -649,13 +649,13 @@ impl Client {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    &server_versions,
+                    server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                &server_versions,
+                server_versions,
             )
         };
 
@@ -1509,8 +1509,8 @@ impl Client {
             .await
     }
 
-    async fn request_server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
-        let server_versions: Arc<[MatrixVersion]> = self
+    async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+        let server_versions: Box<[MatrixVersion]> = self
             .inner
             .http_client
             .send(
@@ -1518,7 +1518,7 @@ impl Client {
                 None,
                 self.homeserver().await.to_string(),
                 None,
-                [MatrixVersion::V1_0].into_iter().collect(),
+                &[MatrixVersion::V1_0],
             )
             .await?
             .known_versions()
@@ -1532,7 +1532,7 @@ impl Client {
         }
     }
 
-    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+    async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
         #[cfg(target_arch = "wasm32")]
         let server_versions =
             self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
@@ -1541,7 +1541,7 @@ impl Client {
         let server_versions =
             self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
 
-        Ok(server_versions.clone())
+        Ok(server_versions)
     }
 
     /// Get information of all our own devices.

@@ -108,7 +108,7 @@ impl HttpClient {
         config: Option<RequestConfig>,
         homeserver: String,
         session: Option<&Session>,
-        server_versions: Arc<[MatrixVersion]>,
+        server_versions: &[MatrixVersion],
     ) -> Result<Request::IncomingResponse, HttpError>
     where
         Request: OutgoingRequest + Debug,
@@ -146,14 +146,14 @@ impl HttpClient {
             request.try_into_http_request::<BytesMut>(
                 &homeserver,
                 send_access_token,
-                &server_versions,
+                server_versions,
             )?
         } else {
             request.try_into_http_request_with_user_id::<BytesMut>(
                 &homeserver,
                 SendAccessToken::Always(&session.ok_or(HttpError::UserIdRequired)?.access_token),
                 &session.ok_or(HttpError::UserIdRequired)?.user_id,
-                &server_versions,
+                server_versions,
             )?
         };
 
