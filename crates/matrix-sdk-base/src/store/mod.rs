@@ -383,7 +383,8 @@ pub trait StateStore: AsyncTraitDeps {
 pub struct Store {
     inner: Arc<dyn StateStore>,
     session: Arc<OnceCell<Session>>,
-    pub(crate) sync_token: Arc<RwLock<Option<String>>>,
+    /// The current sync token that should be used for the next sync call.
+    pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
 }
