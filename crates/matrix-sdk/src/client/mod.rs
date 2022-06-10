@@ -128,7 +128,7 @@ pub struct Client {
 
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
-    homeserver: Arc<RwLock<Url>>,
+    homeserver: RwLock<Url>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -1438,7 +1438,13 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .send(request, Some(request_config), self.session(), self.server_versions().await?)
+            .send(
+                request,
+                Some(request_config),
+                self.homeserver().await.to_string(),
+                self.session(),
+                self.server_versions().await?,
+            )
             .await?)
     }
 
@@ -1493,7 +1499,13 @@ impl Client {
     {
         self.inner
             .http_client
-            .send(request, config, self.session(), self.server_versions().await?)
+            .send(
+                request,
+                config,
+                self.homeserver().await.to_string(),
+                self.session(),
+                self.server_versions().await?,
+            )
             .await
     }
 
@@ -1504,6 +1516,7 @@ impl Client {
             .send(
                 get_supported_versions::Request::new(),
                 None,
+                self.homeserver().await.to_string(),
                 None,
                 [MatrixVersion::V1_0].into_iter().collect(),
             )
