@@ -432,8 +432,8 @@ impl Store {
 
     /// The current [`Session`] containing our user id, device id and access
     /// token.
-    pub fn session(&self) -> Arc<OnceCell<Session>> {
-        self.session.clone()
+    pub fn session(&self) -> Option<&Session> {
+        self.session.get()
     }
 
     /// Get all the rooms this store knows about.

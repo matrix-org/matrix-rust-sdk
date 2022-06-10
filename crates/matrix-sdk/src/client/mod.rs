@@ -283,7 +283,7 @@ impl Client {
     /// Can be used with [`Client::restore_login`] to restore a previously
     /// logged in session.
     pub fn session(&self) -> Option<&Session> {
-        self.inner.http_client.session.get()
+        self.store().session()
     }
 
     /// Get a reference to the store.
@@ -1438,7 +1438,7 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .send(request, Some(request_config), self.server_versions().await?)
+            .send(request, Some(request_config), self.session(), self.server_versions().await?)
             .await?)
     }
 
@@ -1491,7 +1491,10 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config, self.server_versions().await?).await
+        self.inner
+            .http_client
+            .send(request, config, self.session(), self.server_versions().await?)
+            .await
     }
 
     async fn request_server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
@@ -1500,6 +1503,7 @@ impl Client {
             .http_client
             .send(
                 get_supported_versions::Request::new(),
+                None,
                 None,
                 [MatrixVersion::V1_0].into_iter().collect(),
             )
@@ -2398,7 +2402,6 @@ pub(crate) mod tests {
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
-        assert!(client.inner.http_client.session.get().is_some());
 
         assert_eq!(client.homeserver().await, homeserver);
     }

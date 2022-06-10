@@ -17,7 +17,6 @@ use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duratio
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
-use matrix_sdk_base::once_cell::sync::OnceCell;
 use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 use reqwest::Response;
 use ruma::api::{
@@ -96,7 +95,6 @@ pub trait HttpSend: AsyncTraitDeps {
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) homeserver: Arc<RwLock<Url>>,
-    pub(crate) session: Arc<OnceCell<Session>>,
     pub(crate) request_config: RequestConfig,
 }
 
@@ -104,10 +102,9 @@ impl HttpClient {
     pub(crate) fn new(
         inner: Arc<dyn HttpSend>,
         homeserver: Arc<RwLock<Url>>,
-        session: Arc<OnceCell<Session>>,
         request_config: RequestConfig,
     ) -> Self {
-        HttpClient { inner, homeserver, session, request_config }
+        HttpClient { inner, homeserver, request_config }
     }
 
     #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
@@ -115,6 +112,7 @@ impl HttpClient {
         &self,
         request: Request,
         config: Option<RequestConfig>,
+        session: Option<&Session>,
         server_versions: Arc<[MatrixVersion]>,
     ) -> Result<Request::IncomingResponse, HttpError>
     where
@@ -138,12 +136,12 @@ impl HttpClient {
                 // isn't going to be used anyways.
                 SendAccessToken::None
             } else {
-                match self.session() {
-                    Some(session) => {
+                match session {
+                    Some(sess) => {
                         if config.force_auth {
-                            SendAccessToken::Always(&session.access_token)
+                            SendAccessToken::Always(&sess.access_token)
                         } else {
-                            SendAccessToken::IfRequired(&session.access_token)
+                            SendAccessToken::IfRequired(&sess.access_token)
                         }
                     }
                     None => SendAccessToken::None,
@@ -158,10 +156,8 @@ impl HttpClient {
         } else {
             request.try_into_http_request_with_user_id::<BytesMut>(
                 &self.homeserver.read().await.to_string(),
-                SendAccessToken::Always(
-                    &self.session().ok_or(HttpError::UserIdRequired)?.access_token,
-                ),
-                &self.session().ok_or(HttpError::UserIdRequired)?.user_id,
+                SendAccessToken::Always(&session.ok_or(HttpError::UserIdRequired)?.access_token),
+                &session.ok_or(HttpError::UserIdRequired)?.user_id,
                 &server_versions,
             )?
         };
@@ -175,10 +171,6 @@ impl HttpClient {
 
         let response = Request::IncomingResponse::try_from_http_response(response)?;
         Ok(response)
-    }
-
-    fn session(&self) -> Option<&Session> {
-        self.session.get()
     }
 }
 
