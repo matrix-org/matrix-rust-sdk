@@ -66,7 +66,7 @@ pub struct ClientBuilder {
     request_config: RequestConfig,
     respect_login_well_known: bool,
     appservice_mode: bool,
-    server_versions: Option<Arc<[MatrixVersion]>>,
+    server_versions: Option<Box<[MatrixVersion]>>,
 }
 
 impl ClientBuilder {
@@ -305,7 +305,7 @@ impl ClientBuilder {
                         None,
                         homeserver,
                         None,
-                        [MatrixVersion::V1_0].into_iter().collect(),
+                        &[MatrixVersion::V1_0],
                     )
                     .await
                     .map_err(|e| match e {
