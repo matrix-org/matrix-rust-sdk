@@ -16,11 +16,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
-    sync::Arc,
 };
-#[allow(unused_imports)]
 #[cfg(feature = "e2e-encryption")]
-use std::{ops::Deref, result::Result as StdResult};
+use std::{ops::Deref, sync::Arc};
 
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_common::deserialized_responses::TimelineSlice;
@@ -30,7 +28,6 @@ use matrix_sdk_common::{
         SyncRoomEvent, Timeline,
     },
     instant::Instant,
-    locks::RwLock,
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -70,16 +67,12 @@ use crate::{
     },
 };
 
-pub type Token = String;
-
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
 /// accordingly updates its state.
 #[derive(Clone)]
 pub struct BaseClient {
-    /// The current sync token that should be used for the next sync call.
-    pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
     /// The store used for encryption
@@ -97,7 +90,7 @@ impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("session", &self.session())
-            .field("sync_token", &self.sync_token)
+            .field("sync_token", &self.store.sync_token)
             .finish()
     }
 }
@@ -121,7 +114,6 @@ impl BaseClient {
             config.crypto_store.unwrap_or_else(|| Box::new(MemoryCryptoStore::default())).into();
 
         BaseClient {
-            sync_token: store.sync_token.clone(),
             store,
             #[cfg(feature = "e2e-encryption")]
             crypto_store,
@@ -201,7 +193,7 @@ impl BaseClient {
     /// Get the current, if any, sync token of the client.
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
-        self.sync_token.read().await.clone()
+        self.store.sync_token.read().await.clone()
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -555,7 +547,7 @@ impl BaseClient {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
         // do.
-        if self.sync_token.read().await.as_ref() == Some(&next_batch) {
+        if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
             return Ok(SyncResponse::new(next_batch));
         }
 
@@ -752,7 +744,7 @@ impl BaseClient {
         changes.ambiguity_maps = ambiguity_cache.cache;
 
         self.store.save_changes(&changes).await?;
-        *self.sync_token.write().await = Some(next_batch.clone());
+        *self.store.sync_token.write().await = Some(next_batch.clone());
         self.apply_changes(&changes).await;
 
         info!("Processed a sync response in {:?}", now.elapsed());
