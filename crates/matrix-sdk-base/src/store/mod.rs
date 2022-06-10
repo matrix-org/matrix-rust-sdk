@@ -382,7 +382,7 @@ pub trait StateStore: AsyncTraitDeps {
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: Arc<dyn StateStore>,
-    pub(crate) session: Arc<OnceCell<Session>>,
+    session: Arc<OnceCell<Session>>,
     pub(crate) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,

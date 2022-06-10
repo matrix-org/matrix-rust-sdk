@@ -149,7 +149,7 @@ impl BaseClient {
 
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
-        self.store.session.get().is_some()
+        self.store.session().is_some()
     }
 
     /// Receive a login response and update the session of the client.
@@ -1003,7 +1003,7 @@ impl BaseClient {
             .transpose()?
         {
             Ok(event.content.global)
-        } else if let Some(session) = self.store.session.get() {
+        } else if let Some(session) = self.store.session() {
             Ok(Ruleset::server_default(&session.user_id))
         } else {
             Ok(Ruleset::new())
