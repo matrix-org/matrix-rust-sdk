@@ -573,7 +573,7 @@ impl BaseClient {
         };
 
         let mut changes = StateChanges::new(next_batch.clone());
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         self.handle_account_data(&account_data.events, &mut changes).await;
 
@@ -830,7 +830,7 @@ impl BaseClient {
             })
             .collect();
 
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
             let mut room_info = room.clone_info();

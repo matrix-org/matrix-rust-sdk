@@ -381,7 +381,7 @@ pub trait StateStore: AsyncTraitDeps {
 /// `StateStore` implementation.
 #[derive(Debug, Clone)]
 pub struct Store {
-    inner: Arc<dyn StateStore>,
+    pub(super) inner: Arc<dyn StateStore>,
     session: Arc<OnceCell<Session>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
