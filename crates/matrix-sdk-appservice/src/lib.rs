@@ -299,6 +299,44 @@ impl Deref for AppServiceRegistration {
     }
 }
 
+/// Cache data for the registration namespaces.
+#[derive(Debug, Clone)]
+pub struct NamespaceCache {
+    /// List of user regexes in our namespace
+    users: Vec<Regex>,
+    /// List of alias regexes in our namespace
+    #[allow(dead_code)]
+    aliases: Vec<Regex>,
+    /// List of room id regexes in our namespace
+    #[allow(dead_code)]
+    rooms: Vec<Regex>,
+}
+
+impl NamespaceCache {
+    /// Creates a new registration cache from a [`Registration`] value
+    pub fn from_registration(registration: &Registration) -> Result<Self> {
+        let users = registration
+            .namespaces
+            .users
+            .iter()
+            .map(|user| Regex::new(&user.regex))
+            .collect::<Result<Vec<_>, _>>()?;
+        let aliases = registration
+            .namespaces
+            .aliases
+            .iter()
+            .map(|user| Regex::new(&user.regex))
+            .collect::<Result<Vec<_>, _>>()?;
+        let rooms = registration
+            .namespaces
+            .rooms
+            .iter()
+            .map(|user| Regex::new(&user.regex))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(NamespaceCache { users, aliases, rooms })
+    }
+}
+
 type Localpart = String;
 
 /// The `localpart` of the user associated with the application service via
@@ -322,6 +360,7 @@ pub struct AppService {
     homeserver_url: Url,
     server_name: OwnedServerName,
     registration: Arc<AppServiceRegistration>,
+    namespaces: Arc<NamespaceCache>,
     clients: Arc<DashMap<Localpart, Client>>,
     event_handler: event_handler::EventHandler,
 }
@@ -365,12 +404,19 @@ impl AppService {
         let homeserver_url = homeserver_url.try_into()?;
         let server_name = server_name.try_into()?;
         let registration = Arc::new(registration);
+        let namespaces = Arc::new(NamespaceCache::from_registration(&registration)?);
         let clients = Arc::new(DashMap::new());
         let sender_localpart = registration.sender_localpart.clone();
         let event_handler = event_handler::EventHandler::default();
 
-        let appservice =
-            AppService { homeserver_url, server_name, registration, clients, event_handler };
+        let appservice = AppService {
+            homeserver_url,
+            server_name,
+            registration,
+            namespaces,
+            clients,
+            event_handler,
+        };
 
         // we create and cache the [`MainUser`] by default
         appservice.virtual_user_builder(&sender_localpart).client_builder(builder).build().await?;
@@ -619,16 +665,14 @@ impl AppService {
 
     /// Check if given `user_id` is in any of the [`AppServiceRegistration`]'s
     /// `users` namespaces
-    pub fn user_id_is_in_namespace(&self, user_id: impl AsRef<str>) -> Result<bool> {
-        for user in &self.registration.namespaces.users {
-            // TODO: precompile on AppService construction
-            let re = Regex::new(&user.regex)?;
-            if re.is_match(user_id.as_ref()) {
-                return Ok(true);
+    pub fn user_id_is_in_namespace(&self, user_id: impl AsRef<str>) -> bool {
+        for regex in &self.namespaces.users {
+            if regex.is_match(user_id.as_ref()) {
+                return true;
             }
         }
 
-        Ok(false)
+        false
     }
 
     /// Returns a [`warp::Filter`] to be used as [`warp::serve()`] route
@@ -659,7 +703,7 @@ impl AppService {
                 Ok(AnyRoomEvent::State(AnyStateEvent::RoomMember(event))) => event,
                 _ => continue,
             };
-            if !self.user_id_is_in_namespace(event.state_key())? {
+            if !self.user_id_is_in_namespace(event.state_key()) {
                 continue;
             }
             let localpart = event.state_key().localpart();
