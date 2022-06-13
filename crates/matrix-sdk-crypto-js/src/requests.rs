@@ -26,7 +26,7 @@ use wasm_bindgen::prelude::*;
 pub struct KeysUploadRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]
-    pub request_id: JsString,
+    pub id: JsString,
 
     /// A JSON-encoded object of form:
     ///
@@ -35,6 +35,21 @@ pub struct KeysUploadRequest {
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
+}
+
+#[wasm_bindgen]
+impl KeysUploadRequest {
+    /// Create a new `KeysUploadRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> KeysUploadRequest {
+        Self { id, body }
+    }
+
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysUpload
+    }
 }
 
 /// Data for a request to the `/keys/query` API endpoint
@@ -48,7 +63,7 @@ pub struct KeysUploadRequest {
 pub struct KeysQueryRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]
-    pub request_id: JsString,
+    pub id: JsString,
 
     /// A JSON-encoded object of form:
     ///
@@ -57,6 +72,21 @@ pub struct KeysQueryRequest {
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
+}
+
+#[wasm_bindgen]
+impl KeysQueryRequest {
+    /// Create a new `KeysQueryRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> KeysQueryRequest {
+        Self { id, body }
+    }
+
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysQuery
+    }
 }
 
 /// Data for a request to the `/keys/claim` API endpoint
@@ -71,7 +101,7 @@ pub struct KeysQueryRequest {
 pub struct KeysClaimRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]
-    pub request_id: JsString,
+    pub id: JsString,
 
     /// A JSON-encoded object of form:
     ///
@@ -80,6 +110,21 @@ pub struct KeysClaimRequest {
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
+}
+
+#[wasm_bindgen]
+impl KeysClaimRequest {
+    /// Create a new `KeysClaimRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> KeysClaimRequest {
+        Self { id, body }
+    }
+
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysClaim
+    }
 }
 
 /// Data for a request to the `/sendToDevice` API endpoint
@@ -93,7 +138,7 @@ pub struct KeysClaimRequest {
 pub struct ToDeviceRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]
-    pub request_id: JsString,
+    pub id: JsString,
 
     /// A JSON-encoded object of form:
     ///
@@ -102,6 +147,21 @@ pub struct ToDeviceRequest {
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
+}
+
+#[wasm_bindgen]
+impl ToDeviceRequest {
+    /// Create a new `ToDeviceRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> ToDeviceRequest {
+        Self { id, body }
+    }
+
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::ToDevice
+    }
 }
 
 /// Data for a request to the `/keys/signatures/upload` API endpoint
@@ -115,7 +175,7 @@ pub struct ToDeviceRequest {
 pub struct SignatureUploadRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]
-    pub request_id: JsString,
+    pub id: JsString,
 
     /// A JSON-encoded object of form:
     ///
@@ -124,6 +184,21 @@ pub struct SignatureUploadRequest {
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
+}
+
+#[wasm_bindgen]
+impl SignatureUploadRequest {
+    /// Create a new `SignatureUploadRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> SignatureUploadRequest {
+        Self { id, body }
+    }
+
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::SignatureUpload
+    }
 }
 
 /// A customized owned request type for sending out room messages
@@ -135,7 +210,7 @@ pub struct SignatureUploadRequest {
 pub struct RoomMessageRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]
-    pub request_id: JsString,
+    pub id: JsString,
 
     /// A JSON-encoded object of form:
     ///
@@ -144,6 +219,21 @@ pub struct RoomMessageRequest {
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
+}
+
+#[wasm_bindgen]
+impl RoomMessageRequest {
+    /// Create a new `RoomMessageRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> RoomMessageRequest {
+        Self { id, body }
+    }
+
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::RoomMessage
+    }
 }
 
 /// A request that will back up a batch of room keys to the server
@@ -155,7 +245,7 @@ pub struct RoomMessageRequest {
 pub struct KeysBackupRequest {
     /// The request ID.
     #[wasm_bindgen(readonly)]
-    pub request_id: JsString,
+    pub id: JsString,
 
     /// A JSON-encoded object of form:
     ///
@@ -164,6 +254,21 @@ pub struct KeysBackupRequest {
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
+}
+
+#[wasm_bindgen]
+impl KeysBackupRequest {
+    /// Create a new `KeysBackupRequest`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: JsString, body: JsString) -> KeysBackupRequest {
+        Self { id, body }
+    }
+
+    /// Get its request type.
+    #[wasm_bindgen(getter, js_name = "type")]
+    pub fn request_type(&self) -> RequestType {
+        RequestType::KeysBackup
+    }
 }
 
 macro_rules! request {
@@ -181,7 +286,7 @@ macro_rules! request {
                 let value = serde_json::Value::Object(map);
 
                 Ok($request {
-                    request_id: request_id.into(),
+                    id: request_id.into(),
                     body: serde_json::to_string(&value)?.into(),
                 })
             }

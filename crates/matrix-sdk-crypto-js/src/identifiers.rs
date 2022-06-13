@@ -27,12 +27,13 @@ impl UserId {
     }
 
     /// Returns the user's localpart.
+    #[wasm_bindgen(getter)]
     pub fn localpart(&self) -> String {
         self.inner.localpart().to_owned()
     }
 
     /// Returns the server name of the user ID.
-    #[wasm_bindgen(js_name = "serverName")]
+    #[wasm_bindgen(getter, js_name = "serverName")]
     pub fn server_name(&self) -> ServerName {
         ServerName { inner: self.inner.server_name().to_owned() }
     }
@@ -42,7 +43,7 @@ impl UserId {
     /// A historical user ID is one that doesn't conform to the latest
     /// specification of the user ID grammar but is still accepted
     /// because it was previously allowed.
-    #[wasm_bindgen(getter, js_name = "isHistorical")]
+    #[wasm_bindgen(js_name = "isHistorical")]
     pub fn is_historical(&self) -> bool {
         self.inner.is_historical()
     }
@@ -111,12 +112,13 @@ impl RoomId {
     }
 
     /// Returns the user's localpart.
+    #[wasm_bindgen(getter)]
     pub fn localpart(&self) -> String {
         self.inner.localpart().to_owned()
     }
 
     /// Returns the server name of the room ID.
-    #[wasm_bindgen(js_name = "serverName")]
+    #[wasm_bindgen(getter, js_name = "serverName")]
     pub fn server_name(&self) -> ServerName {
         ServerName { inner: self.inner.server_name().to_owned() }
     }
@@ -153,11 +155,13 @@ impl ServerName {
     ///
     /// That is: Return the part of the server before `:<port>` or the
     /// full server name if there is no port.
+    #[wasm_bindgen(getter)]
     pub fn host(&self) -> String {
         self.inner.host().to_owned()
     }
 
     /// Returns the port of the server name if any.
+    #[wasm_bindgen(getter)]
     pub fn port(&self) -> Option<u16> {
         self.inner.port()
     }

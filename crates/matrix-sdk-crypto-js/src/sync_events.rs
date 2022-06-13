@@ -18,15 +18,17 @@ impl DeviceLists {
     ///
     /// `changed` and `left` must be an array of `UserId`.
     #[wasm_bindgen(constructor)]
-    pub fn new(changed: Array, left: Array) -> Result<DeviceLists, JsError> {
+    pub fn new(changed: Option<Array>, left: Option<Array>) -> Result<DeviceLists, JsError> {
         let mut inner = ruma::api::client::sync::sync_events::v3::DeviceLists::default();
 
         inner.changed = changed
+            .unwrap_or_default()
             .iter()
             .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
             .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
 
         inner.left = left
+            .unwrap_or_default()
             .iter()
             .map(|user| Ok(downcast::<identifiers::UserId>(&user, "UserId")?.inner.clone()))
             .collect::<Result<Vec<ruma::OwnedUserId>, JsError>>()?;
@@ -40,8 +42,10 @@ impl DeviceLists {
         self.inner.is_empty()
     }
 
-    /// List of users who have updated their device identity keys or who now
-    /// share an encrypted room with the client since the previous sync
+    /// List of users who have updated their device identity keys or
+    /// who now share an encrypted room with the client since the
+    /// previous sync
+    #[wasm_bindgen(getter)]
     pub fn changed(&self) -> Array {
         self.inner
             .changed
@@ -51,8 +55,9 @@ impl DeviceLists {
             .collect()
     }
 
-    /// List of users who no longer share encrypted rooms since the previous
-    /// sync response.
+    /// List of users who no longer share encrypted rooms since the
+    /// previous sync response.
+    #[wasm_bindgen(getter)]
     pub fn left(&self) -> Array {
         self.inner
             .left
