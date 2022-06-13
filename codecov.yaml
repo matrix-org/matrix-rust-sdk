@@ -33,3 +33,6 @@ coverage:
         paths:
           - "labs/"
     patch: off
+ignore:
+  - "crates/matrix-sdk-crypto-js"
+  - "crates/matrix-sdk-crypto-nodejs"
