@@ -45,7 +45,6 @@ use vodozemac::{
     },
     PickleError,
 };
-use zeroize::Zeroize;
 
 use super::{BackedUpRoomKey, ExportedRoomKey, SessionKey};
 use crate::error::{EventError, MegolmResult};
@@ -97,10 +96,10 @@ impl InboundGroupSession {
         sender_key: &str,
         signing_key: &str,
         room_id: &RoomId,
-        session_key: SessionKey,
+        session_key: &SessionKey,
         history_visibility: Option<HistoryVisibility>,
     ) -> Self {
-        let session = InnerSession::new(&session_key);
+        let session = InnerSession::new(session_key);
         let session_id = session.session_id();
         let first_known_index = session.first_known_index();
 
@@ -159,10 +158,9 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub fn from_forwarded_key(
         sender_key: &str,
-        content: &mut ToDeviceForwardedRoomKeyEventContent,
+        content: &ToDeviceForwardedRoomKeyEventContent,
     ) -> Result<Self, SessionKeyDecodeError> {
         let key = ExportedSessionKey::from_base64(&content.session_key)?;
-        content.session_key.zeroize();
 
         let session = InnerSession::import(&key);
         let first_known_index = session.first_known_index();
