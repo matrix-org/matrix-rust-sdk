@@ -425,9 +425,9 @@ impl MasterPubkey {
 
     /// Check if the given JSON is signed by this master key.
     ///
-    /// This method should only be used if a signature of an object should be
-    /// checked multiple times and the canonicalization step wants to be done
-    /// only a single time.
+    /// This method should only be used if an object's signature needs to be
+    /// checked multiple times, and you'd like to avoid performing the
+    /// canonicalization step each time.
     ///
     /// **Note**: Use this method with caution, the `canonical_json` needs to be
     /// correctly canonicalized and make sure that the object you are checking
