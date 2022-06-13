@@ -1,6 +1,9 @@
 //! The crypto specific Olm objects.
 
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use napi::bindgen_prelude::Either7;
 use napi_derive::*;
@@ -9,6 +12,7 @@ use ruma::{
     OwnedTransactionId, UInt,
 };
 use serde_json::Value as JsonValue;
+use zeroize::Zeroize;
 
 use crate::{
     encryption, identifiers, into_err, requests, responses, responses::response_from_string,
@@ -37,25 +41,59 @@ impl OlmMachine {
 
     /// Create a new memory-based `OlmMachine` asynchronously.
     ///
-    /// The created machine will keep the encryption keys only in
-    /// memory and once the object is dropped the keys will be lost.
+    /// The persistence of the encryption keys and all the inner
+    /// objects are controlled by the `store_path` argument.
     ///
     /// # Arguments
     ///
     /// * `user_id`, the unique ID of the user that owns this machine.
     /// * `device_id`, the unique id of the device that owns this machine.
+    /// * `store_path`, the path to a directory where the state of the machine
+    ///   should be persisted; if not set, the created machine will keep the
+    ///   encryption keys only in memory, and once the object is dropped, the
+    ///   keys will be lost.
+    /// * `store_passphrase`, the passphrase that should be used to encrypt the
+    ///   data at rest in the store. **Warning**, if no passphrase is given, the
+    ///   store and all its data will remain unencrypted. This argument is
+    ///   ignored if `store_path` is not set.
     #[napi]
     pub async fn initialize(
         user_id: &identifiers::UserId,
         device_id: &identifiers::DeviceId,
-    ) -> Self {
-        OlmMachine {
-            inner: matrix_sdk_crypto::OlmMachine::new(
-                user_id.inner.as_ref(),
-                device_id.inner.as_ref(),
-            )
-            .await,
-        }
+        store_path: Option<String>,
+        mut store_passphrase: Option<String>,
+    ) -> napi::Result<OlmMachine> {
+        let store = store_path
+            .map(|store_path| {
+                matrix_sdk_sled::CryptoStore::open_with_passphrase(
+                    store_path,
+                    store_passphrase.as_deref(),
+                )
+                .map(Arc::new)
+                .map_err(into_err)
+            })
+            .transpose()?;
+
+        store_passphrase.zeroize();
+
+        Ok(OlmMachine {
+            inner: match store {
+                Some(store) => matrix_sdk_crypto::OlmMachine::with_store(
+                    user_id.inner.as_ref(),
+                    device_id.inner.as_ref(),
+                    store,
+                )
+                .await
+                .map_err(into_err)?,
+                None => {
+                    matrix_sdk_crypto::OlmMachine::new(
+                        user_id.inner.as_ref(),
+                        device_id.inner.as_ref(),
+                    )
+                    .await
+                }
+            },
+        })
     }
 
     /// It's not possible to construct an `OlmMachine` with its

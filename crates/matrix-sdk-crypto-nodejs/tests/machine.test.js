@@ -1,4 +1,7 @@
 const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../');
+const path = require('node:path');
+const os = require('node:os');
+const fs = require('node:fs/promises');
 
 describe(OlmMachine.name, () => {
     test('cannot be instantiated with the constructor', () => {
@@ -9,6 +12,20 @@ describe(OlmMachine.name, () => {
         expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'))).toBeInstanceOf(OlmMachine);
     });
 
+    describe('can be instantiated with a store', () => {
+        test('with no passphrase', async () => {
+            const temp_directory = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-sdk-crypto--'));
+
+            expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), temp_directory)).toBeInstanceOf(OlmMachine);
+        });
+
+        test('with a passphrase', async () => {
+            const temp_directory = await fs.mkdtemp(path.join(os.tmpdir(), 'matrix-sdk-crypto--'));
+
+            expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'), temp_directory, 'hello')).toBeInstanceOf(OlmMachine);
+        });
+    });
+    
     const user = new UserId('@alice:example.org');
     const device = new DeviceId('foobar');
     const room = new RoomId('!baz:matrix.org');
