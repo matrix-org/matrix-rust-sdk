@@ -19,10 +19,10 @@ Node.js and npm
 Page](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm).
 
 The binding is using NAPI 6 (Node API version 6), which means that is
-compatible with Node.js versions 12.17.0, 14.0.0, 15.0.0 and 16.0.0
-(see [the full Node API version
+compatible with Node.js versions 14.0.0, 15.0.0 and 16.0.0 (see [the
+full Node API version
 matrix](https://nodejs.org/api/n-api.html#node-api-version-matrix))
-(we do not support the version 10.20).
+(we do not support the versions 10.20 and 12.17.0).
 
 Once the Rust compiler, Node.js and npm are installed, you can run the
 following commands:
