@@ -37,5 +37,8 @@ ignore:
   - "crates/matrix-sdk-crypto-ffi"
   - "crates/matrix-sdk-crypto-js"
   - "crates/matrix-sdk-crypto-nodejs"
+  - "crates/matrix-sdk-ffi"
+  - "crates/matrix-sdk-test"
+  - "crates/matrix-sdk-test-macros"
   - "labs"
   - "xtask"
