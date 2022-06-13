@@ -29,6 +29,8 @@ jobs:
       - name: Build docs
         uses: actions-rs/cargo@v1
         env:
+          # Work around https://github.com/rust-lang/cargo/issues/10744
+          CARGO_TARGET_APPLIES_TO_HOST: "true"
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs -Dwarnings"
         with:
           command: doc
