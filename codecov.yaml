@@ -26,12 +26,6 @@ coverage:
           - "bindings/"
           - "crates/matrix-sdk-crypto-ffi/"
           - "crates/matrix-sdk-ffi/"
-      labs:
-        # Coverage of lab tests is recorded but for informational
-        # purposes only
-        informational: true
-        paths:
-          - "labs/"
     patch: off
 ignore:
   - "crates/matrix-sdk-crypto-ffi"
