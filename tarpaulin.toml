@@ -1,5 +1,12 @@
 [default-config]
 debug = false
 verbose = false
-exclude-files = ["crates/matrix_sdk/examples/*", "crates/matrix_sdk_common", "crates/matrix_sdk_test"]
-exclude = ["matrix-sdk-crypto-js", "matrix-sdk-crypto-nodejs"]
+exclude-files = ["crates/matrix_sdk/examples/*"]
+exclude = [
+    "matrix-sdk-common",
+    "matrix-sdk-test",
+    "matrix-sdk-indexeddb",
+    "matrix-sdk-crypto-ffi",
+    "matrix-sdk-crypto-js",
+    "matrix-sdk-crypto-nodejs"
+]
