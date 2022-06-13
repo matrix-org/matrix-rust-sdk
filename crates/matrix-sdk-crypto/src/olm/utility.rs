@@ -63,9 +63,10 @@ pub trait VerifyJson {
     /// * `user_id` - The user that claims to have signed this object.
     ///
     /// * `key_id` - The ID of the key that was used to sign this object.
-    /// **Note**: The key ID must match the ID of the public key that is
-    /// verifying the signature. This is only used to find the correct
-    /// signature.
+    ///
+    ///   **Note**: The key ID must match the ID of the public key that is
+    ///   verifying the signature. This is only used to find the correct
+    ///   signature.
     ///
     /// * `signed_object` - The signed object that we should check for a valid
     /// signature.
@@ -87,17 +88,18 @@ pub trait VerifyJson {
     /// * `user_id` - The user that claims to have signed this object.
     ///
     /// * `key_id` - The ID of the key that was used to sign this object.
-    /// **Note**: The key ID must match the ID of the public key that is
-    /// verifying the signature. This is only used to find the correct
-    /// signature.
+    ///
+    ///   **Note**: The key ID must match the ID of the public key that is
+    ///   verifying the signature. This is only used to find the correct
+    ///   signature.
     ///
     /// * `canonicalized_json` - The canonicalized version of a signed JSON
     /// object.
     ///
-    /// This method should only be used if a signature of an object should be
-    /// checked multiple times and the canonicalization step wants to be done
-    /// only a single time. Prefer the [`VerifyJson::verify_json`] method
-    /// otherwise.
+    /// This method should only be used if an object's signature needs to be
+    /// checked multiple times, and you'd like to avoid performing the
+    /// canonicalization step each time. Otherwise, prefer the
+    /// [`VerifyJson::verify_json`] method
     ///
     /// Returns Ok if the signature was successfully verified, otherwise an
     /// SignatureError.
@@ -159,14 +161,14 @@ fn verify_signature(
 }
 
 /// A trait for Matrix objects that we can canonicalize, sign and verify
-/// signatures for as described by the [spec].
+/// signatures for, as described by the [spec].
 ///
 /// [spec]: https://spec.matrix.org/unstable/appendices/#signing-json
 pub trait SignedJsonObject: Serialize {
-    /// Get the collection of signatures this SignedJsonObject has.
+    /// Get the collection of signatures present on this signed JSON object.
     fn signatures(&self) -> &Signatures;
 
-    /// Convert the SignedJsonObject to a canonicalized signed JSON string.
+    /// Convert this signed JSON object to a canonicalized signed JSON string.
     fn to_canonical_json(&self) -> Result<String, SignatureError> {
         let value = serde_json::to_value(self)?;
         to_signable_json(value)
