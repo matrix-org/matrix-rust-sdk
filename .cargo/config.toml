@@ -37,4 +37,5 @@ rustflags = [
 # activate the target-applies-to-host feature.
 # Required for `target-applies-to-host` at the top to take effect.
 [unstable]
+rustdoc-map = true
 target-applies-to-host = true
