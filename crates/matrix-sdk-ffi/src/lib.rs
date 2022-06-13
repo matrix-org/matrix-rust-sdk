@@ -45,10 +45,9 @@ pub fn guest_client(base_path: String, homeurl: String) -> anyhow::Result<Arc<Cl
 
 pub fn login_with_token(base_path: String, restore_token: String) -> anyhow::Result<Arc<Client>> {
     let RestoreToken { session, homeurl, is_guest } = serde_json::from_str(&restore_token)?;
-
     let builder = new_client_builder(base_path, session.user_id.to_string())?
-        .homeserver_url(&homeurl);
-
+        .homeserver_url(&homeurl)
+        .server_name_from_user_id(&session.user_id);
     // First we need to log in.
     RUNTIME.block_on(async move {
         let client = builder.build().await?;
@@ -62,10 +61,15 @@ pub fn login_new_client(
     base_path: String,
     username: String,
     password: String,
-    config: ClientConfig
+    config_overwrites: Option<ClientConfig>,
 ) -> anyhow::Result<Arc<Client>> {
     let user = Box::<UserId>::try_from(username.clone())?;
-    let builder = new_client_builder_with_config(base_path, username, config, &user)?;
+
+    let mut builder = new_client_builder(base_path, username)?
+        .server_name_from_user_id(&user);
+    if let Some(config) = config_overwrites {
+        builder = overwrite_builder_with_config(builder, config);
+    }
 
     // First we need to log in.
     RUNTIME.block_on(async move {
@@ -86,19 +90,15 @@ fn new_client_builder(base_path: String, home: String) -> anyhow::Result<ClientB
     Ok(MatrixClient::builder().user_agent("rust-sdk-ios").store_config(store_config))
 }
 
-fn new_client_builder_with_config(base_path: String, home: String, config: ClientConfig, user: &UserId) -> anyhow::Result<ClientBuilder> {
-    let mut builder = new_client_builder(base_path, home)?;
+fn overwrite_builder_with_config(builder: ClientBuilder, config: ClientConfig) -> ClientBuilder {
+    let mut builder = builder;
     if let Some(homeserver) = config.homeserver {
         builder = builder.homeserver_url(&homeserver);
-    } else {
-        builder = builder.server_name_from_user_id(&user);
     }
-
     if let Some(proxy) = config.http_proxy {
         builder = builder.proxy(proxy);
     }
-
-    Ok(builder)
+    builder
 }
 
 #[derive(Default, Debug)]

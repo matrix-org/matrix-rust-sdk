@@ -1,6 +1,6 @@
 namespace sdk {
     [Throws=ClientError]
-    Client login_new_client(string base_path, string username, string password, ClientConfig config);
+    Client login_new_client(string base_path, string username, string password, ClientConfig? config_overwrites);
 
     [Throws=ClientError]
     Client guest_client(string base_path, string homeserver);

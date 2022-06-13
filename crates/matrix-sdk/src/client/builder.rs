@@ -84,8 +84,9 @@ impl ClientBuilder {
 
     /// Set the homeserver URL to use.
     ///
-    /// This method is mutually exclusive with [`user_id()`][Self::user_id], if
-    /// you set both whatever was set last will be used.
+    /// This method is mutually exclusive with
+    /// [`server_name_from_user_id()`][Self::server_name_from_user_id],
+    /// if you set both whatever was set last will be used.
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::Url(url.as_ref().to_owned()));
         self

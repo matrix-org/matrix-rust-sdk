@@ -26,7 +26,7 @@ class MatrixRustSDKTests: XCTestCase {
     
     func testReadOnlyFileSystemError() {
         do {
-            let _ = try loginNewClient(basePath: "", username: "test", password: "test", config: ClientConfig(homeserver: nil, httpProxy: nil))
+            let _ = try loginNewClient(basePath: "", username: "@test:domain", password: "test", configOverwrites: nil)
         } catch ClientError.Generic(let message) {
             XCTAssertNotNil(message.range(of: "Read-only file system"))
         } catch {
