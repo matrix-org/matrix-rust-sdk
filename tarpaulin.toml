@@ -3,7 +3,6 @@ debug = false
 verbose = false
 exclude-files = ["crates/matrix_sdk/examples/*"]
 exclude = [
-    "matrix-sdk-common",
     "matrix-sdk-test",
     "matrix-sdk-indexeddb",
     "matrix-sdk-crypto-ffi",
