@@ -36,3 +36,5 @@ coverage:
 ignore:
   - "crates/matrix-sdk-crypto-js"
   - "crates/matrix-sdk-crypto-nodejs"
+  - "labs"
+  - "xtask"
