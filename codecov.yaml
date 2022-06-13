@@ -34,6 +34,7 @@ coverage:
           - "labs/"
     patch: off
 ignore:
+  - "crates/matrix-sdk-crypto-ffi"
   - "crates/matrix-sdk-crypto-js"
   - "crates/matrix-sdk-crypto-nodejs"
   - "labs"
