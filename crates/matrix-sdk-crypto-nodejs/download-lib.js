@@ -1,11 +1,9 @@
 const { DownloaderHelper } = require('node-downloader-helper');
+const { version } = require("./package.json");
 const { platform, arch } = process
 
-let nativeBinding = null
-let localFileExisted = false
-let loadError = null
 const DOWNLOADS_BASE_URL = "https://github.com/matrix-org/matrix-rust-sdk/releases/download";
-const CURRENT_VERSION = "matrix-sdk-crypto-ffi-0.1.0";
+const CURRENT_VERSION = `matrix-sdk-crypto-nodejs-${version}`;
 
 const byteHelper = function (value) {
     if (value === 0) {
@@ -17,9 +15,8 @@ const byteHelper = function (value) {
         units[number];
 };
 
-function download_lib(libnamee) {
+function download_lib(libname) {
     let startTime = new Date();
-    libname = "MatrixSDKCryptoFFI.zip";
 
     const url = `${DOWNLOADS_BASE_URL}/${CURRENT_VERSION}/${libname}`;
     console.log(`Downloading lib ${libname} from ${url}`);
