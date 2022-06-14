@@ -58,18 +58,6 @@ function isMusl() {
 }
 
 switch (platform) {
-  case 'android':
-    switch (arch) {
-      case 'arm64':
-        download_lib('matrix-sdk-crypto.android-arm64.node')
-        break
-      case 'arm':
-        download_lib('matrix-sdk-crypto.android-arm-eabi.node')
-        break
-      default:
-        throw new Error(`Unsupported architecture on Android ${arch}`)
-    }
-    break
   case 'win32':
     switch (arch) {
       case 'x64':
@@ -77,9 +65,6 @@ switch (platform) {
         break
       case 'ia32':
         download_lib('matrix-sdk-crypto.win32-ia32-msvc.node')
-        break
-      case 'arm64':
-        download_lib('matrix-sdk-crypto.win32-arm64-msvc.node')
         break
       default:
         throw new Error(`Unsupported architecture on Windows: ${arch}`)

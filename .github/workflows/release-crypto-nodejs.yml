@@ -17,23 +17,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - target: aarch64-unknown-linux-gnu
-          #   os: ubuntu-latest
+          # ----------------------------------- Linux
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            apt_install: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          - target: arm-unknown-linux-gnueabihf
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          # ----------------------------------- Mac OSx
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-apple-darwin
             os: macos-latest
-          
+          # ----------------------------------- Windows
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            
-          # - target: aarch64-apple-ios-sim
-          #   os: macos-latest
-          # - target: x86_64-apple-ios
-          #   os: macos-latest
+          - target: i686-pc-windows-msvc
+            os: windows-latest
+          # ----------------------------------- FreeBSD
+          - target: x86_64-unknown-freebsd
+            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -44,13 +52,14 @@ jobs:
           profile: minimal
           target: ${{ matrix.target }}
           override: true
-
       - name: Install Node.js
         uses: actions/setup-node@v3
-
       - name: Load cache
         uses: Swatinem/rust-cache@v1
-
+      - if: ${{ matrix.apt_install }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.apt_install }}
       - name: Build lib
         working-directory: ${{env.PKG_PATH}}
         run: |
