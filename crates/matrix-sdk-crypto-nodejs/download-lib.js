@@ -96,7 +96,7 @@ switch (platform) {
         break
       case 'arm64':
         if (isMusl()) {
-          download_lib('matrix-sdk-crypto.linux-arm64-musl.node')
+            throw new Error('Linux for arm64 musl isn\'t support at the moment')
         } else {
           download_lib('matrix-sdk-crypto.linux-arm64-gnu.node')
         }
