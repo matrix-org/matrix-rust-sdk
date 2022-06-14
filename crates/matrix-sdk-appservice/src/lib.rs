@@ -202,7 +202,7 @@ impl<'a> VirtualUserBuilder<'a> {
         }
 
         let user_id = UserId::parse_with_server_name(self.localpart, &self.appservice.server_name)?;
-        if !(self.appservice.user_id_is_in_namespace(&user_id)?
+        if !(self.appservice.user_id_is_in_namespace(&user_id)
             || self.localpart == self.appservice.registration.sender_localpart)
         {
             warn!("Virtual client id '{user_id}' is not in the namespace")
