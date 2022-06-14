@@ -66,6 +66,9 @@ switch (platform) {
       case 'ia32':
         download_lib('matrix-sdk-crypto.win32-ia32-msvc.node')
         break
+      case 'arm64':
+        download_lib('matrix-sdk-crypto.win32-arm64-msvc.node')
+        break
       default:
         throw new Error(`Unsupported architecture on Windows: ${arch}`)
     }
