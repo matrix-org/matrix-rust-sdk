@@ -39,9 +39,6 @@ jobs:
             os: windows-latest
           - target: i686-pc-windows-msvc
             os: windows-latest
-          # ----------------------------------- FreeBSD
-          - target: x86_64-unknown-freebsd
-            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3

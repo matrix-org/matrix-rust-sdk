@@ -82,12 +82,6 @@ switch (platform) {
         throw new Error(`Unsupported architecture on macOS: ${arch}`)
     }
     break
-  case 'freebsd':
-    if (arch !== 'x64') {
-      throw new Error(`Unsupported architecture on FreeBSD: ${arch}`)
-    }
-    download_lib('matrix-sdk-crypto.freebsd-x64.node')
-    break
   case 'linux':
     switch (arch) {
       case 'x64':
