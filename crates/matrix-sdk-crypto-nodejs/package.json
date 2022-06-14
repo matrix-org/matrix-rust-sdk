@@ -22,7 +22,11 @@
     },
     "scripts": {
         "build": "napi build --platform --release --strip",
+        "postinstall": "node download-lib.js",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig ."
+    },
+    "dependencies": {
+        "node-downloader-helper": "^2.1.1"
     }
 }
