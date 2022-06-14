@@ -1,4 +1,4 @@
-const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings } = require('../pkg/matrix_sdk_crypto');
+const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../pkg/matrix_sdk_crypto');
 
 describe(OlmMachine.name, () => {
     test('can be instantiated with the async initializer', async () => {
@@ -310,7 +310,6 @@ describe(OlmMachine.name, () => {
             expect(encrypted.session_id).toBeDefined();
         });
 
-        /*
         test('can decrypt an event', async () => {
             const decrypted = await m.decryptRoomEvent(
                 JSON.stringify({
@@ -338,6 +337,5 @@ describe(OlmMachine.name, () => {
             expect(decrypted.forwardingCurve25519KeyChain).toHaveLength(0);
             expect(decrypted.verificationState).toStrictEqual(VerificationState.Trusted);
         });
-        */
     });
 });

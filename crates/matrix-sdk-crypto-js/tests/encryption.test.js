@@ -1,4 +1,4 @@
-const { EncryptionAlgorithm, EncryptionSettings, HistoryVisibility } = require('../pkg/matrix_sdk_crypto');
+const { EncryptionAlgorithm, EncryptionSettings, HistoryVisibility, VerificationState } = require('../pkg/matrix_sdk_crypto');
 
 describe('EncryptionAlgorithm', () => {
     test('has the correct variant values', () => {
@@ -24,5 +24,13 @@ describe(EncryptionSettings.name, () => {
 
         expect(es.historyVisibility).toStrictEqual(HistoryVisibility.Invited);
         expect(() => { es.historyVisibility = 42 }).toThrow();
+    });
+});
+
+describe('VerificationState', () => {
+    test('has the correct variant values', () => {
+        expect(VerificationState.Trusted).toStrictEqual(0);
+        expect(VerificationState.Untrusted).toStrictEqual(1);
+        expect(VerificationState.UnknownDevice).toStrictEqual(2);
     });
 });

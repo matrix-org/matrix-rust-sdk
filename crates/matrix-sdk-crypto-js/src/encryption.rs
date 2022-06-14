@@ -96,3 +96,29 @@ impl From<ruma::EventEncryptionAlgorithm> for EncryptionAlgorithm {
         }
     }
 }
+
+/// The verification state of the device that sent an event to us.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub enum VerificationState {
+    /// The device is trusted.
+    Trusted,
+
+    /// The device is not trusted.
+    Untrusted,
+
+    /// The device is not known to us.
+    UnknownDevice,
+}
+
+impl From<&matrix_sdk_common::deserialized_responses::VerificationState> for VerificationState {
+    fn from(value: &matrix_sdk_common::deserialized_responses::VerificationState) -> Self {
+        use matrix_sdk_common::deserialized_responses::VerificationState::*;
+
+        match value {
+            Trusted => Self::Trusted,
+            Untrusted => Self::Untrusted,
+            UnknownDevice => Self::UnknownDevice,
+        }
+    }
+}

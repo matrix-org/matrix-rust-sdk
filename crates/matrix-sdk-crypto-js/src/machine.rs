@@ -3,7 +3,10 @@
 use std::collections::BTreeMap;
 
 use js_sys::{Array, Map, Promise, Set};
-use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
+use ruma::{
+    events::room::encrypted::OriginalSyncRoomEncryptedEvent, DeviceKeyAlgorithm,
+    OwnedTransactionId, UInt,
+};
 use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
@@ -51,13 +54,13 @@ impl OlmMachine {
     /// The unique user ID that owns this `OlmMachine` instance.
     #[wasm_bindgen(getter, js_name = "userId")]
     pub fn user_id(&self) -> identifiers::UserId {
-        identifiers::UserId::new_with(self.inner.user_id().to_owned())
+        identifiers::UserId::from(self.inner.user_id().to_owned())
     }
 
     /// The unique device ID that identifies this `OlmMachine`.
     #[wasm_bindgen(getter, js_name = "deviceId")]
     pub fn device_id(&self) -> identifiers::DeviceId {
-        identifiers::DeviceId::new_with(self.inner.device_id().to_owned())
+        identifiers::DeviceId::from(self.inner.device_id().to_owned())
     }
 
     /// Get the public parts of our Olm identity keys.
@@ -81,11 +84,9 @@ impl OlmMachine {
     pub fn tracked_users(&self) -> Set {
         let set = Set::new(&JsValue::UNDEFINED);
 
-        self.inner.tracked_users().into_iter().map(identifiers::UserId::new_with).for_each(
-            |user| {
-                set.add(&user.into());
-            },
-        );
+        self.inner.tracked_users().into_iter().map(identifiers::UserId::from).for_each(|user| {
+            set.add(&user.into());
+        });
 
         set
     }
@@ -258,6 +259,29 @@ impl OlmMachine {
             Ok(serde_json::to_string(
                 &me.encrypt_room_event_raw(&room_id, content, event_type.as_ref()).await?,
             )?)
+        }))
+    }
+
+    /// Decrypt an event from a room timeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `event`, the event that should be decrypted.
+    /// * `room_id`, the ID of the room where the event was sent to.
+    #[wasm_bindgen(js_name = "decryptRoomEvent")]
+    pub fn decrypt_room_event(
+        &self,
+        event: &str,
+        room_id: &identifiers::RoomId,
+    ) -> Result<Promise, JsError> {
+        let event: OriginalSyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let room_id = room_id.inner.clone();
+        let me = self.inner.clone();
+
+        Ok(future_to_promise(async move {
+            let room_event = me.decrypt_room_event(&event, room_id.as_ref()).await?;
+
+            Ok(responses::DecryptedRoomEvent::from(room_event))
         }))
     }
 

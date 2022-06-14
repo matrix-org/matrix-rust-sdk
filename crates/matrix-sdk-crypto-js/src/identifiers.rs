@@ -12,8 +12,8 @@ pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
 
-impl UserId {
-    pub(crate) fn new_with(inner: ruma::OwnedUserId) -> Self {
+impl From<ruma::OwnedUserId> for UserId {
+    fn from(inner: ruma::OwnedUserId) -> Self {
         Self { inner }
     }
 }
@@ -23,7 +23,7 @@ impl UserId {
     /// Parse/validate and create a new `UserId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> Result<UserId, JsError> {
-        Ok(Self::new_with(ruma::UserId::parse(id)?))
+        Ok(Self::from(ruma::UserId::parse(id)?))
     }
 
     /// Returns the user's localpart.
@@ -66,8 +66,8 @@ pub struct DeviceId {
     pub(crate) inner: ruma::OwnedDeviceId,
 }
 
-impl DeviceId {
-    pub(crate) fn new_with(inner: ruma::OwnedDeviceId) -> Self {
+impl From<ruma::OwnedDeviceId> for DeviceId {
+    fn from(inner: ruma::OwnedDeviceId) -> Self {
         Self { inner }
     }
 }
@@ -77,7 +77,7 @@ impl DeviceId {
     /// Create a new `DeviceId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> DeviceId {
-        Self::new_with(id.into())
+        Self::from(ruma::OwnedDeviceId::from(id))
     }
 
     /// Return the device ID as a string.
@@ -97,8 +97,8 @@ pub struct RoomId {
     pub(crate) inner: ruma::OwnedRoomId,
 }
 
-impl RoomId {
-    pub(crate) fn new_with(inner: ruma::OwnedRoomId) -> Self {
+impl From<ruma::OwnedRoomId> for RoomId {
+    fn from(inner: ruma::OwnedRoomId) -> Self {
         Self { inner }
     }
 }
@@ -108,7 +108,7 @@ impl RoomId {
     /// Parse/validate and create a new `RoomId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> Result<RoomId, JsError> {
-        Ok(Self::new_with(ruma::RoomId::parse(id)?))
+        Ok(Self::from(ruma::RoomId::parse(id)?))
     }
 
     /// Returns the user's localpart.
