@@ -4,7 +4,7 @@ env:
   PKG_PATH: "crates/matrix-sdk-crypto-nodejs"
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc'
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: 'aarch64-linux-musl-gcc'
-  CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'
+  CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'
 
 on:
   pull_request:
@@ -30,6 +30,7 @@ jobs:
             apt_install: gcc-arm-linux-gnueabihf
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
+            apt_install: gcc-aarch64-linux-musl g++-aarch64-linux-musl
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           # ----------------------------------- Mac OSx
