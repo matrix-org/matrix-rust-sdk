@@ -1,6 +1,6 @@
 //! The crypto specific Olm objects.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::collections::BTreeMap;
 
 use js_sys::{Array, Map, Promise, Set};
 use ruma::{DeviceKeyAlgorithm, OwnedTransactionId, UInt};
@@ -8,7 +8,7 @@ use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    downcast, events,
+    downcast, encryption,
     future::future_to_promise,
     identifiers, requests,
     requests::OutgoingRequest,
@@ -49,25 +49,25 @@ impl OlmMachine {
     }
 
     /// The unique user ID that owns this `OlmMachine` instance.
-    #[wasm_bindgen(js_name = "userId")]
+    #[wasm_bindgen(getter, js_name = "userId")]
     pub fn user_id(&self) -> identifiers::UserId {
         identifiers::UserId::new_with(self.inner.user_id().to_owned())
     }
 
     /// The unique device ID that identifies this `OlmMachine`.
-    #[wasm_bindgen(js_name = "deviceId")]
+    #[wasm_bindgen(getter, js_name = "deviceId")]
     pub fn device_id(&self) -> identifiers::DeviceId {
         identifiers::DeviceId::new_with(self.inner.device_id().to_owned())
     }
 
     /// Get the public parts of our Olm identity keys.
-    #[wasm_bindgen(js_name = "identityKeys")]
+    #[wasm_bindgen(getter, js_name = "identityKeys")]
     pub fn identity_keys(&self) -> IdentityKeys {
         self.inner.identity_keys().into()
     }
 
     /// Get the display name of our own device.
-    #[wasm_bindgen(js_name = "displayName")]
+    #[wasm_bindgen(getter, js_name = "displayName")]
     pub fn display_name(&self) -> Promise {
         let me = self.inner.clone();
 
@@ -284,7 +284,7 @@ impl OlmMachine {
         &self,
         room_id: &identifiers::RoomId,
         users: &Array,
-        encryption_settings: &EncryptionSettings,
+        encryption_settings: &encryption::EncryptionSettings,
     ) -> Result<Promise, JsError> {
         let room_id = room_id.inner.clone();
         let users = users
@@ -417,99 +417,6 @@ impl From<matrix_sdk_crypto::olm::IdentityKeys> for IdentityKeys {
         Self {
             ed25519: Ed25519PublicKey { inner: value.ed25519 },
             curve25519: Curve25519PublicKey { inner: value.curve25519 },
-        }
-    }
-}
-
-/// An encryption algorithm to be used to encrypt messages sent to a
-/// room.
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
-pub enum EncryptionAlgorithm {
-    /// Olm version 1 using Curve25519, AES-256, and SHA-256.
-    OlmV1Curve25519AesSha2,
-
-    /// Megolm version 1 using AES-256 and SHA-256.
-    MegolmV1AesSha2,
-}
-
-impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
-    fn from(value: EncryptionAlgorithm) -> Self {
-        use EncryptionAlgorithm::*;
-
-        match value {
-            OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
-            MegolmV1AesSha2 => Self::MegolmV1AesSha2,
-        }
-    }
-}
-
-impl From<ruma::EventEncryptionAlgorithm> for EncryptionAlgorithm {
-    fn from(value: ruma::EventEncryptionAlgorithm) -> Self {
-        use ruma::EventEncryptionAlgorithm::*;
-
-        match value {
-            OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
-            MegolmV1AesSha2 => Self::MegolmV1AesSha2,
-            _ => unreachable!("Unknown variant"),
-        }
-    }
-}
-
-/// Settings for an encrypted room.
-///
-/// This determines the algorithm and rotation periods of a group
-/// session.
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Debug, Clone)]
-pub struct EncryptionSettings {
-    /// The encryption algorithm that should be used in the room.
-    pub algorithm: EncryptionAlgorithm,
-
-    /// How long the session should be used before changing it,
-    /// expressed in microseconds.
-    #[wasm_bindgen(js_name = "rotationPeriod")]
-    pub rotation_period: u64,
-
-    /// How many messages should be sent before changing the session.
-    #[wasm_bindgen(js_name = "rotationPeriodMessages")]
-    pub rotation_period_messages: u64,
-
-    /// The history visibility of the room when the session was
-    /// created.
-    #[wasm_bindgen(js_name = "historyVisibility")]
-    pub history_visibility: events::HistoryVisibility,
-}
-
-impl Default for EncryptionSettings {
-    fn default() -> Self {
-        let default = matrix_sdk_crypto::olm::EncryptionSettings::default();
-
-        Self {
-            algorithm: default.algorithm.into(),
-            rotation_period: default.rotation_period.as_micros().try_into().unwrap(),
-            rotation_period_messages: default.rotation_period_msgs,
-            history_visibility: default.history_visibility.into(),
-        }
-    }
-}
-
-#[wasm_bindgen]
-impl EncryptionSettings {
-    /// Create a new `EncryptionSettings` with default values.
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> EncryptionSettings {
-        Self::default()
-    }
-}
-
-impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
-    fn from(value: &EncryptionSettings) -> Self {
-        Self {
-            algorithm: value.algorithm.clone().into(),
-            rotation_period: Duration::from_micros(value.rotation_period),
-            rotation_period_msgs: value.rotation_period_messages,
-            history_visibility: value.history_visibility.clone().into(),
         }
     }
 }
