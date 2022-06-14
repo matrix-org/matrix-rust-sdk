@@ -1,3 +1,5 @@
+//! Encryption types & siblings.
+
 use std::time::Duration;
 
 use wasm_bindgen::prelude::*;
