@@ -12,6 +12,7 @@ on:
 
 jobs:
   upload-assets:
+    name: "Upload prebuilt libraries"
     strategy:
       fail-fast: false
       matrix:
@@ -59,5 +60,36 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           draft: true
-          body_path: ${{ env.PKG_PATH }}/CHANGELOG.md
           files: ${{env.PKG_PATH}}/*.node
+
+  publish-nodejs-package:
+    name: "Package nodejs package"
+    runs-on: ubuntu-latest
+    needs:
+      - upload-assets
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          override: true
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+      # FIXME: doesn't work for drafts
+      # - name: Test lib install
+      #   working-directory: ${{env.PKG_PATH}}
+      #   run: npm install
+      - name: Build lib
+        working-directory: ${{env.PKG_PATH}}
+        run: |
+          npm install --ignore-scripts
+          npm run build
+          npm pack
+      - name: Upload npm package to release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          body_path: ${{ env.PKG_PATH }}/CHANGELOG.md
+          files: ${{env.PKG_PATH}}/*tgz
