@@ -6,7 +6,6 @@ env:
   CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'
 
 on:
-  pull_request:
   push:
     tags:
       - matrix-sdk-crypto-nodejs-v[0-9]+.*
@@ -85,10 +84,6 @@ jobs:
           override: true
       - name: Install Node.js
         uses: actions/setup-node@v3
-      # FIXME: doesn't work for drafts
-      # - name: Test lib install
-      #   working-directory: ${{env.PKG_PATH}}
-      #   run: npm install
       - name: Build lib
         working-directory: ${{env.PKG_PATH}}
         run: |
@@ -99,5 +94,4 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           draft: true
-          body_path: ${{ env.PKG_PATH }}/CHANGELOG.md
           files: ${{env.PKG_PATH}}/*tgz
