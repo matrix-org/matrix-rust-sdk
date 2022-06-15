@@ -1,9 +1,5 @@
 name: Create Crypto-NodeJS Release
 
-env:
-  PKG_PATH: "crates/matrix-sdk-crypto-nodejs"
-  TAG_PREFIX: "matrix-sdk-crypto-nodejs-v"
-
 on:
   workflow_dispatch:
     inputs:
@@ -15,6 +11,10 @@ on:
         description: 'The old SemVer Version (as used in the tag)'
         required: true 
         type: string
+
+env:
+  PKG_PATH: "crates/matrix-sdk-crypto-nodejs"
+  TAG_PREFIX: "matrix-sdk-crypto-nodejs-v"
 
 jobs:
   prepare-release:
