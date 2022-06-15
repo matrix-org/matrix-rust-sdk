@@ -25,7 +25,8 @@ jobs:
       - name: Generate a changelog for upload
         uses: orhun/git-cliff-action@v1
         with:
-          args: --latest "${{env.TAG_PREFIX}}${{ inputs.previous_version }}..HEAD" --strip header
+          config: "${{ env.PKG_PATH }}/cliff.toml"
+          args: --strip header "${{env.TAG_PREFIX}}${{ inputs.previous_version }}..HEAD"
         env:
           GIT_CLIFF_TAG: "Changes ${{ inputs.previous_version }} -> ${{ inputs.version }}"
           GIT_CLIFF_OUTPUT: "${{ env.PKG_PATH }}/CHANGES-${{ inputs.version }}.md"
@@ -33,7 +34,8 @@ jobs:
       - name: Update existing Changelog
         uses: orhun/git-cliff-action@v1
         with:
-          args: --latest "${{ inputs.previous_version }}..HEAD"
+          config: "${{ env.PKG_PATH }}/cliff.toml"
+          args: "${{ inputs.previous_version }}..HEAD"
         env:
           GIT_CLIFF_TAG: "${{ inputs.version }}"
           GIT_CLIFF_PREPEND: "${{ env.PKG_PATH }}/CHANGELOG.md"

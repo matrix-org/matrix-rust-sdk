@@ -5,3 +5,4 @@ build.rs
 *.node
 *.tgz
 tsconfig.json
+cliff.toml
