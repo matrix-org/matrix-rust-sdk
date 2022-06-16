@@ -10,7 +10,13 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        targets: [ {value: armv7-linux-androideabi, folder: armeabi-v7a}, {value: i686-linux-android, folder: x86}, {value: aarch64-linux-android, folder: arm64-v8a}]
+        include:
+          - value: armv7-linux-androideabi
+            folder: armeabi-v7a
+          - value: i686-linux-android
+            folder: x86
+          - value: aarch64-linux-android
+            folder: arm64-v8a
         
     steps:
     
@@ -47,7 +53,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          target: ${{ matrix.targets.value }}
+          target: ${{ matrix.value }}
           toolchain: stable
           override: true
             
@@ -80,17 +86,17 @@ jobs:
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
         with:
           command: build
-          args: --manifest-path crates/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.targets.value }}
+          args: --manifest-path crates/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.value }}
           
       - name: Rename native file
         run: |
-          mv target/${{ matrix.targets.value }}/release/libmatrix_crypto.so target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+          mv target/${{ matrix.value }}/release/libmatrix_crypto.so target/${{ matrix.value }}/release/libuniffi_olm.so
           
       - name: Upload native file
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.targets.folder }}
-          path: target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+          name: ${{ matrix.folder }}
+          path: target/${{ matrix.value }}/release/libuniffi_olm.so
    
   build_android:
     name: Build and publish android library 
@@ -148,7 +154,6 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        target: ${{ matrix.targets.value }}
         toolchain: stable
         override: true
             
@@ -164,11 +169,11 @@ jobs:
         uniffi-bindgen generate crates/matrix-sdk-crypto-ffi/src/olm.udl  --language kotlin --out-dir bindings/kotlin/crypto/crypto-android/build/generated/source/uniffi/release/java
     
     - name: Grant execute permission for gradlew
-      working_dir: bindings/kotlin
+      working-directory: bindings/kotlin
       run: chmod +x gradlew
       
     - name: Build crypto module
-      working_dir: bindings/kotlin
+      working-directory: bindings/kotlin
       run: ./gradlew :crypto:crypto-android:assembleRelease
       
     - name: Upload library file (aar)
@@ -178,5 +183,5 @@ jobs:
         path: bindings/kotlin/crypto/crypto-android/build/outputs/aar/crypto-android-release.aar
   
     # - name: Publish to MavenCentral
-    #   working_dir: bindings/kotlin
+    #   working-directory: bindings/kotlin
     #   run: ./gradlew publishReleasePublicationToSonatypeRepository
