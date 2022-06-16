@@ -65,8 +65,7 @@ pub fn login_new_client(
 ) -> anyhow::Result<Arc<Client>> {
     let user = UserId::parse(username.clone())?;
 
-    let mut builder = new_client_builder(base_path, username)?
-        .server_name_from_user_id(&user);
+    let mut builder = new_client_builder(base_path, username)?.server_name_from_user_id(&user);
     if let Some(config) = config_overwrites {
         builder = overwrite_builder_with_config(builder, config);
     }
