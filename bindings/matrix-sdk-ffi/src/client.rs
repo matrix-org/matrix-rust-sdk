@@ -14,6 +14,7 @@ use matrix_sdk::{
     Client as MatrixClient, LoopCtrl,
 };
 use parking_lot::RwLock;
+use ruma::api::client::session::get_login_types;
 
 use super::{room::Room, ClientState, RestoreToken, RUNTIME};
 
@@ -46,6 +47,22 @@ impl Client {
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
         *self.delegate.write() = delegate;
+    }
+
+    pub fn supports_password_login(&self) -> anyhow::Result<bool> {
+        RUNTIME.block_on(async move {
+            let login_types = self.client.get_login_types().await?;
+            let supports_password = login_types.flows.iter().any(|login_type| match login_type {
+                get_login_types::v3::LoginType::Password(_) => true,
+                _ => false,
+            });
+            Ok(supports_password)
+        })
+    }
+
+    /// The homeserver address of this client.
+    pub fn homeserver(&self) -> String {
+        RUNTIME.block_on(async move { self.client.homeserver().await.to_string() })
     }
 
     pub fn start_sync(&self) {

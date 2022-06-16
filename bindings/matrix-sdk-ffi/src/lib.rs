@@ -13,10 +13,12 @@ use std::{fs, path, sync::Arc};
 use client::Client;
 use matrix_sdk::{store::make_store_config, Client as MatrixClient, ClientBuilder, Session};
 use once_cell::sync::Lazy;
+use ruma::ServerName;
 use sanitize_filename_reader_friendly::sanitize;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 pub use uniffi_api::*;
+use url::Url;
 
 pub static RUNTIME: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Can't start Tokio runtime"));
@@ -24,6 +26,37 @@ pub static RUNTIME: Lazy<Runtime> =
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
 pub use self::{backward_stream::*, client::*, messages::*, room::*};
+
+/// Create a new [`Client`] that will use the given homeserver.
+///
+/// # Arguments
+///
+/// * `homeserver` - The homeserver's URL as a string.
+pub fn new_client(homeserver: String) -> anyhow::Result<Arc<Client>> {
+    RUNTIME.block_on(async move {
+        let homeserver_url = Url::parse(&homeserver)?;
+        let client = MatrixClient::new(homeserver_url).await?;
+        let state = ClientState::default();
+
+        Ok(Arc::new(Client::new(client, state)))
+    })
+}
+
+/// Create a new [`Client`] that will discover a homeserver for the given
+/// domain.
+///
+/// # Arguments
+///
+/// * `domain` - The domain the client should use for discovery.
+pub fn discover_client(domain: String) -> anyhow::Result<Arc<Client>> {
+    RUNTIME.block_on(async move {
+        let server_name = ServerName::parse(domain).unwrap();
+        let client = MatrixClient::discover(&server_name).await?;
+        let state = ClientState::default();
+
+        Ok(Arc::new(Client::new(client, state)))
+    })
+}
 
 pub fn guest_client(base_path: String, homeurl: String) -> anyhow::Result<Arc<Client>> {
     let builder = new_client_builder(base_path, homeurl.clone())?.homeserver_url(&homeurl);

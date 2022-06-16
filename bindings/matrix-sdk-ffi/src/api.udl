@@ -1,6 +1,9 @@
 namespace sdk {
     [Throws=ClientError]
-    Client login_new_client(string base_path, string username, string password);
+    Client new_client(string homeserver);
+
+    [Throws=ClientError]
+    Client discover_client(string domain);
 
     [Throws=ClientError]
     Client guest_client(string base_path, string homeserver);
@@ -8,6 +11,9 @@ namespace sdk {
     [Throws=ClientError]
     Client login_with_token(string base_path, string restore_token);
 
+    [Throws=ClientError]
+    Client login_new_client(string base_path, string username, string password);
+    
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
     string gen_transaction_id();
@@ -24,6 +30,11 @@ callback interface ClientDelegate {
 
 interface Client {
     void set_delegate(ClientDelegate? delegate);
+    
+    [Throws=ClientError]
+    boolean supports_password_login();
+    
+    string homeserver();
 
     void start_sync();
 

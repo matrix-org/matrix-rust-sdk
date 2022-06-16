@@ -192,6 +192,20 @@ impl Client {
             .map_err(ClientBuildError::assert_valid_builder_args)
     }
 
+    /// Create a new [`Client`] that will discover a homeserver from the given
+    /// server name.
+    ///
+    /// # Arguments
+    ///
+    /// * `server_name` - The server name the client should use for discovery.
+    pub async fn discover(server_name: &ServerName) -> Result<Self, HttpError> {
+        Self::builder()
+            .server_name(server_name)
+            .build()
+            .await
+            .map_err(ClientBuildError::assert_valid_builder_args)
+    }
+
     /// Create a new [`ClientBuilder`].
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
