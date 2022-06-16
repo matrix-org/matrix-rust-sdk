@@ -117,7 +117,7 @@ impl Into<StoreError> for SledStoreError {
         }
     }
 }
-const DATABASE_VERSION: u8 = 1;
+const DATABASE_VERSION: u8 = 2;
 
 const VERSION_KEY: &str = "state-store-version";
 
@@ -235,7 +235,7 @@ impl SledStore {
         #[cfg(feature = "experimental-timeline")]
         let room_event_id_to_position = db.open_tree(ROOM_EVENT_ID_POSITION)?;
 
-        let database = Self {
+        let mut database = Self {
             path,
             inner: db,
             store_cipher,
@@ -321,7 +321,7 @@ impl SledStore {
         SledStore::open_helper(db, Some(path), None)
     }
 
-    fn upgrade(&self) -> StoreResult<()> {
+    fn upgrade(&mut self) -> StoreResult<()> {
         let db_version = self.inner.get(VERSION_KEY).map_err(StoreError::backend)?.map(|v| {
             let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
             u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
@@ -348,6 +348,51 @@ impl SledStore {
             new_version = DATABASE_VERSION,
             "Upgrading the Sled state store"
         );
+
+        if old_version == 1 {
+            if self.store_cipher.is_some() {
+                // we stored some fields un-encrypted. Drop them to enforce re-creation
+                let db = &self.inner;
+
+                db.drop_tree(JOINED_USER_ID).map_err(StoreError::backend)?;
+                db.drop_tree(INVITED_USER_ID).map_err(StoreError::backend)?;
+                db.drop_tree(STRIPPED_JOINED_USER_ID).map_err(StoreError::backend)?;
+                db.drop_tree(STRIPPED_INVITED_USER_ID).map_err(StoreError::backend)?;
+                db.drop_tree(CUSTOM).map_err(StoreError::backend)?;
+                db.drop_tree(MEDIA).map_err(StoreError::backend)?;
+
+                self.session.remove(SYNC_TOKEN.encode()).map_err(StoreError::backend)?;
+
+                self.stripped_joined_user_ids =
+                    db.open_tree(STRIPPED_JOINED_USER_ID).map_err(StoreError::backend)?;
+                self.stripped_invited_user_ids =
+                    db.open_tree(STRIPPED_INVITED_USER_ID).map_err(StoreError::backend)?;
+                self.joined_user_ids = db.open_tree(JOINED_USER_ID).map_err(StoreError::backend)?;
+                self.invited_user_ids =
+                    db.open_tree(INVITED_USER_ID).map_err(StoreError::backend)?;
+                self.custom = db.open_tree(CUSTOM).map_err(StoreError::backend)?;
+                self.media = db.open_tree(MEDIA).map_err(StoreError::backend)?;
+
+                #[cfg(feature = "experimental-timeline")]
+                {
+                    db.drop_tree(TIMELINE).map_err(StoreError::backend)?;
+                    db.drop_tree(TIMELINE_METADATA).map_err(StoreError::backend)?;
+                    db.drop_tree(ROOM_EVENT_ID_POSITION).map_err(StoreError::backend)?;
+
+                    self.room_timeline = db.open_tree(TIMELINE).map_err(StoreError::backend)?;
+                    self.room_timeline_metadata =
+                        db.open_tree(TIMELINE_METADATA).map_err(StoreError::backend)?;
+                    self.room_event_id_to_position =
+                        db.open_tree(ROOM_EVENT_ID_POSITION).map_err(StoreError::backend)?;
+                }
+            }
+            // successfully upgraded
+            self.inner
+                .insert(VERSION_KEY, DATABASE_VERSION.to_be_bytes().as_ref())
+                .map_err(StoreError::backend)?;
+            self.inner.flush().map_err(StoreError::backend)?;
+            return Ok(());
+        }
 
         // FUTURE UPGRADE CODE GOES HERE
 
