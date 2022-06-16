@@ -7,7 +7,6 @@ env:
   CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'
 
 on:
-  pull_request:
   push:
     tags:
       - matrix-sdk-crypto-nodejs-v[0-9]+.*
