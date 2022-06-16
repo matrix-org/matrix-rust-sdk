@@ -2,6 +2,7 @@
 debug = false
 verbose = false
 exclude-files = ["crates/matrix_sdk/examples/*"]
+workspace = true
 exclude = [
     "matrix-sdk-crypto-ffi",
     "matrix-sdk-crypto-js",
