@@ -104,6 +104,8 @@ impl From<SerializationError> for StoreError {
 mod KEYS {
     // STORES
 
+    pub const CURRENT_DB_VERSION: f64 = 1.1;
+
     pub const SESSION: &str = "session";
     pub const ACCOUNT_DATA: &str = "account_data";
 
@@ -161,50 +163,72 @@ type Result<A, E = SerializationError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
     async fn open_helper(name: String, store_cipher: Option<Arc<StoreCipher>>) -> Result<Self> {
-        // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
-        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            if evt.old_version() < 1.0 {
-                // migrating to version 1
-                let db = evt.db();
+        let has_store_cipher = store_cipher.is_some();
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, KEYS::CURRENT_DB_VERSION)?;
+        db_req.set_on_upgrade_needed(Some(
+            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+                let old_version = evt.old_version();
 
-                db.create_object_store(KEYS::SESSION)?;
-                db.create_object_store(KEYS::SYNC_TOKEN)?;
-                db.create_object_store(KEYS::ACCOUNT_DATA)?;
+                if old_version < 1.0 {
+                    // migrating to version 1
+                    let db = evt.db();
 
-                db.create_object_store(KEYS::MEMBERS)?;
-                db.create_object_store(KEYS::PROFILES)?;
-                db.create_object_store(KEYS::DISPLAY_NAMES)?;
-                db.create_object_store(KEYS::JOINED_USER_IDS)?;
-                db.create_object_store(KEYS::INVITED_USER_IDS)?;
+                    db.create_object_store(KEYS::SESSION)?;
+                    db.create_object_store(KEYS::SYNC_TOKEN)?;
+                    db.create_object_store(KEYS::ACCOUNT_DATA)?;
 
-                db.create_object_store(KEYS::ROOM_STATE)?;
-                db.create_object_store(KEYS::ROOM_INFOS)?;
-                db.create_object_store(KEYS::PRESENCE)?;
-                db.create_object_store(KEYS::ROOM_ACCOUNT_DATA)?;
+                    db.create_object_store(KEYS::MEMBERS)?;
+                    db.create_object_store(KEYS::PROFILES)?;
+                    db.create_object_store(KEYS::DISPLAY_NAMES)?;
+                    db.create_object_store(KEYS::JOINED_USER_IDS)?;
+                    db.create_object_store(KEYS::INVITED_USER_IDS)?;
 
-                db.create_object_store(KEYS::STRIPPED_ROOM_INFOS)?;
-                db.create_object_store(KEYS::STRIPPED_MEMBERS)?;
-                db.create_object_store(KEYS::STRIPPED_ROOM_STATE)?;
-                db.create_object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
-                db.create_object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
+                    db.create_object_store(KEYS::ROOM_STATE)?;
+                    db.create_object_store(KEYS::ROOM_INFOS)?;
+                    db.create_object_store(KEYS::PRESENCE)?;
+                    db.create_object_store(KEYS::ROOM_ACCOUNT_DATA)?;
 
-                db.create_object_store(KEYS::ROOM_USER_RECEIPTS)?;
-                db.create_object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
+                    db.create_object_store(KEYS::STRIPPED_ROOM_INFOS)?;
+                    db.create_object_store(KEYS::STRIPPED_MEMBERS)?;
+                    db.create_object_store(KEYS::STRIPPED_ROOM_STATE)?;
+                    db.create_object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
+                    db.create_object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
 
-                #[cfg(feature = "experimental-timeline")]
-                {
-                    db.create_object_store(KEYS::ROOM_TIMELINE)?;
-                    db.create_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
-                    db.create_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
+                    db.create_object_store(KEYS::ROOM_USER_RECEIPTS)?;
+                    db.create_object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
+
+                    #[cfg(feature = "experimental-timeline")]
+                    {
+                        db.create_object_store(KEYS::ROOM_TIMELINE)?;
+                        db.create_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
+                        db.create_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
+                    }
+
+                    db.create_object_store(KEYS::MEDIA)?;
+
+                    db.create_object_store(KEYS::CUSTOM)?;
+                } else if old_version == 1.0 && has_store_cipher {
+                    let db = evt.db();
+
+                    // we had un-encrypted data, drop them and recreate the stores
+                    db.delete_object_store(KEYS::SESSION)?;
+                    db.create_object_store(KEYS::SESSION)?;
+
+                    #[cfg(feature = "experimental-timeline")]
+                    {
+                        db.delete_object_store(KEYS::ROOM_TIMELINE)?;
+                        db.delete_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
+                        db.delete_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
+
+                        db.create_object_store(KEYS::ROOM_TIMELINE)?;
+                        db.create_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
+                        db.create_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
+                    }
                 }
 
-                db.create_object_store(KEYS::MEDIA)?;
-
-                db.create_object_store(KEYS::CUSTOM)?;
-            }
-            Ok(())
-        }));
+                Ok(())
+            },
+        ));
 
         let db: IdbDatabase = db_req.into_future().await?;
 
