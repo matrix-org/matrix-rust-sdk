@@ -353,7 +353,9 @@ impl Joined {
             // session as using it would end up in undecryptable
             // messages.
             if let Err(r) = response {
-                self.client.base_client().invalidate_group_session(self.inner.room_id()).await?;
+                if let Some(machine) = self.client.olm_machine() {
+                    machine.invalidate_group_session(self.inner.room_id()).await?;
+                }
                 return Err(r);
             }
         }
@@ -788,7 +790,7 @@ impl Joined {
     ///         macros::EventContent,
     ///         room::member::{RoomMemberEventContent, MembershipState},
     ///     },
-    ///     assign, mxc_uri,
+    ///     mxc_uri,
     /// };
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080")?;
@@ -796,9 +798,8 @@ impl Joined {
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
-    /// let content = assign!(RoomMemberEventContent::new(MembershipState::Join), {
-    ///    avatar_url: Some(avatar_url),
-    /// });
+    /// let mut content = RoomMemberEventContent::new(MembershipState::Join);
+    /// content.avatar_url = Some(avatar_url);
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event(content, "").await?;
@@ -857,7 +858,7 @@ impl Joined {
     /// if let Some(room) = client.get_joined_room(&room_id) {
     ///     room.send_state_event_raw(content, "m.room.member", "").await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn send_state_event_raw(
         &self,

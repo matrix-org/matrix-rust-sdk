@@ -659,16 +659,17 @@ impl PrivateCrossSigningIdentity {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+    use ruma::{
+        device_id, signatures::CanonicalJsonValue, user_id, DeviceKeyAlgorithm, DeviceKeyId, UserId,
+    };
     use serde_json::json;
 
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
         identities::{ReadOnlyDevice, ReadOnlyUserIdentity},
-        olm::{utility::SignJson, ReadOnlyAccount},
+        olm::{ReadOnlyAccount, VerifyJson},
+        types::Signatures,
     };
 
     fn user_id() -> &'static UserId {
@@ -685,17 +686,18 @@ mod tests {
             "hello": "world"
         });
 
-        let signature =
-            signing.sign_json(json).expect("We should be able to sign a simple json object");
-        let signatures =
-            BTreeMap::from([(user_id, BTreeMap::from([(key_id.clone(), signature.to_base64())]))]);
+        let canonicalized: CanonicalJsonValue = json.try_into().unwrap();
+        let canonicalized = canonicalized.to_string();
 
-        let json = json!({
-            "hello": "world",
-            "signatures": signatures,
-        });
+        let signature = signing.sign(&canonicalized);
+        let mut signatures = Signatures::new();
+        signatures.add_signature(user_id.to_owned(), key_id.clone(), signature);
 
-        assert!(signing.verify_json(user_id, &key_id, json).is_ok());
+        let public_key = signing.public_key();
+
+        public_key
+            .verify_canonicalized_json(user_id, &key_id, &signatures, &canonicalized)
+            .expect("The signature can be verified");
     }
 
     #[test]

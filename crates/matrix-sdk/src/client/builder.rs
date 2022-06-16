@@ -66,7 +66,7 @@ pub struct ClientBuilder {
     request_config: RequestConfig,
     respect_login_well_known: bool,
     appservice_mode: bool,
-    server_versions: Option<Arc<[MatrixVersion]>>,
+    server_versions: Option<Box<[MatrixVersion]>>,
 }
 
 impl ClientBuilder {
@@ -294,21 +294,19 @@ impl ClientBuilder {
         };
 
         let base_client = BaseClient::with_store_config(self.store_config);
-
-        let mk_http_client = |homeserver| {
-            HttpClient::new(inner_http_client.clone(), homeserver, self.request_config)
-        };
+        let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
             HomeserverConfig::ServerName(server_name) => {
-                let homeserver = homeserver_from_name(&server_name)?;
-                let http_client = mk_http_client(Arc::new(RwLock::new(homeserver)));
+                let homeserver = homeserver_from_name(&server_name);
                 let well_known = http_client
                     .send(
                         discover_homeserver::Request::new(),
                         None,
-                        [MatrixVersion::V1_0].into_iter().collect(),
+                        homeserver,
+                        None,
+                        &[MatrixVersion::V1_0],
                     )
                     .await
                     .map_err(|e| match e {
@@ -320,8 +318,7 @@ impl ClientBuilder {
             }
         };
 
-        let homeserver = Arc::new(RwLock::new(Url::parse(&homeserver)?));
-        let http_client = mk_http_client(homeserver.clone());
+        let homeserver = RwLock::new(Url::parse(&homeserver)?);
 
         let inner = Arc::new(ClientInner {
             homeserver,
@@ -346,16 +343,14 @@ impl ClientBuilder {
     }
 }
 
-fn homeserver_from_name(server_name: &ServerName) -> Result<Url, url::ParseError> {
+fn homeserver_from_name(server_name: &ServerName) -> String {
     #[cfg(not(test))]
-    let homeserver = format!("https://{}", server_name);
+    return format!("https://{}", server_name);
 
     // Mockito only knows how to test http endpoints:
     // https://github.com/lipanski/mockito/issues/127
     #[cfg(test)]
-    let homeserver = format!("http://{}", server_name);
-
-    Url::parse(&homeserver)
+    return format!("http://{}", server_name);
 }
 
 #[derive(Debug)]

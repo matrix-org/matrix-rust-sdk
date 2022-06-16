@@ -37,7 +37,7 @@ use matrix_sdk_common::{
     locks::{Mutex, RwLock, RwLockReadGuard},
 };
 use mime::{self, Mime};
-#[cfg(any(feature = "e2e-encryption", feature = "appservice"))]
+#[cfg(feature = "appservice")]
 use ruma::TransactionId;
 use ruma::{
     api::{
@@ -71,7 +71,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::sync::OnceCell;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -128,13 +128,13 @@ pub struct Client {
 
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
-    homeserver: Arc<RwLock<Url>>,
+    homeserver: RwLock<Url>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
     pub(crate) base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    server_versions: OnceCell<Arc<[MatrixVersion]>>,
+    server_versions: OnceCell<Box<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -193,20 +193,6 @@ impl Client {
 
     pub(crate) fn base_client(&self) -> &BaseClient {
         &self.inner.base_client
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) fn olm_machine(&self) -> Option<&matrix_sdk_base::crypto::OlmMachine> {
-        self.base_client().olm_machine()
-    }
-
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) async fn mark_request_as_sent(
-        &self,
-        request_id: &TransactionId,
-        response: impl Into<matrix_sdk_base::crypto::IncomingResponse<'_>>,
-    ) -> Result<(), matrix_sdk_base::Error> {
-        self.base_client().mark_request_as_sent(request_id, response).await
     }
 
     /// Change the homeserver URL used by this client.
@@ -282,12 +268,12 @@ impl Client {
 
     /// Get the user id of the current owner of the client.
     pub fn user_id(&self) -> Option<&UserId> {
-        self.inner.base_client.session().map(|s| s.user_id.as_ref())
+        self.session().map(|s| s.user_id.as_ref())
     }
 
     /// Get the device id that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
-        self.inner.base_client.session().map(|s| s.device_id.as_ref())
+        self.session().map(|s| s.device_id.as_ref())
     }
 
     /// Get the whole session info of this client.
@@ -297,7 +283,7 @@ impl Client {
     /// Can be used with [`Client::restore_login`] to restore a previously
     /// logged in session.
     pub fn session(&self) -> Option<&Session> {
-        self.inner.base_client.session()
+        self.store().session()
     }
 
     /// Get a reference to the store.
@@ -663,13 +649,13 @@ impl Client {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    &server_versions,
+                    server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                &server_versions,
+                server_versions,
             )
         };
 
@@ -1089,7 +1075,7 @@ impl Client {
     /// };
     ///
     /// client.restore_login(session).await?;
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// The `Session` object can also be created from the response the
@@ -1111,12 +1097,11 @@ impl Client {
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
-        self.inner.http_client.set_session(session.clone());
         Ok(self.inner.base_client.restore_login(session).await?)
     }
 
@@ -1125,11 +1110,10 @@ impl Client {
     /// # Arguments
     ///
     /// * `registration` - The easiest way to create this request is using the
-    ///   [`register::v3::Request`]
-    /// itself.
-    ///
+    ///   [`register::v3::Request`] itself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
@@ -1138,20 +1122,20 @@ impl Client {
     /// #         account::register::{v3::Request as RegistrationRequest, RegistrationKind},
     /// #         uiaa,
     /// #     },
-    /// #     assign, DeviceId,
+    /// #     DeviceId,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
     ///
-    /// let request = assign!(RegistrationRequest::new(), {
-    ///     username: Some("user"),
-    ///     password: Some("password"),
-    ///     auth: Some(uiaa::AuthData::FallbackAcknowledgement(
-    ///         uiaa::FallbackAcknowledgement::new("foobar"),
-    ///     )),
-    /// });
+    /// let mut request = RegistrationRequest::new();
+    /// request.username = Some("user");
+    /// request.password = Some("password");
+    /// request.auth = Some(uiaa::AuthData::FallbackAcknowledgement(
+    ///     uiaa::FallbackAcknowledgement::new("foobar"),
+    /// ));
+    ///
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.register(request).await;
     /// # })
@@ -1220,14 +1204,17 @@ impl Client {
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
     /// # });
+    #[instrument(skip(self, definition))]
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
         definition: FilterDefinition<'_>,
     ) -> Result<String> {
         if let Some(filter) = self.inner.base_client.get_filter(filter_name).await? {
+            debug!("Found filter locally");
             Ok(filter)
         } else {
+            debug!("Didn't find filter locally");
             let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?;
             let request = FilterUploadRequest::new(user_id, definition);
             let response = self.send(request, None).await?;
@@ -1365,6 +1352,7 @@ impl Client {
     /// `get_public_rooms_filtered::Request` itself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use url::Url;
@@ -1372,18 +1360,16 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
-    /// use matrix_sdk::{
-    ///     ruma::{
-    ///         api::client::directory::get_public_rooms_filtered::v3::Request,
-    ///         directory::Filter,
-    ///         assign,
-    ///     }
+    /// use matrix_sdk::ruma::{
+    ///     api::client::directory::get_public_rooms_filtered,
+    ///     directory::Filter,
     /// };
     /// # let mut client = Client::new(homeserver).await?;
     ///
-    /// let generic_search_term = Some("rust");
-    /// let filter = assign!(Filter::new(), { generic_search_term });
-    /// let request = assign!(Request::new(), { filter });
+    /// let mut filter = Filter::new();
+    /// filter.generic_search_term = Some("rust");
+    /// let mut request = get_public_rooms_filtered::v3::Request::new();
+    /// request.filter = filter;
     ///
     /// let response = client.public_rooms_filtered(request).await?;
     ///
@@ -1429,7 +1415,7 @@ impl Client {
     ///     .await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn upload(
         &self,
@@ -1452,7 +1438,13 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .send(request, Some(request_config), self.server_versions().await?)
+            .send(
+                request,
+                Some(request_config),
+                self.homeserver().await.to_string(),
+                self.session(),
+                self.server_versions().await?,
+            )
             .await?)
     }
 
@@ -1505,17 +1497,28 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config, self.server_versions().await?).await
+        self.inner
+            .http_client
+            .send(
+                request,
+                config,
+                self.homeserver().await.to_string(),
+                self.session(),
+                self.server_versions().await?,
+            )
+            .await
     }
 
-    async fn request_server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
-        let server_versions: Arc<[MatrixVersion]> = self
+    async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+        let server_versions: Box<[MatrixVersion]> = self
             .inner
             .http_client
             .send(
                 get_supported_versions::Request::new(),
                 None,
-                [MatrixVersion::V1_0].into_iter().collect(),
+                self.homeserver().await.to_string(),
+                None,
+                &[MatrixVersion::V1_0],
             )
             .await?
             .known_versions()
@@ -1529,7 +1532,7 @@ impl Client {
         }
     }
 
-    async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+    async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
         #[cfg(target_arch = "wasm32")]
         let server_versions =
             self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
@@ -1538,7 +1541,7 @@ impl Client {
         let server_versions =
             self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
 
-        Ok(server_versions.clone())
+        Ok(server_versions)
     }
 
     /// Get information of all our own devices.
@@ -1590,7 +1593,7 @@ impl Client {
     /// #            client::uiaa,
     /// #            error::{FromHttpResponseError, ServerError},
     /// #        },
-    /// #        assign, device_id,
+    /// #        device_id,
     /// #    },
     /// #    Client, Error, config::SyncSettings,
     /// # };
@@ -1605,17 +1608,14 @@ impl Client {
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.uiaa_response() {
-    ///         let auth_data = uiaa::AuthData::Password(assign!(
-    ///             uiaa::Password::new(
-    ///                 uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-    ///                 "wordpass",
-    ///             ), {
-    ///                 session: info.session.as_deref(),
-    ///             }
-    ///         ));
+    ///         let mut password = uiaa::Password::new(
+    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example"),
+    ///             "wordpass",
+    ///         );
+    ///         password.session = info.session.as_deref();
     ///
     ///         client
-    ///             .delete_devices(devices, Some(auth_data))
+    ///             .delete_devices(devices, Some(uiaa::AuthData::Password(password)))
     ///             .await?;
     ///     }
     /// }
@@ -2208,14 +2208,11 @@ impl Client {
         use ruma::events::room::{self, message};
         Ok(match content_type.type_() {
             mime::IMAGE => {
-                let info = assign!(
-                    info.map(room::ImageInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info,
-                    }
-                );
+                let info = assign!(info.map(room::ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info,
+                });
                 message::MessageType::Image(message::ImageMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2223,12 +2220,9 @@ impl Client {
                 ))
             }
             mime::AUDIO => {
-                let info = assign!(
-                    info.map(message::AudioInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                    }
-                );
+                let info = assign!(info.map(message::AudioInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                });
                 message::MessageType::Audio(message::AudioMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2236,14 +2230,11 @@ impl Client {
                 ))
             }
             mime::VIDEO => {
-                let info = assign!(
-                    info.map(message::VideoInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 message::MessageType::Video(message::VideoMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -2251,14 +2242,11 @@ impl Client {
                 ))
             }
             _ => {
-                let info = assign!(
-                    info.map(message::FileInfo::from).unwrap_or_default(),
-                    {
-                        mimetype: Some(content_type.as_ref().to_owned()),
-                        thumbnail_source,
-                        thumbnail_info
-                    }
-                );
+                let info = assign!(info.map(message::FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some(content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
                 message::MessageType::File(message::FileMessageEventContent::plain(
                     body.to_owned(),
                     url,
@@ -3558,8 +3546,9 @@ pub(crate) mod tests {
                     uiaa::Password::new(
                         uiaa::UserIdentifier::UserIdOrLocalpart("example"),
                         "wordpass",
-                    ),
-                    { session: info.session.as_deref() }
+                    ), {
+                        session: info.session.as_deref(),
+                    }
                 ));
 
                 client.delete_devices(devices, Some(auth_data)).await.unwrap();

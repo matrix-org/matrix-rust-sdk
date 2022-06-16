@@ -66,7 +66,7 @@ impl SasVerification {
     ///
     ///     sas.accept_with_settings(only_decimal).await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
         if let Some(request) = self.inner.accept_with_settings(settings) {
@@ -149,7 +149,7 @@ impl SasVerification {
     ///
     ///     println!("Do the emojis match?\n{}\n{}", emoji_string, description);
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub fn emoji(&self) -> Option<[super::Emoji; 7]> {
         self.inner.emoji()

@@ -16,13 +16,15 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 //#![warn(missing_docs, missing_debug_implementations)]
 
+pub mod encryption;
 mod errors;
 pub mod events;
-//mod future;
 pub mod identifiers;
-//pub mod machine;
-//pub mod requests;
-//pub mod responses;
-//pub mod sync_events;
+pub mod machine;
+pub mod requests;
+pub mod responses;
+pub mod sync_events;
+#[cfg(feature = "tracing")]
+pub mod tracing;
 
-pub use crate::errors::Error;
+use crate::errors::into_err;

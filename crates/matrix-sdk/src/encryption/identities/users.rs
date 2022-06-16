@@ -104,7 +104,7 @@ impl UserIdentity {
     ///     println!("This user identity belongs to {}", user.user_id().as_str());
     /// }
     ///
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub fn user_id(&self) -> &UserId {
         match &self.inner {
@@ -156,7 +156,7 @@ impl UserIdentity {
     ///     let verification = user.request_verification().await?;
     /// }
     ///
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
@@ -218,7 +218,7 @@ impl UserIdentity {
     /// if let Some(user) = user {
     ///     let verification = user.request_verification_with_methods(methods).await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`request_verification()`]: #method.request_verification
@@ -293,7 +293,7 @@ impl UserIdentity {
     /// if let Some(user) = user {
     ///     user.verify().await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
@@ -341,7 +341,7 @@ impl UserIdentity {
     ///         println!("User {} is not verified", user.user_id().as_str());
     ///     }
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub fn verified(&self) -> bool {
         match &self.inner {
@@ -389,7 +389,7 @@ impl UserIdentity {
     ///         println!("Master keys don't match for user {}", user.user_id().as_str());
     ///     }
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub fn master_key(&self) -> &MasterPubkey {
         match &self.inner {

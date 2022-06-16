@@ -63,7 +63,7 @@ pub fn login_new_client(
     password: String,
     config_overwrites: Option<ClientConfig>,
 ) -> anyhow::Result<Arc<Client>> {
-    let user = Box::<UserId>::try_from(username.clone())?;
+    let user = UserId::parse(username.clone())?;
 
     let mut builder = new_client_builder(base_path, username)?
         .server_name_from_user_id(&user);

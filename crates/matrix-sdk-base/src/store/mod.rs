@@ -382,8 +382,9 @@ pub trait StateStore: AsyncTraitDeps {
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: Arc<dyn StateStore>,
-    pub(crate) session: Arc<OnceCell<Session>>,
-    pub(crate) sync_token: Arc<RwLock<Option<String>>>,
+    session: Arc<OnceCell<Session>>,
+    /// The current sync token that should be used for the next sync call.
+    pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
     stripped_rooms: Arc<DashMap<OwnedRoomId, Room>>,
 }
@@ -466,7 +467,7 @@ impl Store {
     /// Lookup the stripped Room for the given RoomId, or create one, if it
     /// didn't exist yet in the store
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
-        let user_id = &self.session().expect("Creating room while not being logged in").user_id;
+        let user_id = &self.session.get().expect("Creating room while not being logged in").user_id;
 
         self.stripped_rooms
             .entry(room_id.to_owned())
@@ -481,7 +482,7 @@ impl Store {
             return self.get_or_create_stripped_room(room_id).await;
         }
 
-        let user_id = &self.session().expect("Creating room while not being logged in").user_id;
+        let user_id = &self.session.get().expect("Creating room while not being logged in").user_id;
 
         self.rooms
             .entry(room_id.to_owned())

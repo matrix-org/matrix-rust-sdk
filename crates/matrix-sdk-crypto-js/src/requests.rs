@@ -52,7 +52,7 @@ pub struct KeysQueryRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"timeout": …, "device_keys": …, "token": …}
     /// ```
     #[wasm_bindgen(readonly)]
@@ -75,7 +75,7 @@ pub struct KeysClaimRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"timeout": …, "one_time_keys": …}
     /// ```
     #[wasm_bindgen(readonly)]
@@ -97,7 +97,7 @@ pub struct ToDeviceRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"event_type": …, "txn_id": …, "messages": …}
     /// ```
     #[wasm_bindgen(readonly)]
@@ -119,7 +119,7 @@ pub struct SignatureUploadRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"signed_keys": …, "txn_id": …, "messages": …}
     /// ```
     #[wasm_bindgen(readonly)]
@@ -139,7 +139,7 @@ pub struct RoomMessageRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"room_id": …, "txn_id": …, "content": …}
     /// ```
     #[wasm_bindgen(readonly)]
@@ -159,7 +159,7 @@ pub struct KeysBackupRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"rooms": …}
     /// ```
     #[wasm_bindgen(readonly)]

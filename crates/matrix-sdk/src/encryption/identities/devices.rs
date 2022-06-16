@@ -94,7 +94,7 @@ impl Device {
     /// if let Some(device) = device {
     ///     let verification = device.request_verification().await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
@@ -146,7 +146,7 @@ impl Device {
     /// if let Some(device) = device {
     ///     let verification = device.request_verification_with_methods(methods).await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn request_verification_with_methods(
         &self,
@@ -184,7 +184,7 @@ impl Device {
     /// if let Some(device) = device {
     ///     let verification = device.start_verification().await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`request_verification()`]: #method.request_verification
@@ -248,7 +248,7 @@ impl Device {
     /// if let Some(device) = device {
     ///     device.verify().await?;
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         let request = self.inner.verify().await?;
@@ -373,7 +373,7 @@ impl Device {
     ///         );
     ///     }
     /// }
-    /// # anyhow::Result::<()>::Ok(()) });
+    /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`UserIdentity::verify()`]:

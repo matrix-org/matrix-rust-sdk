@@ -32,7 +32,7 @@ pub use group_sessions::{
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
-pub(crate) use utility::VerifyJson;
+pub(crate) use utility::{SignedJsonObject, VerifyJson};
 pub use vodozemac::olm::IdentityKeys;
 
 #[cfg(test)]

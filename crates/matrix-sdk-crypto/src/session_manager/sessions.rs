@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
     time::Duration,
 };
@@ -33,6 +33,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
+    identities::{KeysQueryListener, UserKeyQueryResult},
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
@@ -51,17 +52,20 @@ pub(crate) struct SessionManager {
     wedged_devices: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
     key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<DashMap<OwnedTransactionId, OutgoingRequest>>,
+    keys_query_listener: KeysQueryListener,
 }
 
 impl SessionManager {
     const KEY_CLAIM_TIMEOUT: Duration = Duration::from_secs(10);
     const UNWEDGING_INTERVAL: Duration = Duration::from_secs(60 * 60);
+    const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
     pub fn new(
         account: Account,
         users_for_key_claim: Arc<DashMap<OwnedUserId, DashSet<OwnedDeviceId>>>,
         key_request_machine: GossipMachine,
         store: Store,
+        keys_query_listener: KeysQueryListener,
     ) -> Self {
         Self {
             account,
@@ -70,6 +74,7 @@ impl SessionManager {
             users_for_key_claim,
             wedged_devices: Default::default(),
             outgoing_to_device_requests: Default::default(),
+            keys_query_listener,
         }
     }
 
@@ -155,6 +160,30 @@ impl SessionManager {
         Ok(())
     }
 
+    async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> StoreResult<HashMap<OwnedDeviceId, ReadOnlyDevice>> {
+        use UserKeyQueryResult::*;
+
+        let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
+
+        let user_devices = if user_devices.is_empty() {
+            match self
+                .keys_query_listener
+                .wait_if_user_pending(Self::KEYS_QUERY_WAIT_TIME, user_id)
+                .await
+            {
+                Ok(WasPending) => self.store.get_readonly_devices_filtered(user_id).await?,
+                _ => user_devices,
+            }
+        } else {
+            user_devices
+        };
+
+        Ok(user_devices)
+    }
+
     /// Get the a key claiming request for the user/device pairs that we are
     /// missing Olm sessions for.
     ///
@@ -191,7 +220,7 @@ impl SessionManager {
         // Add the list of devices that the user wishes to establish sessions
         // right now.
         for user_id in users {
-            let user_devices = self.store.get_readonly_devices_filtered(user_id).await?;
+            let user_devices = self.get_user_devices(user_id).await?;
 
             for (device_id, device) in user_devices {
                 if !device.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
@@ -354,7 +383,7 @@ mod tests {
     use super::SessionManager;
     use crate::{
         gossiping::GossipMachine,
-        identities::ReadOnlyDevice,
+        identities::{KeysQueryListener, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{CryptoStore, MemoryStore, Store},
@@ -402,7 +431,13 @@ mod tests {
             users_for_key_claim.clone(),
         );
 
-        SessionManager::new(account, users_for_key_claim, key_request, store)
+        SessionManager::new(
+            account,
+            users_for_key_claim,
+            key_request,
+            store.clone(),
+            KeysQueryListener::new(store),
+        )
     }
 
     #[async_test]

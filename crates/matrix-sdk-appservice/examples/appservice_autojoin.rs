@@ -23,7 +23,7 @@ pub async fn handle_room_member(
     room: Room,
     event: OriginalSyncRoomMemberEvent,
 ) -> Result<()> {
-    if !appservice.user_id_is_in_namespace(&event.state_key)? {
+    if !appservice.user_id_is_in_namespace(&event.state_key) {
         trace!("not an appservice user: {}", event.state_key);
     } else if let MembershipState::Invite = event.content.membership {
         let user_id = UserId::parse(event.state_key.as_str())?;

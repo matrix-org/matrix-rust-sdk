@@ -4,6 +4,7 @@ use std::{
     io::Cursor,
     ops::Deref,
     sync::Arc,
+    time::Duration,
 };
 
 use base64::{decode_config, encode, STANDARD_NO_PAD};
@@ -46,11 +47,11 @@ use crate::{
     error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
     parse_user_id,
     responses::{response_from_string, OutgoingVerificationRequest, OwnedResponse},
-    BackupKeys, BootstrapCrossSigningResult, ConfirmVerificationResult, CrossSigningKeyExport,
-    CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, KeyImportError,
-    KeysImportResult, MegolmV1BackupKey, ProgressListener, QrCode, Request, RequestType,
-    RequestVerificationResult, RoomKeyCounts, ScanResult, SignatureUploadRequest, StartSasResult,
-    UserIdentity, Verification, VerificationRequest,
+    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, ConfirmVerificationResult,
+    CrossSigningKeyExport, CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists,
+    KeyImportError, KeysImportResult, MegolmV1BackupKey, ProgressListener, QrCode, Request,
+    RequestType, RequestVerificationResult, RoomKeyCounts, ScanResult, SignatureUploadRequest,
+    StartSasResult, UserIdentity, Verification, VerificationRequest,
 };
 
 /// A high level state machine that handles E2EE for Matrix.
@@ -134,28 +135,53 @@ impl OlmMachine {
     }
 
     /// Get a cross signing user identity for the given user ID.
-    pub fn get_identity(&self, user_id: &str) -> Result<Option<UserIdentity>, CryptoStoreError> {
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to
+    ///
+    /// * `timeout` - The time in seconds we should wait before returning if
+    /// the user's device list has been marked as stale. Passing a 0 as the
+    /// timeout means that we won't wait at all. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out. Namely, this waits for a `/keys/query` response to be
+    /// received.
+    pub fn get_identity(
+        &self,
+        user_id: &str,
+        timeout: u32,
+    ) -> Result<Option<UserIdentity>, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
-        Ok(if let Some(identity) = self.runtime.block_on(self.inner.get_identity(&user_id))? {
-            Some(self.runtime.block_on(UserIdentity::from_rust(identity))?)
-        } else {
-            None
-        })
+        let timeout = if timeout == 0 { None } else { Some(Duration::from_secs(timeout.into())) };
+
+        Ok(
+            if let Some(identity) =
+                self.runtime.block_on(self.inner.get_identity(&user_id, timeout))?
+            {
+                Some(self.runtime.block_on(UserIdentity::from_rust(identity))?)
+            } else {
+                None
+            },
+        )
     }
 
     /// Check if a user identity is considered to be verified by us.
     pub fn is_identity_verified(&self, user_id: &str) -> Result<bool, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
-        Ok(if let Some(identity) = self.runtime.block_on(self.inner.get_identity(&user_id))? {
-            match identity {
-                UserIdentities::Own(i) => i.is_verified(),
-                UserIdentities::Other(i) => i.verified(),
-            }
-        } else {
-            false
-        })
+        Ok(
+            if let Some(identity) =
+                self.runtime.block_on(self.inner.get_identity(&user_id, None))?
+            {
+                match identity {
+                    UserIdentities::Own(i) => i.is_verified(),
+                    UserIdentities::Other(i) => i.verified(),
+                }
+            } else {
+                false
+            },
+        )
     }
 
     /// Manually the user with the given user ID.
@@ -172,7 +198,7 @@ impl OlmMachine {
     pub fn verify_identity(&self, user_id: &str) -> Result<SignatureUploadRequest, SignatureError> {
         let user_id = UserId::parse(user_id)?;
 
-        let user_identity = self.runtime.block_on(self.inner.get_identity(&user_id))?;
+        let user_identity = self.runtime.block_on(self.inner.get_identity(&user_id, None))?;
 
         if let Some(user_identity) = user_identity {
             Ok(match user_identity {
@@ -192,16 +218,26 @@ impl OlmMachine {
     /// * `user_id` - The id of the device owner.
     ///
     /// * `device_id` - The id of the device itself.
+    ///
+    /// * `timeout` - The time in seconds we should wait before returning if
+    /// the user's device list has been marked as stale. Passing a 0 as the
+    /// timeout means that we won't wait at all. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out. Namely, this waits for a `/keys/query` response to be
+    /// received.
     pub fn get_device(
         &self,
         user_id: &str,
         device_id: &str,
+        timeout: u32,
     ) -> Result<Option<Device>, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
+        let timeout = if timeout == 0 { None } else { Some(Duration::from_secs(timeout.into())) };
+
         Ok(self
             .runtime
-            .block_on(self.inner.get_device(&user_id, device_id.into()))?
+            .block_on(self.inner.get_device(&user_id, device_id.into(), timeout))?
             .map(|d| d.into()))
     }
 
@@ -224,7 +260,8 @@ impl OlmMachine {
         device_id: &str,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let user_id = UserId::parse(user_id)?;
-        let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id.into()))?;
+        let device =
+            self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?;
 
         if let Some(device) = device {
             Ok(self.runtime.block_on(device.verify())?.into())
@@ -241,7 +278,8 @@ impl OlmMachine {
     ) -> Result<(), CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
-        let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id.into()))?;
+        let device =
+            self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?;
 
         if let Some(device) = device {
             self.runtime.block_on(device.set_local_trust(LocalTrust::Verified))?;
@@ -255,12 +293,24 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `user_id` - The id of the device owner.
-    pub fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, CryptoStoreError> {
+    ///
+    /// * `timeout` - The time in seconds we should wait before returning if
+    /// the user's device list has been marked as stale. Passing a 0 as the
+    /// timeout means that we won't wait at all. **Note**, this assumes that
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out. Namely, this waits for a `/keys/query` response to be
+    /// received.
+    pub fn get_user_devices(
+        &self,
+        user_id: &str,
+        timeout: u32,
+    ) -> Result<Vec<Device>, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
+        let timeout = if timeout == 0 { None } else { Some(Duration::from_secs(timeout.into())) };
         Ok(self
             .runtime
-            .block_on(self.inner.get_user_devices(&user_id))?
+            .block_on(self.inner.get_user_devices(&user_id, timeout))?
             .devices()
             .map(|d| d.into())
             .collect())
@@ -807,7 +857,7 @@ impl OlmMachine {
     ) -> Result<Option<String>, CryptoStoreError> {
         let user_id = parse_user_id(user_id)?;
 
-        let identity = self.runtime.block_on(self.inner.get_identity(&user_id))?;
+        let identity = self.runtime.block_on(self.inner.get_identity(&user_id, None))?;
 
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
@@ -851,7 +901,7 @@ impl OlmMachine {
         let event_id = EventId::parse(event_id)?;
         let room_id = RoomId::parse(room_id)?;
 
-        let identity = self.runtime.block_on(self.inner.get_identity(&user_id))?;
+        let identity = self.runtime.block_on(self.inner.get_identity(&user_id, None))?;
 
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
@@ -891,7 +941,7 @@ impl OlmMachine {
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id.into()))?
+                self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?
             {
                 let (verification, request) =
                     self.runtime.block_on(device.request_verification_with_methods(methods));
@@ -916,7 +966,8 @@ impl OlmMachine {
         &self,
         methods: Vec<String>,
     ) -> Result<Option<RequestVerificationResult>, CryptoStoreError> {
-        let identity = self.runtime.block_on(self.inner.get_identity(self.inner.user_id()))?;
+        let identity =
+            self.runtime.block_on(self.inner.get_identity(self.inner.user_id(), None))?;
 
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
@@ -1166,7 +1217,7 @@ impl OlmMachine {
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id.into()))?
+                self.runtime.block_on(self.inner.get_device(&user_id, device_id.into(), None))?
             {
                 let (sas, request) = self.runtime.block_on(device.start_verification())?;
 
@@ -1336,16 +1387,29 @@ impl OlmMachine {
     /// key.
     pub fn save_recovery_key(
         &self,
-        key: Option<String>,
+        key: Option<Arc<BackupRecoveryKey>>,
         version: Option<String>,
     ) -> Result<(), CryptoStoreError> {
-        let key = key.map(|k| RecoveryKey::from_base64(&k)).transpose().ok().flatten();
+        let key = key.map(|k| {
+            // We need to clone here due to FFI limitations but RecoveryKey does
+            // not want to expose clone since it's private key material.
+            let mut encoded = k.to_base64();
+            let key = RecoveryKey::from_base64(&encoded)
+                .expect("Encoding and decoding from base64 should always work");
+            encoded.zeroize();
+            key
+        });
         Ok(self.runtime.block_on(self.inner.backup_machine().save_recovery_key(key, version))?)
     }
 
     /// Get the backup keys we have saved in our crypto store.
-    pub fn get_backup_keys(&self) -> Result<Option<BackupKeys>, CryptoStoreError> {
-        Ok(self.runtime.block_on(self.inner.backup_machine().get_backup_keys())?.try_into().ok())
+    pub fn get_backup_keys(&self) -> Result<Option<Arc<BackupKeys>>, CryptoStoreError> {
+        Ok(self
+            .runtime
+            .block_on(self.inner.backup_machine().get_backup_keys())?
+            .try_into()
+            .ok()
+            .map(Arc::new))
     }
 
     /// Sign the given message using our device key and if available cross

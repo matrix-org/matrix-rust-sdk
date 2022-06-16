@@ -24,14 +24,14 @@ use tracing::trace;
 use super::{Result, StateChanges};
 use crate::Store;
 
-#[derive(Clone, Debug)]
-pub struct AmbiguityCache {
+#[derive(Debug)]
+pub(crate) struct AmbiguityCache {
     pub store: Store,
     pub cache: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct AmbiguityMap {
     display_name: String,
     users: BTreeSet<OwnedUserId>,
