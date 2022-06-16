@@ -11,6 +11,28 @@ Encryption](https://en.wikipedia.org/wiki/End-to-end_encryption)) for
 
 ## Usage
 
+Just add the latest release to your `package.json`:
+```sh
+$ npm install --save matrix-sdk-crypto
+```
+
+Upon install, you'll find it downloading the corresponding prebuilt
+rust library for your host system. It should look something like this.
+
+The following targets are supported:
+ - Linux GNU i686 32bit (`i686-unknown-linux-gnu`)
+ - Linux GNU x86 64bit (`x86_64-unknown-linux-gnu`)
+ - Linux GNU arm 32bit`arm-unknown-linux-gnueabihf`
+ - Linux GNU arm 64bit (`aarch64-unknown-linux-gnu`)
+ - Linux Musl 64bit (`x86_64-unknown-linux-musl`)
+ - Mac OSx x86 64bit (`x86_64-apple-darwin`)
+ - Mac OSx arm 64bit (`aarch64-apple-darwin`)
+ - Windows MSVC i686 32bit (`i686-pc-windows-msvc`)
+ - Windows MSVC x86 64bit (`i686-pc-windows-msvc`)
+ - Windows MSVC arm 64bit (`aarch64-pc-windows-msvc`)
+
+## Development
+
 This Node.js binding is written in [Rust]. To build this binding, you
 need to install the Rust compiler, see [the Install Rust
 Page](https://www.rust-lang.org/tools/install). Then, the workflow is
@@ -28,7 +50,7 @@ Once the Rust compiler, Node.js and npm are installed, you can run the
 following commands:
 
 ```sh
-$ npm install
+$ npm install --ignore-scripts
 $ npm run build
 $ npm run test
 ```
