@@ -22,8 +22,6 @@ jobs:
     
       - name: Checkout this repo
         uses: actions/checkout@v3
-        with: 
-          path: main
     
       - name: Install android sdk
         uses: malinskiy/action-android/install-sdk@release/0.1.2
