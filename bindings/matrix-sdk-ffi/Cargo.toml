@@ -10,7 +10,7 @@ rust-version = "1.56"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["staticlib"]
 
 
 [build-dependencies]
