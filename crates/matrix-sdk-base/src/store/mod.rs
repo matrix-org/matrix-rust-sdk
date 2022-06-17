@@ -676,14 +676,14 @@ impl StoreConfig {
     ///
     /// The crypto store must be opened before being set.
     #[cfg(feature = "e2e-encryption")]
-    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
-        self.crypto_store = Some(store);
+    pub fn crypto_store(mut self, store: impl CryptoStore + 'static) -> Self {
+        self.crypto_store = Some(Box::new(store));
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
-    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-        self.state_store = Some(store);
+    pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
+        self.state_store = Some(Box::new(store));
         self
     }
 }

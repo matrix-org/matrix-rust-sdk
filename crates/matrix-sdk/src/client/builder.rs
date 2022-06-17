@@ -127,7 +127,7 @@ impl ClientBuilder {
     ///
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
-    /// # let custom_state_store = Box::new(MemoryStore::new());
+    /// # let custom_state_store = MemoryStore::new();
     /// use matrix_sdk::{Client, config::StoreConfig};
     ///
     /// let store_config = StoreConfig::new().state_store(custom_state_store);
@@ -143,7 +143,7 @@ impl ClientBuilder {
     /// Set a custom implementation of a `StateStore`.
     ///
     /// The state store should be opened before being set.
-    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+    pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
         self.store_config = self.store_config.state_store(store);
         self
     }
@@ -154,7 +154,7 @@ impl ClientBuilder {
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(
         mut self,
-        store: Box<dyn matrix_sdk_base::crypto::store::CryptoStore>,
+        store: impl matrix_sdk_base::crypto::store::CryptoStore + 'static,
     ) -> Self {
         self.store_config = self.store_config.crypto_store(store);
         self
