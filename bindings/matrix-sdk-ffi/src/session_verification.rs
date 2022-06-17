@@ -1,4 +1,3 @@
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 use matrix_sdk::{
@@ -11,6 +10,7 @@ use matrix_sdk::{
         events::{key::verification::VerificationMethod, AnyToDeviceEvent},
     },
 };
+use parking_lot::RwLock;
 
 use super::RUNTIME;
 
@@ -128,7 +128,7 @@ impl SessionVerificationController {
                         return;
                     }
 
-                    if let Some(ref sas_verification) = *sas_verification.read() {
+                    if let Some(sas_verification) = &*sas_verification.read() {
                         if let Some(emojis) = sas_verification.emoji() {
                             if let Some(delegate) = &*self.delegate.read() {
                                 let emojis = emojis
@@ -165,7 +165,7 @@ impl SessionVerificationController {
     }
 
     fn is_transaction_id_valid(&self, transaction_id: String) -> bool {
-        if let Some(ref verification) = *self.verification_request.read() {
+        if let Some(verification) = &*self.verification_request.read() {
             return verification.flow_id() == transaction_id;
         }
 
@@ -173,7 +173,7 @@ impl SessionVerificationController {
     }
 
     async fn start_sas_verification(&self) {
-        if let Some(ref verification) = *self.verification_request.read() {
+        if let Some(verification) = &*self.verification_request.read() {
             match verification.start_sas().await {
                 Ok(verification) => {
                     *self.sas_verification.write() = verification;

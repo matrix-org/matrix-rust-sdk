@@ -85,12 +85,12 @@ impl Client {
                         state.write().is_syncing = true;
                     }
 
-                    if let Some(ref delegate) = *delegate.read() {
+                    if let Some(delegate) = &*delegate.read() {
                         delegate.did_receive_sync_update()
                     }
 
-                    if let Some(ref session_verification_controller) =
-                        *session_verification_controller.read()
+                    if let Some(session_verification_controller) =
+                        &*session_verification_controller.read()
                     {
                         session_verification_controller
                             .process_to_device_messages(sync_response.to_device)
@@ -174,8 +174,7 @@ impl Client {
     pub fn get_session_verification_controller(
         &self,
     ) -> anyhow::Result<Arc<SessionVerificationController>> {
-        if let Some(ref session_verification_controller) =
-            *self.session_verification_controller.read()
+        if let Some(session_verification_controller) = &*self.session_verification_controller.read()
         {
             return Ok(Arc::new(session_verification_controller.clone()));
         }
