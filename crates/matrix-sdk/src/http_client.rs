@@ -169,7 +169,7 @@ impl HttpClient {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct HttpSettings {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) disable_ssl_verification: bool,

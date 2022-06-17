@@ -58,7 +58,7 @@ use crate::{
 /// # anyhow::Ok(())
 /// ```
 #[must_use]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     http_cfg: Option<HttpConfig>,
@@ -352,13 +352,13 @@ fn homeserver_from_name(server_name: &ServerName) -> String {
     return format!("http://{}", server_name);
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum HomeserverConfig {
     Url(String),
     ServerName(OwnedServerName),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum HttpConfig {
     Settings(HttpSettings),
     Custom(Arc<dyn HttpSend>),
