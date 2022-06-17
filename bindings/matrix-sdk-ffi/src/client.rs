@@ -36,7 +36,8 @@ pub struct Client {
     client: MatrixClient,
     state: Arc<RwLock<ClientState>>,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
-    session_verification_controller: Arc<RwLock<Option<SessionVerificationController>>>,
+    session_verification_controller:
+        Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
 }
 
 impl Client {
@@ -45,7 +46,7 @@ impl Client {
             client,
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
-            session_verification_controller: Arc::new(RwLock::new(None)),
+            session_verification_controller: Arc::new(matrix_sdk::locks::RwLock::new(None)),
         }
     }
 
@@ -90,7 +91,7 @@ impl Client {
                     }
 
                     if let Some(session_verification_controller) =
-                        &*session_verification_controller.read()
+                        &*session_verification_controller.read().await
                     {
                         session_verification_controller
                             .process_to_device_messages(sync_response.to_device)
@@ -174,12 +175,13 @@ impl Client {
     pub fn get_session_verification_controller(
         &self,
     ) -> anyhow::Result<Arc<SessionVerificationController>> {
-        if let Some(session_verification_controller) = &*self.session_verification_controller.read()
-        {
-            return Ok(Arc::new(session_verification_controller.clone()));
-        }
-
         RUNTIME.block_on(async move {
+            if let Some(session_verification_controller) =
+                &*self.session_verification_controller.read().await
+            {
+                return Ok(Arc::new(session_verification_controller.clone()));
+            }
+
             let user_id = self.client.user_id().expect("Failed retrieving current user_id");
             let user_identity = self
                 .client
@@ -190,7 +192,7 @@ impl Client {
 
             let session_verification_controller = SessionVerificationController::new(user_identity);
 
-            *self.session_verification_controller.write() =
+            *self.session_verification_controller.write().await =
                 Some(session_verification_controller.clone());
 
             Ok(Arc::new(session_verification_controller))

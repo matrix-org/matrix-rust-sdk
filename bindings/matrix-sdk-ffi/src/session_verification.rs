@@ -75,7 +75,8 @@ impl SessionVerificationController {
 
     pub fn approve_verification(&self) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            if let Some(sas_verification) = &*self.sas_verification.read() {
+            let sas_verification = self.sas_verification.read().clone();
+            if let Some(sas_verification) = sas_verification {
                 sas_verification.confirm().await?;
             }
 
@@ -85,7 +86,8 @@ impl SessionVerificationController {
 
     pub fn decline_verification(&self) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            if let Some(sas_verification) = &*self.sas_verification.read() {
+            let sas_verification = self.sas_verification.read().clone();
+            if let Some(sas_verification) = sas_verification {
                 sas_verification.mismatch().await?;
             }
 
@@ -95,7 +97,8 @@ impl SessionVerificationController {
 
     pub fn cancel_verification(&self) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
-            if let Some(verification) = &*self.verification_request.read() {
+            let verification_request = self.verification_request.read().clone();
+            if let Some(verification) = verification_request {
                 verification.cancel().await?;
             }
 
@@ -173,7 +176,8 @@ impl SessionVerificationController {
     }
 
     async fn start_sas_verification(&self) {
-        if let Some(verification) = &*self.verification_request.read() {
+        let verification_request = self.verification_request.read().clone();
+        if let Some(verification) = verification_request {
             match verification.start_sas().await {
                 Ok(verification) => {
                     *self.sas_verification.write() = verification;

@@ -172,3 +172,15 @@ impl VerificationRequest {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::encryption::verification::SasVerification;
+
+    fn assert_send<T: Send>() {}
+
+    #[test]
+    fn sas_verification_is_send() {
+        assert_send::<SasVerification>();
+    }
+}
