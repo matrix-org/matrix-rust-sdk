@@ -45,13 +45,13 @@ async fn login_and_sync(
         let mut home = dirs::home_dir().expect("no home directory found");
         home.push("party_bot");
         let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
-        client_builder = client_builder.state_store(Box::new(state_store));
+        client_builder = client_builder.state_store(state_store);
     }
 
     #[cfg(feature = "indexeddb")]
     {
         let state_store = matrix_sdk_indexeddb::StateStore::open();
-        client_builder = client_builder.state_store(Box::new(state_store));
+        client_builder = client_builder.state_store(state_store);
     }
 
     let client = client_builder.build().await.unwrap();

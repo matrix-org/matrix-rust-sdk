@@ -32,6 +32,10 @@ macro_rules! statestore_integration_tests {
     ($($name:ident)*) => {
         $(
             mod $name {
+                use std::{
+                    collections::{BTreeMap, BTreeSet},
+                    sync::Arc,
+                };
 
                 #[cfg(feature = "experimental-timeline")]
                 use futures_util::StreamExt;
@@ -73,8 +77,6 @@ macro_rules! statestore_integration_tests {
                 };
                 use serde_json::{json, Value as JsonValue};
 
-                use std::collections::{BTreeMap, BTreeSet};
-
                 #[cfg(feature = "experimental-timeline")]
                 use $crate::{
                     http::Response,
@@ -92,7 +94,6 @@ macro_rules! statestore_integration_tests {
                 };
 
                 use super::get_store;
-
 
                 fn user_id() -> &'static UserId {
                     user_id!("@example:localhost")
@@ -114,7 +115,7 @@ macro_rules! statestore_integration_tests {
                 }
 
                 /// Populate the given `StateStore`.
-                pub(crate) async fn populated_store(inner: Box<dyn StateStore>) -> StoreResult<Store> {
+                pub(crate) async fn populated_store(inner: Arc<dyn StateStore>) -> StoreResult<Store> {
                     let mut changes = StateChanges::default();
                     let store = Store::new(inner);
 
@@ -304,7 +305,7 @@ macro_rules! statestore_integration_tests {
                     let user_id = user_id();
                     let inner_store = get_store().await?;
 
-                    let store = populated_store(Box::new(inner_store)).await?;
+                    let store = populated_store(Arc::new(inner_store)).await?;
 
                     assert!(store.get_sync_token().await?.is_some());
                     assert!(store.get_presence_event(user_id).await?.is_some());
@@ -581,7 +582,7 @@ macro_rules! statestore_integration_tests {
                 async fn test_persist_invited_room() -> StoreResult<()> {
                     let stripped_room_id = stripped_room_id();
                     let inner_store = get_store().await?;
-                    let store = populated_store(Box::new(inner_store)).await?;
+                    let store = populated_store(Arc::new(inner_store)).await?;
 
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
                     assert!(store.get_stripped_room(stripped_room_id).is_some());
@@ -597,7 +598,7 @@ macro_rules! statestore_integration_tests {
                     let inner_store = get_store().await?;
                     let stripped_room_id = stripped_room_id();
 
-                    let store = populated_store(Box::new(inner_store)).await?;
+                    let store = populated_store(Arc::new(inner_store)).await?;
 
                     store.remove_room(room_id).await?;
 
