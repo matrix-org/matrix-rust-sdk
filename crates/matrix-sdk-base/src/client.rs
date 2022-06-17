@@ -111,7 +111,7 @@ impl BaseClient {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "e2e-encryption")]
         let crypto_store =
-            config.crypto_store.unwrap_or_else(|| Box::new(MemoryCryptoStore::default())).into();
+            config.crypto_store.unwrap_or_else(|| Arc::new(MemoryCryptoStore::default()));
 
         BaseClient {
             store,

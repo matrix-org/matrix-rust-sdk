@@ -392,7 +392,7 @@ pub struct Store {
 impl Store {
     /// Create a new Store with the default `MemoryStore`
     pub fn open_memory_store() -> Self {
-        let inner = Box::new(MemoryStore::new());
+        let inner = Arc::new(MemoryStore::new());
 
         Self::new(inner)
     }
@@ -400,9 +400,9 @@ impl Store {
 
 impl Store {
     /// Create a new store, wrappning the given `StateStore`
-    pub fn new(inner: Box<dyn StateStore>) -> Self {
+    pub fn new(inner: Arc<dyn StateStore>) -> Self {
         Self {
-            inner: inner.into(),
+            inner,
             session: Default::default(),
             sync_token: Default::default(),
             rooms: Default::default(),
@@ -651,11 +651,11 @@ impl StateChanges {
 ///
 /// let store_config = StoreConfig::new();
 /// ```
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct StoreConfig {
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store: Option<Box<dyn CryptoStore>>,
-    pub(crate) state_store: Option<Box<dyn StateStore>>,
+    pub(crate) crypto_store: Option<Arc<dyn CryptoStore>>,
+    pub(crate) state_store: Option<Arc<dyn StateStore>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -677,13 +677,13 @@ impl StoreConfig {
     /// The crypto store must be opened before being set.
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(mut self, store: impl CryptoStore + 'static) -> Self {
-        self.crypto_store = Some(Box::new(store));
+        self.crypto_store = Some(Arc::new(store));
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
     pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
-        self.state_store = Some(Box::new(store));
+        self.state_store = Some(Arc::new(store));
         self
     }
 }
