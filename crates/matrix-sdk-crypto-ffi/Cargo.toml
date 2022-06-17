@@ -27,7 +27,8 @@ sha2 = "0.10.2"
 thiserror = "1.0.30"
 tracing = "0.1.34"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
-uniffi = "0.17.0"
+# keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
+uniffi = "0.18.0"
 zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
 [dependencies.js_int]
@@ -59,7 +60,7 @@ git = "https://github.com/matrix-org/vodozemac/"
 rev = "d0e744287a14319c2a9148fef3747548c740fc36"
 
 [build-dependencies]
-uniffi_build = { version = "0.17.0", features = ["builtin-bindgen"] }
+uniffi_build = { version = "0.18.0", features = ["builtin-bindgen"] }
 
 [dev-dependencies]
 tempfile = "3.3.0"
