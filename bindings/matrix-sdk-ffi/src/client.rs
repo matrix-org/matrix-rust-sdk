@@ -6,6 +6,7 @@ use matrix_sdk::{
     ruma::{
         api::client::{
             filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
+            session::get_login_types,
             sync::sync_events::v3::Filter,
         },
         events::room::MediaSource,
@@ -14,7 +15,6 @@ use matrix_sdk::{
     Client as MatrixClient, LoopCtrl,
 };
 use parking_lot::RwLock;
-use ruma::api::client::session::get_login_types;
 
 use super::{room::Room, ClientState, RestoreToken, RUNTIME};
 
@@ -63,6 +63,12 @@ impl Client {
     /// The homeserver address of this client.
     pub fn homeserver(&self) -> String {
         RUNTIME.block_on(async move { self.client.homeserver().await.to_string() })
+    }
+
+    pub fn authentication_server(&self) -> Option<String> {
+        RUNTIME.block_on(async move {
+            self.client.authentication_server().await.map(|server| server.to_string())
+        })
     }
 
     pub fn start_sync(&self) {

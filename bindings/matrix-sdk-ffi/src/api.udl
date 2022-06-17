@@ -35,6 +35,8 @@ interface Client {
     boolean supports_password_login();
     
     string homeserver();
+    
+    string? authentication_server();
 
     void start_sync();
 

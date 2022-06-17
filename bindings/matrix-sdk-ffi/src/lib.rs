@@ -11,9 +11,10 @@ mod uniffi_api;
 use std::{fs, path, sync::Arc};
 
 use client::Client;
-use matrix_sdk::{store::make_store_config, Client as MatrixClient, ClientBuilder, Session};
+use matrix_sdk::{
+    ruma::ServerName, store::make_store_config, Client as MatrixClient, ClientBuilder, Session,
+};
 use once_cell::sync::Lazy;
-use ruma::ServerName;
 use sanitize_filename_reader_friendly::sanitize;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
