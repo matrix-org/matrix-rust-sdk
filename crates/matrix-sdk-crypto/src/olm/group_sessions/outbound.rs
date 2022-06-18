@@ -24,7 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::locks::RwLock;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
@@ -112,7 +112,7 @@ impl EncryptionSettings {
 /// messages.
 #[derive(Clone)]
 pub struct OutboundGroupSession {
-    inner: Arc<Mutex<GroupSession>>,
+    inner: Arc<RwLock<GroupSession>>,
     device_id: Arc<DeviceId>,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
@@ -167,7 +167,7 @@ impl OutboundGroupSession {
         let session_id = session.session_id();
 
         OutboundGroupSession {
-            inner: Arc::new(Mutex::new(session)),
+            inner: RwLock::new(session).into(),
             room_id: room_id.into(),
             device_id,
             account_identity_keys: identity_keys,
@@ -250,7 +250,7 @@ impl OutboundGroupSession {
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
     pub(crate) async fn encrypt_helper(&self, plaintext: String) -> MegolmMessage {
-        let mut session = self.inner.lock().await;
+        let mut session = self.inner.write().await;
         self.message_count.fetch_add(1, Ordering::SeqCst);
         session.encrypt(&plaintext)
     }
@@ -350,7 +350,7 @@ impl OutboundGroupSession {
     ///
     /// A session key can be used to to create an `InboundGroupSession`.
     pub async fn session_key(&self) -> SessionKey {
-        let session = self.inner.lock().await;
+        let session = self.inner.read().await;
         session.session_key()
     }
 
@@ -369,7 +369,7 @@ impl OutboundGroupSession {
     /// Each message is sent with an increasing index. This returns the
     /// message index that will be used for the next encrypted message.
     pub async fn message_index(&self) -> u32 {
-        let session = self.inner.lock().await;
+        let session = self.inner.read().await;
         session.message_index()
     }
 
@@ -493,7 +493,7 @@ impl OutboundGroupSession {
         let session_id = inner.session_id();
 
         Ok(Self {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: Arc::new(RwLock::new(inner)),
             device_id,
             account_identity_keys: identity_keys,
             session_id: session_id.into(),
@@ -523,7 +523,7 @@ impl OutboundGroupSession {
     ///   session,
     /// either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledOutboundGroupSession {
-        let pickle = self.inner.lock().await.pickle();
+        let pickle = self.inner.read().await.pickle();
 
         PickledOutboundGroupSession {
             pickle,
