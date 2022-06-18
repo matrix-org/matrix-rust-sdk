@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 - The Error type was changed from anyhow to thiserror.
+- sqlx was bumped to 0.6.0
 
 ### Fixes
 - Use upserts instead of plain inserts for `cryptostore_outbound_group_session`. (#6)
