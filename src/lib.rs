@@ -289,7 +289,7 @@ where
     {
         let _ = passphrase;
         let state_store = StateStore::new(db).await?;
-        Ok(StoreConfig::new().state_store(Box::new(state_store)))
+        Ok(StoreConfig::new().state_store(state_store))
     }
     #[cfg(feature = "e2e-encryption")]
     {
@@ -301,7 +301,7 @@ where
             crypto_store.unlock().await?;
         }
         Ok(StoreConfig::new()
-            .state_store(Box::new(state_store))
-            .crypto_store(Box::new(crypto_store)))
+            .state_store(state_store)
+            .crypto_store(crypto_store))
     }
 }
