@@ -29,8 +29,8 @@ docsrs = []
 [dependencies]
 matrix-sdk-common = { version = "0.5.0", path = "../../crates/matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.5.0", path = "../../crates/matrix-sdk-crypto" }
-ruma = { version = "0.6.2", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = {  git = "https://github.com/matrix-org/vodozemac/", rev = "d0e744287a14319c2a9148fef3747548c740fc36", features = ["js"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "d0e744287a14319c2a9148fef3747548c740fc36", features = ["js"] }
 wasm-bindgen = "0.2.80"
 wasm-bindgen-futures = "0.4.30"
 js-sys = "0.3.49"
