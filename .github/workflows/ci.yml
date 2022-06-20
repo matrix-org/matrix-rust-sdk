@@ -48,6 +48,9 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
@@ -115,10 +118,14 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
-          command: test
+          command: nextest
+          args: run
 
   test-nodejs:
     name: linux / node.js (${{ matrix.node-version }})

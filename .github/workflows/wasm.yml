@@ -62,6 +62,9 @@ jobs:
     - name: Load cache
       uses: Swatinem/rust-cache@v1
 
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
+
     - name: Rust Check
       uses: actions-rs/cargo@v1
       with:
