@@ -38,7 +38,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_crypto::store::CryptoStore;
+use matrix_sdk_crypto::store::{CryptoStore, IntoCryptoStore};
 use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
@@ -375,6 +375,34 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>>;
 }
 
+/// A type that can be type-erased into `Arc<dyn StateStore>`.
+///
+/// This trait is not meant to be implemented directly outside
+/// `matrix-sdk-crypto`, but it is automatically implemented for everything that
+/// implements `StateStore`.
+pub trait IntoStateStore {
+    #[doc(hidden)]
+    fn into_state_store(self) -> Arc<dyn StateStore>;
+}
+
+impl<T> IntoStateStore for T
+where
+    T: StateStore + Sized + 'static,
+{
+    fn into_state_store(self) -> Arc<dyn StateStore> {
+        Arc::new(self)
+    }
+}
+
+impl<T> IntoStateStore for Arc<T>
+where
+    T: StateStore + 'static,
+{
+    fn into_state_store(self) -> Arc<dyn StateStore> {
+        self
+    }
+}
+
 /// A state store wrapper for the SDK.
 ///
 /// This adds additional higher level store functionality on top of a
@@ -676,14 +704,14 @@ impl StoreConfig {
     ///
     /// The crypto store must be opened before being set.
     #[cfg(feature = "e2e-encryption")]
-    pub fn crypto_store(mut self, store: impl CryptoStore + 'static) -> Self {
-        self.crypto_store = Some(Arc::new(store));
+    pub fn crypto_store(mut self, store: impl IntoCryptoStore) -> Self {
+        self.crypto_store = Some(store.into_crypto_store());
         self
     }
 
     /// Set a custom implementation of a `StateStore`.
-    pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
-        self.state_store = Some(Arc::new(store));
+    pub fn state_store(mut self, store: impl IntoStateStore) -> Self {
+        self.state_store = Some(store.into_state_store());
         self
     }
 }
