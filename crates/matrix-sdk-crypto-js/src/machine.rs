@@ -84,9 +84,9 @@ impl OlmMachine {
     pub fn tracked_users(&self) -> Set {
         let set = Set::new(&JsValue::UNDEFINED);
 
-        self.inner.tracked_users().into_iter().map(identifiers::UserId::from).for_each(|user| {
-            set.add(&user.into());
-        });
+        for user in self.inner.tracked_users() {
+            set.add(&identifiers::UserId::from(user).into());
+        }
 
         set
     }

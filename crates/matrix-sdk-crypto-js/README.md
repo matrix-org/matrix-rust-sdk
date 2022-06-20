@@ -1,19 +1,19 @@
 # `matrix-sdk-crypto-js`
 
 Welcome to the [WebAssembly] + JavaScript binding for the Rust
-[`matrix-sdk-crypto`] library! WebAssembly can run anywhere, but this
-binding is designed to run on a JavaScript host. This binding is part
-of the [`matrix-rust-sdk`] project, which is a library implementation
-of a [Matrix] client-server.
+[`matrix-sdk-crypto`] library! WebAssembly can run anywhere, but these
+bindings are designed to run on a JavaScript host. These bindings are
+part of the [`matrix-rust-sdk`] project, which is a library
+implementation of a [Matrix] client-server.
 
-`matrix-sdk-crypto-js` is a no-network-IO implementation of a state
+`matrix-sdk-crypto` is a no-network-IO implementation of a state
 machine, named `OlmMachine`, that handles E2EE ([End-to-End
 Encryption](https://en.wikipedia.org/wiki/End-to-end_encryption)) for
 [Matrix] clients.
 
 ## Usage
 
-This WebAssembly binding is written in [Rust]. To build this binding, you
+These WebAssembly bindings are written in [Rust]. To build them, you
 need to install the Rust compiler, see [the Install Rust
 Page](https://www.rust-lang.org/tools/install). Then, the workflow is
 pretty classical by using [npm], see [the Downloading and installing
@@ -29,8 +29,9 @@ $ npm run build
 $ npm run test
 ```
 
-A `matrix_sdk_crypto.js`, `matrix_sdk_crypto.d.ts` and a `matrix_sdk_crypto_bg.wasm` files should be
-generated in the `pkg/` directory.
+A `matrix_sdk_crypto.js`, `matrix_sdk_crypto.d.ts` and a
+`matrix_sdk_crypto_bg.wasm` files should be generated in the `pkg/`
+directory.
 
 TBD
 
