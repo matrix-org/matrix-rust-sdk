@@ -26,6 +26,12 @@ use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 #[allow(unused_imports)]
 use matrix_sdk_common::{instant::Instant, locks::Mutex};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    canonical_json::redact_in_place,
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
+    CanonicalJsonObject, RoomVersionId,
+};
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -37,12 +43,6 @@ use ruma::{
     receipt::ReceiptType,
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
-};
-#[cfg(feature = "experimental-timeline")]
-use ruma::{
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
-    signatures::{redact_in_place, CanonicalJsonObject},
-    RoomVersionId,
 };
 
 #[cfg(feature = "experimental-timeline")]

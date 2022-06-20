@@ -1053,6 +1053,7 @@ impl BaseClient {
         };
 
         Ok(Some(PushConditionRoomCtx {
+            user_id: user_id.to_owned(),
             room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,

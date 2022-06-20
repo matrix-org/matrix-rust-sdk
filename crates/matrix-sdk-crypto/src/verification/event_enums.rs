@@ -43,8 +43,8 @@ use ruma::{
         AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
         MessageLikeEvent,
     },
-    serde::{Base64, CanonicalJsonValue},
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, UserId,
+    serde::Base64,
+    CanonicalJsonValue, DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, UserId,
 };
 
 use super::FlowId;
