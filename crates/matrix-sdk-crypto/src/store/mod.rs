@@ -805,3 +805,31 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// request.
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()>;
 }
+
+/// A type that can be type-erased into `Arc<dyn CryptoStore>`.
+///
+/// This trait is not meant to be implemented directly outside
+/// `matrix-sdk-crypto`, but it is automatically implemented for everything that
+/// implements `CryptoStore`.
+pub trait IntoCryptoStore {
+    #[doc(hidden)]
+    fn into_crypto_store(self) -> Arc<dyn CryptoStore>;
+}
+
+impl<T> IntoCryptoStore for T
+where
+    T: CryptoStore + Sized + 'static,
+{
+    fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
+        Arc::new(self)
+    }
+}
+
+impl<T> IntoCryptoStore for Arc<T>
+where
+    T: CryptoStore + 'static,
+{
+    fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
+        self
+    }
+}
