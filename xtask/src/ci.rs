@@ -184,7 +184,6 @@ fn run_crypto_tests() -> Result<()> {
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1").run()?;
     cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1").run()?;
     cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
-    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto-ffi").run()?;
 
     Ok(())
 }
