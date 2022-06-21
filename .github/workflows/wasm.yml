@@ -27,7 +27,6 @@ jobs:
           - matrix-sdk-qrcode
           - matrix-sdk-base
           - matrix-sdk-common
-          - matrix-sdk-crypto-js
           - indexeddb-no-crypto
           - indexeddb-with-crypto
 

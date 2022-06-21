@@ -12,8 +12,8 @@ pub struct UserId {
     pub(crate) inner: ruma::OwnedUserId,
 }
 
-impl UserId {
-    pub(crate) fn new_with(inner: ruma::OwnedUserId) -> Self {
+impl From<ruma::OwnedUserId> for UserId {
+    fn from(inner: ruma::OwnedUserId) -> Self {
         Self { inner }
     }
 }
@@ -23,16 +23,17 @@ impl UserId {
     /// Parse/validate and create a new `UserId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> Result<UserId, JsError> {
-        Ok(Self::new_with(ruma::UserId::parse(id)?))
+        Ok(Self::from(ruma::UserId::parse(id)?))
     }
 
     /// Returns the user's localpart.
+    #[wasm_bindgen(getter)]
     pub fn localpart(&self) -> String {
         self.inner.localpart().to_owned()
     }
 
     /// Returns the server name of the user ID.
-    #[wasm_bindgen(js_name = "serverName")]
+    #[wasm_bindgen(getter, js_name = "serverName")]
     pub fn server_name(&self) -> ServerName {
         ServerName { inner: self.inner.server_name().to_owned() }
     }
@@ -42,7 +43,7 @@ impl UserId {
     /// A historical user ID is one that doesn't conform to the latest
     /// specification of the user ID grammar but is still accepted
     /// because it was previously allowed.
-    #[wasm_bindgen(getter, js_name = "isHistorical")]
+    #[wasm_bindgen(js_name = "isHistorical")]
     pub fn is_historical(&self) -> bool {
         self.inner.is_historical()
     }
@@ -65,8 +66,8 @@ pub struct DeviceId {
     pub(crate) inner: ruma::OwnedDeviceId,
 }
 
-impl DeviceId {
-    pub(crate) fn new_with(inner: ruma::OwnedDeviceId) -> Self {
+impl From<ruma::OwnedDeviceId> for DeviceId {
+    fn from(inner: ruma::OwnedDeviceId) -> Self {
         Self { inner }
     }
 }
@@ -76,7 +77,7 @@ impl DeviceId {
     /// Create a new `DeviceId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> DeviceId {
-        Self::new_with(id.into())
+        Self::from(ruma::OwnedDeviceId::from(id))
     }
 
     /// Return the device ID as a string.
@@ -96,8 +97,8 @@ pub struct RoomId {
     pub(crate) inner: ruma::OwnedRoomId,
 }
 
-impl RoomId {
-    pub(crate) fn new_with(inner: ruma::OwnedRoomId) -> Self {
+impl From<ruma::OwnedRoomId> for RoomId {
+    fn from(inner: ruma::OwnedRoomId) -> Self {
         Self { inner }
     }
 }
@@ -107,16 +108,17 @@ impl RoomId {
     /// Parse/validate and create a new `RoomId`.
     #[wasm_bindgen(constructor)]
     pub fn new(id: &str) -> Result<RoomId, JsError> {
-        Ok(Self::new_with(ruma::RoomId::parse(id)?))
+        Ok(Self::from(ruma::RoomId::parse(id)?))
     }
 
     /// Returns the user's localpart.
+    #[wasm_bindgen(getter)]
     pub fn localpart(&self) -> String {
         self.inner.localpart().to_owned()
     }
 
     /// Returns the server name of the room ID.
-    #[wasm_bindgen(js_name = "serverName")]
+    #[wasm_bindgen(getter, js_name = "serverName")]
     pub fn server_name(&self) -> ServerName {
         ServerName { inner: self.inner.server_name().to_owned() }
     }
@@ -153,11 +155,13 @@ impl ServerName {
     ///
     /// That is: Return the part of the server before `:<port>` or the
     /// full server name if there is no port.
+    #[wasm_bindgen(getter)]
     pub fn host(&self) -> String {
         self.inner.host().to_owned()
     }
 
     /// Returns the port of the server name if any.
+    #[wasm_bindgen(getter)]
     pub fn port(&self) -> Option<u16> {
         self.inner.port()
     }
