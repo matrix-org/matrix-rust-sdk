@@ -36,7 +36,11 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
 
     client.register_event_handler(on_room_message).await;
 
-    client.login(username, password, None, Some("rust-sdk")).await?;
+    client
+        .login_username(username, password)
+        .initial_device_display_name("rust-sdk")
+        .send()
+        .await?;
     client.sync(SyncSettings::new()).await;
 
     Ok(())

@@ -26,7 +26,12 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> Client
         .await
         .unwrap();
 
-    client.login(username, password, None, Some("rust-sdk")).await.unwrap();
+    client
+        .login_username(username, password)
+        .initial_device_display_name("rust-sdk")
+        .send()
+        .await
+        .unwrap();
     client
 }
 

@@ -61,7 +61,11 @@ async fn login_and_sync(
 
     let client = client_builder.build().await?;
 
-    client.login(username, password, None, Some("autojoin bot")).await?;
+    client
+        .login_username(username, password)
+        .initial_device_display_name("autojoin bot")
+        .send()
+        .await?;
 
     println!("logged in as {}", username);
 
