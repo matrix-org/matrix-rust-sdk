@@ -67,7 +67,7 @@ pub fn login_new_client(
     // First we need to log in.
     RUNTIME.block_on(async move {
         let client = builder.user_id(&user).build().await?;
-        client.login(user, &password, None, None).await?;
+        client.login_username(user.as_str(), &password).send().await?;
         let c = Client::new(client, ClientState { is_guest: false, ..ClientState::default() });
         Ok(Arc::new(c))
     })

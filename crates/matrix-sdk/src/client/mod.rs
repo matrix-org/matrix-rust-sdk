@@ -86,8 +86,14 @@ use crate::{
 };
 
 mod builder;
+mod login_builder;
 
-pub use self::builder::{ClientBuildError, ClientBuilder};
+#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+pub use self::login_builder::SsoLoginBuilder;
+pub use self::{
+    builder::{ClientBuildError, ClientBuilder},
+    login_builder::LoginBuilder,
+};
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
@@ -281,7 +287,7 @@ impl Client {
     /// Will be `None` if the client has not been logged in.
     ///
     /// Can be used with [`Client::restore_login`] to restore a previously
-    /// logged in session.
+    /// logged-in session.
     pub fn session(&self) -> Option<&Session> {
         self.store().session()
     }
@@ -665,29 +671,26 @@ impl Client {
         }
     }
 
-    /// Login to the server.
+    /// Login to the server with a username and password.
     ///
     /// This can be used for the first login as well as for subsequent logins,
-    /// note that if the device id isn't provided a new device will be created.
+    /// note that if the device ID isn't provided a new device will be created.
     ///
-    /// If this isn't the first login a device id should be provided to restore
-    /// the correct stores.
+    /// If this isn't the first login, a device ID should be provided through
+    /// [`LoginBuilder::device_id`] to restore the correct stores.
     ///
     /// Alternatively the [`restore_login`] method can be used to restore a
-    /// logged in client without the password.
+    /// logged-in client without the password.
     ///
     /// # Arguments
     ///
-    /// * `user` - The user that should be logged in to the homeserver.
+    /// * `user` - The user ID or user ID localpart of the user that should be
+    ///   logged into the homeserver.
     ///
     /// * `password` - The password of the user.
     ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be done
-    ///   only if the client also holds the encryption keys for this device.
-    ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use futures::executor::block_on;
@@ -700,246 +703,38 @@ impl Client {
     /// let user = "example";
     ///
     /// let response = client
-    ///     .login(user, "wordpass", None, Some("My bot")).await?;
+    ///     .login_username(user, "wordpass")
+    ///     .initial_device_display_name("My bot")
+    ///     .send()
+    ///     .await?;
     ///
     /// println!(
     ///     "Logged in as {}, got device_id {} and access_token {}",
-    ///     user, response.device_id, response.access_token
+    ///     user, response.device_id, response.access_token,
     /// );
     /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(self, user, password))]
-    pub async fn login(
+    pub fn login_username<'a>(
         &self,
-        user: impl AsRef<str>,
-        password: &str,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-    ) -> Result<login::v3::Response> {
-        let homeserver = self.homeserver().await;
-        info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in");
-
-        let login_info = login::v3::LoginInfo::Password(login::v3::Password::new(
-            UserIdentifier::UserIdOrLocalpart(user.as_ref()),
-            password,
-        ));
-
-        let request = assign!(login::v3::Request::new(login_info), {
-            device_id: device_id.map(|d| d.into()),
-            initial_device_display_name,
-        });
-
-        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
-        self.receive_login_response(&response).await?;
-
-        Ok(response)
+        id: &'a (impl AsRef<str> + ?Sized),
+        password: &'a str,
+    ) -> LoginBuilder<'a> {
+        self.login_identifier(UserIdentifier::UserIdOrLocalpart(id.as_ref()), password)
     }
 
-    /// Login to the server via Single Sign-On.
+    /// Login to the server with a user identifier and password.
     ///
-    /// This takes care of the whole SSO flow:
-    ///   * Spawn a local http server
-    ///   * Provide a callback to open the SSO login URL in a web browser
-    ///   * Wait for the local http server to get the loginToken
-    ///   * Call [`login_with_token`]
-    ///
-    /// If cancellation is needed the method should be wrapped in a cancellable
-    /// task. **Note** that users with root access to the system have the
-    /// ability to snoop in on the data/token that is passed to the local
-    /// HTTP server that will be spawned.
-    ///
-    /// If you need more control over the SSO login process, you should use
-    /// [`get_sso_login_url`] and [`login_with_token`] directly.
-    ///
-    /// This should only be used for the first login.
-    ///
-    /// The [`restore_login`] method should be used to restore a
-    /// logged in client after the first login.
-    ///
-    /// A device id should be provided to restore the correct stores, if the
-    /// device id isn't provided a new device will be created.
-    ///
-    /// # Arguments
-    ///
-    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL.
-    ///   It should usually be used to open the SSO URL in a browser and must
-    ///   return `Ok(())` if the URL was successfully opened. If it returns
-    ///   `Err`, the error will be forwarded.
-    ///
-    /// * `server_url` - The local URL the server is going to try to bind to, e.g. `http://localhost:3030`.
-    ///   If `None`, the server will try to open a random port on `127.0.0.1`.
-    ///
-    /// * `server_response` - The text that will be shown on the webpage at the
-    ///   end of the login process. This can be an HTML page. If `None`, a
-    ///   default text will be displayed.
-    ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be
-    ///   provided only if the client also holds the encryption keys for this
-    ///   device.
-    ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///   associated with the device_id. Only necessary the first time you login
-    ///   with this device_id. It can be changed later.
-    ///
-    /// * `idp_id` - The optional ID of the identity provider to login with.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("https://example.com").unwrap();
-    /// # block_on(async {
-    /// let client = Client::new(homeserver).await.unwrap();
-    ///
-    /// let response = client
-    ///     .login_with_sso(
-    ///         |sso_url| async move {
-    ///             // Open sso_url
-    ///             Ok(())
-    ///         },
-    ///         None,
-    ///         None,
-    ///         None,
-    ///         Some("My app"),
-    ///         None,
-    ///     )
-    ///     .await
-    ///     .unwrap();
-    ///
-    /// println!("Logged in as {}, got device_id {} and access_token {}",
-    ///          response.user_id, response.device_id, response.access_token);
-    /// # })
-    /// ```
-    ///
-    /// [`get_sso_login_url`]: #method.get_sso_login_url
-    /// [`login_with_token`]: #method.login_with_token
-    /// [`restore_login`]: #method.restore_login
-    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
-    #[deny(clippy::future_not_send)]
-    pub async fn login_with_sso<C>(
+    /// This is more general form of [`login_username`][Self::login_username]
+    /// that also accepts third-party identifiers instead of just the user ID or
+    /// its localpart.
+    pub fn login_identifier<'a>(
         &self,
-        use_sso_login_url: impl FnOnce(String) -> C + Send,
-        server_url: Option<&str>,
-        server_response: Option<&str>,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-        idp_id: Option<&str>,
-    ) -> Result<login::v3::Response>
-    where
-        C: Future<Output = Result<()>> + Send,
-    {
-        use std::{
-            collections::HashMap,
-            io::{Error as IoError, ErrorKind as IoErrorKind},
-            ops::Range,
-        };
-
-        use rand::{thread_rng, Rng};
-        use warp::Filter;
-
-        /// The range of ports the SSO server will try to bind to randomly.
-        ///
-        /// This is used to avoid binding to a port blocked by browsers.
-        /// See <https://fetch.spec.whatwg.org/#port-blocking>.
-        const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
-        /// The number of times the SSO server will try to bind to a random port
-        const SSO_SERVER_BIND_TRIES: u8 = 10;
-
-        let homeserver = self.homeserver().await;
-        info!("Logging in to {}", homeserver);
-
-        let (signal_tx, signal_rx) = tokio::sync::oneshot::channel();
-        let (data_tx, data_rx) = tokio::sync::oneshot::channel();
-        let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
-
-        let mut redirect_url = match server_url {
-            Some(s) => Url::parse(s)?,
-            None => {
-                Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
-            }
-        };
-
-        let response = match server_response {
-            Some(s) => s.to_string(),
-            None => String::from(
-                "The Single Sign-On login process is complete. You can close this page now.",
-            ),
-        };
-
-        let route = warp::get().and(warp::query::<HashMap<String, String>>()).map(
-            move |p: HashMap<String, String>| {
-                if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                    if let Some(token) = p.get("loginToken") {
-                        data_tx.send(Some(token.to_owned())).unwrap();
-                    } else {
-                        data_tx.send(None).unwrap();
-                    }
-                }
-                http::Response::builder().body(response.clone())
-            },
-        );
-
-        let listener = {
-            if redirect_url.port().expect("The redirect URL doesn't include a port") == 0 {
-                let host = redirect_url.host_str().expect("The redirect URL doesn't have a host");
-                let mut n = 0u8;
-                let mut port = 0u16;
-                let mut res = Err(IoError::new(IoErrorKind::Other, ""));
-
-                while res.is_err() && n < SSO_SERVER_BIND_TRIES {
-                    port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
-                    res = tokio::net::TcpListener::bind((host, port)).await;
-                    n += 1;
-                }
-                match res {
-                    Ok(s) => {
-                        redirect_url
-                            .set_port(Some(port))
-                            .expect("Could not set new port on redirect URL");
-                        s
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-            } else {
-                match tokio::net::TcpListener::bind(redirect_url.as_str()).await {
-                    Ok(s) => s,
-                    Err(err) => return Err(err.into()),
-                }
-            }
-        };
-
-        let server = warp::serve(route).serve_incoming_with_graceful_shutdown(
-            tokio_stream::wrappers::TcpListenerStream::new(listener),
-            async {
-                signal_rx.await.ok();
-            },
-        );
-
-        tokio::spawn(server);
-
-        let sso_url = self.get_sso_login_url(redirect_url.as_str(), idp_id).await?;
-
-        match use_sso_login_url(sso_url).await {
-            Ok(t) => t,
-            Err(err) => return Err(err),
-        };
-
-        let token = match data_rx.await {
-            Ok(Some(t)) => t,
-            Ok(None) => {
-                return Err(IoError::new(IoErrorKind::Other, "Could not get the loginToken").into())
-            }
-            Err(err) => return Err(IoError::new(IoErrorKind::Other, format!("{}", err)).into()),
-        };
-
-        let _ = signal_tx.send(());
-
-        self.login_with_token(token.as_str(), device_id, initial_device_display_name).await
+        id: UserIdentifier<'a>,
+        password: &'a str,
+    ) -> LoginBuilder<'a> {
+        LoginBuilder::new_password(self.clone(), id, password)
     }
 
     /// Login to the server with a token.
@@ -950,27 +745,19 @@ impl Client {
     ///
     /// This should only be used for the first login.
     ///
-    /// The [`restore_login`] method should be used to restore a
-    /// logged in client after the first login.
+    /// The [`restore_login`] method should be used to restore a logged-in
+    /// client after the first login.
     ///
-    /// A device id should be provided to restore the correct stores, if the
-    /// device id isn't provided a new device will be created.
+    /// A device ID should be provided through [`LoginBuilder::device_id`] to
+    /// restore the correct stores, if the device ID isn't provided a new
+    /// device will be created.
     ///
     /// # Arguments
     ///
     /// * `token` - A login token.
     ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be
-    ///   provided only if the client also holds the encryption keys for this
-    ///   device.
-    ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///   associated with the device_id. Only necessary the first time you login
-    ///   with this device_id. It can be changed later.
-    ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
@@ -988,7 +775,71 @@ impl Client {
     /// // Receive the loginToken param at redirect_url
     ///
     /// let response = client
-    ///     .login_with_token(login_token, None, Some("My app")).await
+    ///     .login_token(login_token)
+    ///     .initial_device_display_name("My app")
+    ///     .send()
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     response.user_id, response.device_id, response.access_token,
+    /// );
+    /// # })
+    /// ```
+    ///
+    /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`restore_login`]: #method.restore_login
+    pub fn login_token<'a>(&self, token: &'a str) -> LoginBuilder<'a> {
+        LoginBuilder::new_token(self.clone(), token)
+    }
+
+    /// Login to the server via Single Sign-On.
+    ///
+    /// This takes care of the whole SSO flow:
+    ///   * Spawn a local http server
+    ///   * Provide a callback to open the SSO login URL in a web browser
+    ///   * Wait for the local http server to get the loginToken
+    ///   * Call [`login_token`]
+    ///
+    /// If cancellation is needed the method should be wrapped in a cancellable
+    /// task. **Note** that users with root access to the system have the
+    /// ability to snoop in on the data/token that is passed to the local
+    /// HTTP server that will be spawned.
+    ///
+    /// If you need more control over the SSO login process, you should use
+    /// [`get_sso_login_url`] and [`login_token`] directly.
+    ///
+    /// This should only be used for the first login.
+    ///
+    /// The [`restore_login`] method should be used to restore a logged-in
+    /// client after the first login.
+    ///
+    /// # Arguments
+    ///
+    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL.
+    ///   It should usually be used to open the SSO URL in a browser and must
+    ///   return `Ok(())` if the URL was successfully opened. If it returns
+    ///   `Err`, the error will be forwarded.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("https://example.com").unwrap();
+    /// # block_on(async {
+    /// let client = Client::new(homeserver).await.unwrap();
+    ///
+    /// let response = client
+    ///     .login_sso(|sso_url| async move {
+    ///         // Open sso_url
+    ///         Ok(())
+    ///     })
+    ///     .initial_device_display_name("My app")
+    ///     .send()
+    ///     .await
     ///     .unwrap();
     ///
     /// println!("Logged in as {}, got device_id {} and access_token {}",
@@ -997,7 +848,76 @@ impl Client {
     /// ```
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`login_token`]: #method.login_token
     /// [`restore_login`]: #method.restore_login
+    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    pub fn login_sso<'a, F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<'a, F>
+    where
+        F: FnOnce(String) -> Fut + Send,
+        Fut: Future<Output = Result<()>> + Send,
+    {
+        SsoLoginBuilder::new(self.clone(), use_sso_login_url)
+    }
+
+    /// Login to the server with a username and password.
+    #[deprecated = "Replaced by [`Client::login_username`](#method.login_username)"]
+    #[instrument(skip(self, user, password))]
+    pub async fn login(
+        &self,
+        user: impl AsRef<str>,
+        password: &str,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::v3::Response> {
+        let mut builder = self.login_username(&user, password);
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
+
+        builder.send().await
+    }
+
+    /// Login to the server via Single Sign-On.
+    #[deprecated = "Replaced by [`Client::login_sso`](#method.login_sso)"]
+    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    #[deny(clippy::future_not_send)]
+    pub async fn login_with_sso<C>(
+        &self,
+        use_sso_login_url: impl FnOnce(String) -> C + Send,
+        server_url: Option<&str>,
+        server_response: Option<&str>,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+        idp_id: Option<&str>,
+    ) -> Result<login::v3::Response>
+    where
+        C: Future<Output = Result<()>> + Send,
+    {
+        let mut builder = self.login_sso(use_sso_login_url);
+        if let Some(value) = server_url {
+            builder = builder.server_url(value);
+        }
+        if let Some(value) = server_response {
+            builder = builder.server_response(value);
+        }
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
+        if let Some(value) = idp_id {
+            builder = builder.identity_provider_id(value);
+        }
+
+        builder.send().await
+    }
+
+    /// Login to the server with a token.
+    #[deprecated = "Replaced by [`Client::login_token`](#method.login_token)"]
     #[instrument(skip(self, token))]
     #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn login_with_token(
@@ -1006,22 +926,15 @@ impl Client {
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::v3::Response> {
-        let homeserver = self.homeserver().await;
-        info!("Logging in to {}", homeserver);
+        let mut builder = self.login_token(token);
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
 
-        let request = assign!(
-            login::v3::Request::new(
-                login::v3::LoginInfo::Token(login::v3::Token::new(token)),
-            ), {
-                device_id: device_id.map(|d| d.into()),
-                initial_device_display_name,
-            }
-        );
-
-        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
-        self.receive_login_response(&response).await?;
-
-        Ok(response)
+        builder.send().await
     }
 
     /// Receive a login response and update the homeserver and the base client
@@ -2411,7 +2324,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_username("example", "wordpass").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2428,7 +2341,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN_WITH_DISCOVERY.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_username("example", "wordpass").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2445,7 +2358,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_username("example", "wordpass").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2468,26 +2381,21 @@ pub(crate) mod tests {
             "idp-name".to_owned(),
         );
         client
-            .login_with_sso(
-                |sso_url| async move {
-                    let sso_url = Url::parse(sso_url.as_str()).unwrap();
+            .login_sso(|sso_url| async move {
+                let sso_url = Url::parse(&sso_url).unwrap();
 
-                    let (_, redirect) =
-                        sso_url.query_pairs().find(|(key, _)| key == "redirectUrl").unwrap();
+                let (_, redirect) =
+                    sso_url.query_pairs().find(|(key, _)| key == "redirectUrl").unwrap();
 
-                    let mut redirect_url = Url::parse(redirect.into_owned().as_str()).unwrap();
-                    redirect_url.set_query(Some("loginToken=tinytoken"));
+                let mut redirect_url = Url::parse(&redirect).unwrap();
+                redirect_url.set_query(Some("loginToken=tinytoken"));
 
-                    reqwest::get(redirect_url.to_string()).await.unwrap();
+                reqwest::get(redirect_url.to_string()).await.unwrap();
 
-                    Ok(())
-                },
-                None,
-                None,
-                None,
-                None,
-                Some(&idp.id),
-            )
+                Ok(())
+            })
+            .identity_provider_id(&idp.id)
+            .send()
             .await
             .unwrap();
 
@@ -2521,7 +2429,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login_with_token("averysmalltoken", None, None).await.unwrap();
+        client.login_token("averysmalltoken").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2643,7 +2551,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN_RESPONSE_ERR.to_string())
             .create();
 
-        if let Err(err) = client.login("example", "wordpass", None, None).await {
+        if let Err(err) = client.login_username("example", "wordpass").send().await {
             if let crate::Error::Http(HttpError::Api(FromHttpResponseError::Server(
                 ServerError::Known(RumaApiError::ClientApi(client_api::Error {
                     kind,
@@ -3568,7 +3476,7 @@ pub(crate) mod tests {
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_username("example", "wordpass").send().await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
@@ -3590,7 +3498,7 @@ pub(crate) mod tests {
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_username("example", "wordpass").send().await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
@@ -3604,7 +3512,7 @@ pub(crate) mod tests {
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_username("example", "wordpass").send().await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")

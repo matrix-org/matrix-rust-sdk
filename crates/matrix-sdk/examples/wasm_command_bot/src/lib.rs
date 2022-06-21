@@ -85,7 +85,12 @@ pub async fn run() -> Result<JsValue, JsValue> {
     let homeserver_url = Url::parse(homeserver_url).unwrap();
     let client = Client::new(homeserver_url).await.unwrap();
 
-    client.login(username, password, None, Some("rust-sdk-wasm")).await.unwrap();
+    client
+        .login_username(username, password)
+        .initial_device_display_name("rust-sdk-wasm")
+        .send()
+        .await
+        .unwrap();
 
     let bot = WasmBot(client.clone());
 
