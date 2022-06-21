@@ -202,6 +202,11 @@ impl<'a> VirtualUserBuilder<'a> {
         }
 
         let user_id = UserId::parse_with_server_name(self.localpart, &self.appservice.server_name)?;
+        if !(self.appservice.user_id_is_in_namespace(&user_id)
+            || self.localpart == self.appservice.registration.sender_localpart)
+        {
+            warn!("Virtual client id '{user_id}' is not in the namespace")
+        }
 
         let mut builder = self.client_builder;
 
@@ -729,11 +734,12 @@ impl AppService {
             let client = client.clone();
             let virt_client = virt_client.clone();
             let transaction = transaction.clone();
+            let appserv_uid = self.registration.sender_localpart.clone();
 
             let task = tokio::spawn(async move {
                 let user_id = match virt_client.user_id() {
                     Some(user_id) => user_id.localpart(),
-                    // Unauthenticated client. (should that be possible?)
+                    // The client is not logged in, skipping
                     None => return Ok(()),
                 };
                 let mut response = sync_events::v3::Response::new(transaction.txn_id.to_string());
@@ -753,25 +759,28 @@ impl AppService {
                     let key = &[USER_MEMBER, room_id.as_bytes(), b".", user_id.as_bytes()].concat();
                     let membership = match client.store().get_custom_value(key).await? {
                         Some(value) => String::from_utf8(value).ok().map(MembershipState::from),
+                        // Assume the appservice is in every known room
+                        None if user_id == appserv_uid => Some(MembershipState::Join),
                         None => None,
                     };
 
-                    match membership.unwrap_or(MembershipState::Join) {
-                        MembershipState::Join => {
+                    match membership {
+                        Some(MembershipState::Join) => {
                             let room = response.rooms.join.entry(room_id).or_default();
                             room.timeline.events.push(raw_event.clone().cast())
                         }
-                        MembershipState::Leave | MembershipState::Ban => {
+                        Some(MembershipState::Leave | MembershipState::Ban) => {
                             let room = response.rooms.leave.entry(room_id).or_default();
                             room.timeline.events.push(raw_event.clone().cast())
                         }
-                        MembershipState::Knock => {
+                        Some(MembershipState::Knock) => {
                             response.rooms.knock.entry(room_id).or_default();
                         }
-                        MembershipState::Invite => {
+                        Some(MembershipState::Invite) => {
                             response.rooms.invite.entry(room_id).or_default();
                         }
-                        _ => debug!("Membership type we don't know how to handle"),
+                        Some(unknown) => debug!("Unknown membership type: {unknown}"),
+                        None => debug!("Assuming {user_id} is not in {room_id}"),
                     }
                 }
                 virt_client.receive_transaction(&transaction.txn_id, response).await?;

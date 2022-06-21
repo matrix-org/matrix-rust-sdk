@@ -128,9 +128,9 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        node-version: [12.17, 14.0, 15.0, 16.0]
+        node-version: [14.0, 16.0, 18.0]
         include:
-          - node-version: 16.0
+          - node-version: 18.0
             build-doc: true
 
     steps:

@@ -28,18 +28,18 @@ pub use state_store::IndexeddbStore as StateStore;
 async fn open_stores_with_name(
     name: impl Into<String>,
     passphrase: Option<&str>,
-) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
+) -> Result<(StateStore, CryptoStore), OpenStoreError> {
     let name = name.into();
 
     if let Some(passphrase) = passphrase {
         let state_store = StateStore::open_with_passphrase(name.clone(), passphrase).await?;
         let crypto_store =
             CryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone()).await?;
-        Ok((Box::new(state_store), Box::new(crypto_store)))
+        Ok((state_store, crypto_store))
     } else {
         let state_store = StateStore::open_with_name(name.clone()).await?;
         let crypto_store = CryptoStore::open_with_name(name).await?;
-        Ok((Box::new(state_store), Box::new(crypto_store)))
+        Ok((state_store, crypto_store))
     }
 }
 
@@ -67,7 +67,7 @@ pub async fn make_store_config(
             StateStore::open_with_name(name).await?
         };
 
-        Ok(StoreConfig::new().state_store(Box::new(state_store)))
+        Ok(StoreConfig::new().state_store(state_store))
     }
 }
 

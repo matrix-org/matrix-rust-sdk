@@ -56,7 +56,7 @@ pub struct KeysQueryRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"timeout": …, "device_keys": …, "token": …}
     /// ```
     #[napi(readonly)]
@@ -87,7 +87,7 @@ pub struct KeysClaimRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"timeout": …, "one_time_keys": …}
     /// ```
     #[napi(readonly)]
@@ -117,7 +117,7 @@ pub struct ToDeviceRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"event_type": …, "txn_id": …, "messages": …}
     /// ```
     #[napi(readonly)]
@@ -147,7 +147,7 @@ pub struct SignatureUploadRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"signed_keys": …, "txn_id": …, "messages": …}
     /// ```
     #[napi(readonly)]
@@ -175,7 +175,7 @@ pub struct RoomMessageRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"room_id": …, "txn_id": …, "content": …}
     /// ```
     #[napi(readonly)]
@@ -203,7 +203,7 @@ pub struct KeysBackupRequest {
 
     /// A JSON-encoded object of form:
     ///
-    /// ```
+    /// ```json
     /// {"rooms": …}
     /// ```
     #[napi(readonly)]

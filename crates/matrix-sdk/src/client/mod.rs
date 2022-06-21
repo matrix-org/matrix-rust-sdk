@@ -24,7 +24,7 @@ use std::{
 
 use anymap2::any::CloneAnySendSync;
 #[cfg(target_arch = "wasm32")]
-pub use async_once_cell::OnceCell;
+use async_once_cell::OnceCell;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
 use matrix_sdk_base::{
@@ -70,7 +70,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::OnceCell;
+use tokio::sync::OnceCell;
 use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 

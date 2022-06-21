@@ -43,8 +43,8 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: uniffi_bindgen
-
+          # keep in sync with uniffi dependency in Cargo.toml's
+          args: uniffi_bindgen --version ^0.18
 
       - name: Generate .xcframework
         run: sh bindings/apple/debug_build_xcframework.sh ci

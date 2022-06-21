@@ -200,7 +200,7 @@ impl Printer {
 impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
-        let store = Store::new(Box::new(
+        let store = Store::new(Arc::new(
             StateStore::open_with_path(database_path).expect("Can't open sled database"),
         ));
 

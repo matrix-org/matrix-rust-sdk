@@ -38,7 +38,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: tarpaulin
-        args: --workspace
+        args: --out Xml
 
     - name: Upload to codecov.io
       uses: codecov/codecov-action@v3
