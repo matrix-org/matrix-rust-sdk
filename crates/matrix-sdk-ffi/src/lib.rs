@@ -35,7 +35,7 @@ pub fn guest_client(base_path: String, homeurl: String) -> anyhow::Result<Arc<Cl
         let session = Session {
             access_token: register.access_token.expect("no access token given"),
             user_id: register.user_id,
-            device_id: register.device_id.clone().expect("device id is given by server"),
+            device_id: register.device_id.clone().expect("device ID is given by server"),
         };
         client.restore_login(session).await?;
         let c = Client::new(client, ClientState { is_guest: true, ..ClientState::default() });

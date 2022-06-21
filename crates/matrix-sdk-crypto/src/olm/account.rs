@@ -459,7 +459,7 @@ pub struct ReadOnlyAccount {
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: OwnedUserId,
-    /// The device id of the account owner.
+    /// The device ID of the account owner.
     pub device_id: OwnedDeviceId,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
@@ -506,7 +506,7 @@ impl ReadOnlyAccount {
         &self.user_id
     }
 
-    /// Get the device id that owns this account.
+    /// Get the device ID that owns this account.
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }
@@ -955,7 +955,7 @@ impl ReadOnlyAccount {
     /// # Arguments
     /// * `device` - The other account's device.
     ///
-    /// * `key_map` - A map from the algorithm and device id to the one-time key
+    /// * `key_map` - A map from the algorithm and device ID to the one-time key
     ///   that the other account created and shared with us.
     pub async fn create_outbound_session(
         &self,

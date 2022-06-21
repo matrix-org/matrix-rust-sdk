@@ -459,7 +459,7 @@ impl Store {
         Ok(())
     }
 
-    /// The current [`Session`] containing our user id, device id and access
+    /// The current [`Session`] containing our user id, device ID and access
     /// token.
     pub fn session(&self) -> Option<&Session> {
         self.session.get()
