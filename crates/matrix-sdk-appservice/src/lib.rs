@@ -161,7 +161,7 @@ impl<'a> VirtualUserBuilder<'a> {
         }
     }
 
-    /// Set the device id of the virtual user
+    /// Set the device ID of the virtual user
     pub fn device_id(mut self, device_id: Option<OwnedDeviceId>) -> Self {
         self.device_id = device_id;
         self

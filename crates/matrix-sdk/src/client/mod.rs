@@ -277,7 +277,7 @@ impl Client {
         self.session().map(|s| s.user_id.as_ref())
     }
 
-    /// Get the device id that identifies the current session.
+    /// Get the device ID that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
         self.session().map(|s| s.device_id.as_ref())
     }
@@ -963,7 +963,7 @@ impl Client {
     /// the stored state and encryption keys.
     ///
     /// Alternatively, if the whole session isn't stored the [`login`] method
-    /// can be used with a device id.
+    /// can be used with a device ID.
     ///
     /// # Arguments
     ///

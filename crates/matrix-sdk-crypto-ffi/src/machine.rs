@@ -270,7 +270,7 @@ impl OlmMachine {
         }
     }
 
-    /// Mark the device of the given user with the given device id as trusted.
+    /// Mark the device of the given user with the given device ID as trusted.
     pub fn mark_device_as_trusted(
         &self,
         user_id: &str,

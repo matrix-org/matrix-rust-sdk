@@ -737,7 +737,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// * `dirty` - Should the user be also marked for a key query.
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool>;
 
-    /// Get the device for the given user with the given device id.
+    /// Get the device for the given user with the given device ID.
     ///
     /// # Arguments
     ///

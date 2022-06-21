@@ -67,7 +67,7 @@ pub struct MigrationData {
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: String,
-    /// The device id of the account owner.
+    /// The device ID of the account owner.
     pub device_id: String,
     /// The pickled version of the Olm account.
     pub pickle: String,

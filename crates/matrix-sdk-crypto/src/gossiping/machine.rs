@@ -103,7 +103,7 @@ impl GossipMachine {
         &self.user_id
     }
 
-    /// Our own device id.
+    /// Our own device ID.
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }
@@ -207,7 +207,7 @@ impl GossipMachine {
     /// * `user_id` - The user id of the device that we created the Olm session
     /// with.
     ///
-    /// * `device_id` - The device id of the device that got the Olm session.
+    /// * `device_id` - The device ID of the device that got the Olm session.
     pub fn retry_keyshare(&self, user_id: &UserId, device_id: &DeviceId) {
         if let Entry::Occupied(e) = self.users_for_key_claim.entry(user_id.to_owned()) {
             e.get().remove(device_id);

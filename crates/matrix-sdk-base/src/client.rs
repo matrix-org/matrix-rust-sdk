@@ -149,7 +149,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - A successful login response that contains our access
-    ///   token and device id.
+    ///   token and device ID.
     pub async fn receive_login_response(
         &self,
         response: &api::session::login::v3::Response,

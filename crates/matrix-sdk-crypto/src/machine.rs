@@ -79,7 +79,7 @@ use crate::{
 pub struct OlmMachine {
     /// The unique user id that owns this account.
     user_id: Arc<UserId>,
-    /// The unique device id of the device that holds this account.
+    /// The unique device ID of the device that holds this account.
     device_id: Arc<DeviceId>,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
@@ -272,7 +272,7 @@ impl OlmMachine {
         &self.user_id
     }
 
-    /// The unique device id that identifies this `OlmMachine`.
+    /// The unique device ID that identifies this `OlmMachine`.
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }

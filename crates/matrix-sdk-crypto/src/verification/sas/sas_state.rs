@@ -329,7 +329,7 @@ impl<S: Clone> SasState<S> {
         self.ids.account.user_id()
     }
 
-    /// Get our own device id.
+    /// Get our own device ID.
     pub fn device_id(&self) -> &DeviceId {
         self.ids.account.device_id()
     }
