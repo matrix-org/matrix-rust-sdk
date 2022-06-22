@@ -1,4 +1,4 @@
-name: Documentations
+name: Documentation
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
         uses: Swatinem/rust-cache@v1
 
       # Keep in sync with xtask docs
-      - name: Build documentations
+      - name: Build documentation
         uses: actions-rs/cargo@v1
         env:
           # Work around https://github.com/rust-lang/cargo/issues/10744
@@ -36,7 +36,7 @@ jobs:
           command: doc
           args: --no-deps --workspace --features docsrs
 
-      - name: Deploy documentations
+      - name: Deploy documentation
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:

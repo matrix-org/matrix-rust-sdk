@@ -7,7 +7,7 @@ members = [
     "labs/*",
     "xtask",
 ]
-# xtask, labs and the bindings should only be invoked explicitly
+# xtask, labs and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
