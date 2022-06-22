@@ -17,7 +17,7 @@ env:
 jobs:
   test-appservice:
     if: github.event_name == 'push' || !github.event.pull_request.draft
-    name: ${{ matrix.os-name }} matrix-sdk-appservice
+    name: ${{ matrix.os-name }} [m]-appservice
 
     runs-on: ${{ matrix.os }}
     strategy:

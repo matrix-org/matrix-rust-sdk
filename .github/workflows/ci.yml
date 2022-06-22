@@ -17,7 +17,7 @@ env:
 
 jobs:
   test-matrix-sdk-features:
-    name: 🐧 matrix-sdk, ${{ matrix.name }}
+    name: 🐧 [m], ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -58,7 +58,7 @@ jobs:
           args: -p xtask -- ci test-features ${{ matrix.name }}
 
   test-matrix-sdk-crypto:
-    name: 🐧 matrix-sdk-crypto
+    name: 🐧 [m]-crypto
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -145,65 +145,65 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - name: matrix-sdk-qrcode
+          - name: [m]-qrcode
             cmd: matrix-sdk-qrcode
 
-          - name: matrix-sdk-base
+          - name: [m]-base
             cmd: matrix-sdk-base
 
-          - name: matrix-sdk-common
+          - name: [m]-common
             cmd: matrix-sdk-common
 
-          - name: matrix-sdk-indexeddb, no crypto
+          - name: [m]-indexeddb, no crypto
             cmd: indexeddb-no-crypto
 
-          - name: matrix-sdk-indexeddb, with crypto
+          - name: [m]-indexeddb, with crypto
             cmd: indexeddb-with-crypto
 
-          - name: matrix-sdk, no-default, wasm-flags
+          - name: [m], no-default, wasm-flags
             cmd: matrix-sdk-no-default
 
-          - name: matrix-sdk, indexeddb stores
+          - name: [m], indexeddb stores
             cmd: matrix-sdk-indexeddb-stores
 
-          - name: matrix-sdk, indexeddb stores, no crypto
+          - name: [m], indexeddb stores, no crypto
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
-          - name: matrix-sdk, wasm-example
+          - name: [m], wasm-example
             cmd: matrix-sdk-command-bot
 
     steps:
-    - name: Checkout the repo
-      uses: actions/checkout@v2
-
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: wasm32-unknown-unknown
-        components: clippy
-        profile: minimal
-        override: true
-
-    - name: Install wasm-pack
-      uses: jetli/wasm-pack-action@v0.3.0
-      with:
-        version: latest
-
-    - name: Load cache
-      uses: Swatinem/rust-cache@v1
-
-    - name: Install nextest
-      uses: taiki-e/install-action@nextest
-
-    - name: Rust Check
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-        args: -p xtask -- ci wasm ${{ matrix.cmd }}
-
-    - name: Wasm-Pack test
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-        args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
+      - name: Checkout the repo
+        uses: actions/checkout@v2
+  
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          components: clippy
+          profile: minimal
+          override: true
+  
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.3.0
+        with:
+          version: latest
+  
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+  
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+  
+      - name: Rust Check
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci wasm ${{ matrix.cmd }}
+  
+      - name: Wasm-Pack test
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}

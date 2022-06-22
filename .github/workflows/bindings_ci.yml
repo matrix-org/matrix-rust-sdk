@@ -19,7 +19,7 @@ env:
 
 jobs:
   test-matrix-sdk-crypto-nodejs:
-    name: ${{ matrix.os-name }} matrix-sdk-crypto-nodejs, Node.js ${{ matrix.node-version }}
+    name: ${{ matrix.os-name }} [m]-crypto-nodejs, Node.js ${{ matrix.node-version }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ${{ matrix.os }}
@@ -75,7 +75,7 @@ jobs:
         run: npm run doc
 
   test-matrix-sdk-crypto-js:
-    name: 🕸 matrix-sdk-crypto-js
+    name: 🕸 [m]-crypto-js
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
