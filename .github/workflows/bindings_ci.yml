@@ -75,7 +75,7 @@ jobs:
         run: npm run doc
 
   test-matrix-sdk-crypto-js:
-    name: 🐧 matrix-sdk-crypto-js
+    name: 🕸 matrix-sdk-crypto-js
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
