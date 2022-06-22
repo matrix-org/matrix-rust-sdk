@@ -1,0 +1,115 @@
+name: Bindings tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+env:
+  CARGO_TERM_COLOR: always
+  MATRIX_SDK_CRYPTO_NODEJS_PATH: bindings/matrix-sdk-crypto-nodejs
+  MATRIX_SDK_CRYPTO_JS_PATH: bindings/matrix-sdk-crypto-js
+
+jobs:
+  test-matrix-sdk-crypto-nodejs:
+    name: ${{ matrix.os-name }} [m]-crypto-nodejs, v${{ matrix.node-version }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: [14.0, 16.0, 18.0]
+        include:
+          - os: ubuntu-latest
+            os-name: 🐧
+
+          - os: macos-latest
+            os-name: 🍏
+
+          - node-version: 18.0
+            build-doc: true
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install NPM dependencies
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
+        run: npm install
+
+      - name: Build the Node.js binding
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
+        run: npm run build
+
+      - name: Test the Node.js binding
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
+        run: npm run test
+
+      - if: ${{ matrix.build-doc }}
+        name: Build the documentation
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
+        run: npm run doc
+
+  test-matrix-sdk-crypto-js:
+    name: 🕸 [m]-crypto-js
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+
+      - name: Install NPM dependencies
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+        run: npm install
+
+      - name: Build the WebAssembly + JavaScript binding
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+        run: npm run build
+
+      - name: Test the JavaScript binding
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+        run: npm run test
+
+      - name: Build the documentation
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+        run: npm run doc

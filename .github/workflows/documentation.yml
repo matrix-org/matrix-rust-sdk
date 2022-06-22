@@ -1,4 +1,4 @@
-name: Docs
+name: Documentation
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   docs:
-    name: Docs
+    name: All crates
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -26,7 +26,7 @@ jobs:
         uses: Swatinem/rust-cache@v1
 
       # Keep in sync with xtask docs
-      - name: Build docs
+      - name: Build documentation
         uses: actions-rs/cargo@v1
         env:
           # Work around https://github.com/rust-lang/cargo/issues/10744
@@ -34,9 +34,9 @@ jobs:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs -Dwarnings"
         with:
           command: doc
-          args: --no-deps --workspace --exclude matrix-sdk-crypto-js --exclude matrix-sdk-crypto-nodejs --features docsrs
+          args: --no-deps --workspace --features docsrs
 
-      - name: Deploy docs
+      - name: Deploy documentation
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:

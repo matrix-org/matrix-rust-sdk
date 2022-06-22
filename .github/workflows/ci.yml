@@ -1,4 +1,4 @@
-name: CI
+name: Rust tests
 
 on:
   workflow_dispatch:
@@ -16,8 +16,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test-features:
-    name: linux / features-${{ matrix.name }}
+  test-matrix-sdk-features:
+    name: 🐧 [m], ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -57,8 +57,8 @@ jobs:
           command: run
           args: -p xtask -- ci test-features ${{ matrix.name }}
 
-  test-crypto-features:
-    name: linux / crypto-crate features
+  test-matrix-sdk-crypto:
+    name: 🐧 [m]-crypto
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -85,27 +85,26 @@ jobs:
         command: run
         args: -p xtask -- ci test-crypto
 
-  test:
+  test-all-crates:
     name: ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
       matrix:
-        name:
-          - linux / stable
-          - linux / beta
-          - macOS / stable
-
         include:
-          - name: linux / stable
+          - name: 🐧 all crates, 🦀 stable
+            rust: stable
+            os: ubuntu-latest
 
-          - name: linux / beta
+          - name: 🐧 all crates, 🦀 beta
             rust: beta
+            os: ubuntu-latest
 
-          - name: macOS / stable
-            os: macOS-latest
+          - name: 🍏 all crates, 🦀 stable
+            rust: stable
+            os: macos-latest
 
     steps:
       - name: Checkout
@@ -114,7 +113,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.rust || 'stable' }}
+          toolchain: ${{ matrix.rust }}
           profile: minimal
           override: true
 
@@ -136,83 +135,75 @@ jobs:
           command: test
           args: --doc
 
-  test-crypto-nodejs:
-    name: linux / crypto node.js (${{ matrix.node-version }})
+  test-wasm:
+    name: 🕸️ ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: true
       matrix:
-        node-version: [14.0, 16.0, 18.0]
         include:
-          - node-version: 18.0
-            build-doc: true
+          - name: '[m]-qrcode'
+            cmd: matrix-sdk-qrcode
+
+          - name: '[m]-base'
+            cmd: matrix-sdk-base
+
+          - name: '[m]-common'
+            cmd: matrix-sdk-common
+
+          - name: '[m]-indexeddb, no crypto'
+            cmd: indexeddb-no-crypto
+
+          - name: '[m]-indexeddb, with crypto'
+            cmd: indexeddb-with-crypto
+
+          - name: '[m], no-default, wasm-flags'
+            cmd: matrix-sdk-no-default
+
+          - name: '[m], indexeddb stores'
+            cmd: matrix-sdk-indexeddb-stores
+
+          - name: '[m], indexeddb stores, no crypto'
+            cmd: matrix-sdk-indexeddb-stores-no-crypto
+
+          - name: '[m], wasm-example'
+            cmd: matrix-sdk-command-bot
 
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v2
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Load cache
-        uses: Swatinem/rust-cache@v1
-
-      - name: Install Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install NPM dependencies
-        run: cd crates/matrix-sdk-crypto-nodejs && npm install
-
-      - name: Build the Node.js binding
-        run: cd crates/matrix-sdk-crypto-nodejs && npm run build
-
-      - name: Test the Node.js binding
-        run: cd crates/matrix-sdk-crypto-nodejs && npm run test
-
-      - if: ${{ matrix.build-doc }}
-        name: Build the documentation
-        run: cd crates/matrix-sdk-crypto-nodejs && npm run doc
-
-  test-crypto-js:
-    name: linux / crypto JavaScript
-    if: github.event_name == 'push' || !github.event.pull_request.draft
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v2
-
+  
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           target: wasm32-unknown-unknown
+          components: clippy
           profile: minimal
           override: true
-
+  
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.3.0
+        with:
+          version: latest
+  
       - name: Load cache
         uses: Swatinem/rust-cache@v1
-
-      - name: Install Node.js
-        uses: actions/setup-node@v3
-
-      - name: Install NPM dependencies
-        run: cd crates/matrix-sdk-crypto-js && npm install
-
-      - name: Build the JavaScript binding
-        run: cd crates/matrix-sdk-crypto-js && npm run build
-
-      - name: Test the JavaScript binding
-        run: cd crates/matrix-sdk-crypto-js && npm run test
-
-      - name: Build the documentation
-        run: cd crates/matrix-sdk-crypto-js && npm run doc
+  
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+  
+      - name: Rust Check
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci wasm ${{ matrix.cmd }}
+  
+      - name: Wasm-Pack test
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
