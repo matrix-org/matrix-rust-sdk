@@ -93,7 +93,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        name:
+        include:
           - name: 🐧 all crates, 🦀 stable
             rust: stable
             os: ubuntu-latest
@@ -145,31 +145,31 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - name: [m]-qrcode
+          - name: '[m]-qrcode'
             cmd: matrix-sdk-qrcode
 
-          - name: [m]-base
+          - name: '[m]-base'
             cmd: matrix-sdk-base
 
-          - name: [m]-common
+          - name: '[m]-common'
             cmd: matrix-sdk-common
 
-          - name: [m]-indexeddb, no crypto
+          - name: '[m]-indexeddb, no crypto'
             cmd: indexeddb-no-crypto
 
-          - name: [m]-indexeddb, with crypto
+          - name: '[m]-indexeddb, with crypto'
             cmd: indexeddb-with-crypto
 
-          - name: [m], no-default, wasm-flags
+          - name: '[m], no-default, wasm-flags'
             cmd: matrix-sdk-no-default
 
-          - name: [m], indexeddb stores
+          - name: '[m], indexeddb stores'
             cmd: matrix-sdk-indexeddb-stores
 
-          - name: [m], indexeddb stores, no crypto
+          - name: '[m], indexeddb stores, no crypto'
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
-          - name: [m], wasm-example
+          - name: '[m], wasm-example'
             cmd: matrix-sdk-command-bot
 
     steps:
