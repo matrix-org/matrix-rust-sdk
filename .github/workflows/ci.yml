@@ -48,6 +48,9 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
@@ -73,7 +76,10 @@ jobs:
     - name: Load cache
       uses: Swatinem/rust-cache@v1
 
-    - name: Clippy
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
+
+    - name: Test
       uses: actions-rs/cargo@v1
       with:
         command: run
@@ -115,10 +121,20 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
+          command: nextest
+          args: run
+
+      - name: Test documentation
+        uses: actions-rs/cargo@v1
+        with:
           command: test
+          args: --doc
 
   test-crypto-nodejs:
     name: linux / crypto node.js (${{ matrix.node-version }})
