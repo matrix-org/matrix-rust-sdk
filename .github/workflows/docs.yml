@@ -34,7 +34,7 @@ jobs:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --cfg docsrs -Dwarnings"
         with:
           command: doc
-          args: --no-deps --workspace --exclude matrix-sdk-crypto-js --exclude matrix-sdk-crypto-nodejs --features docsrs
+          args: --no-deps --workspace --features docsrs
 
       - name: Deploy docs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -1,6 +1,13 @@
 [workspace]
-members = ["benchmarks", "crates/*", "labs/*", "xtask"]
-# xtask and labs should only be compiled when invoked explicitly
+members = [
+    "benchmarks",
+    "bindings/matrix-sdk-crypto-js",
+    "bindings/matrix-sdk-crypto-nodejs",
+    "crates/*",
+    "labs/*",
+    "xtask",
+]
+# xtask, labs and the bindings should only be invoked explicitly
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
