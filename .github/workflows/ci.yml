@@ -134,3 +134,76 @@ jobs:
         with:
           command: test
           args: --doc
+
+  test-wasm:
+    name: 🕸️ ${{ matrix.name }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: matrix-sdk-qrcode
+            cmd: matrix-sdk-qrcode
+
+          - name: matrix-sdk-base
+            cmd: matrix-sdk-base
+
+          - name: matrix-sdk-common
+            cmd: matrix-sdk-common
+
+          - name: matrix-sdk-indexeddb, no crypto
+            cmd: indexeddb-no-crypto
+
+          - name: matrix-sdk-indexeddb, with crypto
+            cmd: indexeddb-with-crypto
+
+          - name: matrix-sdk, no-default, wasm-flags
+            cmd: matrix-sdk-no-default
+
+          - name: matrix-sdk, indexeddb stores
+            cmd: matrix-sdk-indexeddb-stores
+
+          - name: matrix-sdk, indexeddb stores, no crypto
+            cmd: matrix-sdk-indexeddb-stores-no-crypto
+
+          - name: matrix-sdk, wasm-example
+            cmd: matrix-sdk-command-bot
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-unknown-unknown
+        components: clippy
+        profile: minimal
+        override: true
+
+    - name: Install wasm-pack
+      uses: jetli/wasm-pack-action@v0.3.0
+      with:
+        version: latest
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
+
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
+
+    - name: Rust Check
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci wasm ${{ matrix.cmd }}
+
+    - name: Wasm-Pack test
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
