@@ -237,21 +237,15 @@ where
             }
         };
 
-        let response = match self.server_response {
-            Some(s) => s.to_string(),
-            None => String::from(
-                "The Single Sign-On login process is complete. You can close this page now.",
-            ),
-        };
+        let response = self
+            .server_response
+            .unwrap_or("The Single Sign-On login process is complete. You can close this page now.")
+            .to_owned();
 
         let route = warp::get().and(warp::query::<HashMap<String, String>>()).map(
             move |p: HashMap<String, String>| {
                 if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                    if let Some(token) = p.get("loginToken") {
-                        data_tx.send(Some(token.to_owned())).unwrap();
-                    } else {
-                        data_tx.send(None).unwrap();
-                    }
+                    data_tx.send(p.get("loginToken").cloned()).unwrap();
                 }
                 http::Response::builder().body(response.clone())
             },
@@ -261,28 +255,26 @@ where
             if redirect_url.port().expect("The redirect URL doesn't include a port") == 0 {
                 let host = redirect_url.host_str().expect("The redirect URL doesn't have a host");
                 let mut n = 0u8;
-                let mut port = 0u16;
-                let mut res = Err(IoError::new(IoErrorKind::Other, ""));
 
-                while res.is_err() && n < SSO_SERVER_BIND_TRIES {
-                    port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
-                    res = TcpListener::bind((host, port)).await;
-                    n += 1;
-                }
-                match res {
-                    Ok(s) => {
-                        redirect_url
-                            .set_port(Some(port))
-                            .expect("Could not set new port on redirect URL");
-                        s
+                loop {
+                    let port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
+                    match TcpListener::bind((host, port)).await {
+                        Ok(l) => {
+                            redirect_url
+                                .set_port(Some(port))
+                                .expect("Could not set new port on redirect URL");
+                            break l;
+                        }
+                        Err(_) if n < SSO_SERVER_BIND_TRIES => {
+                            n += 1;
+                        }
+                        Err(e) => {
+                            return Err(e.into());
+                        }
                     }
-                    Err(err) => return Err(err.into()),
                 }
             } else {
-                match TcpListener::bind(redirect_url.as_str()).await {
-                    Ok(s) => s,
-                    Err(err) => return Err(err.into()),
-                }
+                TcpListener::bind(redirect_url.as_str()).await?
             }
         };
 
@@ -298,18 +290,12 @@ where
         let sso_url =
             self.client.get_sso_login_url(redirect_url.as_str(), self.identity_provider_id).await?;
 
-        match (self.use_sso_login_url)(sso_url).await {
-            Ok(t) => t,
-            Err(err) => return Err(err),
-        };
+        (self.use_sso_login_url)(sso_url).await?;
 
-        let token = match data_rx.await {
-            Ok(Some(t)) => t,
-            Ok(None) => {
-                return Err(IoError::new(IoErrorKind::Other, "Could not get the loginToken").into())
-            }
-            Err(err) => return Err(IoError::new(IoErrorKind::Other, format!("{}", err)).into()),
-        };
+        let token = data_rx
+            .await
+            .map_err(|e| IoError::new(IoErrorKind::Other, format!("{e}")))?
+            .ok_or_else(|| IoError::new(IoErrorKind::Other, "Could not get the loginToken"))?;
 
         let _ = signal_tx.send(());
 
