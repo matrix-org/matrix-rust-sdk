@@ -1,4 +1,4 @@
-name: CI
+name: Rust tests
 
 on:
   workflow_dispatch:
@@ -16,8 +16,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test-features:
-    name: linux / features-${{ matrix.name }}
+  test-matrix-sdk-features:
+    name: 🐧 matrix-sdk, ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
@@ -57,8 +57,8 @@ jobs:
           command: run
           args: -p xtask -- ci test-features ${{ matrix.name }}
 
-  test-crypto-features:
-    name: linux / crypto-crate features
+  test-matrix-sdk-crypto:
+    name: 🐧 matrix-sdk-crypto
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -85,27 +85,26 @@ jobs:
         command: run
         args: -p xtask -- ci test-crypto
 
-  test:
+  test-all-crates:
     name: ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
       matrix:
         name:
-          - linux / stable
-          - linux / beta
-          - macOS / stable
+          - name: 🐧 all crates, 🦀 stable
+            rust: stable
+            os: ubuntu-latest
 
-        include:
-          - name: linux / stable
-
-          - name: linux / beta
+          - name: 🐧 all crates, 🦀 beta
             rust: beta
+            os: ubuntu-latest
 
-          - name: macOS / stable
-            os: macOS-latest
+          - name: 🍏 all crates, 🦀 stable
+            rust: stable
+            os: macos-latest
 
     steps:
       - name: Checkout
@@ -114,7 +113,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.rust || 'stable' }}
+          toolchain: ${{ matrix.rust }}
           profile: minimal
           override: true
 

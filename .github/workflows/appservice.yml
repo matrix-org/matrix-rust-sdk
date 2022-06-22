@@ -1,4 +1,4 @@
-name: Appservice
+name: AppService
 
 on:
   push:
@@ -17,13 +17,19 @@ env:
 jobs:
   test-appservice:
     if: github.event_name == 'push' || !github.event.pull_request.draft
-    name: ${{ matrix.os }} / appservice / stable
+    name: ${{ matrix.os }} matrix-sdk-appservice
 
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu, macOS]
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            os-name: 🐧
+
+          - os: macos-latest
+            os-name: 🍏
 
     steps:
       - name: Checkout
