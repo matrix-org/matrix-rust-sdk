@@ -1,4 +1,4 @@
-name: Docs
+name: Documentations
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   docs:
-    name: Docs
+    name: All crates
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -26,7 +26,7 @@ jobs:
         uses: Swatinem/rust-cache@v1
 
       # Keep in sync with xtask docs
-      - name: Build docs
+      - name: Build documentations
         uses: actions-rs/cargo@v1
         env:
           # Work around https://github.com/rust-lang/cargo/issues/10744
@@ -36,7 +36,7 @@ jobs:
           command: doc
           args: --no-deps --workspace --features docsrs
 
-      - name: Deploy docs
+      - name: Deploy documentations
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:
