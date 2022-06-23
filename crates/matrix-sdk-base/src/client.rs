@@ -329,13 +329,13 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        let actions = push_rules.get_actions(&event.event, context).to_vec();
+                        let actions = push_rules.get_actions(&event.event, context);
 
                         if actions.iter().any(|a| matches!(a, Action::Notify)) {
                             changes.add_notification(
                                 room_id,
                                 Notification::new(
-                                    actions,
+                                    actions.to_owned(),
                                     event.event.clone(),
                                     false,
                                     room_id.to_owned(),
