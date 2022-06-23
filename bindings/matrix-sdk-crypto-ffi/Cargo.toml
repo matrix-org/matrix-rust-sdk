@@ -36,16 +36,16 @@ version = "0.2.2"
 features = ["lax_deserialize"]
 
 [dependencies.matrix-sdk-common]
-path = "../matrix-sdk-common"
+path = "../../crates/matrix-sdk-common"
 version = "0.5.0"
 
 [dependencies.matrix-sdk-crypto]
-path = "../matrix-sdk-crypto"
+path = "../../crates/matrix-sdk-crypto"
 version = "0.5.0"
 features = ["qrcode", "backups_v1"]
 
 [dependencies.matrix-sdk-sled]
-path = "../matrix-sdk-sled"
+path = "../../crates/matrix-sdk-sled"
 version = "0.1.0"
 default_features = false
 features = ["crypto-store"]

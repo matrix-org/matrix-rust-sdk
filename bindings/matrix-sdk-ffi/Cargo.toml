@@ -21,7 +21,7 @@ anyhow = "1.0.51"
 extension-trait = "1.0.1"
 futures-core = "0.3.17"
 futures-util = { version = "0.3.17", default-features = false }
-matrix-sdk = { path = "../matrix-sdk", features = ["experimental-timeline", "markdown"] }
+matrix-sdk = { path = "../../crates/matrix-sdk", features = ["experimental-timeline", "markdown"] }
 once_cell = "1.10.0"
 parking_lot = "0.12.0"
 sanitize-filename-reader-friendly = "2.2.1"
