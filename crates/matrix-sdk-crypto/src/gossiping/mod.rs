@@ -89,6 +89,7 @@ impl SecretInfo {
     /// comparison
     pub fn as_key(&self) -> String {
         match &self {
+            #[allow(deprecated)]
             SecretInfo::KeyRequest(ref info) => format!(
                 "keyRequest:{:}:{:}:{:}:{:}",
                 info.room_id.as_str(),
