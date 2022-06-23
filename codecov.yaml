@@ -24,8 +24,6 @@ coverage:
         informational: true
         paths:
           - "bindings/"
-          - "crates/matrix-sdk-crypto-ffi/"
-          - "crates/matrix-sdk-ffi/"
     patch: off
 ignore:
   - "bindings/matrix-sdk-crypto-ffi"
