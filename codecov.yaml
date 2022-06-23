@@ -28,10 +28,10 @@ coverage:
           - "crates/matrix-sdk-ffi/"
     patch: off
 ignore:
+  - "bindings/matrix-sdk-crypto-ffi"
   - "bindings/matrix-sdk-crypto-js"
   - "bindings/matrix-sdk-crypto-nodejs"
-  - "crates/matrix-sdk-crypto-ffi"
-  - "crates/matrix-sdk-ffi"
+  - "bindings/matrix-sdk-ffi"
   - "crates/matrix-sdk-indexeddb"
   - "crates/matrix-sdk-test"
   - "crates/matrix-sdk-test-macros"
