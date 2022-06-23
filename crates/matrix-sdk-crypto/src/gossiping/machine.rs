@@ -343,6 +343,7 @@ impl GossipMachine {
             .store
             .get_inbound_group_session(
                 &key_info.room_id,
+                #[allow(deprecated)]
                 &key_info.sender_key,
                 &key_info.session_id,
             )

@@ -118,10 +118,12 @@ impl EncodeKey for SecretInfo {
 
 impl EncodeKey for RequestedKeyInfo {
     fn encode(&self) -> Vec<u8> {
+        #[allow(deprecated)]
         (&self.room_id, &self.sender_key, &self.algorithm, &self.session_id).encode()
     }
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
         let room_id = store_cipher.hash_key(table_name, self.room_id.as_bytes());
+        #[allow(deprecated)]
         let sender_key = store_cipher.hash_key(table_name, self.sender_key.as_bytes());
         let algorithm = store_cipher.hash_key(table_name, self.algorithm.as_ref().as_bytes());
         let session_id = store_cipher.hash_key(table_name, self.session_id.as_bytes());

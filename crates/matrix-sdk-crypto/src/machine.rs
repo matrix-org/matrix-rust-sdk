@@ -1002,7 +1002,12 @@ impl OlmMachine {
 
         Ok(self
             .key_request_machine
-            .request_key(room_id, &content.sender_key, &content.session_id)
+            .request_key(
+                room_id,
+                #[allow(deprecated)]
+                &content.sender_key,
+                &content.session_id,
+            )
             .await?)
     }
 
@@ -1050,7 +1055,12 @@ impl OlmMachine {
     ) -> MegolmResult<RoomEvent> {
         if let Some(session) = self
             .store
-            .get_inbound_group_session(room_id, &content.sender_key, &content.session_id)
+            .get_inbound_group_session(
+                room_id,
+                #[allow(deprecated)]
+                &content.sender_key,
+                &content.session_id,
+            )
             .await?
         {
             // TODO check the message index.
@@ -1084,13 +1094,24 @@ impl OlmMachine {
                 }
             }
 
-            let encryption_info =
-                self.get_encryption_info(&session, &event.sender, &content.device_id).await?;
+            let encryption_info = self
+                .get_encryption_info(
+                    &session,
+                    &event.sender,
+                    #[allow(deprecated)]
+                    &content.device_id,
+                )
+                .await?;
 
             Ok(RoomEvent { encryption_info: Some(encryption_info), event: decrypted_event })
         } else {
             self.key_request_machine
-                .create_outgoing_key_request(room_id, &content.sender_key, &content.session_id)
+                .create_outgoing_key_request(
+                    room_id,
+                    #[allow(deprecated)]
+                    &content.sender_key,
+                    &content.session_id,
+                )
                 .await?;
 
             Err(MegolmError::MissingRoomKey)
@@ -1114,6 +1135,7 @@ impl OlmMachine {
                 match self.decrypt_megolm_v1_event(room_id, event, c).await {
                     Ok(r) => Ok(r),
                     Err(e) => {
+                        #[allow(deprecated)]
                         if let MegolmError::MissingRoomKey = e {
                             // TODO log the withheld reason if we have one.
                             debug!(
