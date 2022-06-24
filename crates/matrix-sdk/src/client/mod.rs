@@ -257,15 +257,14 @@ impl Client {
         sync_response: sync_events::v3::Response,
     ) -> Result<()> {
         const TXN_ID_KEY: &[u8] = b"appservice.txn_id";
-        let txn_id = transaction_id.clone();
 
         let store = self.store();
         let store_tokens = store.get_custom_value(TXN_ID_KEY).await?;
-        let mut txn_id_bytes = txn_id.as_bytes().to_vec();
+        let mut txn_id_bytes = transaction_id.as_bytes().to_vec();
         if let Some(mut store_tokens) = store_tokens {
             // The data is seperated by a NULL byte.
             let mut store_tokens_split = store_tokens.split(|x| *x == b'\0');
-            if store_tokens_split.any(|x| x == txn_id.as_bytes()) {
+            if store_tokens_split.any(|x| x == transaction_id.as_bytes()) {
                 return Ok(());
             }
             store_tokens.push(b'\0');
