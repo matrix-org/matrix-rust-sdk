@@ -121,7 +121,7 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
     appservice
         .register_event_handler({
             let on_state_member = on_state_member.clone();
-            move |_ev: SyncRoomMemberEvent| {
+            move |_ev: OriginalSyncRoomMemberEvent| {
                 *on_state_member.lock().unwrap() = true;
                 future::ready(())
             }
