@@ -262,7 +262,7 @@ impl Client {
         let store_tokens = store.get_custom_value(TXN_ID_KEY).await?;
         let mut txn_id_bytes = transaction_id.as_bytes().to_vec();
         if let Some(mut store_tokens) = store_tokens {
-            // The data is seperated by a NULL byte.
+            // The data is separated by a NULL byte.
             let mut store_tokens_split = store_tokens.split(|x| *x == b'\0');
             if store_tokens_split.any(|x| x == transaction_id.as_bytes()) {
                 return Ok(());
