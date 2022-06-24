@@ -256,7 +256,6 @@ impl Client {
         transaction_id: &TransactionId,
         sync_response: sync_events::v3::Response,
     ) -> Result<()> {
-<<<<<<< HEAD
         const TXN_ID_KEY: &[u8] = b"appservice.txn_id";
         let txn_id = transaction_id.clone();
 
