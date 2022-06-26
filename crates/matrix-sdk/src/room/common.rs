@@ -28,7 +28,10 @@ use ruma::{
     assign,
     events::{
         direct::DirectEvent,
-        room::{history_visibility::HistoryVisibility, MediaSource},
+        room::{
+            history_visibility::HistoryVisibility, server_acl::RoomServerAclEventContent,
+            MediaSource,
+        },
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         RedactContent, RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
@@ -36,7 +39,7 @@ use ruma::{
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, RoomId, UInt, UserId,
+    uint, EventId, RoomId, ServerName, UInt, UserId,
 };
 
 use crate::{
@@ -930,6 +933,64 @@ impl Common {
         } else {
             Err(Error::NoOlmMachine)
         }
+    }
+
+    /// Get a permalink to this room.
+    ///
+    /// If this room has an alias, we use it. Otherwise, we try to use the
+    /// synced members in the room for [routing] the room ID.
+    ///
+    /// This currently returns a `matrix.to` URI but the format of the permalink
+    /// might change without notice so don't rely on it.
+    ///
+    /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
+    pub async fn permalink(&self) -> Result<String> {
+        if let Some(alias) = self.canonical_alias().or_else(|| self.alt_aliases().pop()) {
+            return Ok(alias.matrix_to_uri().to_string());
+        }
+
+        let acl_ev = self
+            .get_state_event_static::<RoomServerAclEventContent>("")
+            .await?
+            .and_then(|ev| ev.deserialize().ok());
+        let acl = acl_ev.as_ref().and_then(|ev| ev.as_original()).map(|ev| &ev.content);
+
+        // Filter out server names that:
+        // - Are blocked due to server ACLs
+        // - Are IP addresses
+        let members: Vec<_> = self
+            .joined_members_no_sync()
+            .await?
+            .into_iter()
+            .filter(|member| {
+                let server = member.user_id().server_name();
+                acl.filter(|acl| !acl.is_allowed(server)).is_none() && !server.is_ip_literal()
+            })
+            .collect();
+
+        // Get the server of the highest power level user in the room, provided
+        // they are at least power level 50.
+        let max = members
+            .iter()
+            .max_by_key(|member| member.power_level())
+            .filter(|max| max.power_level() >= 50)
+            .map(|member| member.user_id().server_name());
+
+        // Sort the servers by population.
+        let servers = members
+            .iter()
+            .map(|member| member.user_id().server_name())
+            .filter(|server| max.filter(|max| max == server).is_none())
+            .fold(BTreeMap::<&ServerName, u32>::new(), |mut servers, server| {
+                *servers.entry(server).or_default() += 1;
+                servers
+            });
+        let mut servers: Vec<_> = servers.into_iter().collect();
+        servers.sort_unstable_by(|(_, count_a), (_, count_b)| count_b.cmp(count_a));
+
+        let via = max.into_iter().chain(servers.into_iter().map(|(name, _)| name)).take(3);
+
+        Ok(self.room_id().matrix_to_uri(via).to_string())
     }
 }
 
