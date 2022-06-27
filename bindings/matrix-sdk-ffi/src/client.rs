@@ -45,10 +45,8 @@ impl Client {
     }
 
     pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
-        let user = UserId::parse(username)?;
-
         RUNTIME.block_on(async move {
-            self.client.login_username(user.as_str(), &password).send().await?;
+            self.client.login_username(&username, &password).send().await?;
             Ok(())
         })
     }
