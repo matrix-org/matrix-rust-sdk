@@ -5,7 +5,7 @@ use async_once_cell::OnceCell;
 use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
-    OwnedServerName, ServerName,
+    OwnedServerName, ServerName, UserId,
 };
 use thiserror::Error;
 #[cfg(not(target_arch = "wasm32"))]
@@ -84,12 +84,23 @@ impl ClientBuilder {
 
     /// Set the homeserver URL to use.
     ///
-    /// This method is mutually exclusive with
-    /// [`server_name()`][Self::server_name], if you set both whatever was
-    /// set last will be used.
+    /// This method is mutually exclusive with [`user_id()`][Self::user_id], if
+    /// you set both whatever was set last will be used.
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::Url(url.as_ref().to_owned()));
         self
+    }
+
+    /// Set the user ID to discover the homeserver from.
+    ///
+    /// `builder.user_id(id)` is a shortcut for
+    /// `builder.server_name(id.server_name())`.
+    ///
+    /// This method is mutually exclusive with
+    /// [`homeserver_url()`][Self::homeserver_url], if you set both whatever was
+    /// set last will be used.
+    pub fn user_id(self, user_id: &UserId) -> Self {
+        self.server_name(user_id.server_name())
     }
 
     /// Set the server name to discover the homeserver from.
