@@ -55,7 +55,11 @@ async fn login_and_sync(
     }
 
     let client = client_builder.build().await.unwrap();
-    client.login(&username, &password, None, Some("command bot")).await?;
+    client
+        .login_username(&username, &password)
+        .initial_device_display_name("command bot")
+        .send()
+        .await?;
 
     println!("logged in as {}", username);
 

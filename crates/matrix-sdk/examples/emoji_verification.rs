@@ -13,13 +13,13 @@ use matrix_sdk::{
     encryption::verification::{SasVerification, Verification},
     ruma::{
         events::{
-            room::message::MessageType, AnySyncMessageLikeEvent, AnySyncRoomEvent, AnyToDeviceEvent,
+            room::message::MessageType, AnySyncMessageLikeEvent, AnySyncRoomEvent,
+            AnyToDeviceEvent, SyncMessageLikeEvent,
         },
         UserId,
     },
     Client, LoopCtrl,
 };
-use ruma::events::SyncMessageLikeEvent;
 use url::Url;
 
 async fn wait_for_confirmation(client: Client, sas: SasVerification) {
@@ -69,7 +69,11 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    client.login(username, password, None, Some("rust-sdk")).await?;
+    client
+        .login_username(username, password)
+        .initial_device_display_name("rust-sdk")
+        .send()
+        .await?;
 
     let client_ref = &client;
     let initial_sync = Arc::new(AtomicBool::from(true));

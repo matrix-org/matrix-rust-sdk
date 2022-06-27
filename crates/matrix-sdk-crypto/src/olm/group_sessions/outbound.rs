@@ -402,7 +402,7 @@ impl OutboundGroupSession {
             // the session.
 
             // Find the first request that contains the given user id and
-            // device id.
+            // device ID.
             let shared = self.to_share_with_set.iter().find_map(|item| {
                 let share_info = &item.value().1;
 
@@ -470,8 +470,8 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `device_id` - The device id of the device that created this session.
-    ///   Put differently, our own device id.
+    /// * `device_id` - The device ID of the device that created this session.
+    ///   Put differently, our own device ID.
     ///
     /// * `identity_keys` - The identity keys of the device that created this
     ///   session, our own identity keys.

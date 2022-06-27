@@ -36,6 +36,12 @@ the API will change in breaking ways.
 If you are interested in using the matrix-sdk now is the time to try it out and
 provide feedback.
 
+## Bindings
+
+Some crates of the **matrix-rust-sdk** can be embedded inside other
+environments, like Swift, Kotlin, JavaScript, Node.js etc. Please,
+explore the [`bindings/`](./bindings/) directory to learn more.
+
 ## License
 
 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)

@@ -63,7 +63,7 @@ pub struct DeviceKeys {
 }
 
 impl DeviceKeys {
-    /// Creates a new `DeviceKeys` from the given user id, device id,
+    /// Creates a new `DeviceKeys` from the given user id, device ID,
     /// algorithms, keys and signatures.
     pub fn new(
         user_id: OwnedUserId,

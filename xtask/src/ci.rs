@@ -22,8 +22,6 @@ enum CiCommand {
     Clippy,
     /// Check documentation
     Docs,
-    /// Run default tests
-    Test,
     /// Run tests with a specific feature set
     TestFeatures {
         #[clap(subcommand)]
@@ -84,7 +82,6 @@ impl CiArgs {
                 CiCommand::Typos => check_typos(),
                 CiCommand::Clippy => check_clippy(),
                 CiCommand::Docs => check_docs(),
-                CiCommand::Test => run_tests(),
                 CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
                 CiCommand::TestAppservice => run_appservice_tests(),
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
@@ -96,7 +93,6 @@ impl CiArgs {
                 check_clippy()?;
                 check_typos()?;
                 check_docs()?;
-                run_tests()?;
                 run_feature_tests(None)?;
                 run_appservice_tests()?;
                 run_wasm_checks(None)?;
@@ -141,12 +137,6 @@ fn check_docs() -> Result<()> {
     build_docs([], DenyWarnings::Yes)
 }
 
-fn run_tests() -> Result<()> {
-    cmd!("rustup run stable cargo test").run()?;
-    cmd!("rustup run beta cargo test").run()?;
-    Ok(())
-}
-
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
         (FeatureSet::NoEncryption, "--no-default-features --features sled,native-tls"),
@@ -164,7 +154,12 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     ]);
 
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo test -p matrix-sdk").args(arg_set.split_whitespace()).run()
+        cmd!("rustup run stable cargo nextest run -p matrix-sdk")
+            .args(arg_set.split_whitespace())
+            .run()?;
+        cmd!("rustup run stable cargo test --doc -p matrix-sdk")
+            .args(arg_set.split_whitespace())
+            .run()
     };
 
     match cmd {
@@ -186,15 +181,17 @@ fn run_crypto_tests() -> Result<()> {
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
     )
     .run()?;
-    cmd!("rustup run stable cargo test -p matrix-sdk-crypto --features=backups_v1").run()?;
-    cmd!("rustup run stable cargo test -p matrix-sdk-crypto-ffi").run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1").run()?;
+    cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1").run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
 
     Ok(())
 }
 
 fn run_appservice_tests() -> Result<()> {
     cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
-    cmd!("rustup run stable cargo test -p matrix-sdk-appservice").run()?;
+    cmd!("rustup run stable cargo nextest run -p matrix-sdk-appservice").run()?;
+    cmd!("rustup run stable cargo test --doc -p matrix-sdk-appservice").run()?;
 
     Ok(())
 }

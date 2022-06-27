@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::builder().server_name(alice.server_name()).build().await?;
 
     // First we need to log in.
-    client.login(alice, "password", None, None).await?;
+    client.login_username(alice, "password").send().await?;
 
     client
         .register_event_handler(|ev: SyncRoomMessageEvent| async move {
