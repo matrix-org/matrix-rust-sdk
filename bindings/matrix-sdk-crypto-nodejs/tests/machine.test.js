@@ -3,12 +3,12 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs/promises');
 
-/*
+
 describe(OlmMachine.name, () => {
     test('cannot be instantiated with the constructor', () => {
         expect(() => { new OlmMachine() }).toThrow();
     });
-
+    /*
     test('can be instantiated with the async initializer', async () => {
         expect(await OlmMachine.initialize(new UserId('@foo:bar.org'), new DeviceId('baz'))).toBeInstanceOf(OlmMachine);
     });
@@ -349,5 +349,5 @@ describe(OlmMachine.name, () => {
 
         expect(await m.updateTrackedUsers([user])).toStrictEqual(undefined);
     });
+    */
 });
-*/
