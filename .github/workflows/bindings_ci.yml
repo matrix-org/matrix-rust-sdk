@@ -26,14 +26,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        node-version: [14.0, 16.0, 18.0]
+        os: [ubuntu-latest]
+        node-version: [16.0, 18.0]
         include:
           - os: ubuntu-latest
             os-name: 🐧
-
-          - os: macos-latest
-            os-name: 🍏
 
           - node-version: 18.0
             build-doc: true
