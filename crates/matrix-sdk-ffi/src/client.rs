@@ -9,7 +9,7 @@ use matrix_sdk::{
             sync::sync_events::v3::Filter,
         },
         events::room::MediaSource,
-        TransactionId,
+        TransactionId, UserId,
     },
     Client as MatrixClient, LoopCtrl,
 };
@@ -42,6 +42,25 @@ impl Client {
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
+        let user = UserId::parse(username)?;
+
+        RUNTIME.block_on(async move {
+            self.client.login(user, &password, None, None).await?;
+            Ok(())
+        })
+    }
+
+    pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
+        let RestoreToken { session, homeurl: _, is_guest: _ } =
+            serde_json::from_str(&restore_token)?;
+
+        RUNTIME.block_on(async move {
+            self.client.restore_login(session).await?;
+            Ok(())
+        })
     }
 
     pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
