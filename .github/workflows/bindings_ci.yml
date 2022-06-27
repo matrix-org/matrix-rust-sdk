@@ -69,6 +69,10 @@ jobs:
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm run test
 
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+
       - if: ${{ matrix.build-doc }}
         name: Build the documentation
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
