@@ -2505,7 +2505,7 @@ pub(crate) mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
             .mount(&server)
             .await;
-        let client = Client::builder().user_id(&alice).build().await.unwrap();
+        let client = Client::builder().server_name(alice.server_name()).build().await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2524,7 +2524,7 @@ pub(crate) mod tests {
             .await;
 
         assert!(
-            Client::builder().user_id(&alice).build().await.is_err(),
+            Client::builder().server_name(alice.server_name()).build().await.is_err(),
             "Creating a client from a user ID should fail when the .well-known request fails."
         );
     }
