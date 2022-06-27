@@ -75,83 +75,83 @@ jobs:
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm run doc
 
-  test-matrix-sdk-crypto-js:
-    name: 🕸 [m]-crypto-js
-    if: github.event_name == 'push' || !github.event.pull_request.draft
+  # test-matrix-sdk-crypto-js:
+  #   name: 🕸 [m]-crypto-js
+  #   if: github.event_name == 'push' || !github.event.pull_request.draft
 
-    runs-on: ubuntu-latest
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout the repo
-        uses: actions/checkout@v2
+  #   steps:
+  #     - name: Checkout the repo
+  #       uses: actions/checkout@v2
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+  #     - name: Install Rust
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         target: wasm32-unknown-unknown
+  #         profile: minimal
+  #         override: true
 
-      - name: Load cache
-        uses: Swatinem/rust-cache@v1
+  #     - name: Load cache
+  #       uses: Swatinem/rust-cache@v1
 
-      - name: Install Node.js
-        uses: actions/setup-node@v3
+  #     - name: Install Node.js
+  #       uses: actions/setup-node@v3
 
-      - name: Install NPM dependencies
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm install
+  #     - name: Install NPM dependencies
+  #       working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+  #       run: npm install
 
-      - name: Build the WebAssembly + JavaScript binding
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm run build
+  #     - name: Build the WebAssembly + JavaScript binding
+  #       working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+  #       run: npm run build
 
-      - name: Test the JavaScript binding
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm run test
+  #     - name: Test the JavaScript binding
+  #       working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+  #       run: npm run test
 
-      - name: Build the documentation
-        working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
-        run: npm run doc
+  #     - name: Build the documentation
+  #       working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
+  #       run: npm run doc
 
-  test-apple:
-    name: matrix-rust-components-swift
-    runs-on: macos-12
+  # test-apple:
+  #   name: matrix-rust-components-swift
+  #   runs-on: macos-12
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v1
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          profile: minimal
-          override: true
+  #     - name: Install Rust
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: nightly
+  #         profile: minimal
+  #         override: true
 
-      - name: Install targets
-        run: |
-          rustup target add aarch64-apple-ios-sim --toolchain nightly
-          rustup target add x86_64-apple-ios --toolchain nightly
+  #     - name: Install targets
+  #       run: |
+  #         rustup target add aarch64-apple-ios-sim --toolchain nightly
+  #         rustup target add x86_64-apple-ios --toolchain nightly
 
-      - name: Load cache
-        uses: Swatinem/rust-cache@v1
+  #     - name: Load cache
+  #       uses: Swatinem/rust-cache@v1
 
-      - name: Install Uniffi
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          # keep in sync with uniffi dependency in Cargo.toml's
-          args: uniffi_bindgen --version ^0.18
+  #     - name: Install Uniffi
+  #       uses: actions-rs/cargo@v1
+  #       with:
+  #         command: install
+  #         # keep in sync with uniffi dependency in Cargo.toml's
+  #         args: uniffi_bindgen --version ^0.18
 
-      - name: Generate .xcframework
-        run: sh bindings/apple/debug_build_xcframework.sh ci
+  #     - name: Generate .xcframework
+  #       run: sh bindings/apple/debug_build_xcframework.sh ci
 
-      - name: Run XCTests
-        run: |
-          xcodebuild test \
-            -project bindings/apple/MatrixRustSDK.xcodeproj \
-            -scheme MatrixRustSDK \
-            -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 13,OS=15.4'
+  #     - name: Run XCTests
+  #       run: |
+  #         xcodebuild test \
+  #           -project bindings/apple/MatrixRustSDK.xcodeproj \
+  #           -scheme MatrixRustSDK \
+  #           -sdk iphonesimulator \
+  #           -destination 'platform=iOS Simulator,name=iPhone 13,OS=15.4'
