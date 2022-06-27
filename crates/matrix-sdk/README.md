@@ -34,7 +34,7 @@ use matrix_sdk::{
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let alice = user_id!("@alice:example.org");
-    let client = Client::builder().server_name_from_user_id(alice).build().await?;
+    let client = Client::builder().server_name(alice.server_name()).build().await?;
 
     // First we need to log in.
     client.login(alice, "password", None, None).await?;

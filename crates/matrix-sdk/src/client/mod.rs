@@ -2368,7 +2368,7 @@ pub(crate) mod tests {
             .with_status(200)
             .with_body(test_json::VERSIONS.to_string())
             .create();
-        let client = Client::builder().server_name_from_user_id(&alice).build().await.unwrap();
+        let client = Client::builder().server_name(&alice.server_name()).build().await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2382,7 +2382,7 @@ pub(crate) mod tests {
         let _m = mock("GET", "/.well-known/matrix/client").with_status(404).create();
 
         assert!(
-            Client::builder().server_name_from_user_id(&alice).build().await.is_err(),
+            Client::builder().server_name(&alice.server_name()).build().await.is_err(),
             "Creating a client from a user ID should fail when the .well-known request fails."
         );
     }

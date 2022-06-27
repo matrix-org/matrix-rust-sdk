@@ -10,6 +10,7 @@ pub mod room;
 mod uniffi_api;
 
 use client::Client;
+use client_builder::ClientBuilder;
 use matrix_sdk::Session;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
