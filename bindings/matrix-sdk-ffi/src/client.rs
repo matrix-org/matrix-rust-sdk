@@ -9,7 +9,7 @@ use matrix_sdk::{
             sync::sync_events::v3::Filter,
         },
         events::room::MediaSource,
-        TransactionId, UserId,
+        TransactionId,
     },
     Client as MatrixClient, LoopCtrl,
 };
