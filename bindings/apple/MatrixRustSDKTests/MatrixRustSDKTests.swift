@@ -13,7 +13,7 @@ class MatrixRustSDKTests: XCTestCase {
     func testReadOnlyFileSystemError() {
         do {
             let client = try ClientBuilder()
-                .basePath(basePath: "")
+                .basePath(path: "")
                 .username(username: "@test:domain")
                 .build()
             
