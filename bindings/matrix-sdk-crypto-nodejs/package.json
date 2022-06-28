@@ -21,7 +21,7 @@
         "node": ">= 14"
     },
     "scripts": {
-        "build": "napi build --platform --release",
+        "build": "napi build --platform --release --strip",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig ."
     }
