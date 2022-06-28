@@ -61,7 +61,7 @@ impl OlmMachine {
         user_id: &identifiers::UserId,
         device_id: &identifiers::DeviceId,
         store_path: Option<String>,
-        mut store_passphrase: Option<String>,
+        store_passphrase: Option<String>,
     ) -> napi::Result<OlmMachine> {
         let store = store_path
             .map(|store_path| {
@@ -74,7 +74,7 @@ impl OlmMachine {
             })
             .transpose()?;
 
-        store_passphrase.zeroize();
+        //store_passphrase.zeroize();
 
         Ok(OlmMachine {
             inner: match store {
