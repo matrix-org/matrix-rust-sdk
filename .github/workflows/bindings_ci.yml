@@ -50,6 +50,9 @@ jobs:
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm run build
 
+      - name: Science
+        run: sleep 5s
+
       - name: Test the Node.js binding
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm run test
