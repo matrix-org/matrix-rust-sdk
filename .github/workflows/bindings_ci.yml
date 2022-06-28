@@ -60,7 +60,25 @@ jobs:
 
       - name: Test the Node.js binding
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: npm run test
+        run: |
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
+          npm run test
 
       - if: ${{ matrix.build-doc }}
         name: Build the documentation
