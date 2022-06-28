@@ -70,3 +70,9 @@ jobs:
       - if: ${{ failure() }}
         name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
+
+      - if: ${{ failure() }}
+        uses: actions/upload-artifact@v3
+        with:
+          path: bindings/matrix-sdk-crypto-nodejs/matrix-sdk-crypto.*.node
+          if-no-files-found: error
