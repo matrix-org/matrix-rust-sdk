@@ -265,7 +265,8 @@ impl Client {
             // The data is separated by a NULL byte.
             let mut store_tokens_split = store_tokens.split(|x| *x == b'\0');
             if store_tokens_split.any(|x| x == transaction_id.as_bytes()) {
-                // We already encountered this transaction id before, so we exit early instead of processing further.
+                // We already encountered this transaction id before, so we exit early instead
+                // of processing further.
                 //
                 // Spec: https://spec.matrix.org/v1.3/application-service-api/#pushing-events
                 return Ok(());
