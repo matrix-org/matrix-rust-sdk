@@ -53,7 +53,7 @@ describe(OlmMachine.name, () => {
         const m = await machine();
         const toDeviceEvents = JSON.stringify({});
         const changedDevices = new DeviceLists();
-        const oneTimeKeyCounts = {};
+        const oneTimeKeyCounts = new Map();
         const unusedFallbackKeys = [];
 
         const receiveSyncChanges = JSON.parse(await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys));
@@ -65,7 +65,7 @@ describe(OlmMachine.name, () => {
         const m = await machine();
         const toDeviceEvents = JSON.stringify({});
         const changedDevices = new DeviceLists();
-        const oneTimeKeyCounts = {};
+        const oneTimeKeyCounts = new Map();
         const unusedFallbackKeys = [];
 
         const receiveSyncChanges = JSON.parse(await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys));
@@ -107,7 +107,7 @@ describe(OlmMachine.name, () => {
 
             const toDeviceEvents = JSON.stringify({});
             const changedDevices = new DeviceLists();
-            const oneTimeKeyCounts = {};
+            const oneTimeKeyCounts = new Map();
             const unusedFallbackKeys = [];
 
             const receiveSyncChanges = await m.receiveSyncChanges(toDeviceEvents, changedDevices, oneTimeKeyCounts, unusedFallbackKeys);
