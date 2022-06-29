@@ -28,7 +28,10 @@ use ruma::{
     assign,
     events::{
         direct::DirectEvent,
-        room::{history_visibility::HistoryVisibility, MediaSource},
+        room::{
+            history_visibility::HistoryVisibility, server_acl::RoomServerAclEventContent,
+            MediaSource,
+        },
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         RedactContent, RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
@@ -36,7 +39,7 @@ use ruma::{
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, OwnedServerName, RoomId, UInt, UserId,
 };
 
 use crate::{
@@ -930,6 +933,96 @@ impl Common {
         } else {
             Err(Error::NoOlmMachine)
         }
+    }
+
+    /// Get a list of servers that should know this room.
+    ///
+    /// Uses the synced members of the room and the suggested [routing
+    /// algorithm] from the Matrix spec.
+    ///
+    /// Returns at most three servers.
+    ///
+    /// [routing algorithm]: https://spec.matrix.org/v1.3/appendices/#routing
+    pub async fn route(&self) -> Result<Vec<OwnedServerName>> {
+        let acl_ev = self
+            .get_state_event_static::<RoomServerAclEventContent>("")
+            .await?
+            .and_then(|ev| ev.deserialize().ok());
+        let acl = acl_ev.as_ref().and_then(|ev| ev.as_original()).map(|ev| &ev.content);
+
+        // Filter out server names that:
+        // - Are blocked due to server ACLs
+        // - Are IP addresses
+        let members: Vec<_> = self
+            .joined_members_no_sync()
+            .await?
+            .into_iter()
+            .filter(|member| {
+                let server = member.user_id().server_name();
+                acl.filter(|acl| !acl.is_allowed(server)).is_none() && !server.is_ip_literal()
+            })
+            .collect();
+
+        // Get the server of the highest power level user in the room, provided
+        // they are at least power level 50.
+        let max = members
+            .iter()
+            .max_by_key(|member| member.power_level())
+            .filter(|max| max.power_level() >= 50)
+            .map(|member| member.user_id().server_name());
+
+        // Sort the servers by population.
+        let servers = members
+            .iter()
+            .map(|member| member.user_id().server_name())
+            .filter(|server| max.filter(|max| max == server).is_none())
+            .fold(BTreeMap::<_, u32>::new(), |mut servers, server| {
+                *servers.entry(server).or_default() += 1;
+                servers
+            });
+        let mut servers: Vec<_> = servers.into_iter().collect();
+        servers.sort_unstable_by(|(_, count_a), (_, count_b)| count_b.cmp(count_a));
+
+        Ok(max
+            .into_iter()
+            .chain(servers.into_iter().map(|(name, _)| name))
+            .take(3)
+            .map(ToOwned::to_owned)
+            .collect())
+    }
+
+    /// Get a `matrix.to` permalink to this room.
+    ///
+    /// If this room has an alias, we use it. Otherwise, we try to use the
+    /// synced members in the room for [routing] the room ID.
+    ///
+    /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
+    pub async fn matrix_to_permalink(&self) -> Result<MatrixToUri> {
+        if let Some(alias) = self.canonical_alias().or_else(|| self.alt_aliases().pop()) {
+            return Ok(alias.matrix_to_uri());
+        }
+
+        let via = self.route().await?;
+        Ok(self.room_id().matrix_to_uri(via.iter().map(Deref::deref)))
+    }
+
+    /// Get a `matrix:` permalink to this room.
+    ///
+    /// If this room has an alias, we use it. Otherwise, we try to use the
+    /// synced members in the room for [routing] the room ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `join` - Whether the user should join the room.
+    ///
+    /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
+    pub async fn matrix_permalink(&self, join: bool) -> Result<MatrixUri> {
+        if let Some(alias) = self.canonical_alias().or_else(|| self.alt_aliases().pop()) {
+            return Ok(alias.matrix_uri(join));
+        }
+
+        let via = self.route().await?;
+        Ok(self.room_id().matrix_uri(via.iter().map(Deref::deref), join))
     }
 }
 
