@@ -4068,7 +4068,18 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
         let room = client.get_room(room_id!("!test_room:127.0.0.1")).unwrap();
 
-        assert_eq!(room.permalink().await.unwrap(), "https://matrix.to/#/%21test_room%3A127.0.0.1");
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1"
+        );
+        assert_eq!(
+            room.matrix_permalink(true).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?action=join"
+        );
 
         // With a single elligible server
         sync_index += 1;
@@ -4093,8 +4104,12 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
 
         assert_eq!(
-            room.permalink().await.unwrap(),
+            room.matrix_to_permalink().await.unwrap().to_string(),
             "https://matrix.to/#/%21test_room%3A127.0.0.1?via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=localhost"
         );
 
         // With two elligible servers
@@ -4108,8 +4123,12 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
 
         assert_eq!(
-            room.permalink().await.unwrap(),
+            room.matrix_to_permalink().await.unwrap().to_string(),
             "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=localhost"
         );
 
         // With three elligible servers
@@ -4123,8 +4142,12 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
 
         assert_eq!(
-            room.permalink().await.unwrap(),
+            room.matrix_to_permalink().await.unwrap().to_string(),
             "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=mymatrix&via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=mymatrix&via=localhost"
         );
 
         // With four elligible servers
@@ -4138,8 +4161,12 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
 
         assert_eq!(
-            room.permalink().await.unwrap(),
+            room.matrix_to_permalink().await.unwrap().to_string(),
             "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=yourmatrix&via=mymatrix"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=yourmatrix&via=mymatrix"
         );
 
         // With power levels
@@ -4167,8 +4194,12 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
 
         assert_eq!(
-            room.permalink().await.unwrap(),
+            room.matrix_to_permalink().await.unwrap().to_string(),
             "https://matrix.to/#/%21test_room%3A127.0.0.1?via=localhost&via=notarealhs&via=yourmatrix"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=localhost&via=notarealhs&via=yourmatrix"
         );
 
         // With higher power levels
@@ -4197,8 +4228,12 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
 
         assert_eq!(
-            room.permalink().await.unwrap(),
+            room.matrix_to_permalink().await.unwrap().to_string(),
             "https://matrix.to/#/%21test_room%3A127.0.0.1?via=mymatrix&via=notarealhs&via=yourmatrix"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=mymatrix&via=notarealhs&via=yourmatrix"
         );
 
         // With server ACLs
@@ -4226,8 +4261,12 @@ pub(crate) mod tests {
         client.sync_once(sync_settings.clone()).await.unwrap();
 
         assert_eq!(
-            room.permalink().await.unwrap(),
+            room.matrix_to_permalink().await.unwrap().to_string(),
             "https://matrix.to/#/%21test_room%3A127.0.0.1?via=mymatrix&via=yourmatrix&via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=mymatrix&via=yourmatrix&via=localhost"
         );
 
         // With an alternative alias
@@ -4252,7 +4291,14 @@ pub(crate) mod tests {
             .create();
         client.sync_once(sync_settings.clone()).await.unwrap();
 
-        assert_eq!(room.permalink().await.unwrap(), "https://matrix.to/#/%23alias%3Alocalhost");
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%23alias%3Alocalhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:r/alias:localhost"
+        );
 
         // With a canonical alias
         sync_index += 1;
@@ -4277,6 +4323,17 @@ pub(crate) mod tests {
             .create();
         client.sync_once(sync_settings).await.unwrap();
 
-        assert_eq!(room.permalink().await.unwrap(), "https://matrix.to/#/%23canonical%3Alocalhost");
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%23canonical%3Alocalhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:r/canonical:localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(true).await.unwrap().to_string(),
+            "matrix:r/canonical:localhost?action=join"
+        );
     }
 }
