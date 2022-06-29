@@ -65,6 +65,9 @@ interface Client {
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);
+
+    [Throws=ClientError]
+    SessionVerificationController get_session_verification_controller();
 };
 
 callback interface RoomDelegate {
@@ -147,4 +150,34 @@ interface EmoteMessage {
 
 interface MediaSource {
     string url();
+};
+
+interface SessionVerificationEmoji {
+    string symbol();
+    string description();
+};
+
+callback interface SessionVerificationControllerDelegate {
+    void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
+    void did_fail();
+    void did_cancel();
+    void did_finish();
+};
+
+interface SessionVerificationController {
+    void set_delegate(SessionVerificationControllerDelegate? delegate);
+
+    boolean is_verified();
+
+    [Throws=ClientError]
+    void request_verification();
+
+    [Throws=ClientError]
+    void approve_verification();
+
+    [Throws=ClientError]
+    void decline_verification();
+
+    [Throws=ClientError]
+    void cancel_verification();
 };

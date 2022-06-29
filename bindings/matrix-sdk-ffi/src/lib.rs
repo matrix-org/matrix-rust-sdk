@@ -7,6 +7,7 @@ pub mod client;
 pub mod client_builder;
 pub mod messages;
 pub mod room;
+pub mod session_verification;
 mod uniffi_api;
 
 use client::Client;
@@ -22,7 +23,7 @@ pub static RUNTIME: Lazy<Runtime> =
 
 pub use matrix_sdk::ruma::{api::client::account::register, UserId};
 
-pub use self::{backward_stream::*, client::*, messages::*, room::*};
+pub use self::{backward_stream::*, client::*, messages::*, room::*, session_verification::*};
 
 #[derive(Default, Debug)]
 pub struct ClientState {

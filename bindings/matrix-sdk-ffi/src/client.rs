@@ -15,7 +15,10 @@ use matrix_sdk::{
 };
 use parking_lot::RwLock;
 
-use super::{room::Room, ClientState, RestoreToken, RUNTIME};
+use super::{
+    room::Room, session_verification::SessionVerificationController, ClientState, RestoreToken,
+    RUNTIME,
+};
 
 impl std::ops::Deref for Client {
     type Target = MatrixClient;
@@ -33,6 +36,8 @@ pub struct Client {
     client: MatrixClient,
     state: Arc<RwLock<ClientState>>,
     delegate: Arc<RwLock<Option<Box<dyn ClientDelegate>>>>,
+    session_verification_controller:
+        Arc<matrix_sdk::locks::RwLock<Option<SessionVerificationController>>>,
 }
 
 impl Client {
@@ -41,6 +46,7 @@ impl Client {
             client,
             state: Arc::new(RwLock::new(state)),
             delegate: Arc::new(RwLock::new(None)),
+            session_verification_controller: Arc::new(matrix_sdk::locks::RwLock::new(None)),
         }
     }
 
@@ -69,6 +75,7 @@ impl Client {
         let client = self.client.clone();
         let state = self.state.clone();
         let delegate = self.delegate.clone();
+        let session_verification_controller = self.session_verification_controller.clone();
         RUNTIME.spawn(async move {
             let mut filter = FilterDefinition::default();
             let mut room_filter = RoomFilter::default();
@@ -84,7 +91,7 @@ impl Client {
             let sync_settings = SyncSettings::new().filter(Filter::FilterId(&filter_id));
 
             client
-                .sync_with_callback(sync_settings, |_| async {
+                .sync_with_callback(sync_settings, |sync_response| async {
                     if !state.read().has_first_synced {
                         state.write().has_first_synced = true
                     }
@@ -96,9 +103,18 @@ impl Client {
                         state.write().is_syncing = true;
                     }
 
-                    if let Some(ref delegate) = *delegate.read() {
+                    if let Some(delegate) = &*delegate.read() {
                         delegate.did_receive_sync_update()
                     }
+
+                    if let Some(session_verification_controller) =
+                        &*session_verification_controller.read().await
+                    {
+                        session_verification_controller
+                            .process_to_device_messages(sync_response.to_device)
+                            .await;
+                    }
+
                     LoopCtrl::Continue
                 })
                 .await;
@@ -170,6 +186,33 @@ impl Client {
         RUNTIME.block_on(async move {
             Ok(l.get_media_content(&MediaRequest { source, format: MediaFormat::File }, true)
                 .await?)
+        })
+    }
+
+    pub fn get_session_verification_controller(
+        &self,
+    ) -> anyhow::Result<Arc<SessionVerificationController>> {
+        RUNTIME.block_on(async move {
+            if let Some(session_verification_controller) =
+                &*self.session_verification_controller.read().await
+            {
+                return Ok(Arc::new(session_verification_controller.clone()));
+            }
+
+            let user_id = self.client.user_id().expect("Failed retrieving current user_id");
+            let user_identity = self
+                .client
+                .encryption()
+                .get_user_identity(user_id)
+                .await?
+                .expect("Failed retrieving user identity");
+
+            let session_verification_controller = SessionVerificationController::new(user_identity);
+
+            *self.session_verification_controller.write().await =
+                Some(session_verification_controller.clone());
+
+            Ok(Arc::new(session_verification_controller))
         })
     }
 }
