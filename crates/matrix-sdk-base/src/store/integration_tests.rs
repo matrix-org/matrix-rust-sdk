@@ -52,7 +52,7 @@ macro_rules! statestore_integration_tests {
                 use matrix_sdk_test::{async_test, test_json};
                 use ruma::{
                     api::client::media::get_content_thumbnail::v3::Method,
-                    device_id, event_id,
+                    event_id,
                     events::{
                         presence::PresenceEvent,
                         receipt::ReceiptType,
@@ -83,14 +83,13 @@ macro_rules! statestore_integration_tests {
                     deserialized_responses::{ RoomEvent, SyncRoomEvent, TimelineSlice},
                 };
                 use $crate::{
-                    RoomType, Session,
                     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
                     store::{
-                        Store,
                         StateStore,
                         Result as StoreResult,
                         StateChanges
-                    }
+                    },
+                    RoomInfo, RoomType,
                 };
 
                 use super::get_store;
@@ -115,22 +114,13 @@ macro_rules! statestore_integration_tests {
                 }
 
                 /// Populate the given `StateStore`.
-                pub(crate) async fn populated_store(inner: Arc<dyn StateStore>) -> StoreResult<Store> {
+                pub async fn populate_store(store: Arc<dyn StateStore>) -> StoreResult<()> {
                     let mut changes = StateChanges::default();
-                    let store = Store::new(inner);
 
                     let user_id = user_id();
                     let invited_user_id = invited_user_id();
                     let room_id = room_id();
                     let stripped_room_id = stripped_room_id();
-                    let device_id = device_id!("device");
-
-                    let session = Session {
-                        access_token: "token".to_owned(),
-                        user_id: user_id.to_owned(),
-                        device_id: device_id.to_owned(),
-                    };
-                    store.restore_session(session).await.unwrap();
 
                     changes.sync_token = Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned());
 
@@ -147,7 +137,7 @@ macro_rules! statestore_integration_tests {
                     let pushrules_event = pushrules_raw.deserialize().unwrap();
                     changes.add_account_data(pushrules_event, pushrules_raw);
 
-                    let mut room = store.get_or_create_room(room_id, RoomType::Joined).await.clone_info();
+                    let mut room = RoomInfo::new(room_id, RoomType::Joined);
                     room.mark_as_left();
 
                     let tag_json: &JsonValue = &test_json::TAG;
@@ -220,8 +210,7 @@ macro_rules! statestore_integration_tests {
                     changes.members.insert(room_id.to_owned(), room_members);
                     changes.add_room(room);
 
-                    let mut stripped_room =
-                        store.get_or_create_stripped_room(stripped_room_id).await.clone_info();
+                    let mut stripped_room = RoomInfo::new(stripped_room_id, RoomType::Invited);
 
                     let stripped_name_json: &JsonValue = &test_json::NAME_STRIPPED;
                     let stripped_name_raw =
@@ -249,7 +238,7 @@ macro_rules! statestore_integration_tests {
                     changes.add_stripped_member(stripped_room_id, stripped_member_event);
 
                     store.save_changes(&changes).await?;
-                    Ok(store)
+                    Ok(())
                 }
 
                 fn power_level_event() -> Raw<AnySyncStateEvent> {
@@ -305,11 +294,12 @@ macro_rules! statestore_integration_tests {
                     let user_id = user_id();
                     let inner_store = get_store().await?;
 
-                    let store = populated_store(Arc::new(inner_store)).await?;
+                    let store = Arc::new(inner_store);
+                    populate_store(store.clone()).await?;
 
                     assert!(store.get_sync_token().await?.is_some());
                     assert!(store.get_presence_event(user_id).await?.is_some());
-                    assert_eq!(store.get_room_infos().await?.len(), 1, "Expected to find 1 room info ");
+                    assert_eq!(store.get_room_infos().await?.len(), 1, "Expected to find 1 room info");
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1, "Expected to find 1 stripped room info");
                     assert!(store.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some());
 
@@ -580,25 +570,24 @@ macro_rules! statestore_integration_tests {
 
                 #[async_test]
                 async fn test_persist_invited_room() -> StoreResult<()> {
-                    let stripped_room_id = stripped_room_id();
                     let inner_store = get_store().await?;
-                    let store = populated_store(Arc::new(inner_store)).await?;
+                    let store = Arc::new(inner_store);
+                    populate_store(store.clone()).await?;
 
                     assert_eq!(store.get_stripped_room_infos().await?.len(), 1);
-                    assert!(store.get_stripped_room(stripped_room_id).is_some());
 
-                    // populate rooom
                     Ok(())
                 }
 
                 #[async_test]
-                async fn test_room_removal() -> StoreResult<()>  {
+                async fn test_room_removal() -> StoreResult<()> {
                     let room_id = room_id();
                     let user_id = user_id();
                     let inner_store = get_store().await?;
                     let stripped_room_id = stripped_room_id();
 
-                    let store = populated_store(Arc::new(inner_store)).await?;
+                    let store = Arc::new(inner_store);
+                    populate_store(store.clone()).await?;
 
                     store.remove_room(room_id).await?;
 
