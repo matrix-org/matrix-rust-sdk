@@ -142,13 +142,13 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
     {
         let on_room_member_called = *on_state_member.lock().unwrap();
         assert!(on_room_member_called);
-    };
+    }
 
     // Reset this to check that next time it doesnt get called
     {
         let mut on_room_member_called = on_state_member.lock().unwrap();
         *on_room_member_called = false;
-    };
+    }
 
     let status = warp::test::request()
         .method("PUT")
@@ -167,7 +167,7 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
         let on_room_member_called = *on_state_member.lock().unwrap();
         // This time we should not have called the event handler.
         assert!(!on_room_member_called);
-    };
+    }
 
     Ok(())
 }
