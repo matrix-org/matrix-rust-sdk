@@ -937,8 +937,8 @@ impl Common {
 
     /// Get a list of servers that should know this room.
     ///
-    /// Uses the synced members of the room and the suggested [routing algorithm]
-    /// from the Matrix spec.
+    /// Uses the synced members of the room and the suggested [routing
+    /// algorithm] from the Matrix spec.
     ///
     /// Returns at most three servers.
     ///
