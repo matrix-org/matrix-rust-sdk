@@ -646,7 +646,8 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
-    pub(crate) fn new(room_id: &RoomId, room_type: RoomType) -> Self {
+    #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
+    pub fn new(room_id: &RoomId, room_type: RoomType) -> Self {
         Self {
             room_id: room_id.into(),
             room_type,
