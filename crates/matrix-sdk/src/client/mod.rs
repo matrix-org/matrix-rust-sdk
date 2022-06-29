@@ -253,10 +253,30 @@ impl Client {
     #[cfg(feature = "appservice")]
     pub async fn receive_transaction(
         &self,
-        _transaction_id: &TransactionId,
+        transaction_id: &TransactionId,
         sync_response: sync_events::v3::Response,
     ) -> Result<()> {
-        // TODO: transaction id checking, see PR #560
+        const TXN_ID_KEY: &[u8] = b"appservice.txn_id";
+
+        let store = self.store();
+        let store_tokens = store.get_custom_value(TXN_ID_KEY).await?;
+        let mut txn_id_bytes = transaction_id.as_bytes().to_vec();
+        if let Some(mut store_tokens) = store_tokens {
+            // The data is separated by a NULL byte.
+            let mut store_tokens_split = store_tokens.split(|x| *x == b'\0');
+            if store_tokens_split.any(|x| x == transaction_id.as_bytes()) {
+                // We already encountered this transaction id before, so we exit early instead
+                // of processing further.
+                //
+                // Spec: https://spec.matrix.org/v1.3/application-service-api/#pushing-events
+                return Ok(());
+            }
+            store_tokens.push(b'\0');
+            store_tokens.append(&mut txn_id_bytes);
+            self.store().set_custom_value(TXN_ID_KEY, store_tokens).await?;
+        } else {
+            self.store().set_custom_value(TXN_ID_KEY, txn_id_bytes).await?;
+        }
         self.process_sync(sync_response).await?;
 
         Ok(())

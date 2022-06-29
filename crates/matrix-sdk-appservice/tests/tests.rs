@@ -107,6 +107,72 @@ async fn test_put_transaction() -> Result<()> {
 }
 
 #[async_test]
+async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
+    let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::Member);
+    let transaction = transaction_builder.build_json_transaction();
+
+    let appservice = appservice(None).await?;
+
+    #[allow(clippy::mutex_atomic)]
+    let on_state_member = Arc::new(Mutex::new(false));
+    appservice
+        .register_event_handler({
+            let on_state_member = on_state_member.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                *on_state_member.lock().unwrap() = true;
+                future::ready(())
+            }
+        })
+        .await?;
+
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transaction)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
+    assert_eq!(status, 200);
+    {
+        let on_room_member_called = *on_state_member.lock().unwrap();
+        assert!(on_room_member_called);
+    }
+
+    // Reset this to check that next time it doesnt get called
+    {
+        let mut on_room_member_called = on_state_member.lock().unwrap();
+        *on_room_member_called = false;
+    }
+
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transaction)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
+    // According to https://spec.matrix.org/v1.2/application-service-api/#pushing-events
+    // This should noop and return 200.
+    assert_eq!(status, 200);
+    {
+        let on_room_member_called = *on_state_member.lock().unwrap();
+        // This time we should not have called the event handler.
+        assert!(!on_room_member_called);
+    }
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_get_user() -> Result<()> {
     let appservice = appservice(None).await?;
     appservice.register_user_query(Box::new(|_, _| Box::pin(async move { true }))).await;
