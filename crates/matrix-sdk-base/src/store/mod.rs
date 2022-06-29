@@ -407,7 +407,7 @@ where
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
 #[derive(Debug, Clone)]
-pub struct Store {
+pub(crate) struct Store {
     pub(super) inner: Arc<dyn StateStore>,
     session: Arc<OnceCell<Session>>,
     /// The current sync token that should be used for the next sync call.
