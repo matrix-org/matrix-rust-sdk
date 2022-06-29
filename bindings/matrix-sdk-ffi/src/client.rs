@@ -44,6 +44,23 @@ impl Client {
         }
     }
 
+    pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
+        RUNTIME.block_on(async move {
+            self.client.login_username(&username, &password).send().await?;
+            Ok(())
+        })
+    }
+
+    pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
+        let RestoreToken { session, homeurl: _, is_guest: _ } =
+            serde_json::from_str(&restore_token)?;
+
+        RUNTIME.block_on(async move {
+            self.client.restore_login(session).await?;
+            Ok(())
+        })
+    }
+
     pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
         *self.delegate.write() = delegate;
     }
