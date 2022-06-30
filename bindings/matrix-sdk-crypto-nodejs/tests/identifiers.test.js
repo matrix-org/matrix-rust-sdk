@@ -1,4 +1,4 @@
-const { UserId, DeviceId, RoomId, ServerName } = require('../');
+const { UserId, DeviceId, DeviceKeyId, DeviceKeyAlgorithm, DeviceKeyAlgorithmName, RoomId, ServerName } = require('../');
 
 describe(UserId.name, () => {
     test('cannot be invalid', () => {
@@ -30,6 +30,52 @@ describe(DeviceId.name, () => {
     test('can read the device ID as a string', () => {
         expect(device.toString()).toStrictEqual('foo');
     })
+});
+
+describe(DeviceKeyId.name, () => {
+    for (const deviceKey of [
+        { name: 'ed25519',
+          id: 'ed25519:foobar',
+          algorithmName: DeviceKeyAlgorithmName.Ed25519,
+          algorithm: 'ed25519',
+          deviceId: 'foobar' },
+
+        { name: 'curve25519',
+          id: 'curve25519:foobar',
+          algorithmName: DeviceKeyAlgorithmName.Curve25519,
+          algorithm: 'curve25519',
+          deviceId: 'foobar' },
+
+        { name: 'signed curve25519',
+          id: 'signed_curve25519:foobar',
+          algorithmName: DeviceKeyAlgorithmName.SignedCurve25519,
+          algorithm: 'signed_curve25519',
+          deviceId: 'foobar' },
+
+        { name: 'unknown',
+          id: 'hello:foobar',
+          algorithmName: DeviceKeyAlgorithmName.Unknown,
+          algorithm: 'hello',
+          deviceId: 'foobar' },
+    ]) {
+        test(`${deviceKey.name} algorithm`, () => {
+            const dk = new DeviceKeyId(deviceKey.id);
+
+            expect(dk.algorithm.name).toStrictEqual(deviceKey.algorithmName);
+            expect(dk.algorithm.toString()).toStrictEqual(deviceKey.algorithm);
+            expect(dk.deviceId.toString()).toStrictEqual(deviceKey.deviceId);
+            expect(dk.toString()).toStrictEqual(deviceKey.id);
+        });
+    }
+});
+
+describe('DeviceKeyAlgorithmName', () => {
+    test('has the correct variants', () => {
+        expect(DeviceKeyAlgorithmName.Ed25519).toStrictEqual(0);
+        expect(DeviceKeyAlgorithmName.Curve25519).toStrictEqual(1);
+        expect(DeviceKeyAlgorithmName.SignedCurve25519).toStrictEqual(2);
+        expect(DeviceKeyAlgorithmName.Unknown).toStrictEqual(3);
+    });
 });
 
 describe(RoomId.name, () => {

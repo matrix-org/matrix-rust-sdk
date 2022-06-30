@@ -119,7 +119,7 @@ impl DeviceKeyId {
     }
 
     /// Returns key algorithm of the device key ID.
-    #[napi]
+    #[napi(getter)]
     pub fn algorithm(&self) -> DeviceKeyAlgorithm {
         self.inner.algorithm().into()
     }
