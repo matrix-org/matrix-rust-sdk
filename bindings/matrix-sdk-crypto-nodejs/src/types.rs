@@ -48,6 +48,7 @@ impl Signatures {
         self.inner.get_signature(signer.inner.as_ref(), key_id.inner.as_ref()).map(Into::into)
     }
 
+    /// Get the map of signatures that belong to the given user.
     #[napi]
     pub fn get(&self, signer: &UserId) -> Option<HashMap<String, MaybeSignature>> {
         self.inner.get(signer.inner.as_ref()).map(|map| {
