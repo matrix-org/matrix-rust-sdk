@@ -15,7 +15,7 @@ use serde_json::Value as JsonValue;
 use zeroize::Zeroize;
 
 use crate::{
-    encryption, identifiers, into_err, requests, responses, responses::response_from_string,
+    encryption, identifiers, into_err, olm, requests, responses, responses::response_from_string,
     sync_events,
 };
 
@@ -385,6 +385,15 @@ impl OlmMachine {
         let room_event = self.inner.decrypt_room_event(&event, room_id).await.map_err(into_err)?;
 
         Ok(room_event.into())
+    }
+
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we
+    /// have stored locally.
+    #[napi]
+    pub async fn cross_signing_status(&self) -> olm::CrossSigningStatus {
+        self.inner.cross_signing_status().await.into()
     }
 }
 

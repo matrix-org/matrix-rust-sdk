@@ -1,4 +1,4 @@
-const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../');
+const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState, CrossSigningStatus } = require('../');
 const path = require('path');
 const os = require('os');
 const fs = require('fs/promises');
@@ -347,5 +347,15 @@ describe(OlmMachine.name, () => {
         const m = await machine();
 
         expect(await m.updateTrackedUsers([user])).toStrictEqual(undefined);
+    });
+
+    test('can read cross-signing status', async () => {
+        const m = await machine();
+        const crossSigningStatus = await m.crossSigningStatus();
+
+        expect(crossSigningStatus).toBeInstanceOf(CrossSigningStatus);
+        expect(crossSigningStatus.hasMaster).toStrictEqual(false);
+        expect(crossSigningStatus.hasSelfSigning).toStrictEqual(false);
+        expect(crossSigningStatus.hasUserSigning).toStrictEqual(false);
     });
 });
