@@ -27,10 +27,6 @@ cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-darwin"
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
-# Mac Catalyst
-cargo +nightly build -Z build-std -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-macabi"
-cargo +nightly build -Z build-std -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios-macabi"
-
 # Lipo together the libraries for the same platform
 
 # MacOS
@@ -44,12 +40,6 @@ lipo -create \
   "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
-
-# Mac Catalyst
-lipo -create \
-  "${TARGET_DIR}/x86_64-apple-ios-macabi/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-  "${TARGET_DIR}/aarch64-apple-ios-macabi/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-  -output "${GENERATED_DIR}/libmatrix_sdk_ffi_maccatalyst.a"
 
 
 # Generate uniffi files
@@ -75,8 +65,6 @@ xcodebuild -create-xcframework \
   -headers ${HEADERS_DIR} \
   -library "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" \
   -headers ${HEADERS_DIR} \
-  -library "${GENERATED_DIR}/libmatrix_sdk_ffi_maccatalyst.a" \
-  -headers ${HEADERS_DIR} \
   -library "${TARGET_DIR}/aarch64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
   -headers ${HEADERS_DIR} \
   -output "${GENERATED_DIR}/MatrixSDKFFI.xcframework"
@@ -85,5 +73,4 @@ xcodebuild -create-xcframework \
 
 if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_macos.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_macos.a"; fi
 if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
-if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_maccatalyst.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_maccatalyst.a"; fi
 if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
