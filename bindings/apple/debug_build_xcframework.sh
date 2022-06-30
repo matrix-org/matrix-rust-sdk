@@ -39,7 +39,10 @@ uniffi-bindgen generate "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl" --lang
 HEADERS_DIR=${GENERATED_DIR}/headers
 mkdir -p ${HEADERS_DIR}
 
-mv ${GENERATED_DIR}/*.h ${GENERATED_DIR}/*.modulemap ${HEADERS_DIR}
+mv ${GENERATED_DIR}/*.h ${HEADERS_DIR}
+
+# Rename and move modulemap to the right place
+mv ${GENERATED_DIR}/*.modulemap ${HEADERS_DIR}/module.modulemap
 
 SWIFT_DIR="${GENERATED_DIR}/swift"
 mkdir -p ${SWIFT_DIR}
