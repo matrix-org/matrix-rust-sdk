@@ -61,13 +61,28 @@ jobs:
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm install
 
+      # Building in dev-mode and copy lib for potential failure case
       - name: Build the Node.js binding
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
-        run: npm run build
+        run: |
+          npm run build
+          cp *.node non-release-mode-lib.node
+
+      - name: Build the Node.js binding
+        working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
+        run: npm run release-build
 
       - name: Test the Node.js binding
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm run test
+
+      - uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: Failure Files
+          path: |
+            bindings/matrix-sdk-crypto-nodejs/*.node
+            /var/crash/*.crash
 
       - if: ${{ matrix.build-doc }}
         name: Build the documentation
