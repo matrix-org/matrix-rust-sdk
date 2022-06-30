@@ -19,13 +19,13 @@ function download_lib(libname) {
     let startTime = new Date();
 
     const url = `${DOWNLOADS_BASE_URL}/${CURRENT_VERSION}/${libname}`;
-    console.log(`Downloading lib ${libname} from ${url}`);
+    console.info(`Downloading lib ${libname} from ${url}`);
     const dl = new DownloaderHelper(url, __dirname, {
         override: true,
     });
 
-    dl.on('end', () => console.log('Download Completed'));
-    dl.on('error', (err) => console.log('Download Failed', err));
+    dl.on('end', () => console.info('Download Completed'));
+    dl.on('error', (err) => console.info('Download Failed', err));
     dl.on('progress', stats => {
         const progress = stats.progress.toFixed(1);
         const speed = byteHelper(stats.speed);
@@ -37,7 +37,7 @@ function download_lib(libname) {
         const elaspsedTime = currentTime - startTime;
         if (elaspsedTime > 1000) {
             startTime = currentTime;
-            console.log(`${speed}/s - ${progress}% [${downloaded}/${total}]`);
+            console.info(`${speed}/s - ${progress}% [${downloaded}/${total}]`);
         }
     });
     dl.start().catch(err => console.error(err));

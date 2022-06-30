@@ -16,20 +16,69 @@ Just add the latest release to your `package.json`:
 $ npm install --save matrix-sdk-crypto
 ```
 
-Upon install, you'll find it downloading the corresponding prebuilt
-rust library for your host system. It should look something like this.
+When installing, NPM will download the corresponding prebuilt Rust library for your current host system. The following are supported:
 
-The following targets are supported:
- - Linux GNU i686 32bit (`i686-unknown-linux-gnu`)
- - Linux GNU x86 64bit (`x86_64-unknown-linux-gnu`)
- - Linux GNU arm 32bit`arm-unknown-linux-gnueabihf`
- - Linux GNU arm 64bit (`aarch64-unknown-linux-gnu`)
- - Linux Musl 64bit (`x86_64-unknown-linux-musl`)
- - Mac OSx x86 64bit (`x86_64-apple-darwin`)
- - Mac OSx arm 64bit (`aarch64-apple-darwin`)
- - Windows MSVC i686 32bit (`i686-pc-windows-msvc`)
- - Windows MSVC x86 64bit (`i686-pc-windows-msvc`)
- - Windows MSVC arm 64bit (`aarch64-pc-windows-msvc`)
+<table>
+  <thead>
+    <tr>
+      <th>Platform</th>
+      <th>Architecture</th>
+      <th>Triple</th>
+      <th>Prebuilt available</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="5">Linux</td>
+      <td rowspan="2"><code>aarch</code></td>
+      <td><code>aarch64-unknown-linux-gnu</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>arm-unknown-linux-gnueabihf</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="3"><code>amd</code></td>
+      <td><code>x86_64-unknown-linux-gnu</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>x86_64-unknown-linux-musl</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>i686-unknown-linux-gnu</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="2">macOS</td>
+      <td><code>aarch</code></td>
+      <td><code>arch64-apple-darwin</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>amd</code></td>
+      <td><code>x86_64-apple-darwin</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="3">Windows</td>
+      <td><code>aarch</code></td>
+      <td><code>aarch64-pc-windows-msvc</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><code>amd</code></td>
+      <td><code>x86_64-pc-windows-msvc</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>i686-pc-windows-msvc</code></td>
+      <td>✅</td>
+    </tr>
+  </tbody>
+</table>
 
 ## Development
 
