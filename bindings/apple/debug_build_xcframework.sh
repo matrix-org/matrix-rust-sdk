@@ -4,13 +4,22 @@ set -eEu
 cd "$(dirname "$0")"
 
 IS_CI=false
+ACTIVE_ARCH="arm64"
 
-if [ $# -eq 1 ]; then
-  IS_CI=true
+if [ $# -eq 2 ]; then
   echo "Running CI build"
+  IS_CI=true
+  ARCHS=( $1 )
+  ACTIVE_ARCH=${ARCHS[1]}
+elif [ $# -eq 1 ]; then
+  echo "Running debug build"
+  ARCHS=( $1 )
+  ACTIVE_ARCH=${ARCHS[0]}
 else
   echo "Running debug build"
 fi
+
+echo "Active architecture ${ACTIVE_ARCH}"
 
 # Path to the repo root
 SRC_ROOT=../..
@@ -23,14 +32,22 @@ mkdir -p ${GENERATED_DIR}
 REL_FLAG=""
 REL_TYPE_DIR="debug"
 
-# iOS Simulator
-cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
-cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
+# iOS Simulator arm64
+if [ "$ACTIVE_ARCH" = "arm64" ]; then
+  cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
 
-lipo -create \
-  "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-  "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
-  -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
+  lipo -create \
+    "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
+    -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
+
+# iOS Simulator intel
+else 
+  cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
+
+  lipo -create \
+    "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
+    -output "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"
+fi
 
 # Generate uniffi files
 uniffi-bindgen generate "${SRC_ROOT}/bindings/matrix-sdk-ffi/src/api.udl" --language swift --out-dir ${GENERATED_DIR}
@@ -60,8 +77,8 @@ xcodebuild -create-xcframework \
 
 # Cleanup
 
-# if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
-# if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
+if [ -f "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a" ]; then rm -rf "${GENERATED_DIR}/libmatrix_sdk_ffi_iossimulator.a"; fi
+if [ -d ${HEADERS_DIR} ]; then rm -rf ${HEADERS_DIR}; fi
 
 if [ "$IS_CI" = false ] ; then
   echo "Preparing matrix-rust-components-swift"
