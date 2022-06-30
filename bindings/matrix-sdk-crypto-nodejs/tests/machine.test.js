@@ -368,6 +368,7 @@ describe(OlmMachine.name, () => {
 
         let base64;
 
+        // `get`
         {
             const signature = signatures.get(user);
 
@@ -376,6 +377,7 @@ describe(OlmMachine.name, () => {
             });
             expect(signature['ed25519:foobar'].isValid).toStrictEqual(true);
             expect(signature['ed25519:foobar'].isInvalid).toStrictEqual(false);
+            expect(signature['ed25519:foobar'].invalidSignatureSource).toBeNull();
 
             base64 = signature['ed25519:foobar'].signature.toBase64();
 
@@ -383,9 +385,16 @@ describe(OlmMachine.name, () => {
             expect(signature['ed25519:foobar'].signature.ed25519.toBase64()).toStrictEqual(base64);
         }
 
+        // `getSignature`
         {
             const signature = signatures.getSignature(user, new DeviceKeyId('ed25519:foobar'));
             expect(signature.toBase64()).toStrictEqual(base64);
+        }
+
+        // Unknown signatures.
+        {
+            expect(signatures.get(new UserId('@hello:example.org'))).toBeNull();
+            expect(signatures.getSignature(user, new DeviceKeyId('world:foobar'))).toBeNull();
         }
     });
 });
