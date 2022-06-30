@@ -51,7 +51,7 @@ impl Signatures {
     #[napi]
     pub fn get(&self, signer: &UserId) -> Option<HashMap<String, MaybeSignature>> {
         self.inner.get(signer.inner.as_ref()).map(|map| {
-            map.into_iter()
+            map.iter()
                 .map(|(device_key_id, maybe_signature)| {
                     (device_key_id.as_str().to_owned(), maybe_signature.clone().into())
                 })
