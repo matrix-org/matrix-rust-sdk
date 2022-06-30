@@ -129,14 +129,14 @@ impl MaybeSignature {
     /// Check whether the signature has been successfully decoded.
     #[napi(getter)]
     pub fn is_valid(&self) -> bool {
-        matches!(self.inner, Ok(_))
+        self.inner.is_ok()
     }
 
     /// Check whether the signature could not have been successfully
     /// decoded.
     #[napi(getter)]
     pub fn is_invalid(&self) -> bool {
-        matches!(self.inner, Err(_))
+        self.inner.is_err()
     }
 
     /// The signature, if successfully decoded.
