@@ -69,6 +69,12 @@ jobs:
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}
         run: npm run test
 
+      - uses: actions/upload-artifact@v3
+        with:
+          name: Built node module
+          path: |
+            bindings/matrix-sdk-crypto-nodejs/*.node
+
       - if: ${{ matrix.build-doc }}
         name: Build the documentation
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_NODEJS_PATH }}

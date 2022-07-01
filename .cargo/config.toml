@@ -6,7 +6,7 @@
 # Since this is an unstable feature (enabled at the bottom of the file), this
 # setting is unfortunately ignored on stable toolchains, but it's still better
 # to have it apply on nightly than using the old behavior for all toolchains.
-target-applies-to-host = false
+#target-applies-to-host = false
 
 [alias]
 xtask = "run --package xtask --"
