@@ -15,6 +15,7 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
+#![allow(clippy::drop_non_drop)] // triggered by wasm_bindgen code
 
 pub mod encryption;
 pub mod events;
