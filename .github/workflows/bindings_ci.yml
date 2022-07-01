@@ -161,6 +161,9 @@ jobs:
           # keep in sync with uniffi dependency in Cargo.toml's
           args: uniffi_bindgen --version ^0.18
 
+      - name: Generate .xcframework
+        run: sh bindings/apple/debug_build_xcframework.sh x86_64 ci
+
       - name: Run XCTests
         run: |
           xcodebuild test \

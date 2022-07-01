@@ -10,7 +10,7 @@
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Run Script"
-               scriptText = "PATH=~/.cargo/bin:${PATH}&#10;echo $ARCHS&#10;sh $PROJECT_DIR/debug_build_xcframework.sh &quot;$ARCHS&quot; CI&#10;">
+               scriptText = "#PATH=~/.cargo/bin:${PATH}&#10;echo $ARCHS&#10;#sh $PROJECT_DIR/debug_build_xcframework.sh &quot;$ARCHS&quot; CI&#10;">
                <EnvironmentBuildable>
                   <BuildableReference
                      BuildableIdentifier = "primary"

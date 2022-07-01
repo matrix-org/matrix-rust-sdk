@@ -10,7 +10,7 @@ if [ $# -eq 2 ]; then
   echo "Running CI build"
   IS_CI=true
   ARCHS=( $1 )
-  ACTIVE_ARCH=${ARCHS[1]}
+  ACTIVE_ARCH=${ARCHS[0]}
 elif [ $# -eq 1 ]; then
   echo "Running debug build"
   ARCHS=( $1 )
