@@ -46,6 +46,11 @@ impl RoomMember {
         self.event.user_id()
     }
 
+    /// Get the original member event
+    pub fn event(&self) -> Arc<MemberEvent> {
+        self.event.clone()
+    }
+
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
         if let Some(p) = self.profile.as_ref() {
