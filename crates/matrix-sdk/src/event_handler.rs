@@ -576,7 +576,7 @@ mod tests {
     async fn event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
-        let client = crate::client::tests::logged_in_client().await;
+        let client = crate::client::tests::logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
         let typing_count = Arc::new(AtomicU8::new(0));

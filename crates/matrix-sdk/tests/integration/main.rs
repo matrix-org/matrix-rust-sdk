@@ -1,31 +1,59 @@
+// The http mocking library is not supported for wasm32
+#![cfg(not(target_arch = "wasm32"))]
+
 use matrix_sdk::{config::RequestConfig, Client, ClientBuilder, Session};
 use ruma::{api::MatrixVersion, device_id, user_id};
-use url::Url;
+use serde::Serialize;
+use wiremock::{
+    matchers::{header, method, path, query_param, query_param_is_missing},
+    Mock, MockServer, ResponseTemplate,
+};
 
 mod client;
 mod room;
 
-fn test_client_builder() -> ClientBuilder {
-    let homeserver = Url::parse(&mockito::server_url()).unwrap();
-    Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
+async fn test_client_builder() -> (ClientBuilder, MockServer) {
+    let server = MockServer::start().await;
+    let builder =
+        Client::builder().homeserver_url(server.uri()).server_versions([MatrixVersion::V1_0]);
+    (builder, server)
 }
 
-async fn no_retry_test_client() -> Client {
-    test_client_builder()
-        .request_config(RequestConfig::new().disable_retry())
-        .build()
-        .await
-        .unwrap()
+async fn no_retry_test_client() -> (Client, MockServer) {
+    let (builder, server) = test_client_builder().await;
+    let client =
+        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
+    (client, server)
 }
 
-async fn logged_in_client() -> Client {
+async fn logged_in_client() -> (Client, MockServer) {
     let session = Session {
         access_token: "1234".to_owned(),
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
     client.restore_login(session).await.unwrap();
 
-    client
+    (client, server)
+}
+
+/// Mount a Mock on the given server to handle the `GET /sync` endpoint with
+/// an optional `since` param that returns a 200 status code with the given
+/// response body.
+async fn mock_sync(server: &MockServer, response_body: impl Serialize, since: Option<String>) {
+    let mut builder = Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/sync"))
+        .and(header("authorization", "Bearer 1234"));
+
+    if let Some(since) = since {
+        builder = builder.and(query_param("since", since));
+    } else {
+        builder = builder.and(query_param_is_missing("since"));
+    }
+
+    builder
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+        .mount(server)
+        .await;
 }

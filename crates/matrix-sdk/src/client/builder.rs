@@ -353,8 +353,8 @@ fn homeserver_from_name(server_name: &ServerName) -> String {
     #[cfg(not(test))]
     return format!("https://{}", server_name);
 
-    // Mockito only knows how to test http endpoints:
-    // https://github.com/lipanski/mockito/issues/127
+    // Wiremock only knows how to test http endpoints:
+    // https://github.com/LukeMathWalker/wiremock-rs/issues/58
     #[cfg(test)]
     return format!("http://{}", server_name);
 }
