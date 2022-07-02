@@ -1,6 +1,3 @@
-// mockito (the http mocking library) is not supported for wasm32
-#![cfg(not(target_arch = "wasm32"))]
-
 use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
 use matrix_sdk::{
@@ -9,7 +6,6 @@ use matrix_sdk::{
     Error, HttpError, RumaApiError,
 };
 use matrix_sdk_test::{async_test, test_json};
-use mockito::{mock, Matcher};
 use ruma::{
     api::{
         client::{
@@ -32,12 +28,16 @@ use ruma::{
 };
 use serde_json::json;
 use url::Url;
+use wiremock::{
+    matchers::{header, method, path, path_regex},
+    Mock, ResponseTemplate,
+};
 
-use crate::{logged_in_client, no_retry_test_client};
+use crate::{logged_in_client, mock_sync, no_retry_test_client};
 
 #[async_test]
 async fn set_homeserver() {
-    let client = no_retry_test_client().await;
+    let (client, _) = no_retry_test_client().await;
     let homeserver = Url::from_str("http://example.com/").unwrap();
     client.set_homeserver(homeserver.clone()).await;
 
@@ -46,13 +46,14 @@ async fn set_homeserver() {
 
 #[async_test]
 async fn login() {
-    let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
+    let homeserver = Url::from_str(&server.uri()).unwrap();
 
-    let _m_types = mock("GET", "/_matrix/client/r0/login")
-        .with_status(200)
-        .with_body(test_json::LOGIN_TYPES.to_string())
-        .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
+        .mount(&server)
+        .await;
 
     let can_password = client
         .get_login_types()
@@ -63,10 +64,11 @@ async fn login() {
         .any(|flow| matches!(flow, LoginType::Password(_)));
     assert!(can_password);
 
-    let _m_login = mock("POST", "/_matrix/client/r0/login")
-        .with_status(200)
-        .with_body(test_json::LOGIN.to_string())
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
+        .mount(&server)
+        .await;
 
     client.login_username("example", "wordpass").send().await.unwrap();
 
@@ -78,12 +80,13 @@ async fn login() {
 
 #[async_test]
 async fn login_with_discovery() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m_login = mock("POST", "/_matrix/client/r0/login")
-        .with_status(200)
-        .with_body(test_json::LOGIN_WITH_DISCOVERY.to_string())
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_DISCOVERY))
+        .mount(&server)
+        .await;
 
     client.login_username("example", "wordpass").send().await.unwrap();
 
@@ -95,31 +98,33 @@ async fn login_with_discovery() {
 
 #[async_test]
 async fn login_no_discovery() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m_login = mock("POST", "/_matrix/client/r0/login")
-        .with_status(200)
-        .with_body(test_json::LOGIN.to_string())
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
+        .mount(&server)
+        .await;
 
     client.login_username("example", "wordpass").send().await.unwrap();
 
     let logged_in = client.logged_in();
     assert!(logged_in, "Client should be logged in");
 
-    assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
+    assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
 }
 
 #[async_test]
 #[cfg(feature = "sso-login")]
 async fn login_with_sso() {
-    let _m_login = mock("POST", "/_matrix/client/r0/login")
-        .with_status(200)
-        .with_body(test_json::LOGIN.to_string())
-        .create();
+    let (client, server) = no_retry_test_client().await;
 
-    let _homeserver = Url::from_str(&mockito::server_url()).unwrap();
-    let client = no_retry_test_client().await;
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
+        .mount(&server)
+        .await;
+
     let idp = ruma::api::client::session::get_login_types::v3::IdentityProvider::new(
         "some-id".to_owned(),
         "idp-name".to_owned(),
@@ -149,12 +154,13 @@ async fn login_with_sso() {
 
 #[async_test]
 async fn login_with_sso_token() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m = mock("GET", "/_matrix/client/r0/login")
-        .with_status(200)
-        .with_body(test_json::LOGIN_TYPES.to_string())
-        .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_TYPES))
+        .mount(&server)
+        .await;
 
     let can_sso = client
         .get_login_types()
@@ -168,10 +174,11 @@ async fn login_with_sso_token() {
     let sso_url = client.get_sso_login_url("http://127.0.0.1:3030", None).await;
     assert!(sso_url.is_ok());
 
-    let _m = mock("POST", "/_matrix/client/r0/login")
-        .with_status(200)
-        .with_body(test_json::LOGIN.to_string())
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
+        .mount(&server)
+        .await;
 
     client.login_token("averysmalltoken").send().await.unwrap();
 
@@ -181,12 +188,13 @@ async fn login_with_sso_token() {
 
 #[async_test]
 async fn login_error() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m = mock("POST", "/_matrix/client/r0/login")
-        .with_status(403)
-        .with_body(test_json::LOGIN_RESPONSE_ERR.to_string())
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/login"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(&*test_json::LOGIN_RESPONSE_ERR))
+        .mount(&server)
+        .await;
 
     if let Err(err) = client.login_username("example", "wordpass").send().await {
         if let Error::Http(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
@@ -209,12 +217,15 @@ async fn login_error() {
 
 #[async_test]
 async fn register_error() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_owned()))
-        .with_status(403)
-        .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/register"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_json(&*test_json::REGISTRATION_RESPONSE_ERR),
+        )
+        .mount(&server)
+        .await;
 
     let user = assign!(RegistrationRequest::new(), {
         username: Some("user"),
@@ -246,13 +257,9 @@ async fn register_error() {
 
 #[async_test]
 async fn sync() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(test_json::SYNC.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    mock_sync(&server, &*test_json::SYNC, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -265,44 +272,55 @@ async fn sync() {
 
 #[async_test]
 async fn devices() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", "/_matrix/client/r0/devices")
-        .with_status(200)
-        .with_body(test_json::DEVICES.to_string())
-        .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/devices"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::DEVICES))
+        .mount(&server)
+        .await;
 
     assert!(client.devices().await.is_ok());
 }
 
 #[async_test]
 async fn delete_devices() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m = mock("POST", "/_matrix/client/r0/delete_devices")
-        .with_status(401)
-        .with_body(
-            json!({
-                "flows": [
-                    {
-                        "stages": [
-                            "m.login.password"
-                        ]
-                    }
-                ],
-                "params": {},
-                "session": "vBslorikviAjxzYBASOBGfPp"
-            })
-            .to_string(),
-        )
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/delete_devices"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "flows": [
+                {
+                    "stages": [
+                        "m.login.password"
+                    ]
+                }
+            ],
+            "params": {},
+            "session": "vBslorikviAjxzYBASOBGfPp"
+        })))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
 
-    let _m = mock("POST", "/_matrix/client/r0/delete_devices")
-        .with_status(401)
-        // empty response
-        // TODO rename that response type.
-        .with_body(test_json::LOGOUT.to_string())
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/delete_devices"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "flows": [
+                {
+                    "stages": [
+                        "m.login.password"
+                    ]
+                }
+            ],
+            "params": {},
+            "session": "vBslorikviAjxzYBASOBGfPp"
+        })))
+        .mount(&server)
+        .await;
 
     let devices = &[device_id!("DEVICEID").to_owned()];
 
@@ -333,12 +351,13 @@ async fn delete_devices() {
 
 #[async_test]
 async fn resolve_room_alias() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m = mock("GET", "/_matrix/client/r0/directory/room/%23alias%3Aexample%2Eorg")
-        .with_status(200)
-        .with_body(test_json::GET_ALIAS.to_string())
-        .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/directory/room/%23alias%3Aexample%2Eorg"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::GET_ALIAS))
+        .mount(&server)
+        .await;
 
     let alias = ruma::room_alias_id!("#alias:example.org");
     assert!(client.resolve_room_alias(alias).await.is_ok());
@@ -347,14 +366,9 @@ async fn resolve_room_alias() {
 #[async_test]
 async fn join_leave_room() {
     let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(test_json::SYNC.to_string())
-        .create();
-
-    let client = logged_in_client().await;
-    let session = client.session().unwrap().clone();
+    mock_sync(&server, &*test_json::SYNC, None).await;
 
     let room = client.get_joined_room(room_id);
     assert!(room.is_none());
@@ -367,38 +381,28 @@ async fn join_leave_room() {
     let room = client.get_joined_room(room_id);
     assert!(room.is_some());
 
-    // test store reloads with correct room state from the state store
-    let joined_client = no_retry_test_client().await;
-    joined_client.restore_login(session).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
 
-    // joined room reloaded from state store
-    joined_client.sync_once(SyncSettings::default()).await.unwrap();
-    let room = joined_client.get_joined_room(room_id);
-    assert!(room.is_some());
+    client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
-        .create();
-
-    joined_client.sync_once(SyncSettings::default()).await.unwrap();
-
-    let room = joined_client.get_joined_room(room_id);
+    let room = client.get_joined_room(room_id);
     assert!(room.is_none());
 
-    let room = joined_client.get_left_room(room_id);
+    let room = client.get_left_room(room_id);
     assert!(room.is_some());
 }
 
 #[async_test]
 async fn join_room_by_id() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join".to_owned()))
-        .with_status(200)
-        .with_body(test_json::ROOM_ID.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/join"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
+        .mount(&server)
+        .await;
 
     let room_id = room_id!("!testroom:example.org");
 
@@ -412,13 +416,14 @@ async fn join_room_by_id() {
 
 #[async_test]
 async fn join_room_by_id_or_alias() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/join/".to_owned()))
-        .with_status(200)
-        .with_body(test_json::ROOM_ID.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/r0/join/"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
+        .mount(&server)
+        .await;
 
     let room_id = room_id!("!testroom:example.org").into();
 
@@ -436,12 +441,13 @@ async fn join_room_by_id_or_alias() {
 
 #[async_test]
 async fn room_search_all() {
-    let client = no_retry_test_client().await;
+    let (client, server) = no_retry_test_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
-        .with_status(200)
-        .with_body(test_json::PUBLIC_ROOMS.to_string())
-        .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/publicRooms"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+        .mount(&server)
+        .await;
 
     let get_public_rooms::v3::Response { chunk, .. } =
         client.public_rooms(Some(10), None, None).await.unwrap();
@@ -450,13 +456,14 @@ async fn room_search_all() {
 
 #[async_test]
 async fn room_search_filtered() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
-        .with_status(200)
-        .with_body(test_json::PUBLIC_ROOMS.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/publicRooms"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
+        .mount(&server)
+        .await;
 
     let generic_search_term = Some("cheese");
     let filter = assign!(Filter::new(), { generic_search_term });
@@ -469,13 +476,9 @@ async fn room_search_filtered() {
 
 #[async_test]
 async fn invited_rooms() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::INVITE_SYNC.to_string())
-        .create();
+    mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
 
     let _response = client.sync_once(SyncSettings::default()).await.unwrap();
 
@@ -488,13 +491,9 @@ async fn invited_rooms() {
 
 #[async_test]
 async fn left_rooms() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::LEAVE_SYNC.to_string())
-        .create();
+    mock_sync(&server, &*test_json::LEAVE_SYNC, None).await;
 
     let _response = client.sync_once(SyncSettings::default()).await.unwrap();
 
@@ -507,31 +506,28 @@ async fn left_rooms() {
 
 #[async_test]
 async fn get_media_content() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
     let request = MediaRequest {
         source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
         format: MediaFormat::File,
     };
 
-    let m = mock(
-        "GET",
-        Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_owned()),
-    )
-    .with_status(200)
-    .with_body("Some very interesting text.")
-    .expect(2)
-    .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/media/r0/download/localhost/textfile"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Some very interesting text."))
+        .expect(2)
+        .mount(&server)
+        .await;
 
     assert!(client.get_media_content(&request, true).await.is_ok());
     assert!(client.get_media_content(&request, true).await.is_ok());
     assert!(client.get_media_content(&request, false).await.is_ok());
-    m.assert();
 }
 
 #[async_test]
 async fn get_media_file() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
     let event_content = ImageMessageEventContent::plain(
         "filename.jpg".into(),
@@ -544,25 +540,26 @@ async fn get_media_file() {
         }))),
     );
 
-    let m = mock(
-        "GET",
-        Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_owned()),
-    )
-    .with_status(200)
-    .with_body("binaryjpegdata")
-    .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/media/r0/download/example%2Eorg/image"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
+        .expect(1)
+        .named("get_file")
+        .mount(&server)
+        .await;
 
     assert!(client.get_file(event_content.clone(), true).await.is_ok());
     assert!(client.get_file(event_content.clone(), true).await.is_ok());
-    m.assert();
 
-    let m = mock(
-        "GET",
-        Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_owned()),
-    )
-    .with_status(200)
-    .with_body("smallerbinaryjpegdata")
-    .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/media/r0/thumbnail/example%2Eorg/image"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
+        )
+        .expect(1)
+        .named("get_thumbnail")
+        .mount(&server)
+        .await;
 
     assert!(client
         .get_thumbnail(
@@ -572,18 +569,18 @@ async fn get_media_file() {
         )
         .await
         .is_ok());
-    m.assert();
 }
 
 #[async_test]
 async fn whoami() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", "/_matrix/client/r0/account/whoami")
-        .with_status(200)
-        .with_body(test_json::WHOAMI.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/r0/account/whoami"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
+        .mount(&server)
+        .await;
 
     let user_id = user_id!("@joe:example.org");
 

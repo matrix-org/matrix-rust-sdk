@@ -2,27 +2,26 @@ use std::time::Duration;
 
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, test_json};
-use mockito::{mock, Matcher};
 use ruma::room_id;
+use wiremock::{
+    matchers::{header, method, path_regex},
+    Mock, ResponseTemplate,
+};
 
-use crate::logged_in_client;
+use crate::{logged_in_client, mock_sync};
 
 #[async_test]
 async fn forget_room() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/forget".to_owned()))
-        .with_status(200)
-        // this is an empty JSON object
-        .with_body(test_json::LOGOUT.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .mount(&server)
+        .await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::LEAVE_SYNC.to_string())
-        .create();
+    mock_sync(&server, &*test_json::LEAVE_SYNC, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

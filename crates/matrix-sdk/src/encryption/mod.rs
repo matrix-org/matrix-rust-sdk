@@ -873,35 +873,34 @@ impl Encryption {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
-    use mockito::{mock, Matcher};
     use ruma::{
         event_id,
         events::reaction::{ReactionEventContent, Relation},
         room_id,
     };
     use serde_json::json;
+    use wiremock::{
+        matchers::{method, path_regex},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     use crate::client::tests::logged_in_client;
 
     #[async_test]
     async fn test_reaction_sending() {
-        let client = logged_in_client().await;
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
         let event_id = event_id!("$2:example.org");
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        let _m = mock(
-            "PUT",
-            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()),
-        )
-        .with_status(200)
-        .with_body(
-            json!({
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event_id": event_id,
-            })
-            .to_string(),
-        )
-        .create();
+            })))
+            .mount(&server)
+            .await;
 
         let response = EventBuilder::default()
             .add_state_event(EventsJson::Member)

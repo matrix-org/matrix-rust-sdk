@@ -2201,7 +2201,7 @@ impl Client {
     }
 }
 
-// mockito (the http mocking library) is not supported for wasm32
+// The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     use std::time::Duration;
@@ -2210,33 +2210,36 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use mockito::{mock, Matcher};
     use ruma::{api::MatrixVersion, device_id, room_id, user_id, UserId};
     use url::Url;
+    use wiremock::{
+        matchers::{header, method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     use super::{Client, ClientBuilder, Session};
     use crate::config::{RequestConfig, SyncSettings};
 
-    fn test_client_builder() -> ClientBuilder {
-        let homeserver = Url::parse(&mockito::server_url()).unwrap();
+    fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
+        let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
         Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
     }
 
-    async fn no_retry_test_client() -> Client {
-        test_client_builder()
+    async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
+        test_client_builder(homeserver_url)
             .request_config(RequestConfig::new().disable_retry())
             .build()
             .await
             .unwrap()
     }
 
-    pub(crate) async fn logged_in_client() -> Client {
+    pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         };
-        let client = no_retry_test_client().await;
+        let client = no_retry_test_client(homeserver_url).await;
         client.restore_login(session).await.unwrap();
 
         client
@@ -2244,13 +2247,15 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn account_data() {
-        let client = logged_in_client().await;
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(test_json::SYNC.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/sync".to_owned()))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::SYNC))
+            .mount(&server)
+            .await;
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync_once(sync_settings).await.unwrap();
@@ -2262,21 +2267,25 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn successful_discovery() {
-        let server_url = mockito::server_url();
+        let server = MockServer::start().await;
+        let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
-        let _m_well_known = mock("GET", "/.well-known/matrix/client")
-            .with_status(200)
-            .with_body(
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
                 test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
-            )
-            .create();
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
 
-        let _m_versions = mock("GET", "/_matrix/client/versions")
-            .with_status(200)
-            .with_body(test_json::VERSIONS.to_string())
-            .create();
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&server)
+            .await;
         let client = Client::builder().user_id(&alice).build().await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
@@ -2284,11 +2293,16 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn discovery_broken_server() {
-        let server_url = mockito::server_url();
+        let server = MockServer::start().await;
+        let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
 
-        let _m = mock("GET", "/.well-known/matrix/client").with_status(404).create();
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
 
         assert!(
             Client::builder().user_id(&alice).build().await.is_err(),
@@ -2298,7 +2312,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn room_creation() {
-        let client = logged_in_client().await;
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
         let response = EventBuilder::default()
             .add_state_event(EventsJson::Member)
@@ -2308,7 +2323,7 @@ pub(crate) mod tests {
         client.inner.base_client.receive_sync_response(response).await.unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
+        assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
 
         let room = client.get_joined_room(room_id);
         assert!(room.is_some());
@@ -2316,7 +2331,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn retry_limit_http_requests() {
-        let client = test_client_builder()
+        let server = MockServer::start().await;
+        let client = test_client_builder(Some(server.uri()))
             .request_config(RequestConfig::new().retry_limit(3))
             .build()
             .await
@@ -2324,20 +2340,22 @@ pub(crate) mod tests {
 
         assert!(client.inner.http_client.request_config.retry_limit.unwrap() == 3);
 
-        let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(3)
+            .mount(&server)
+            .await;
 
-        if client.login_username("example", "wordpass").send().await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
+        client.login_username("example", "wordpass").send().await.unwrap_err();
     }
 
     #[async_test]
     async fn retry_timeout_http_requests() {
         // Keep this timeout small so that the test doesn't take long
         let retry_timeout = Duration::from_secs(5);
-        let client = test_client_builder()
+        let server = MockServer::start().await;
+        let client = test_client_builder(Some(server.uri()))
             .request_config(RequestConfig::new().retry_timeout(retry_timeout))
             .build()
             .await
@@ -2345,40 +2363,43 @@ pub(crate) mod tests {
 
         assert!(client.inner.http_client.request_config.retry_timeout.unwrap() == retry_timeout);
 
-        let m =
-            mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(2..)
+            .mount(&server)
+            .await;
 
-        if client.login_username("example", "wordpass").send().await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
+        client.login_username("example", "wordpass").send().await.unwrap_err();
     }
 
     #[async_test]
     async fn short_retry_initial_http_requests() {
-        let client = test_client_builder().build().await.unwrap();
+        let server = MockServer::start().await;
+        let client = test_client_builder(Some(server.uri())).build().await.unwrap();
 
-        let m =
-            mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(3..)
+            .mount(&server)
+            .await;
 
-        if client.login_username("example", "wordpass").send().await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
+        client.login_username("example", "wordpass").send().await.unwrap_err();
     }
 
     #[async_test]
     async fn no_retry_http_requests() {
-        let client = logged_in_client().await;
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
-        let m = mock("GET", "/_matrix/client/r0/devices").with_status(501).create();
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/devices"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(1)
+            .mount(&server)
+            .await;
 
-        if client.devices().await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
+        client.devices().await.unwrap_err();
     }
 }

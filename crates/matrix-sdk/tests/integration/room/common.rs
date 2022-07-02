@@ -1,35 +1,32 @@
 use std::time::Duration;
 
-use matrix_sdk::{
-    config::{RequestConfig, SyncSettings},
-    DisplayName, RoomMember, Session,
-};
+use matrix_sdk::{config::SyncSettings, DisplayName, RoomMember};
 use matrix_sdk_test::{async_test, test_json};
-use mockito::{mock, Matcher};
 use ruma::{
-    device_id, event_id,
+    event_id,
     events::{AnySyncStateEvent, StateEventType},
-    room_id, user_id,
+    room_id,
 };
 use serde_json::{json, Value as JsonValue};
+use wiremock::{
+    matchers::{header, method, path_regex},
+    Mock, ResponseTemplate,
+};
 
-use crate::{logged_in_client, test_client_builder};
+use crate::{logged_in_client, mock_sync};
 
 #[async_test]
 async fn user_presence() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::SYNC.to_string())
-        .create();
+    mock_sync(&server, &*test_json::SYNC, None).await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::MEMBERS.to_string())
-        .create();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::MEMBERS))
+        .mount(&server)
+        .await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -44,13 +41,9 @@ async fn user_presence() {
 
 #[async_test]
 async fn calculate_room_names_from_summary() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::DEFAULT_SYNC_SUMMARY.to_string())
-        .create();
+    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
@@ -61,14 +54,9 @@ async fn calculate_room_names_from_summary() {
 
 #[async_test]
 async fn room_names() {
-    let client = logged_in_client().await;
+    let (client, server) = logged_in_client().await;
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::SYNC.to_string())
-        .expect_at_least(1)
-        .create();
+    mock_sync(&server, &*test_json::SYNC, None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -79,14 +67,10 @@ async fn room_names() {
 
     assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(test_json::INVITE_SYNC.to_string())
-        .expect_at_least(1)
-        .create();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, &*test_json::INVITE_SYNC, Some(sync_token.clone())).await;
 
-    let _response = client.sync_once(SyncSettings::new()).await.unwrap();
+    let _response = client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(client.rooms().len(), 1);
     let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
@@ -101,11 +85,7 @@ async fn room_names() {
 async fn test_state_event_getting() {
     let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-    let session = Session {
-        access_token: "1234".to_owned(),
-        user_id: user_id!("@example:localhost").to_owned(),
-        device_id: device_id!("DEVICEID").to_owned(),
-    };
+    let (client, server) = logged_in_client().await;
 
     let sync = json!({
         "next_batch": "1234",
@@ -162,17 +142,7 @@ async fn test_state_event_getting() {
         }
     });
 
-    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(sync.to_string())
-        .create();
-
-    let client = test_client_builder()
-        .request_config(RequestConfig::new().retry_limit(3))
-        .build()
-        .await
-        .unwrap();
-    client.restore_login(session.clone()).await.unwrap();
+    mock_sync(&server, sync, None).await;
 
     let room = client.get_joined_room(room_id);
     assert!(room.is_none());
@@ -206,80 +176,61 @@ async fn test_state_event_getting() {
 #[allow(dead_code)]
 #[cfg(feature = "experimental-timeline")]
 async fn room_timeline_with_remove() {
-    let client = logged_in_client().await;
+    use futures_util::StreamExt;
+    use matrix_sdk::deserialized_responses::SyncRoomEvent;
+    use wiremock::matchers::query_param;
+
+    let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(test_json::SYNC.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    mock_sync(&server, &*test_json::SYNC, None).await;
 
     let _ = client.sync_once(sync_settings).await.unwrap();
-    sync.assert();
-    drop(sync);
+
     let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
     let (forward_stream, backward_stream) = room.timeline().await.unwrap();
 
     // these two syncs lead to the store removing its existing timeline
     // and replace them with new ones
-    let sync_2 = mock(
-        "GET",
-        Matcher::Regex(
-            r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_owned(),
-        ),
-    )
-    .with_status(200)
-    .with_body(test_json::MORE_SYNC.to_string())
-    .match_header("authorization", "Bearer 1234")
-    .create();
+    mock_sync(&server, &*test_json::MORE_SYNC, Some("s526_47314_0_7_1_1_1_11444_1".to_owned()))
+        .await;
+    mock_sync(&server, &*test_json::MORE_SYNC_2, Some("s526_47314_0_7_1_1_1_11444_2".to_owned()))
+        .await;
 
-    let sync_3 = mock(
-        "GET",
-        Matcher::Regex(
-            r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
-        ),
-    )
-    .with_status(200)
-    .with_body(test_json::MORE_SYNC_2.to_string())
-    .match_header("authorization", "Bearer 1234")
-    .create();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", "t392-516_47314_0_7_1_1_1_11444_1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1),
+        )
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
 
-    let mocked_messages = mock(
-        "GET",
-        Matcher::Regex(
-            r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                .to_owned(),
-        ),
-    )
-    .with_status(200)
-    .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_1.to_string())
-    .match_header("authorization", "Bearer 1234")
-    .create();
-
-    let mocked_messages_2 = mock(
-        "GET",
-        Matcher::Regex(
-            r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                .to_owned(),
-        ),
-    )
-    .with_status(200)
-    .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_2.to_string())
-    .match_header("authorization", "Bearer 1234")
-    .create();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", "t47409-4357353_219380_26003_2269"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2),
+        )
+        .expect(1)
+        .named("messages_batch_2")
+        .mount(&server)
+        .await;
 
     assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_owned()));
     let sync_settings = SyncSettings::new()
         .timeout(Duration::from_millis(3000))
         .token("s526_47314_0_7_1_1_1_11444_1");
     let _ = client.sync_once(sync_settings).await.unwrap();
-    sync_2.assert();
+
     let sync_settings = SyncSettings::new()
         .timeout(Duration::from_millis(3000))
         .token("s526_47314_0_7_1_1_1_11444_2");
     let _ = client.sync_once(sync_settings).await.unwrap();
-    sync_3.assert();
 
     let expected_forward_events = vec![
         "$152037280074GZeOm:localhost",
@@ -296,8 +247,6 @@ async fn room_timeline_with_remove() {
         "$098237280074GZeOm2:localhost",
     ];
 
-    use futures_util::StreamExt;
-    use matrix_sdk::deserialized_responses::SyncRoomEvent;
     let forward_events =
         forward_stream.take(expected_forward_events.len()).collect::<Vec<SyncRoomEvent>>().await;
 
@@ -323,70 +272,55 @@ async fn room_timeline_with_remove() {
     for (r, e) in backward_events.into_iter().zip(expected_backwards_events.iter()) {
         assert_eq!(&r.unwrap().event_id().unwrap().as_str(), e);
     }
-
-    mocked_messages.assert();
-    mocked_messages_2.assert();
 }
 
 #[async_test]
 #[cfg(feature = "experimental-timeline")]
 async fn room_timeline() {
-    let client = logged_in_client().await;
+    use futures_util::StreamExt;
+    use matrix_sdk::deserialized_responses::SyncRoomEvent;
+    use wiremock::matchers::query_param;
+
+    let (client, server) = logged_in_client().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(test_json::MORE_SYNC.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
+    mock_sync(&server, &*test_json::MORE_SYNC, None).await;
 
     let _ = client.sync_once(sync_settings).await.unwrap();
-    sync.assert();
-    drop(sync);
+
     let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
     let (forward_stream, backward_stream) = room.timeline().await.unwrap();
 
-    let sync_2 = mock(
-        "GET",
-        Matcher::Regex(
-            r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
-        ),
-    )
-    .with_status(200)
-    .with_body(test_json::MORE_SYNC_2.to_string())
-    .match_header("authorization", "Bearer 1234")
-    .create();
+    let sync_token = client.sync_token().await.unwrap();
+    assert_eq!(sync_token, "s526_47314_0_7_1_1_1_11444_2");
+    mock_sync(&server, &*test_json::MORE_SYNC_2, Some(sync_token.clone())).await;
 
-    let mocked_messages = mock(
-        "GET",
-        Matcher::Regex(
-            r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                .to_owned(),
-        ),
-    )
-    .with_status(200)
-    .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_1.to_string())
-    .match_header("authorization", "Bearer 1234")
-    .create();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", "t392-516_47314_0_7_1_1_1_11444_1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1),
+        )
+        .expect(1)
+        .named("messages_batch_1")
+        .mount(&server)
+        .await;
 
-    let mocked_messages_2 = mock(
-        "GET",
-        Matcher::Regex(
-            r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                .to_owned(),
-        ),
-    )
-    .with_status(200)
-    .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_2.to_string())
-    .match_header("authorization", "Bearer 1234")
-    .create();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
+        .and(header("authorization", "Bearer 1234"))
+        .and(query_param("from", "t47409-4357353_219380_26003_2269"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2),
+        )
+        .expect(1)
+        .named("messages_batch_2")
+        .mount(&server)
+        .await;
 
-    assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_2".to_owned()));
-    let sync_settings = SyncSettings::new()
-        .timeout(Duration::from_millis(3000))
-        .token("s526_47314_0_7_1_1_1_11444_2");
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000)).token(sync_token);
     let _ = client.sync_once(sync_settings).await.unwrap();
-    sync_2.assert();
 
     let expected_forward_events = vec![
         "$152037280074GZeOm2:localhost",
@@ -397,8 +331,6 @@ async fn room_timeline() {
         "$098237280074GZeOm2:localhost",
     ];
 
-    use futures_util::StreamExt;
-    use matrix_sdk::deserialized_responses::SyncRoomEvent;
     let forward_events =
         forward_stream.take(expected_forward_events.len()).collect::<Vec<SyncRoomEvent>>().await;
 
@@ -434,9 +366,6 @@ async fn room_timeline() {
     for (r, e) in backward_events.into_iter().zip(expected_backwards_events.iter()) {
         assert_eq!(&r.unwrap().event_id().unwrap().as_str(), e);
     }
-
-    mocked_messages.assert();
-    mocked_messages_2.assert();
 }
 
 #[async_test]
@@ -507,8 +436,7 @@ async fn room_permalink() {
         events
     }
 
-    let client = logged_in_client().await;
-    let sync_settings = SyncSettings::new();
+    let (client, server) = logged_in_client().await;
 
     // Without elligible server
     let mut sync_index = 1;
@@ -538,12 +466,8 @@ async fn room_permalink() {
             }),
         ],
     );
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    mock_sync(&server, res, None).await;
+    client.sync_once(SyncSettings::new()).await.unwrap();
     let room = client.get_room(room_id!("!test_room:127.0.0.1")).unwrap();
 
     assert_eq!(
@@ -574,12 +498,9 @@ async fn room_permalink() {
             "type": "m.room.member",
         })],
     );
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -593,12 +514,9 @@ async fn room_permalink() {
     // With two elligible servers
     sync_index += 1;
     let res = sync_response(sync_index, &room_member_events(15, "notarealhs"));
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -612,12 +530,9 @@ async fn room_permalink() {
     // With three elligible servers
     sync_index += 1;
     let res = sync_response(sync_index, &room_member_events(5, "mymatrix"));
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -631,12 +546,9 @@ async fn room_permalink() {
     // With four elligible servers
     sync_index += 1;
     let res = sync_response(sync_index, &room_member_events(10, "yourmatrix"));
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -664,12 +576,9 @@ async fn room_permalink() {
             "type": "m.room.power_levels",
         })],
     );
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -698,12 +607,9 @@ async fn room_permalink() {
             "type": "m.room.power_levels",
         })],
     );
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -731,12 +637,9 @@ async fn room_permalink() {
             "type": "m.room.server_acl",
         })],
     );
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -762,12 +665,9 @@ async fn room_permalink() {
             "type": "m.room.canonical_alias",
         })],
     );
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings.clone()).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
@@ -791,12 +691,9 @@ async fn room_permalink() {
             "type": "m.room.canonical_alias",
         })],
     );
-    let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-        .with_status(200)
-        .with_body(res.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-    client.sync_once(sync_settings).await.unwrap();
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, res, Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
