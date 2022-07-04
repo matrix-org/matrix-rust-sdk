@@ -39,7 +39,7 @@ use ruma::{
         SyncStateEvent,
     },
     serde::Raw,
-    uint, EventId, MatrixToUri, MatrixUri, OwnedServerName, RoomId, UInt, UserId,
+    uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
 };
 
 use crate::{
@@ -1023,6 +1023,44 @@ impl Common {
 
         let via = self.route().await?;
         Ok(self.room_id().matrix_uri(via.iter().map(Deref::deref), join))
+    }
+
+    /// Get a `matrix.to` permalink to an event in this room.
+    ///
+    /// We try to use the synced members in the room for [routing] the room ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event.
+    ///
+    /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
+    pub async fn matrix_to_event_permalink(
+        &self,
+        event_id: impl Into<OwnedEventId>,
+    ) -> Result<MatrixToUri> {
+        // Don't use the alias because an event is tied to a room ID, but an
+        // alias might point to another room, e.g. after a room upgrade.
+        let via = self.route().await?;
+        Ok(self.room_id().matrix_to_event_uri(event_id, via.iter().map(Deref::deref)))
+    }
+
+    /// Get a `matrix:` permalink to an event in this room.
+    ///
+    /// We try to use the synced members in the room for [routing] the room ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event.
+    ///
+    /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
+    pub async fn matrix_event_permalink(
+        &self,
+        event_id: impl Into<OwnedEventId>,
+    ) -> Result<MatrixUri> {
+        // Don't use the alias because an event is tied to a room ID, but an
+        // alias might point to another room, e.g. after a room upgrade.
+        let via = self.route().await?;
+        Ok(self.room_id().matrix_event_uri(event_id, via.iter().map(Deref::deref)))
     }
 }
 
