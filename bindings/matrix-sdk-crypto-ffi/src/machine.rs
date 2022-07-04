@@ -526,7 +526,7 @@ impl OlmMachine {
             EncryptionSettings::default(),
         ))?;
 
-        Ok(requests.into_iter().map(|r| (&*r).into()).collect())
+        Ok(requests.into_iter().map(|r| r.as_ref().into()).collect())
     }
 
     /// Encrypt the given event with the given type and content for the given

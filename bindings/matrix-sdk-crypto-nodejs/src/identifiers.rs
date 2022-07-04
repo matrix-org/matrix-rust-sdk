@@ -1,6 +1,7 @@
 //! Types for [Matrix](https://matrix.org/) identifiers for devices,
 //! events, keys, rooms, servers, users and URIs.
 
+use napi::bindgen_prelude::ToNapiValue;
 use napi_derive::*;
 
 use crate::into_err;
@@ -62,7 +63,7 @@ pub(crate) fn lower_user_ids_to_ruma(users: Vec<&UserId>) -> impl Iterator<Item 
     users.into_iter().map(|user| user.inner.as_ref())
 }
 
-/// A Matrix key ID.
+/// A Matrix device ID.
 ///
 /// Device identifiers in Matrix are completely opaque character
 /// sequences. This type is provided simply for its semantic value.
@@ -91,6 +92,109 @@ impl DeviceId {
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.inner.as_str().to_owned()
+    }
+}
+
+/// A Matrix device key ID.
+///
+/// A key algorithm and a device ID, combined with a ‘:’.
+#[napi]
+#[derive(Debug, Clone)]
+pub struct DeviceKeyId {
+    pub(crate) inner: ruma::OwnedDeviceKeyId,
+}
+
+impl From<ruma::OwnedDeviceKeyId> for DeviceKeyId {
+    fn from(inner: ruma::OwnedDeviceKeyId) -> Self {
+        Self { inner }
+    }
+}
+
+#[napi]
+impl DeviceKeyId {
+    /// Parse/validate and create a new `DeviceKeyId`.
+    #[napi(constructor)]
+    pub fn new(id: String) -> napi::Result<Self> {
+        Ok(Self::from(ruma::DeviceKeyId::parse(id.as_str()).map_err(into_err)?))
+    }
+
+    /// Returns key algorithm of the device key ID.
+    #[napi(getter)]
+    pub fn algorithm(&self) -> DeviceKeyAlgorithm {
+        self.inner.algorithm().into()
+    }
+
+    /// Returns device ID of the device key ID.
+    #[napi(getter)]
+    pub fn device_id(&self) -> DeviceId {
+        self.inner.device_id().to_owned().into()
+    }
+
+    /// Return the device key ID as a string.
+    #[napi]
+    #[allow(clippy::inherent_to_string)]
+    pub fn to_string(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+/// The basic key algorithms in the specification.
+#[napi]
+pub struct DeviceKeyAlgorithm {
+    inner: ruma::DeviceKeyAlgorithm,
+}
+
+impl From<ruma::DeviceKeyAlgorithm> for DeviceKeyAlgorithm {
+    fn from(inner: ruma::DeviceKeyAlgorithm) -> Self {
+        Self { inner }
+    }
+}
+
+#[napi]
+impl DeviceKeyAlgorithm {
+    /// Read the device key algorithm's name. If the name is
+    /// `Unknown`, one may be interested by the `to_string` method to
+    /// read the original name.
+    #[napi(getter)]
+    pub fn name(&self) -> DeviceKeyAlgorithmName {
+        self.inner.clone().into()
+    }
+
+    /// Return the device key algorithm as a string.
+    #[napi]
+    #[allow(clippy::inherent_to_string)]
+    pub fn to_string(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+/// The basic key algorithm names in the specification.
+#[napi]
+pub enum DeviceKeyAlgorithmName {
+    /// The Ed25519 signature algorithm.
+    Ed25519,
+
+    /// The Curve25519 ECDH algorithm.
+    Curve25519,
+
+    /// The Curve25519 ECDH algorithm, but the key also contains
+    /// signatures.
+    SignedCurve25519,
+
+    /// An unknown device key algorithm.
+    Unknown,
+}
+
+impl From<ruma::DeviceKeyAlgorithm> for DeviceKeyAlgorithmName {
+    fn from(value: ruma::DeviceKeyAlgorithm) -> Self {
+        use ruma::DeviceKeyAlgorithm::*;
+
+        match value {
+            Ed25519 => Self::Ed25519,
+            Curve25519 => Self::Curve25519,
+            SignedCurve25519 => Self::SignedCurve25519,
+            _ => Self::Unknown,
+        }
     }
 }
 

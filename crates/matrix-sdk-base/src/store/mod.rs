@@ -523,7 +523,7 @@ impl Deref for Store {
     type Target = dyn StateStore;
 
     fn deref(&self) -> &Self::Target {
-        &*self.inner
+        self.inner.deref()
     }
 }
 
