@@ -31,7 +31,7 @@ pub struct KeysUploadRequest {
     /// A JSON-encoded object of form:
     ///
     /// ```json
-    /// {"device_keys": …, "one_time_keys": …}
+    /// {"device_keys": …, "one_time_keys": …, "fallback_keys": …}
     /// ```
     #[wasm_bindgen(readonly)]
     pub body: JsString,
@@ -294,7 +294,7 @@ macro_rules! request {
     };
 }
 
-request!(KeysUploadRequest from RumaKeysUploadRequest maps fields device_keys, one_time_keys);
+request!(KeysUploadRequest from RumaKeysUploadRequest maps fields device_keys, one_time_keys, fallback_keys);
 request!(KeysQueryRequest from RumaKeysQueryRequest maps fields timeout, device_keys, token);
 request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout, one_time_keys);
 request!(ToDeviceRequest from RumaToDeviceRequest maps fields event_type, txn_id, messages);

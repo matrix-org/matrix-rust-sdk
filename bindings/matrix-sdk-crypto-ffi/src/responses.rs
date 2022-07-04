@@ -132,6 +132,7 @@ impl From<OutgoingRequest> for Request {
                 let body = json!({
                     "device_keys": u.device_keys,
                     "one_time_keys": u.one_time_keys,
+                    "fallback_keys": u.fallback_keys,
                 });
 
                 Request::KeysUpload {
