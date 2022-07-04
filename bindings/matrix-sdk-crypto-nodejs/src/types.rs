@@ -132,8 +132,7 @@ impl MaybeSignature {
         self.inner.is_ok()
     }
 
-    /// Check whether the signature could not have been successfully
-    /// decoded.
+    /// Check whether the signature could not be successfully decoded.
     #[napi(getter)]
     pub fn is_invalid(&self) -> bool {
         self.inner.is_err()
@@ -146,7 +145,7 @@ impl MaybeSignature {
     }
 
     /// The base64 encoded string that is claimed to contain a
-    /// signature but could not be decoded if any.
+    /// signature but could not be decoded, if any.
     #[napi(getter)]
     pub fn invalid_signature_source(&self) -> Option<String> {
         match &self.inner {

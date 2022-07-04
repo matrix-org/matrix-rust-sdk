@@ -134,7 +134,7 @@ impl DeviceKeyId {
     #[napi]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
-        self.inner.as_str().to_owned()
+        self.inner.to_string()
     }
 }
 
@@ -164,7 +164,7 @@ impl DeviceKeyAlgorithm {
     #[napi]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
-        self.inner.as_ref().to_owned()
+        self.inner.to_string()
     }
 }
 
