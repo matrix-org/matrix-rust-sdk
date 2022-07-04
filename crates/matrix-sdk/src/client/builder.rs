@@ -295,6 +295,7 @@ impl ClientBuilder {
         let base_client = BaseClient::with_store_config(self.store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
+        let mut authentication_server: Option<Url> = None;
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
             HomeserverConfig::ServerName(server_name) => {
@@ -313,14 +314,20 @@ impl ClientBuilder {
                         err => ClientBuildError::Http(err),
                     })?;
 
+                if let Some(base_url) = well_known.authentication.map(|server| server.issuer) {
+                    authentication_server = Url::parse(&base_url).ok();
+                };
+
                 well_known.homeserver.base_url
             }
         };
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
+        let authentication_server = authentication_server.map(|server| RwLock::new(server));
 
         let inner = Arc::new(ClientInner {
             homeserver,
+            authentication_server,
             http_client,
             base_client,
             server_versions: OnceCell::new_with(self.server_versions),

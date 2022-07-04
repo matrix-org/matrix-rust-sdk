@@ -135,6 +135,8 @@ pub struct Client {
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
+    /// The URL of the authentication server to connect to.
+    authentication_server: Option<RwLock<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -290,6 +292,14 @@ impl Client {
     /// The Homeserver of the client.
     pub async fn homeserver(&self) -> Url {
         self.inner.homeserver.read().await.clone()
+    }
+
+    /// The authentication server of the client.
+    pub async fn authentication_server(&self) -> Option<Url> {
+        if let Some(server) = &self.inner.authentication_server {
+            return Some(server.read().await.clone());
+        }
+        return None;
     }
 
     /// Get the user id of the current owner of the client.
