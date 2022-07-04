@@ -1,5 +1,5 @@
 {
-    "name": "matrix-sdk-crypto",
+    "name": "@matrix-org/matrix-sdk-crypto",
     "version": "0.5.0",
     "main": "index.js",
     "types": "index.d.ts",
@@ -22,7 +22,7 @@
     },
     "scripts": {
         "build": "napi build --platform --release --strip",
-        "test": "jest --verbose",
+        "test": "jest --verbose --testTimeout 10000",
         "doc": "typedoc --tsconfig ."
     }
 }

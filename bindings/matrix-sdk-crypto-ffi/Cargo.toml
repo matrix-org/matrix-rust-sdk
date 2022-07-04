@@ -20,7 +20,7 @@ hmac = "0.12.1"
 http = "0.2.6"
 pbkdf2 = "0.11.0"
 rand = "0.8.5"
-ruma = { version = "0.6.1", features = ["client-api-c"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f", features = ["client-api-c"] }
 serde = "1.0.136"
 serde_json = "1.0.79"
 sha2 = "0.10.2"

@@ -329,25 +329,19 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        if event
-                            .event
-                            .get_field::<OwnedUserId>("sender")?
-                            .map_or(false, |id| id != user_id)
-                        {
-                            let actions = push_rules.get_actions(&event.event, context).to_vec();
+                        let actions = push_rules.get_actions(&event.event, context);
 
-                            if actions.iter().any(|a| matches!(a, Action::Notify)) {
-                                changes.add_notification(
-                                    room_id,
-                                    Notification::new(
-                                        actions,
-                                        event.event.clone(),
-                                        false,
-                                        room_id.to_owned(),
-                                        MilliSecondsSinceUnixEpoch::now(),
-                                    ),
-                                );
-                            }
+                        if actions.iter().any(|a| matches!(a, Action::Notify)) {
+                            changes.add_notification(
+                                room_id,
+                                Notification::new(
+                                    actions.to_owned(),
+                                    event.event.clone(),
+                                    false,
+                                    room_id.to_owned(),
+                                    MilliSecondsSinceUnixEpoch::now(),
+                                ),
+                            );
                         }
                         // TODO if there is an
                         // Action::SetTweak(Tweak::Highlight) we need to store
@@ -1053,6 +1047,7 @@ impl BaseClient {
         };
 
         Ok(Some(PushConditionRoomCtx {
+            user_id: user_id.to_owned(),
             room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,

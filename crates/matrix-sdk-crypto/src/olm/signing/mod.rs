@@ -660,9 +660,7 @@ impl PrivateCrossSigningIdentity {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{
-        device_id, signatures::CanonicalJsonValue, user_id, DeviceKeyAlgorithm, DeviceKeyId, UserId,
-    };
+    use ruma::{device_id, user_id, CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
     use serde_json::json;
 
     use super::{PrivateCrossSigningIdentity, Signing};

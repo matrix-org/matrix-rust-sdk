@@ -107,7 +107,7 @@ pub enum StoreError {
     ///
     /// This should never happen.
     #[error("Redaction failed: {0}")]
-    Redaction(#[source] ruma::signatures::Error),
+    Redaction(#[source] ruma::canonical_json::RedactionError),
 }
 
 impl StoreError {

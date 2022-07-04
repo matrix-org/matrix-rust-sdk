@@ -1,13 +1,4 @@
 namespace sdk {
-    [Throws=ClientError]
-    Client login_new_client(string base_path, string username, string password);
-
-    [Throws=ClientError]
-    Client guest_client(string base_path, string homeserver);
-
-    [Throws=ClientError]
-    Client login_with_token(string base_path, string restore_token);
-
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
     string gen_transaction_id();
@@ -22,8 +13,30 @@ callback interface ClientDelegate {
     void did_receive_sync_update();
 };
 
+interface ClientBuilder {
+    constructor();
+
+    [Self=ByArc]
+    ClientBuilder base_path(string path);
+
+    [Self=ByArc]
+    ClientBuilder username(string username);
+
+    [Self=ByArc]
+    ClientBuilder homeserver_url(string url);
+
+    [Throws=ClientError, Self=ByArc]
+    Client build();
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
+
+    [Throws=ClientError]
+    void login(string username, string password);
+
+    [Throws=ClientError]
+    void restore_login(string restore_token);
 
     void start_sync();
 
@@ -52,6 +65,9 @@ interface Client {
 
     [Throws=ClientError]
     sequence<u8> get_media_content(MediaSource source);
+
+    [Throws=ClientError]
+    SessionVerificationController get_session_verification_controller();
 };
 
 callback interface RoomDelegate {
@@ -134,4 +150,34 @@ interface EmoteMessage {
 
 interface MediaSource {
     string url();
+};
+
+interface SessionVerificationEmoji {
+    string symbol();
+    string description();
+};
+
+callback interface SessionVerificationControllerDelegate {
+    void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
+    void did_fail();
+    void did_cancel();
+    void did_finish();
+};
+
+interface SessionVerificationController {
+    void set_delegate(SessionVerificationControllerDelegate? delegate);
+
+    boolean is_verified();
+
+    [Throws=ClientError]
+    void request_verification();
+
+    [Throws=ClientError]
+    void approve_verification();
+
+    [Throws=ClientError]
+    void decline_verification();
+
+    [Throws=ClientError]
+    void cancel_verification();
 };
