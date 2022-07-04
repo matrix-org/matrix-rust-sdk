@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
 };
@@ -441,7 +442,7 @@ impl BaseClient {
                 // having confusing profile changes when a member gets
                 // kicked/banned.
                 if member.state_key() == member.sender() {
-                    profiles.insert(member.sender().to_owned(), (&member).into());
+                    profiles.insert(member.sender().to_owned(), member.borrow().into());
                 }
 
                 members.insert(member.state_key().to_owned(), member);
@@ -854,7 +855,7 @@ impl BaseClient {
                             .profiles
                             .entry(room_id.to_owned())
                             .or_default()
-                            .insert(member.sender().to_owned(), (&member).into());
+                            .insert(member.sender().to_owned(), member.borrow().into());
                     }
 
                     changes
