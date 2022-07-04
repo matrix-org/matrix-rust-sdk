@@ -1,4 +1,4 @@
-const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../');
+const { OlmMachine, UserId, DeviceId, DeviceKeyId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState, CrossSigningStatus, MaybeSignature } = require('../');
 const path = require('path');
 const os = require('os');
 const fs = require('fs/promises');
@@ -347,5 +347,54 @@ describe(OlmMachine.name, () => {
         const m = await machine();
 
         expect(await m.updateTrackedUsers([user])).toStrictEqual(undefined);
+    });
+
+    test('can read cross-signing status', async () => {
+        const m = await machine();
+        const crossSigningStatus = await m.crossSigningStatus();
+
+        expect(crossSigningStatus).toBeInstanceOf(CrossSigningStatus);
+        expect(crossSigningStatus.hasMaster).toStrictEqual(false);
+        expect(crossSigningStatus.hasSelfSigning).toStrictEqual(false);
+        expect(crossSigningStatus.hasUserSigning).toStrictEqual(false);
+    });
+
+    test('can sign a message', async () => {
+        const m = await machine();
+        const signatures = await m.sign('foo');
+
+        expect(signatures.isEmpty).toStrictEqual(false);
+        expect(signatures.count).toStrictEqual(1n);
+
+        let base64;
+
+        // `get`
+        {
+            const signature = signatures.get(user);
+
+            expect(signature).toMatchObject({
+                "ed25519:foobar": expect.any(MaybeSignature),
+            });
+            expect(signature['ed25519:foobar'].isValid).toStrictEqual(true);
+            expect(signature['ed25519:foobar'].isInvalid).toStrictEqual(false);
+            expect(signature['ed25519:foobar'].invalidSignatureSource).toBeNull();
+
+            base64 = signature['ed25519:foobar'].signature.toBase64();
+
+            expect(base64).toMatch(/^[A-Za-z0-9+/]+$/);
+            expect(signature['ed25519:foobar'].signature.ed25519.toBase64()).toStrictEqual(base64);
+        }
+
+        // `getSignature`
+        {
+            const signature = signatures.getSignature(user, new DeviceKeyId('ed25519:foobar'));
+            expect(signature.toBase64()).toStrictEqual(base64);
+        }
+
+        // Unknown signatures.
+        {
+            expect(signatures.get(new UserId('@hello:example.org'))).toBeNull();
+            expect(signatures.getSignature(user, new DeviceKeyId('world:foobar'))).toBeNull();
+        }
     });
 });

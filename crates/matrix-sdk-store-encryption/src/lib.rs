@@ -16,6 +16,8 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations, missing_docs)]
 
+use std::ops::DerefMut;
+
 use blake3::{derive_key, Hash};
 use chacha20poly1305::{
     aead::{Aead, Error as EncryptionError, NewAead},
@@ -482,7 +484,7 @@ impl StoreCipher {
     /// Expand the given passphrase into a KEY_SIZE long key.
     fn expand_key(passphrase: &str, salt: &[u8], rounds: u32) -> Box<[u8; 32]> {
         let mut key = Box::new([0u8; 32]);
-        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), salt, rounds, &mut *key);
+        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), salt, rounds, key.deref_mut());
 
         key
     }

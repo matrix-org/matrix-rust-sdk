@@ -20,7 +20,7 @@ mod qrcode;
 mod requests;
 mod sas;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
@@ -148,7 +148,7 @@ impl VerificationStore {
     }
 
     pub fn inner(&self) -> &dyn CryptoStore {
-        &*self.inner
+        self.inner.deref()
     }
 }
 

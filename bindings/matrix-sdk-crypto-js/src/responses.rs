@@ -1,5 +1,7 @@
 //! Types related to responses.
 
+use std::borrow::Borrow;
+
 use js_sys::{Array, JsString};
 use matrix_sdk_common::deserialized_responses::{AlgorithmInfo, EncryptionInfo};
 use matrix_sdk_crypto::IncomingResponse;
@@ -194,7 +196,7 @@ impl DecryptedRoomEvent {
     /// verified or deleted.
     #[wasm_bindgen(getter, js_name = "verificationState")]
     pub fn verification_state(&self) -> Option<encryption::VerificationState> {
-        Some((&self.encryption_info.as_ref()?.verification_state).into())
+        Some((self.encryption_info.as_ref()?.verification_state.borrow()).into())
     }
 }
 
