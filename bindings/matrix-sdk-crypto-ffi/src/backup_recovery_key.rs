@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter};
+use std::{collections::HashMap, iter, ops::DerefMut};
 
 use hmac::Hmac;
 use matrix_sdk_crypto::{
@@ -101,7 +101,7 @@ impl BackupRecoveryKey {
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
         let rounds = rounds as u32;
 
-        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, &mut *key);
+        pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), salt.as_bytes(), rounds, key.deref_mut());
 
         let recovery_key = RecoveryKey::from_bytes(&key);
 

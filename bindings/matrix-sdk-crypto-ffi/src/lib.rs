@@ -14,7 +14,7 @@ mod responses;
 mod users;
 mod verification;
 
-use std::{collections::HashMap, convert::TryFrom, str::FromStr, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, convert::TryFrom, str::FromStr, sync::Arc};
 
 pub use backup_recovery_key::{
     BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
@@ -190,7 +190,12 @@ pub fn migrate(
     processed_steps += 1;
     listener(processed_steps, total_steps);
 
-    let user_id: Arc<UserId> = (&*parse_user_id(&data.account.user_id)?).into();
+    let user_id: Arc<UserId> = {
+        let user_id: OwnedUserId = parse_user_id(&data.account.user_id)?;
+        let user_id: &UserId = user_id.borrow();
+
+        user_id.into()
+    };
     let device_id: Box<DeviceId> = data.account.device_id.into();
     let device_id: Arc<DeviceId> = device_id.into();
 

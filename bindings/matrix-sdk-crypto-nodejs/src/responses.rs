@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use matrix_sdk_common::deserialized_responses::{AlgorithmInfo, EncryptionInfo};
 use matrix_sdk_crypto::IncomingResponse;
 use napi_derive::*;
@@ -190,7 +192,7 @@ impl DecryptedRoomEvent {
     /// verified or deleted.
     #[napi(getter)]
     pub fn verification_state(&self) -> Option<encryption::VerificationState> {
-        Some((&self.encryption_info.as_ref()?.verification_state).into())
+        Some(self.encryption_info.as_ref()?.verification_state.borrow().into())
     }
 }
 
