@@ -729,8 +729,8 @@ impl ReadOnlyAccount {
         let identity_keys = account.identity_keys();
 
         Ok(Self {
-            user_id: (&*pickle.user_id).into(),
-            device_id: (&*pickle.device_id).into(),
+            user_id: (*pickle.user_id).into(),
+            device_id: (*pickle.device_id).into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),

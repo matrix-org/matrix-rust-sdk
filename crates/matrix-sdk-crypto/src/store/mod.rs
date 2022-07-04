@@ -579,7 +579,7 @@ impl Deref for Store {
     type Target = dyn CryptoStore;
 
     fn deref(&self) -> &Self::Target {
-        &*self.inner
+        self.inner.deref()
     }
 }
 
