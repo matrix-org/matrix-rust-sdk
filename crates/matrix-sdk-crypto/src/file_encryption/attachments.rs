@@ -277,7 +277,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
 
 /// Struct holding all the information that is needed to decrypt an encrypted
 /// file.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaEncryptionInfo {
     #[serde(rename = "v")]
     /// The version of the encryption scheme.
