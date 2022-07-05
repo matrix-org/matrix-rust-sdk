@@ -100,7 +100,7 @@ impl EncryptedAttachment {
     /// current available Node.js API does seem be limited in that
     /// regard.
     #[napi(getter)]
-    pub fn encrypted_data(&self) -> napi::Result<Uint8Array> {
-        Ok(Uint8Array::new(self.encrypted_data.deref().to_owned()))
+    pub fn encrypted_data(&self) -> Uint8Array {
+        Uint8Array::new(self.encrypted_data.deref().to_owned())
     }
 }
