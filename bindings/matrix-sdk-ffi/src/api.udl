@@ -154,20 +154,30 @@ interface MediaSource {
     string url();
 };
 
-interface AuthenticationService {
-    [Throws=ClientError]
-    constructor(string base_path, string server_name);
-    
-    string homeserver();
-    string? authentication_server();
+[Error]
+enum AuthenticationError {
+  "ClientMissing",
+  "ClientBuilderFailed",
+  "GetLoginFlowsFailed",
+  "LoginFailed",
+};
 
-    [Throws=ClientError]
+interface AuthenticationService {
+    constructor(string base_path);
+    
+    [Throws=AuthenticationError]
+    string homeserver();
+    
+    [Throws=AuthenticationError]
+    string? authentication_issuer();
+
+    [Throws=AuthenticationError]
     boolean supports_password_login();
     
-    [Throws=ClientError]
-    void update(string server_name);
+    [Throws=AuthenticationError]
+    void use_server(string server_name);
     
-    [Throws=ClientError]
+    [Throws=AuthenticationError]
     Client login(string username, string password);
 };
 

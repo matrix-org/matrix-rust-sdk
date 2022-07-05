@@ -135,8 +135,8 @@ pub struct Client {
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
-    /// The URL of the authentication server to connect to.
-    authentication_server: Option<RwLock<Url>>,
+    /// The OIDC Provider that is trusted by the homeserver.
+    authentication_issuer: Option<RwLock<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -294,9 +294,9 @@ impl Client {
         self.inner.homeserver.read().await.clone()
     }
 
-    /// The authentication server of the client.
-    pub async fn authentication_server(&self) -> Option<Url> {
-        if let Some(server) = &self.inner.authentication_server {
+    /// The OIDC Provider that is trusted by the homeserver.
+    pub async fn authentication_issuer(&self) -> Option<Url> {
+        if let Some(server) = &self.inner.authentication_issuer {
             return Some(server.read().await.clone());
         }
         return None;

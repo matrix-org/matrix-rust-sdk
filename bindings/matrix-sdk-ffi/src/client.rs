@@ -77,11 +77,11 @@ impl Client {
         RUNTIME.block_on(async move { self.client.homeserver().await.to_string() })
     }
 
-    /// The authentication server used by the client's homeserver. `nil` when
+    /// The OIDC Provider that is trusted by the homeserver. `nil` when
     /// not configured.
-    pub fn authentication_server(&self) -> Option<String> {
+    pub fn authentication_issuer(&self) -> Option<String> {
         RUNTIME.block_on(async move {
-            self.client.authentication_server().await.map(|server| server.to_string())
+            self.client.authentication_issuer().await.map(|server| server.to_string())
         })
     }
 
