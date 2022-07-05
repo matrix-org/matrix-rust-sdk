@@ -47,8 +47,8 @@ impl RoomMember {
     }
 
     /// Get the original member event
-    pub fn event(&self) -> Arc<MemberEvent> {
-        self.event.clone()
+    pub fn event(&self) -> &Arc<MemberEvent> {
+        &self.event
     }
 
     /// Get the display name of the member if there is one.

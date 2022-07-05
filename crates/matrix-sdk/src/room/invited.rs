@@ -13,18 +13,18 @@ pub struct Invited {
     pub(crate) inner: Common,
 }
 
-/// Details of the (latest) invite
+/// Details of the (latest) invite.
 #[derive(Debug, Clone)]
 pub struct Invite {
-    /// Who has been invited
+    /// Who has been invited.
     pub invitee: RoomMember,
-    /// Who sent the invite
+    /// Who sent the invite.
     pub inviter: Option<RoomMember>,
 }
 
 #[derive(Error, Debug)]
 pub enum InvitationError {
-    /// The client isn't logged in
+    /// The client isn't logged in.
     #[error("The client isn't authenticated")]
     NotAuthenticated,
     #[error("No membership event found")]
@@ -58,7 +58,7 @@ impl Invited {
         self.inner.join().await
     }
 
-    /// The membership details of the (latest) invite for this room
+    /// The membership details of the (latest) invite for this room.
     pub async fn invite_details(&self) -> Result<Invite> {
         let user_id = self
             .inner

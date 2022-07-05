@@ -313,21 +313,21 @@ impl MemberEvent {
             MemberEvent::Stripped(e) => Some(&e.content),
         }
     }
-    /// The Sender of this event
+    /// The sender of this event.
     pub fn sender(&self) -> &UserId {
         match self {
             MemberEvent::Sync(e) => e.sender(),
             MemberEvent::Stripped(e) => e.sender.borrow(),
         }
     }
-    /// The EventId of this event
+    /// The ID of this event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
             MemberEvent::Sync(e) => Some(e.event_id()),
             MemberEvent::Stripped(_) => None,
         }
     }
-    /// The Server Timestamp of this event
+    /// The Server Timestamp of this event.
     pub fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             MemberEvent::Sync(e) => Some(e.origin_server_ts()),
