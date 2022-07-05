@@ -353,8 +353,9 @@ impl InboundGroupSession {
         let message = MegolmMessage::from_base64(&content.ciphertext)?;
 
         let decrypted = self.decrypt_helper(&message).await?;
+        let plaintext = String::from_utf8_lossy(&decrypted.plaintext);
 
-        let mut decrypted_value = serde_json::from_str::<Value>(&decrypted.plaintext)?;
+        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
         let decrypted_object = decrypted_value.as_object_mut().ok_or(EventError::NotAnObject)?;
 
         let server_ts: i64 = event.origin_server_ts.0.into();

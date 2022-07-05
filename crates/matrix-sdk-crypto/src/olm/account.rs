@@ -1040,7 +1040,9 @@ impl ReadOnlyAccount {
             last_use_time: now,
         };
 
-        Ok(InboundCreationResult { session, plaintext: result.plaintext })
+        let plaintext = String::from_utf8_lossy(&result.plaintext).to_string();
+
+        Ok(InboundCreationResult { session, plaintext })
     }
 
     /// Create a group session pair.
