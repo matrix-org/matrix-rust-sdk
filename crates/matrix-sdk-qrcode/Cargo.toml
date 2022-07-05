@@ -30,4 +30,4 @@ thiserror = "1.0.30"
 
 [dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac/"
-rev = "d0e744287a14319c2a9148fef3747548c740fc36"
+rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd"
