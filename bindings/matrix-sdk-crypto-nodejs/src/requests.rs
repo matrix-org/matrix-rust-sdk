@@ -1,5 +1,7 @@
 //! Types to handle requests.
 
+use std::time::Duration;
+
 use matrix_sdk_crypto::requests::{
     KeysBackupRequest as RumaKeysBackupRequest, KeysQueryRequest as RumaKeysQueryRequest,
     RoomMessageRequest as RumaRoomMessageRequest, ToDeviceRequest as RumaToDeviceRequest,
@@ -220,7 +222,7 @@ impl KeysBackupRequest {
 }
 
 macro_rules! request {
-    ($request:ident from $ruma_request:ident maps fields $( $field:ident ),+ $(,)? ) => {
+    ($request:ident from $ruma_request:ident maps fields $( $field:ident $( { $transformation:expr } )? ),+ $(,)? ) => {
         impl TryFrom<(String, &$ruma_request)> for $request {
             type Error = serde_json::Error;
 
@@ -229,7 +231,15 @@ macro_rules! request {
             ) -> Result<Self, Self::Error> {
                 let mut map = serde_json::Map::new();
                 $(
-                    map.insert(stringify!($field).to_owned(), serde_json::to_value(&request.$field)?);
+                    let field = &request.$field;
+                    $(
+                        let field = {
+                            let $field = field;
+
+                            $transformation
+                        };
+                    )?
+                    map.insert(stringify!($field).to_owned(), serde_json::to_value(field)?);
                 )+
                 let value = serde_json::Value::Object(map);
 
@@ -243,8 +253,8 @@ macro_rules! request {
 }
 
 request!(KeysUploadRequest from RumaKeysUploadRequest maps fields device_keys, one_time_keys, fallback_keys);
-request!(KeysQueryRequest from RumaKeysQueryRequest maps fields timeout, device_keys, token);
-request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout, one_time_keys);
+request!(KeysQueryRequest from RumaKeysQueryRequest maps fields timeout { timeout.as_ref().map(Duration::as_millis) }, device_keys, token);
+request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout { timeout.as_ref().map(Duration::as_millis) }, one_time_keys);
 request!(ToDeviceRequest from RumaToDeviceRequest maps fields event_type, txn_id, messages);
 request!(SignatureUploadRequest from RumaSignatureUploadRequest maps fields signed_keys);
 request!(RoomMessageRequest from RumaRoomMessageRequest maps fields room_id, txn_id, content);
