@@ -10,7 +10,12 @@ use matrix_sdk::{
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
-use ruma::{api::MatrixVersion, room_id};
+use ruma::{
+    api::{appservice::event::push_events, MatrixVersion},
+    events::AnyRoomEvent,
+    room_id,
+    serde::Raw,
+};
 use serde_json::json;
 use warp::{Filter, Reply};
 
@@ -97,6 +102,72 @@ async fn test_put_transaction() -> Result<()> {
         .status();
 
     assert_eq!(status, 200);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
+    let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::Member);
+    let transaction = transaction_builder.build_json_transaction();
+
+    let appservice = appservice(None).await?;
+
+    #[allow(clippy::mutex_atomic)]
+    let on_state_member = Arc::new(Mutex::new(false));
+    appservice
+        .register_event_handler({
+            let on_state_member = on_state_member.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                *on_state_member.lock().unwrap() = true;
+                future::ready(())
+            }
+        })
+        .await?;
+
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transaction)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
+    assert_eq!(status, 200);
+    {
+        let on_room_member_called = *on_state_member.lock().unwrap();
+        assert!(on_room_member_called);
+    }
+
+    // Reset this to check that next time it doesnt get called
+    {
+        let mut on_room_member_called = on_state_member.lock().unwrap();
+        *on_room_member_called = false;
+    }
+
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transaction)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
+    // According to https://spec.matrix.org/v1.2/application-service-api/#pushing-events
+    // This should noop and return 200.
+    assert_eq!(status, 200);
+    {
+        let on_room_member_called = *on_state_member.lock().unwrap();
+        // This time we should not have called the event handler.
+        assert!(!on_room_member_called);
+    }
 
     Ok(())
 }
@@ -296,6 +367,105 @@ async fn test_appservice_on_sub_path() -> Result<()> {
 
     assert_eq!(members[0].display_name().unwrap(), "changed");
 
+    Ok(())
+}
+
+#[async_test]
+async fn test_receive_transaction() -> Result<()> {
+    tracing_subscriber::fmt().try_init().ok();
+    let json = vec![
+        Raw::new(&json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "Appservice",
+                "membership": "join"
+            },
+            "event_id": "$151800140479rdvjg:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "sender": "@_appservice:localhost",
+            "state_key": "@_appservice:localhost",
+            "type": "m.room.member",
+            "room_id": "!coolplace:localhost",
+            "unsigned": {
+                "age": 2970366
+            }
+        }))?
+        .cast::<AnyRoomEvent>(),
+        Raw::new(&json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "Appservice",
+                "membership": "join"
+            },
+            "event_id": "$151800140491rfbja:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "sender": "@_appservice:localhost",
+            "state_key": "@_appservice:localhost",
+            "type": "m.room.member",
+            "room_id": "!boringplace:localhost",
+            "unsigned": {
+                "age": 2970366
+            }
+        }))?
+        .cast::<AnyRoomEvent>(),
+        Raw::new(&json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "Alice",
+                "membership": "join"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "sender": "@_appservice_alice:localhost",
+            "state_key": "@_appservice_alice:localhost",
+            "type": "m.room.member",
+            "room_id": "!coolplace:localhost",
+            "unsigned": {
+                "age": 2970366
+            }
+        }))?
+        .cast::<AnyRoomEvent>(),
+        Raw::new(&json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "Bob",
+                "membership": "invite"
+            },
+            "event_id": "$151800140594rfvjc:localhost",
+            "membership": "invite",
+            "origin_server_ts": 151800174,
+            "sender": "@_appservice_bob:localhost",
+            "state_key": "@_appservice_bob:localhost",
+            "type": "m.room.member",
+            "room_id": "!boringplace:localhost",
+            "unsigned": {
+                "age": 2970366
+            }
+        }))?
+        .cast::<AnyRoomEvent>(),
+    ];
+    let appservice = appservice(None).await?;
+
+    let alice = appservice.virtual_user_client("_appservice_alice").await?;
+    let bob = appservice.virtual_user_client("_appservice_bob").await?;
+    appservice
+        .receive_transaction(push_events::v1::IncomingRequest::new("dontcare".into(), json))
+        .await?;
+    let coolplace = room_id!("!coolplace:localhost");
+    let boringplace = room_id!("!boringplace:localhost");
+    assert!(
+        alice.get_joined_room(coolplace).is_some(),
+        "Alice's membership in coolplace should be join"
+    );
+    assert!(
+        bob.get_invited_room(boringplace).is_some(),
+        "Bob's membership in boringplace should be invite"
+    );
+    assert!(alice.get_room(boringplace).is_none(), "Alice should not know about boringplace");
+    assert!(bob.get_room(coolplace).is_none(), "Bob should not know about coolplace");
     Ok(())
 }
 

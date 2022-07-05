@@ -32,7 +32,7 @@ pub async fn run_client(
         .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
         .add_view(full_sync_view)
         .build()?;
-    let (cancel, stream) = syncer.stream().expect("we can build the stream");
+    let (cancel, stream) = syncer.stream().await.expect("we can build the stream");
     let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
     let state = view.state.clone();
     let mut ssync_state = state::SlidingSyncState::new(view);

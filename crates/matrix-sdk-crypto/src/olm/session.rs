@@ -83,6 +83,7 @@ impl Session {
     /// * `message` - The Olm message that should be decrypted.
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let plaintext = self.inner.lock().await.decrypt(message)?;
+        let plaintext = String::from_utf8_lossy(&plaintext).to_string();
         self.last_use_time = SecondsSinceUnixEpoch::now();
         Ok(plaintext)
     }
@@ -187,7 +188,7 @@ impl Session {
     ///
     /// * `user_id` - Our own user id that the session belongs to.
     ///
-    /// * `device_id` - Our own device id that the session belongs to.
+    /// * `device_id` - Our own device ID that the session belongs to.
     ///
     /// * `our_idenity_keys` - An clone of the Arc to our own identity keys.
     ///

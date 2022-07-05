@@ -17,15 +17,13 @@ use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duratio
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
-use matrix_sdk_base::once_cell::sync::OnceCell;
-use matrix_sdk_common::{locks::RwLock, AsyncTraitDeps};
+use matrix_sdk_common::AsyncTraitDeps;
 use reqwest::Response;
 use ruma::api::{
     error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
     OutgoingRequestAppserviceExt, SendAccessToken,
 };
 use tracing::trace;
-use url::Url;
 
 use crate::{config::RequestConfig, error::HttpError, Session};
 
@@ -92,21 +90,15 @@ pub trait HttpSend: AsyncTraitDeps {
     ) -> Result<http::Response<Bytes>, HttpError>;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
-    pub(crate) homeserver: Arc<RwLock<Url>>,
-    pub(crate) session: OnceCell<Session>,
     pub(crate) request_config: RequestConfig,
 }
 
 impl HttpClient {
-    pub(crate) fn new(
-        inner: Arc<dyn HttpSend>,
-        homeserver: Arc<RwLock<Url>>,
-        request_config: RequestConfig,
-    ) -> Self {
-        HttpClient { inner, homeserver, session: Default::default(), request_config }
+    pub(crate) fn new(inner: Arc<dyn HttpSend>, request_config: RequestConfig) -> Self {
+        HttpClient { inner, request_config }
     }
 
     #[tracing::instrument(skip(self, request), fields(request_type = type_name::<Request>()))]
@@ -114,7 +106,9 @@ impl HttpClient {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        server_versions: Arc<[MatrixVersion]>,
+        homeserver: String,
+        session: Option<&Session>,
+        server_versions: &[MatrixVersion],
     ) -> Result<Request::IncomingResponse, HttpError>
     where
         Request: OutgoingRequest + Debug,
@@ -130,18 +124,19 @@ impl HttpClient {
             return Err(HttpError::NotClientRequest);
         }
 
+        trace!("Serializing request");
         let request = if !self.request_config.assert_identity {
             let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
                 // Small optimization: Don't take the session lock if we know the auth token
                 // isn't going to be used anyways.
                 SendAccessToken::None
             } else {
-                match self.session() {
-                    Some(session) => {
+                match session {
+                    Some(sess) => {
                         if config.force_auth {
-                            SendAccessToken::Always(&session.access_token)
+                            SendAccessToken::Always(&sess.access_token)
                         } else {
-                            SendAccessToken::IfRequired(&session.access_token)
+                            SendAccessToken::IfRequired(&sess.access_token)
                         }
                     }
                     None => SendAccessToken::None,
@@ -149,41 +144,32 @@ impl HttpClient {
             };
 
             request.try_into_http_request::<BytesMut>(
-                &self.homeserver.read().await.to_string(),
+                &homeserver,
                 send_access_token,
-                &server_versions,
+                server_versions,
             )?
         } else {
             request.try_into_http_request_with_user_id::<BytesMut>(
-                &self.homeserver.read().await.to_string(),
-                SendAccessToken::Always(
-                    &self.session().ok_or(HttpError::UserIdRequired)?.access_token,
-                ),
-                &self.session().ok_or(HttpError::UserIdRequired)?.user_id,
-                &server_versions,
+                &homeserver,
+                SendAccessToken::Always(&session.ok_or(HttpError::UserIdRequired)?.access_token),
+                &session.ok_or(HttpError::UserIdRequired)?.user_id,
+                server_versions,
             )?
         };
 
         let request = request.map(|body| body.freeze());
+
+        trace!("Sending request");
         let response = self.inner.send_request(request, config).await?;
 
         trace!("Got response: {:?}", response);
 
         let response = Request::IncomingResponse::try_from_http_response(response)?;
-
         Ok(response)
-    }
-
-    pub(crate) fn set_session(&self, session: Session) {
-        self.session.set(session).expect("A session was already set");
-    }
-
-    fn session(&self) -> Option<&Session> {
-        self.session.get()
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct HttpSettings {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) disable_ssl_verification: bool,

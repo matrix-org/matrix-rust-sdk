@@ -73,7 +73,7 @@ impl BaseClient {
 
         let store = self.store();
         let mut changes = StateChanges::default();
-        let mut ambiguity_cache = AmbiguityCache::new(store.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
         // FIXME not yet supported by sliding sync. 
         // self.handle_account_data(&account_data.events, &mut changes).await;

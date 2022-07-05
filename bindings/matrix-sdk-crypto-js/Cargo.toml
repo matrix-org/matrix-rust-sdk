@@ -1,0 +1,39 @@
+[package]
+authors = ["Ivan Enderlin <ivane@element.io>"]
+description = "Matrix encryption library, for JavaScript"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
+license = "Apache-2.0"
+name = "matrix-sdk-crypto-js"
+readme = "README.md"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version = "1.60"
+version = "0.5.0"
+
+[package.metadata.docs.rs]
+features = ["docsrs"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-Oz']
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+qrcode = ["matrix-sdk-crypto/qrcode"]
+docsrs = []
+
+[dependencies]
+matrix-sdk-common = { version = "0.5.0", path = "../../crates/matrix-sdk-common" }
+matrix-sdk-crypto = { version = "0.5.0", path = "../../crates/matrix-sdk-crypto" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd", features = ["js"] }
+wasm-bindgen = "0.2.80"
+wasm-bindgen-futures = "0.4.30"
+js-sys = "0.3.49"
+serde_json = "1.0.79"
+http = "0.2.6"
+anyhow = "1.0"

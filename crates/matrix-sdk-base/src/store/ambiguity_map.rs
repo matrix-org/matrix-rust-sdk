@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use matrix_sdk_common::deserialized_responses::{AmbiguityChange, MemberEvent};
 use ruma::{
@@ -22,16 +25,16 @@ use ruma::{
 use tracing::trace;
 
 use super::{Result, StateChanges};
-use crate::Store;
+use crate::StateStore;
 
-#[derive(Clone, Debug)]
-pub struct AmbiguityCache {
-    pub store: Store,
+#[derive(Debug)]
+pub(crate) struct AmbiguityCache {
+    pub store: Arc<dyn StateStore>,
     pub cache: BTreeMap<OwnedRoomId, BTreeMap<String, BTreeSet<OwnedUserId>>>,
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct AmbiguityMap {
     display_name: String,
     users: BTreeSet<OwnedUserId>,
@@ -67,7 +70,7 @@ impl AmbiguityMap {
 }
 
 impl AmbiguityCache {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: Arc<dyn StateStore>) -> Self {
         Self { store, cache: BTreeMap::new(), changes: BTreeMap::new() }
     }
 

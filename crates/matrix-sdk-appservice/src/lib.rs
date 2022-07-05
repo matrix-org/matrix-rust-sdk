@@ -161,7 +161,7 @@ impl<'a> VirtualUserBuilder<'a> {
         }
     }
 
-    /// Set the device id of the virtual user
+    /// Set the device ID of the virtual user
     pub fn device_id(mut self, device_id: Option<OwnedDeviceId>) -> Self {
         self.device_id = device_id;
         self
@@ -202,6 +202,11 @@ impl<'a> VirtualUserBuilder<'a> {
         }
 
         let user_id = UserId::parse_with_server_name(self.localpart, &self.appservice.server_name)?;
+        if !(self.appservice.user_id_is_in_namespace(&user_id)
+            || self.localpart == self.appservice.registration.sender_localpart)
+        {
+            warn!("Virtual client id '{user_id}' is not in the namespace")
+        }
 
         let mut builder = self.client_builder;
 
@@ -299,6 +304,44 @@ impl Deref for AppServiceRegistration {
     }
 }
 
+/// Cache data for the registration namespaces.
+#[derive(Debug, Clone)]
+pub struct NamespaceCache {
+    /// List of user regexes in our namespace
+    users: Vec<Regex>,
+    /// List of alias regexes in our namespace
+    #[allow(dead_code)]
+    aliases: Vec<Regex>,
+    /// List of room id regexes in our namespace
+    #[allow(dead_code)]
+    rooms: Vec<Regex>,
+}
+
+impl NamespaceCache {
+    /// Creates a new registration cache from a [`Registration`] value
+    pub fn from_registration(registration: &Registration) -> Result<Self> {
+        let users = registration
+            .namespaces
+            .users
+            .iter()
+            .map(|user| Regex::new(&user.regex))
+            .collect::<Result<Vec<_>, _>>()?;
+        let aliases = registration
+            .namespaces
+            .aliases
+            .iter()
+            .map(|user| Regex::new(&user.regex))
+            .collect::<Result<Vec<_>, _>>()?;
+        let rooms = registration
+            .namespaces
+            .rooms
+            .iter()
+            .map(|user| Regex::new(&user.regex))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(NamespaceCache { users, aliases, rooms })
+    }
+}
+
 type Localpart = String;
 
 /// The `localpart` of the user associated with the application service via
@@ -322,6 +365,7 @@ pub struct AppService {
     homeserver_url: Url,
     server_name: OwnedServerName,
     registration: Arc<AppServiceRegistration>,
+    namespaces: Arc<NamespaceCache>,
     clients: Arc<DashMap<Localpart, Client>>,
     event_handler: event_handler::EventHandler,
 }
@@ -365,12 +409,19 @@ impl AppService {
         let homeserver_url = homeserver_url.try_into()?;
         let server_name = server_name.try_into()?;
         let registration = Arc::new(registration);
+        let namespaces = Arc::new(NamespaceCache::from_registration(&registration)?);
         let clients = Arc::new(DashMap::new());
         let sender_localpart = registration.sender_localpart.clone();
         let event_handler = event_handler::EventHandler::default();
 
-        let appservice =
-            AppService { homeserver_url, server_name, registration, clients, event_handler };
+        let appservice = AppService {
+            homeserver_url,
+            server_name,
+            registration,
+            namespaces,
+            clients,
+            event_handler,
+        };
 
         // we create and cache the [`MainUser`] by default
         appservice.virtual_user_builder(&sender_localpart).client_builder(builder).build().await?;
@@ -619,16 +670,14 @@ impl AppService {
 
     /// Check if given `user_id` is in any of the [`AppServiceRegistration`]'s
     /// `users` namespaces
-    pub fn user_id_is_in_namespace(&self, user_id: impl AsRef<str>) -> Result<bool> {
-        for user in &self.registration.namespaces.users {
-            // TODO: precompile on AppService construction
-            let re = Regex::new(&user.regex)?;
-            if re.is_match(user_id.as_ref()) {
-                return Ok(true);
+    pub fn user_id_is_in_namespace(&self, user_id: impl AsRef<str>) -> bool {
+        for regex in &self.namespaces.users {
+            if regex.is_match(user_id.as_ref()) {
+                return true;
             }
         }
 
-        Ok(false)
+        false
     }
 
     /// Returns a [`warp::Filter`] to be used as [`warp::serve()`] route
@@ -659,7 +708,7 @@ impl AppService {
                 Ok(AnyRoomEvent::State(AnyStateEvent::RoomMember(event))) => event,
                 _ => continue,
             };
-            if !self.user_id_is_in_namespace(event.state_key())? {
+            if !self.user_id_is_in_namespace(event.state_key()) {
                 continue;
             }
             let localpart = event.state_key().localpart();
@@ -685,11 +734,12 @@ impl AppService {
             let client = client.clone();
             let virt_client = virt_client.clone();
             let transaction = transaction.clone();
+            let appserv_uid = self.registration.sender_localpart.clone();
 
             let task = tokio::spawn(async move {
                 let user_id = match virt_client.user_id() {
                     Some(user_id) => user_id.localpart(),
-                    // Unauthenticated client. (should that be possible?)
+                    // The client is not logged in, skipping
                     None => return Ok(()),
                 };
                 let mut response = sync_events::v3::Response::new(transaction.txn_id.to_string());
@@ -709,25 +759,28 @@ impl AppService {
                     let key = &[USER_MEMBER, room_id.as_bytes(), b".", user_id.as_bytes()].concat();
                     let membership = match client.store().get_custom_value(key).await? {
                         Some(value) => String::from_utf8(value).ok().map(MembershipState::from),
+                        // Assume the appservice is in every known room
+                        None if user_id == appserv_uid => Some(MembershipState::Join),
                         None => None,
                     };
 
-                    match membership.unwrap_or(MembershipState::Join) {
-                        MembershipState::Join => {
+                    match membership {
+                        Some(MembershipState::Join) => {
                             let room = response.rooms.join.entry(room_id).or_default();
                             room.timeline.events.push(raw_event.clone().cast())
                         }
-                        MembershipState::Leave | MembershipState::Ban => {
+                        Some(MembershipState::Leave | MembershipState::Ban) => {
                             let room = response.rooms.leave.entry(room_id).or_default();
                             room.timeline.events.push(raw_event.clone().cast())
                         }
-                        MembershipState::Knock => {
+                        Some(MembershipState::Knock) => {
                             response.rooms.knock.entry(room_id).or_default();
                         }
-                        MembershipState::Invite => {
+                        Some(MembershipState::Invite) => {
                             response.rooms.invite.entry(room_id).or_default();
                         }
-                        _ => debug!("Membership type we don't know how to handle"),
+                        Some(unknown) => debug!("Unknown membership type: {unknown}"),
+                        None => debug!("Assuming {user_id} is not in {room_id}"),
                     }
                 }
                 virt_client.receive_transaction(&transaction.txn_id, response).await?;

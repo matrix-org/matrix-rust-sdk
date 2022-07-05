@@ -24,7 +24,7 @@ use std::{
 
 use anymap2::any::CloneAnySendSync;
 #[cfg(target_arch = "wasm32")]
-pub use async_once_cell::OnceCell;
+use async_once_cell::OnceCell;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
 use matrix_sdk_base::{
@@ -70,8 +70,8 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::OnceCell;
-use tracing::{error, info, instrument, warn};
+use tokio::sync::OnceCell;
+use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -86,8 +86,14 @@ use crate::{
 };
 
 mod builder;
+mod login_builder;
 
-pub use self::builder::{ClientBuildError, ClientBuilder};
+#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+pub use self::login_builder::SsoLoginBuilder;
+pub use self::{
+    builder::{ClientBuildError, ClientBuilder},
+    login_builder::LoginBuilder,
+};
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
@@ -128,13 +134,13 @@ pub struct Client {
 
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
-    pub(crate) homeserver: Arc<RwLock<Url>>,
+    pub(crate) homeserver: RwLock<Url>,
     /// The underlying HTTP client.
     pub(crate) http_client: HttpClient,
     /// User session data.
     pub(crate) base_client: BaseClient,
     /// The Matrix versions the server supports (well-known ones only)
-    pub(crate) server_versions: OnceCell<Arc<[MatrixVersion]>>,
+    pub (crate) server_versions: OnceCell<Box<[MatrixVersion]>>,
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "e2e-encryption")]
@@ -247,10 +253,30 @@ impl Client {
     #[cfg(feature = "appservice")]
     pub async fn receive_transaction(
         &self,
-        _transaction_id: &TransactionId,
+        transaction_id: &TransactionId,
         sync_response: sync_events::v3::Response,
     ) -> Result<()> {
-        // TODO: transaction id checking, see PR #560
+        const TXN_ID_KEY: &[u8] = b"appservice.txn_id";
+
+        let store = self.store();
+        let store_tokens = store.get_custom_value(TXN_ID_KEY).await?;
+        let mut txn_id_bytes = transaction_id.as_bytes().to_vec();
+        if let Some(mut store_tokens) = store_tokens {
+            // The data is separated by a NULL byte.
+            let mut store_tokens_split = store_tokens.split(|x| *x == b'\0');
+            if store_tokens_split.any(|x| x == transaction_id.as_bytes()) {
+                // We already encountered this transaction id before, so we exit early instead
+                // of processing further.
+                //
+                // Spec: https://spec.matrix.org/v1.3/application-service-api/#pushing-events
+                return Ok(());
+            }
+            store_tokens.push(b'\0');
+            store_tokens.append(&mut txn_id_bytes);
+            self.store().set_custom_value(TXN_ID_KEY, store_tokens).await?;
+        } else {
+            self.store().set_custom_value(TXN_ID_KEY, txn_id_bytes).await?;
+        }
         self.process_sync(sync_response).await?;
 
         Ok(())
@@ -268,12 +294,12 @@ impl Client {
 
     /// Get the user id of the current owner of the client.
     pub fn user_id(&self) -> Option<&UserId> {
-        self.inner.base_client.session().map(|s| s.user_id.as_ref())
+        self.session().map(|s| s.user_id.as_ref())
     }
 
-    /// Get the device id that identifies the current session.
+    /// Get the device ID that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
-        self.inner.base_client.session().map(|s| s.device_id.as_ref())
+        self.session().map(|s| s.device_id.as_ref())
     }
 
     /// Get the whole session info of this client.
@@ -281,9 +307,9 @@ impl Client {
     /// Will be `None` if the client has not been logged in.
     ///
     /// Can be used with [`Client::restore_login`] to restore a previously
-    /// logged in session.
+    /// logged-in session.
     pub fn session(&self) -> Option<&Session> {
-        self.inner.base_client.session()
+        self.store().session()
     }
 
     /// Get a reference to the store.
@@ -649,13 +675,13 @@ impl Client {
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    &server_versions,
+                    server_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                &server_versions,
+                server_versions,
             )
         };
 
@@ -665,29 +691,26 @@ impl Client {
         }
     }
 
-    /// Login to the server.
+    /// Login to the server with a username and password.
     ///
     /// This can be used for the first login as well as for subsequent logins,
-    /// note that if the device id isn't provided a new device will be created.
+    /// note that if the device ID isn't provided a new device will be created.
     ///
-    /// If this isn't the first login a device id should be provided to restore
-    /// the correct stores.
+    /// If this isn't the first login, a device ID should be provided through
+    /// [`LoginBuilder::device_id`] to restore the correct stores.
     ///
     /// Alternatively the [`restore_login`] method can be used to restore a
-    /// logged in client without the password.
+    /// logged-in client without the password.
     ///
     /// # Arguments
     ///
-    /// * `user` - The user that should be logged in to the homeserver.
+    /// * `user` - The user ID or user ID localpart of the user that should be
+    ///   logged into the homeserver.
     ///
     /// * `password` - The password of the user.
     ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be done
-    ///   only if the client also holds the encryption keys for this device.
-    ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use futures::executor::block_on;
@@ -700,246 +723,38 @@ impl Client {
     /// let user = "example";
     ///
     /// let response = client
-    ///     .login(user, "wordpass", None, Some("My bot")).await?;
+    ///     .login_username(user, "wordpass")
+    ///     .initial_device_display_name("My bot")
+    ///     .send()
+    ///     .await?;
     ///
     /// println!(
     ///     "Logged in as {}, got device_id {} and access_token {}",
-    ///     user, response.device_id, response.access_token
+    ///     user, response.device_id, response.access_token,
     /// );
     /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(self, user, password))]
-    pub async fn login(
+    pub fn login_username<'a>(
         &self,
-        user: impl AsRef<str>,
-        password: &str,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-    ) -> Result<login::v3::Response> {
-        let homeserver = self.homeserver().await;
-        info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in");
-
-        let login_info = login::v3::LoginInfo::Password(login::v3::Password::new(
-            UserIdentifier::UserIdOrLocalpart(user.as_ref()),
-            password,
-        ));
-
-        let request = assign!(login::v3::Request::new(login_info), {
-            device_id: device_id.map(|d| d.into()),
-            initial_device_display_name,
-        });
-
-        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
-        self.receive_login_response(&response).await?;
-
-        Ok(response)
+        id: &'a (impl AsRef<str> + ?Sized),
+        password: &'a str,
+    ) -> LoginBuilder<'a> {
+        self.login_identifier(UserIdentifier::UserIdOrLocalpart(id.as_ref()), password)
     }
 
-    /// Login to the server via Single Sign-On.
+    /// Login to the server with a user identifier and password.
     ///
-    /// This takes care of the whole SSO flow:
-    ///   * Spawn a local http server
-    ///   * Provide a callback to open the SSO login URL in a web browser
-    ///   * Wait for the local http server to get the loginToken
-    ///   * Call [`login_with_token`]
-    ///
-    /// If cancellation is needed the method should be wrapped in a cancellable
-    /// task. **Note** that users with root access to the system have the
-    /// ability to snoop in on the data/token that is passed to the local
-    /// HTTP server that will be spawned.
-    ///
-    /// If you need more control over the SSO login process, you should use
-    /// [`get_sso_login_url`] and [`login_with_token`] directly.
-    ///
-    /// This should only be used for the first login.
-    ///
-    /// The [`restore_login`] method should be used to restore a
-    /// logged in client after the first login.
-    ///
-    /// A device id should be provided to restore the correct stores, if the
-    /// device id isn't provided a new device will be created.
-    ///
-    /// # Arguments
-    ///
-    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL.
-    ///   It should usually be used to open the SSO URL in a browser and must
-    ///   return `Ok(())` if the URL was successfully opened. If it returns
-    ///   `Err`, the error will be forwarded.
-    ///
-    /// * `server_url` - The local URL the server is going to try to bind to, e.g. `http://localhost:3030`.
-    ///   If `None`, the server will try to open a random port on `127.0.0.1`.
-    ///
-    /// * `server_response` - The text that will be shown on the webpage at the
-    ///   end of the login process. This can be an HTML page. If `None`, a
-    ///   default text will be displayed.
-    ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be
-    ///   provided only if the client also holds the encryption keys for this
-    ///   device.
-    ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///   associated with the device_id. Only necessary the first time you login
-    ///   with this device_id. It can be changed later.
-    ///
-    /// * `idp_id` - The optional ID of the identity provider to login with.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("https://example.com").unwrap();
-    /// # block_on(async {
-    /// let client = Client::new(homeserver).await.unwrap();
-    ///
-    /// let response = client
-    ///     .login_with_sso(
-    ///         |sso_url| async move {
-    ///             // Open sso_url
-    ///             Ok(())
-    ///         },
-    ///         None,
-    ///         None,
-    ///         None,
-    ///         Some("My app"),
-    ///         None,
-    ///     )
-    ///     .await
-    ///     .unwrap();
-    ///
-    /// println!("Logged in as {}, got device_id {} and access_token {}",
-    ///          response.user_id, response.device_id, response.access_token);
-    /// # })
-    /// ```
-    ///
-    /// [`get_sso_login_url`]: #method.get_sso_login_url
-    /// [`login_with_token`]: #method.login_with_token
-    /// [`restore_login`]: #method.restore_login
-    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
-    #[deny(clippy::future_not_send)]
-    pub async fn login_with_sso<C>(
+    /// This is more general form of [`login_username`][Self::login_username]
+    /// that also accepts third-party identifiers instead of just the user ID or
+    /// its localpart.
+    pub fn login_identifier<'a>(
         &self,
-        use_sso_login_url: impl FnOnce(String) -> C + Send,
-        server_url: Option<&str>,
-        server_response: Option<&str>,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-        idp_id: Option<&str>,
-    ) -> Result<login::v3::Response>
-    where
-        C: Future<Output = Result<()>> + Send,
-    {
-        use std::{
-            collections::HashMap,
-            io::{Error as IoError, ErrorKind as IoErrorKind},
-            ops::Range,
-        };
-
-        use rand::{thread_rng, Rng};
-        use warp::Filter;
-
-        /// The range of ports the SSO server will try to bind to randomly.
-        ///
-        /// This is used to avoid binding to a port blocked by browsers.
-        /// See <https://fetch.spec.whatwg.org/#port-blocking>.
-        const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
-        /// The number of times the SSO server will try to bind to a random port
-        const SSO_SERVER_BIND_TRIES: u8 = 10;
-
-        let homeserver = self.homeserver().await;
-        info!("Logging in to {}", homeserver);
-
-        let (signal_tx, signal_rx) = tokio::sync::oneshot::channel();
-        let (data_tx, data_rx) = tokio::sync::oneshot::channel();
-        let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
-
-        let mut redirect_url = match server_url {
-            Some(s) => Url::parse(s)?,
-            None => {
-                Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
-            }
-        };
-
-        let response = match server_response {
-            Some(s) => s.to_string(),
-            None => String::from(
-                "The Single Sign-On login process is complete. You can close this page now.",
-            ),
-        };
-
-        let route = warp::get().and(warp::query::<HashMap<String, String>>()).map(
-            move |p: HashMap<String, String>| {
-                if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                    if let Some(token) = p.get("loginToken") {
-                        data_tx.send(Some(token.to_owned())).unwrap();
-                    } else {
-                        data_tx.send(None).unwrap();
-                    }
-                }
-                http::Response::builder().body(response.clone())
-            },
-        );
-
-        let listener = {
-            if redirect_url.port().expect("The redirect URL doesn't include a port") == 0 {
-                let host = redirect_url.host_str().expect("The redirect URL doesn't have a host");
-                let mut n = 0u8;
-                let mut port = 0u16;
-                let mut res = Err(IoError::new(IoErrorKind::Other, ""));
-
-                while res.is_err() && n < SSO_SERVER_BIND_TRIES {
-                    port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
-                    res = tokio::net::TcpListener::bind((host, port)).await;
-                    n += 1;
-                }
-                match res {
-                    Ok(s) => {
-                        redirect_url
-                            .set_port(Some(port))
-                            .expect("Could not set new port on redirect URL");
-                        s
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-            } else {
-                match tokio::net::TcpListener::bind(redirect_url.as_str()).await {
-                    Ok(s) => s,
-                    Err(err) => return Err(err.into()),
-                }
-            }
-        };
-
-        let server = warp::serve(route).serve_incoming_with_graceful_shutdown(
-            tokio_stream::wrappers::TcpListenerStream::new(listener),
-            async {
-                signal_rx.await.ok();
-            },
-        );
-
-        tokio::spawn(server);
-
-        let sso_url = self.get_sso_login_url(redirect_url.as_str(), idp_id).await?;
-
-        match use_sso_login_url(sso_url).await {
-            Ok(t) => t,
-            Err(err) => return Err(err),
-        };
-
-        let token = match data_rx.await {
-            Ok(Some(t)) => t,
-            Ok(None) => {
-                return Err(IoError::new(IoErrorKind::Other, "Could not get the loginToken").into())
-            }
-            Err(err) => return Err(IoError::new(IoErrorKind::Other, format!("{}", err)).into()),
-        };
-
-        let _ = signal_tx.send(());
-
-        self.login_with_token(token.as_str(), device_id, initial_device_display_name).await
+        id: UserIdentifier<'a>,
+        password: &'a str,
+    ) -> LoginBuilder<'a> {
+        LoginBuilder::new_password(self.clone(), id, password)
     }
 
     /// Login to the server with a token.
@@ -950,27 +765,19 @@ impl Client {
     ///
     /// This should only be used for the first login.
     ///
-    /// The [`restore_login`] method should be used to restore a
-    /// logged in client after the first login.
+    /// The [`restore_login`] method should be used to restore a logged-in
+    /// client after the first login.
     ///
-    /// A device id should be provided to restore the correct stores, if the
-    /// device id isn't provided a new device will be created.
+    /// A device ID should be provided through [`LoginBuilder::device_id`] to
+    /// restore the correct stores, if the device ID isn't provided a new
+    /// device will be created.
     ///
     /// # Arguments
     ///
     /// * `token` - A login token.
     ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be
-    ///   provided only if the client also holds the encryption keys for this
-    ///   device.
-    ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///   associated with the device_id. Only necessary the first time you login
-    ///   with this device_id. It can be changed later.
-    ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
@@ -988,7 +795,71 @@ impl Client {
     /// // Receive the loginToken param at redirect_url
     ///
     /// let response = client
-    ///     .login_with_token(login_token, None, Some("My app")).await
+    ///     .login_token(login_token)
+    ///     .initial_device_display_name("My app")
+    ///     .send()
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     response.user_id, response.device_id, response.access_token,
+    /// );
+    /// # })
+    /// ```
+    ///
+    /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`restore_login`]: #method.restore_login
+    pub fn login_token<'a>(&self, token: &'a str) -> LoginBuilder<'a> {
+        LoginBuilder::new_token(self.clone(), token)
+    }
+
+    /// Login to the server via Single Sign-On.
+    ///
+    /// This takes care of the whole SSO flow:
+    ///   * Spawn a local http server
+    ///   * Provide a callback to open the SSO login URL in a web browser
+    ///   * Wait for the local http server to get the loginToken
+    ///   * Call [`login_token`]
+    ///
+    /// If cancellation is needed the method should be wrapped in a cancellable
+    /// task. **Note** that users with root access to the system have the
+    /// ability to snoop in on the data/token that is passed to the local
+    /// HTTP server that will be spawned.
+    ///
+    /// If you need more control over the SSO login process, you should use
+    /// [`get_sso_login_url`] and [`login_token`] directly.
+    ///
+    /// This should only be used for the first login.
+    ///
+    /// The [`restore_login`] method should be used to restore a logged-in
+    /// client after the first login.
+    ///
+    /// # Arguments
+    ///
+    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL.
+    ///   It should usually be used to open the SSO URL in a browser and must
+    ///   return `Ok(())` if the URL was successfully opened. If it returns
+    ///   `Err`, the error will be forwarded.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("https://example.com").unwrap();
+    /// # block_on(async {
+    /// let client = Client::new(homeserver).await.unwrap();
+    ///
+    /// let response = client
+    ///     .login_sso(|sso_url| async move {
+    ///         // Open sso_url
+    ///         Ok(())
+    ///     })
+    ///     .initial_device_display_name("My app")
+    ///     .send()
+    ///     .await
     ///     .unwrap();
     ///
     /// println!("Logged in as {}, got device_id {} and access_token {}",
@@ -997,7 +868,76 @@ impl Client {
     /// ```
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`login_token`]: #method.login_token
     /// [`restore_login`]: #method.restore_login
+    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    pub fn login_sso<'a, F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<'a, F>
+    where
+        F: FnOnce(String) -> Fut + Send,
+        Fut: Future<Output = Result<()>> + Send,
+    {
+        SsoLoginBuilder::new(self.clone(), use_sso_login_url)
+    }
+
+    /// Login to the server with a username and password.
+    #[deprecated = "Replaced by [`Client::login_username`](#method.login_username)"]
+    #[instrument(skip(self, user, password))]
+    pub async fn login(
+        &self,
+        user: impl AsRef<str>,
+        password: &str,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::v3::Response> {
+        let mut builder = self.login_username(&user, password);
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
+
+        builder.send().await
+    }
+
+    /// Login to the server via Single Sign-On.
+    #[deprecated = "Replaced by [`Client::login_sso`](#method.login_sso)"]
+    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    #[deny(clippy::future_not_send)]
+    pub async fn login_with_sso<C>(
+        &self,
+        use_sso_login_url: impl FnOnce(String) -> C + Send,
+        server_url: Option<&str>,
+        server_response: Option<&str>,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+        idp_id: Option<&str>,
+    ) -> Result<login::v3::Response>
+    where
+        C: Future<Output = Result<()>> + Send,
+    {
+        let mut builder = self.login_sso(use_sso_login_url);
+        if let Some(value) = server_url {
+            builder = builder.server_url(value);
+        }
+        if let Some(value) = server_response {
+            builder = builder.server_response(value);
+        }
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
+        if let Some(value) = idp_id {
+            builder = builder.identity_provider_id(value);
+        }
+
+        builder.send().await
+    }
+
+    /// Login to the server with a token.
+    #[deprecated = "Replaced by [`Client::login_token`](#method.login_token)"]
     #[instrument(skip(self, token))]
     #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn login_with_token(
@@ -1006,22 +946,15 @@ impl Client {
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::v3::Response> {
-        let homeserver = self.homeserver().await;
-        info!("Logging in to {}", homeserver);
+        let mut builder = self.login_token(token);
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
 
-        let request = assign!(
-            login::v3::Request::new(
-                login::v3::LoginInfo::Token(login::v3::Token::new(token)),
-            ), {
-                device_id: device_id.map(|d| d.into()),
-                initial_device_display_name,
-            }
-        );
-
-        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
-        self.receive_login_response(&response).await?;
-
-        Ok(response)
+        builder.send().await
     }
 
     /// Receive a login response and update the homeserver and the base client
@@ -1050,7 +983,7 @@ impl Client {
     /// the stored state and encryption keys.
     ///
     /// Alternatively, if the whole session isn't stored the [`login`] method
-    /// can be used with a device id.
+    /// can be used with a device ID.
     ///
     /// # Arguments
     ///
@@ -1102,7 +1035,6 @@ impl Client {
     ///
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
-        self.inner.http_client.set_session(session.clone());
         Ok(self.inner.base_client.restore_login(session).await?)
     }
 
@@ -1111,11 +1043,10 @@ impl Client {
     /// # Arguments
     ///
     /// * `registration` - The easiest way to create this request is using the
-    ///   [`register::v3::Request`]
-    /// itself.
-    ///
+    ///   [`register::v3::Request`] itself.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
@@ -1206,14 +1137,17 @@ impl Client {
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
     /// # });
+    #[instrument(skip(self, definition))]
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
         definition: FilterDefinition<'_>,
     ) -> Result<String> {
         if let Some(filter) = self.inner.base_client.get_filter(filter_name).await? {
+            debug!("Found filter locally");
             Ok(filter)
         } else {
+            debug!("Didn't find filter locally");
             let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?;
             let request = FilterUploadRequest::new(user_id, definition);
             let response = self.send(request, None).await?;
@@ -1437,7 +1371,13 @@ impl Client {
         Ok(self
             .inner
             .http_client
-            .send(request, Some(request_config), self.server_versions().await?)
+            .send(
+                request,
+                Some(request_config),
+                self.homeserver().await.to_string(),
+                self.session(),
+                self.server_versions().await?,
+            )
             .await?)
     }
 
@@ -1490,17 +1430,28 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.inner.http_client.send(request, config, self.server_versions().await?).await
+        self.inner
+            .http_client
+            .send(
+                request,
+                config,
+                self.homeserver().await.to_string(),
+                self.session(),
+                self.server_versions().await?,
+            )
+            .await
     }
 
-    async fn request_server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
-        let server_versions: Arc<[MatrixVersion]> = self
+    async fn request_server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+        let server_versions: Box<[MatrixVersion]> = self
             .inner
             .http_client
             .send(
                 get_supported_versions::Request::new(),
                 None,
-                [MatrixVersion::V1_0].into_iter().collect(),
+                self.homeserver().await.to_string(),
+                None,
+                &[MatrixVersion::V1_0],
             )
             .await?
             .known_versions()
@@ -1514,7 +1465,7 @@ impl Client {
         }
     }
 
-    pub(crate) async fn server_versions(&self) -> HttpResult<Arc<[MatrixVersion]>> {
+    pub(crate) async fn server_versions(&self) -> HttpResult<&[MatrixVersion]> {
         #[cfg(target_arch = "wasm32")]
         let server_versions =
             self.inner.server_versions.get_or_try_init(self.request_server_versions()).await?;
@@ -1523,7 +1474,7 @@ impl Client {
         let server_versions =
             self.inner.server_versions.get_or_try_init(|| self.request_server_versions()).await?;
 
-        Ok(server_versions.clone())
+        Ok(server_versions)
     }
 
     /// Get information of all our own devices.
@@ -2287,7 +2238,7 @@ pub(crate) mod tests {
         serde::Raw,
         thirdparty, uint, user_id, TransactionId, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, Value as JsonValue};
     use url::Url;
 
     use super::{Client, ClientBuilder, Session};
@@ -2395,7 +2346,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_username("example", "wordpass").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2412,7 +2363,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN_WITH_DISCOVERY.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_username("example", "wordpass").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2429,7 +2380,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login("example", "wordpass", None, None).await.unwrap();
+        client.login_username("example", "wordpass").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2452,26 +2403,21 @@ pub(crate) mod tests {
             "idp-name".to_owned(),
         );
         client
-            .login_with_sso(
-                |sso_url| async move {
-                    let sso_url = Url::parse(sso_url.as_str()).unwrap();
+            .login_sso(|sso_url| async move {
+                let sso_url = Url::parse(&sso_url).unwrap();
 
-                    let (_, redirect) =
-                        sso_url.query_pairs().find(|(key, _)| key == "redirectUrl").unwrap();
+                let (_, redirect) =
+                    sso_url.query_pairs().find(|(key, _)| key == "redirectUrl").unwrap();
 
-                    let mut redirect_url = Url::parse(redirect.into_owned().as_str()).unwrap();
-                    redirect_url.set_query(Some("loginToken=tinytoken"));
+                let mut redirect_url = Url::parse(&redirect).unwrap();
+                redirect_url.set_query(Some("loginToken=tinytoken"));
 
-                    reqwest::get(redirect_url.to_string()).await.unwrap();
+                reqwest::get(redirect_url.to_string()).await.unwrap();
 
-                    Ok(())
-                },
-                None,
-                None,
-                None,
-                None,
-                Some(&idp.id),
-            )
+                Ok(())
+            })
+            .identity_provider_id(&idp.id)
+            .send()
             .await
             .unwrap();
 
@@ -2505,7 +2451,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        client.login_with_token("averysmalltoken", None, None).await.unwrap();
+        client.login_token("averysmalltoken").send().await.unwrap();
 
         let logged_in = client.logged_in();
         assert!(logged_in, "Client should be logged in");
@@ -2627,7 +2573,7 @@ pub(crate) mod tests {
             .with_body(test_json::LOGIN_RESPONSE_ERR.to_string())
             .create();
 
-        if let Err(err) = client.login("example", "wordpass", None, None).await {
+        if let Err(err) = client.login_username("example", "wordpass").send().await {
             if let crate::Error::Http(HttpError::Api(FromHttpResponseError::Server(
                 ServerError::Known(RumaApiError::ClientApi(client_api::Error {
                     kind,
@@ -3552,7 +3498,7 @@ pub(crate) mod tests {
 
         let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_username("example", "wordpass").send().await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
@@ -3574,7 +3520,7 @@ pub(crate) mod tests {
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_username("example", "wordpass").send().await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
@@ -3588,7 +3534,7 @@ pub(crate) mod tests {
         let m =
             mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
+        if client.login_username("example", "wordpass").send().await.is_err() {
             m.assert();
         } else {
             panic!("this request should return an `Err` variant")
@@ -4035,5 +3981,381 @@ pub(crate) mod tests {
 
         mocked_messages.assert();
         mocked_messages_2.assert();
+    }
+
+    #[async_test]
+    async fn room_permalink() {
+        fn sync_response(index: u8, room_timeline_events: &[JsonValue]) -> JsonValue {
+            json!({
+                "device_one_time_keys_count": {},
+                "next_batch": format!("s526_47314_0_7_1_1_1_11444_{}", index + 1),
+                "device_lists": {
+                    "changed": [],
+                    "left": []
+                },
+                "account_data": {
+                    "events": []
+                },
+                "rooms": {
+                    "invite": {},
+                    "join": {
+                        "!test_room:127.0.0.1": {
+                            "summary": {},
+                            "account_data": {
+                                "events": []
+                            },
+                            "ephemeral": {
+                                "events": []
+                            },
+                            "state": {
+                                "events": []
+                            },
+                            "timeline": {
+                                "events": room_timeline_events,
+                                "limited": false,
+                                "prev_batch": format!("s526_47314_0_7_1_1_1_11444_{}", index - 1),
+                            },
+                            "unread_notifications": {
+                                "highlight_count": 0,
+                                "notification_count": 0,
+                            }
+                        }
+                    },
+                    "leave": {}
+                },
+                "to_device": {
+                    "events": []
+                },
+                "presence": {
+                    "events": []
+                }
+            })
+        }
+
+        fn room_member_events(nb: usize, server: &str) -> Vec<JsonValue> {
+            let mut events = Vec::with_capacity(nb);
+            for i in 0..nb {
+                let id = format!("${server}{i}");
+                let user = format!("@user{i}:{server}");
+                events.push(json!({
+                    "content": {
+                        "membership": "join",
+                    },
+                    "event_id": id,
+                    "origin_server_ts": 151800140,
+                    "sender": user,
+                    "state_key": user,
+                    "type": "m.room.member",
+                }))
+            }
+            events
+        }
+
+        let client = logged_in_client().await;
+        let sync_settings = SyncSettings::new();
+
+        // Without elligible server
+        let mut sync_index = 1;
+        let res = sync_response(
+            sync_index,
+            &[
+                json!({
+                    "content": {
+                        "creator": "@creator:127.0.0.1",
+                        "room_version": "6",
+                    },
+                    "event_id": "$151957878228ekrDs",
+                    "origin_server_ts": 15195787,
+                    "sender": "@creator:localhost",
+                    "state_key": "",
+                    "type": "m.room.create",
+                }),
+                json!({
+                    "content": {
+                        "membership": "join",
+                    },
+                    "event_id": "$151800140517rfvjc",
+                    "origin_server_ts": 151800140,
+                    "sender": "@creator:127.0.0.1",
+                    "state_key": "@creator:127.0.0.1",
+                    "type": "m.room.member",
+                }),
+            ],
+        );
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+        let room = client.get_room(room_id!("!test_room:127.0.0.1")).unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1"
+        );
+        assert_eq!(
+            room.matrix_permalink(true).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?action=join"
+        );
+
+        // With a single elligible server
+        sync_index += 1;
+        let res = sync_response(
+            sync_index,
+            &[json!({
+                "content": {
+                    "membership": "join",
+                },
+                "event_id": "$151800140517rfvjc",
+                "origin_server_ts": 151800140,
+                "sender": "@example:localhost",
+                "state_key": "@example:localhost",
+                "type": "m.room.member",
+            })],
+        );
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1?via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=localhost"
+        );
+
+        // With two elligible servers
+        sync_index += 1;
+        let res = sync_response(sync_index, &room_member_events(15, "notarealhs"));
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=localhost"
+        );
+
+        // With three elligible servers
+        sync_index += 1;
+        let res = sync_response(sync_index, &room_member_events(5, "mymatrix"));
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=mymatrix&via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=mymatrix&via=localhost"
+        );
+
+        // With four elligible servers
+        sync_index += 1;
+        let res = sync_response(sync_index, &room_member_events(10, "yourmatrix"));
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=yourmatrix&via=mymatrix"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=yourmatrix&via=mymatrix"
+        );
+
+        // With power levels
+        sync_index += 1;
+        let res = sync_response(
+            sync_index,
+            &[json!({
+                "content": {
+                    "users": {
+                        "@example:localhost": 50,
+                    },
+                },
+                "event_id": "$15139375512JaHAW",
+                "origin_server_ts": 151393755,
+                "sender": "@creator:127.0.0.1",
+                "state_key": "",
+                "type": "m.room.power_levels",
+            })],
+        );
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1?via=localhost&via=notarealhs&via=yourmatrix"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=localhost&via=notarealhs&via=yourmatrix"
+        );
+
+        // With higher power levels
+        sync_index += 1;
+        let res = sync_response(
+            sync_index,
+            &[json!({
+                "content": {
+                    "users": {
+                        "@example:localhost": 50,
+                        "@user0:mymatrix": 70,
+                    },
+                },
+                "event_id": "$15139375512JaHAZ",
+                "origin_server_ts": 151393755,
+                "sender": "@creator:127.0.0.1",
+                "state_key": "",
+                "type": "m.room.power_levels",
+            })],
+        );
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1?via=mymatrix&via=notarealhs&via=yourmatrix"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=mymatrix&via=notarealhs&via=yourmatrix"
+        );
+
+        // With server ACLs
+        sync_index += 1;
+        let res = sync_response(
+            sync_index,
+            &[json!({
+                "content": {
+                    "allow": ["*"],
+                    "allow_ip_literals": true,
+                    "deny": ["notarealhs"],
+                },
+                "event_id": "$143273582443PhrSn",
+                "origin_server_ts": 1432735824,
+                "sender": "@creator:127.0.0.1",
+                "state_key": "",
+                "type": "m.room.server_acl",
+            })],
+        );
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%21test_room%3A127.0.0.1?via=mymatrix&via=yourmatrix&via=localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:roomid/test_room:127.0.0.1?via=mymatrix&via=yourmatrix&via=localhost"
+        );
+
+        // With an alternative alias
+        sync_index += 1;
+        let res = sync_response(
+            sync_index,
+            &[json!({
+                "content": {
+                    "alt_aliases": ["#alias:localhost"],
+                },
+                "event_id": "$15139375513VdeRF",
+                "origin_server_ts": 151393755,
+                "sender": "@example:localhost",
+                "state_key": "",
+                "type": "m.room.canonical_alias",
+            })],
+        );
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings.clone()).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%23alias%3Alocalhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:r/alias:localhost"
+        );
+
+        // With a canonical alias
+        sync_index += 1;
+        let res = sync_response(
+            sync_index,
+            &[json!({
+                "content": {
+                    "alias": "#canonical:localhost",
+                    "alt_aliases": ["#alias:localhost"],
+                },
+                "event_id": "$15139375513VdeRF",
+                "origin_server_ts": 151393755,
+                "sender": "@example:localhost",
+                "state_key": "",
+                "type": "m.room.canonical_alias",
+            })],
+        );
+        let _sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
+            .with_status(200)
+            .with_body(res.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+        client.sync_once(sync_settings).await.unwrap();
+
+        assert_eq!(
+            room.matrix_to_permalink().await.unwrap().to_string(),
+            "https://matrix.to/#/%23canonical%3Alocalhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(false).await.unwrap().to_string(),
+            "matrix:r/canonical:localhost"
+        );
+        assert_eq!(
+            room.matrix_permalink(true).await.unwrap().to_string(),
+            "matrix:r/canonical:localhost?action=join"
+        );
     }
 }

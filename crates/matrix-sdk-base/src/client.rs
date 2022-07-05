@@ -14,13 +14,12 @@
 // limitations under the License.
 
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
-    sync::Arc,
 };
-#[allow(unused_imports)]
 #[cfg(feature = "e2e-encryption")]
-use std::{ops::Deref, result::Result as StdResult};
+use std::{ops::Deref, sync::Arc};
 
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_common::deserialized_responses::TimelineSlice;
@@ -30,7 +29,6 @@ use matrix_sdk_common::{
         SyncRoomEvent, Timeline,
     },
     instant::Instant,
-    locks::RwLock,
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
@@ -70,16 +68,12 @@ use crate::{
     },
 };
 
-pub type Token = String;
-
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
 /// accordingly updates its state.
 #[derive(Clone)]
 pub struct BaseClient {
-    /// The current sync token that should be used for the next sync call.
-    pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
     /// The store used for encryption
@@ -97,7 +91,7 @@ impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("session", &self.session())
-            .field("sync_token", &self.sync_token)
+            .field("sync_token", &self.store.sync_token)
             .finish()
     }
 }
@@ -118,10 +112,9 @@ impl BaseClient {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "e2e-encryption")]
         let crypto_store =
-            config.crypto_store.unwrap_or_else(|| Box::new(MemoryCryptoStore::default())).into();
+            config.crypto_store.unwrap_or_else(|| Arc::new(MemoryCryptoStore::default()));
 
         BaseClient {
-            sync_token: store.sync_token.clone(),
             store,
             #[cfg(feature = "e2e-encryption")]
             crypto_store,
@@ -157,8 +150,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - A successful login response that contains our access
-    ///   token
-    /// and device id.
+    ///   token and device ID.
     pub async fn receive_login_response(
         &self,
         response: &api::session::login::v3::Response,
@@ -175,9 +167,10 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `session` - An session that the user already has from a
-    /// previous login call.
+    /// * `session` - An session that the user already has from a previous login
+    ///   call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
+        debug!(user_id = %session.user_id, device_id = %session.device_id, "Restoring login");
         self.store.restore_session(session.clone()).await?;
 
         #[cfg(feature = "e2e-encryption")]
@@ -201,7 +194,7 @@ impl BaseClient {
     /// Get the current, if any, sync token of the client.
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
-        self.sync_token.read().await.clone()
+        self.store.sync_token.read().await.clone()
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -337,25 +330,19 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        if event
-                            .event
-                            .get_field::<OwnedUserId>("sender")?
-                            .map_or(false, |id| id != user_id)
-                        {
-                            let actions = push_rules.get_actions(&event.event, context).to_vec();
+                        let actions = push_rules.get_actions(&event.event, context);
 
-                            if actions.iter().any(|a| matches!(a, Action::Notify)) {
-                                changes.add_notification(
-                                    room_id,
-                                    Notification::new(
-                                        actions,
-                                        event.event.clone(),
-                                        false,
-                                        room_id.to_owned(),
-                                        MilliSecondsSinceUnixEpoch::now(),
-                                    ),
-                                );
-                            }
+                        if actions.iter().any(|a| matches!(a, Action::Notify)) {
+                            changes.add_notification(
+                                room_id,
+                                Notification::new(
+                                    actions.to_owned(),
+                                    event.event.clone(),
+                                    false,
+                                    room_id.to_owned(),
+                                    MilliSecondsSinceUnixEpoch::now(),
+                                ),
+                            );
                         }
                         // TODO if there is an
                         // Action::SetTweak(Tweak::Highlight) we need to store
@@ -455,7 +442,7 @@ impl BaseClient {
                 // having confusing profile changes when a member gets
                 // kicked/banned.
                 if member.state_key() == member.sender() {
-                    profiles.insert(member.sender().to_owned(), (&member).into());
+                    profiles.insert(member.sender().to_owned(), member.borrow().into());
                 }
 
                 members.insert(member.state_key().to_owned(), member);
@@ -555,7 +542,7 @@ impl BaseClient {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
         // do.
-        if self.sync_token.read().await.as_ref() == Some(&next_batch) {
+        if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
             return Ok(SyncResponse::new(next_batch));
         }
 
@@ -581,7 +568,7 @@ impl BaseClient {
         };
 
         let mut changes = StateChanges::new(next_batch.clone());
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         self.handle_account_data(&account_data.events, &mut changes).await;
 
@@ -752,7 +739,7 @@ impl BaseClient {
         changes.ambiguity_maps = ambiguity_cache.cache;
 
         self.store.save_changes(&changes).await?;
-        *self.sync_token.write().await = Some(next_batch.clone());
+        *self.store.sync_token.write().await = Some(next_batch.clone());
         self.apply_changes(&changes).await;
 
         info!("Processed a sync response in {:?}", now.elapsed());
@@ -838,7 +825,7 @@ impl BaseClient {
             })
             .collect();
 
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
             let mut room_info = room.clone_info();
@@ -868,7 +855,7 @@ impl BaseClient {
                             .profiles
                             .entry(room_id.to_owned())
                             .or_default()
-                            .insert(member.sender().to_owned(), (&member).into());
+                            .insert(member.sender().to_owned(), member.borrow().into());
                     }
 
                     changes
@@ -1003,7 +990,7 @@ impl BaseClient {
             .transpose()?
         {
             Ok(event.content.global)
-        } else if let Some(session) = self.session() {
+        } else if let Some(session) = self.store.session() {
             Ok(Ruleset::server_default(&session.user_id))
         } else {
             Ok(Ruleset::new())

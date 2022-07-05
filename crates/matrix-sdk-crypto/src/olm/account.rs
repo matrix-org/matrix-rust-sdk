@@ -459,7 +459,7 @@ pub struct ReadOnlyAccount {
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: OwnedUserId,
-    /// The device id of the account owner.
+    /// The device ID of the account owner.
     pub device_id: OwnedDeviceId,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
@@ -506,7 +506,7 @@ impl ReadOnlyAccount {
         &self.user_id
     }
 
-    /// Get the device id that owns this account.
+    /// Get the device ID that owns this account.
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }
@@ -675,17 +675,30 @@ impl ReadOnlyAccount {
         self.inner.lock().await.sign(string)
     }
 
-    /// Check that the given json value is signed by this account.
+    /// Check if the given JSON is signed by this Account key.
+    ///
+    /// This method should only be used if an object's signature needs to be
+    /// checked multiple times, and you'd like to avoid performing the
+    /// canonicalization step each time.
+    ///
+    /// **Note**: Use this method with caution, the `canonical_json` needs to be
+    /// correctly canonicalized and make sure that the object you are checking
+    /// the signature for is allowed to be signed by our own device.
     #[cfg(feature = "backups_v1")]
-    pub fn is_signed(&self, json: Value) -> Result<(), SignatureError> {
+    pub fn has_signed_raw(
+        &self,
+        signatures: &crate::types::Signatures,
+        canonical_json: &str,
+    ) -> Result<(), SignatureError> {
         use crate::olm::utility::VerifyJson;
 
         let signing_key = self.identity_keys.ed25519;
 
-        signing_key.verify_json(
+        signing_key.verify_canonicalized_json(
             &self.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
-            json,
+            signatures,
+            canonical_json,
         )
     }
 
@@ -716,8 +729,8 @@ impl ReadOnlyAccount {
         let identity_keys = account.identity_keys();
 
         Ok(Self {
-            user_id: (&*pickle.user_id).into(),
-            device_id: (&*pickle.device_id).into(),
+            user_id: (*pickle.user_id).into(),
+            device_id: (*pickle.device_id).into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
@@ -942,7 +955,7 @@ impl ReadOnlyAccount {
     /// # Arguments
     /// * `device` - The other account's device.
     ///
-    /// * `key_map` - A map from the algorithm and device id to the one-time key
+    /// * `key_map` - A map from the algorithm and device ID to the one-time key
     ///   that the other account created and shared with us.
     pub async fn create_outbound_session(
         &self,
@@ -1027,7 +1040,9 @@ impl ReadOnlyAccount {
             last_use_time: now,
         };
 
-        Ok(InboundCreationResult { session, plaintext: result.plaintext })
+        let plaintext = String::from_utf8_lossy(&result.plaintext).to_string();
+
+        Ok(InboundCreationResult { session, plaintext })
     }
 
     /// Create a group session pair.

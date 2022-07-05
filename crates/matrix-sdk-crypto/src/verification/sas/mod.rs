@@ -60,7 +60,7 @@ impl Sas {
         self.account.user_id()
     }
 
-    /// Get our own device id.
+    /// Get our own device ID.
     pub fn device_id(&self) -> &DeviceId {
         self.account.device_id()
     }
@@ -70,7 +70,7 @@ impl Sas {
         self.identities_being_verified.other_user_id()
     }
 
-    /// Get the device id of the other side.
+    /// Get the device ID of the other side.
     pub fn other_device_id(&self) -> &DeviceId {
         self.identities_being_verified.other_device_id()
     }

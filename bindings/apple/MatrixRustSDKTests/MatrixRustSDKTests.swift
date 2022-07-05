@@ -10,23 +10,14 @@ import XCTest
 
 class MatrixRustSDKTests: XCTestCase {
     
-    static var client: Client!
-    
-    override class func setUp() {
-        client = try! guestClient(basePath: basePath, homeserver: "https://matrix.org")
-    }
-    
-    func testClientProperties() {
-        XCTAssertTrue(Self.client.isGuest())
-        
-        XCTAssertNotNil(try? Self.client.restoreToken())
-        XCTAssertNotNil(try? Self.client.deviceId())
-        XCTAssertNotNil(try? Self.client.displayName())
-    }
-    
     func testReadOnlyFileSystemError() {
         do {
-            let _ = try loginNewClient(basePath: "", username: "test", password: "test")
+            let client = try ClientBuilder()
+                .basePath(path: "")
+                .username(username: "@test:domain")
+                .build()
+            
+            try client.login(username: "@test:domain", password: "test")
         } catch ClientError.Generic(let message) {
             XCTAssertNotNil(message.range(of: "Read-only file system"))
         } catch {

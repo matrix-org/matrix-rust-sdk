@@ -21,7 +21,6 @@ use std::{
 use anyhow::{bail, Context};
 use futures_core::stream::Stream;
 use matrix_sdk_base::deserialized_responses::SyncResponse;
-use matrix_sdk_common::locks::RwLock;
 use ruma::{
     OwnedRoomId,
     api::client::sync::sliding_sync_events, assign, events::{RoomEventType, AnySyncRoomEvent}, serde::Raw, UInt,
@@ -379,7 +378,7 @@ impl SlidingSync {
     /// Create the inner stream for the view.
     ///
     /// Run this stream to receive new updates from the server.
-    pub fn stream<'a>(
+    pub async fn stream<'a>(
         &'a self,
     ) -> anyhow::Result<(Cancel, impl Stream<Item = anyhow::Result<UpdateSummary>> + 'a)> {
         let views = self.views.lock_ref().to_vec();
@@ -387,11 +386,10 @@ impl SlidingSync {
         let ret_cancel = cancel.clone();
         let _pos = self.pos.clone();
 
-        // FIXME: hack for while the sliding sync server is on a proxy
-        let mut inner_client = self.client.inner.http_client.clone();
+        // FIXME: hack for while the sliding sync server is on a proxy\
         let client = self.client.clone();
         if let Some(hs) = &self.homeserver {
-            inner_client.homeserver = Arc::new(RwLock::new(hs.clone()))
+            client.set_homeserver(hs.clone()).await;
         }
 
         let final_stream = async_stream::try_stream! {
@@ -446,7 +444,7 @@ impl SlidingSync {
                     return
                 }
                 tracing::warn!("requesting: {:#?}", req);
-                let resp = inner_client.send(req, None, client.server_versions().await?).await?;
+                let resp = client.send(req, None).await?;
                 if cancel.get() {
                     return
                 }

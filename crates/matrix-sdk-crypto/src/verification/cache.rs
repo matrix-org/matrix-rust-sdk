@@ -40,17 +40,49 @@ impl VerificationCache {
         self.verification.iter().all(|m| m.is_empty())
     }
 
+    /// Add a new `Verification` object to the cache, this will cancel any
+    /// duplicates we have going on, including the newly inserted one, with a
+    /// given user.
     pub fn insert(&self, verification: impl Into<Verification>) {
         let verification = verification.into();
 
-        self.verification
-            .entry(verification.other_user().to_owned())
-            .or_default()
-            .insert(verification.flow_id().to_owned(), verification);
+        let entry = self.verification.entry(verification.other_user().to_owned()).or_default();
+        let user_verifications = entry.value();
+
+        // Cancel all the old verifications as well as the new one we have for
+        // this user if someone tries to have two verifications going on at
+        // once.
+        for old in user_verifications {
+            let old_verification = old.value();
+
+            if !old_verification.is_cancelled() {
+                if let Some(r) = old_verification.cancel() {
+                    self.add_request(r.into())
+                }
+
+                if let Some(r) = verification.cancel() {
+                    self.add_request(r.into())
+                }
+            }
+        }
+
+        // We still want to add the new verification, in case users want to
+        // inspect the verification object a matching `m.key.verification.start`
+        // produced.
+        user_verifications.insert(verification.flow_id().to_owned(), verification);
     }
 
     pub fn insert_sas(&self, sas: Sas) {
         self.insert(sas);
+    }
+
+    pub fn replace_sas(&self, sas: Sas) {
+        let verification: Verification = sas.into();
+
+        self.verification
+            .entry(verification.other_user().to_owned())
+            .or_default()
+            .insert(verification.flow_id().to_owned(), verification.clone());
     }
 
     #[cfg(feature = "qrcode")]

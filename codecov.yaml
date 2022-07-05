@@ -24,12 +24,14 @@ coverage:
         informational: true
         paths:
           - "bindings/"
-          - "crates/matrix-sdk-crypto-ffi/"
-          - "crates/matrix-sdk-ffi/"
-      labs:
-        # Coverage of lab tests is recorded but for informational
-        # purposes only
-        informational: true
-        paths:
-          - "labs/"
     patch: off
+ignore:
+  - "bindings/matrix-sdk-crypto-ffi"
+  - "bindings/matrix-sdk-crypto-js"
+  - "bindings/matrix-sdk-crypto-nodejs"
+  - "bindings/matrix-sdk-ffi"
+  - "crates/matrix-sdk-indexeddb"
+  - "crates/matrix-sdk-test"
+  - "crates/matrix-sdk-test-macros"
+  - "labs"
+  - "xtask"

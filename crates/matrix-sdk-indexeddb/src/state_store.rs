@@ -1044,10 +1044,7 @@ impl IndexeddbStore {
             .object_store(KEYS::DISPLAY_NAMES)?
             .get(&self.encode_key(KEYS::DISPLAY_NAMES, (room_id, display_name)))?
             .await?
-            .map(|f| {
-                self.deserialize_event::<BTreeSet<OwnedUserId>>(f)
-                    .map_err::<SerializationError, _>(|e| e)
-            })
+            .map(|f| self.deserialize_event::<BTreeSet<OwnedUserId>>(f))
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
@@ -1060,7 +1057,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ACCOUNT_DATA)?
             .get(&self.encode_key(KEYS::ACCOUNT_DATA, event_type))?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
+            .map(|f| self.deserialize_event(f))
             .transpose()
     }
 
@@ -1074,7 +1071,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
             .get(&self.encode_key(KEYS::ROOM_ACCOUNT_DATA, (room_id, event_type)))?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
+            .map(|f| self.deserialize_event(f))
             .transpose()
     }
 

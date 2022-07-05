@@ -37,6 +37,7 @@ use crate::{
 
 fn encode_key_info(info: &SecretInfo) -> String {
     match info {
+        #[allow(deprecated)]
         SecretInfo::KeyRequest(info) => {
             format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
         }

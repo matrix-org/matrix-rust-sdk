@@ -1,0 +1,29 @@
+{
+    "name": "@matrix-org/matrix-sdk-crypto",
+    "version": "0.5.0",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "napi": {
+        "name": "matrix-sdk-crypto",
+        "triples": {
+            "additional": [
+                "aarch64-apple-darwin"
+            ]
+        }
+    },
+    "license": "Apache-2.0",
+    "devDependencies": {
+        "@napi-rs/cli": "^2.9.0",
+        "jest": "^28.1.0",
+        "typedoc": "^0.22.17"
+    },
+    "engines": {
+        "node": ">= 14"
+    },
+    "scripts": {
+        "release-build": "napi build --platform --release --strip",
+        "build": "napi build --platform",
+        "test": "jest --verbose --testTimeout 10000",
+        "doc": "typedoc --tsconfig ."
+    }
+}

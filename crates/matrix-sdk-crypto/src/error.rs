@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{signatures::CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
@@ -178,6 +178,10 @@ pub enum SignatureError {
     /// The public key isn't a valid ed25519 key.
     #[error(transparent)]
     InvalidKey(#[from] vodozemac::KeyError),
+
+    /// The signature could not be decoded.
+    #[error("the given signature is not valid and can't be decoded")]
+    InvalidSignature,
 
     /// The signed object couldn't be deserialized.
     #[error(transparent)]

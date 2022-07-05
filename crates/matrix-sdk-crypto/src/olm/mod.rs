@@ -32,7 +32,7 @@ pub use group_sessions::{
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
-pub(crate) use utility::VerifyJson;
+pub(crate) use utility::{SignedJsonObject, VerifyJson};
 pub use vodozemac::olm::IdentityKeys;
 
 #[cfg(test)]
@@ -173,7 +173,10 @@ pub(crate) mod tests {
         let plaintext = "This is a secret to everybody".to_owned();
         let ciphertext = outbound.encrypt_helper(plaintext.clone()).await;
 
-        assert_eq!(plaintext, inbound.decrypt_helper(&ciphertext).await.unwrap().plaintext);
+        assert_eq!(
+            plaintext.as_bytes(),
+            inbound.decrypt_helper(&ciphertext).await.unwrap().plaintext
+        );
     }
 
     #[async_test]

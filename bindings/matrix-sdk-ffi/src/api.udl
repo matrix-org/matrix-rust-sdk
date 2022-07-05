@@ -1,0 +1,287 @@
+namespace sdk {
+    MediaSource media_source_from_url(string url);
+    MessageEventContent message_event_content_from_markdown(string md);
+    string gen_transaction_id();
+};
+
+
+/// Cancels on drop
+interface StoppableSpawn {
+    boolean is_cancelled();
+    void cancel();
+};
+
+[Error]
+interface ClientError {
+    Generic(string msg);
+};
+
+callback interface ClientDelegate {
+    void did_receive_sync_update();
+};
+
+dictionary RoomSubscriptionRequiredState {
+    string key;
+    string value;
+};
+
+dictionary RoomSubscription {
+    sequence<RoomSubscriptionRequiredState>? required_state;
+    u32? timeline_limit;
+};
+
+dictionary UpdateSummary {
+    sequence<string> views;
+    sequence<string> rooms;
+};
+
+
+callback interface SlidingSyncDelegate {
+    void did_receive_sync_update(UpdateSummary summary);
+};
+
+enum SlidingSyncState {
+    /// Hasn't started yet
+    "Cold",
+    /// We are quickly preloading a preview of the most important rooms
+    "Preload",
+    /// We are trying to load all remaining rooms, might be in batches
+    "CatchingUp",
+    /// We are all caught up and now only sync the live responses.
+    "Live",
+};
+
+callback interface SlidingSyncViewStateDelegate {
+    void did_receive_update(SlidingSyncState new_state);
+};
+
+[Enum]
+interface RoomListEntry {
+    Empty();
+    Invalidated(string room_id);
+    Filled(string room_id);
+};
+
+[Enum]
+interface SlidingSyncViewRoomsListDiff {
+    Replace(sequence<RoomListEntry> values);
+    InsertAt(
+        u32 index,
+        RoomListEntry value
+    );
+    UpdateAt(
+        u32 index,
+        RoomListEntry value
+    );
+    RemoveAt(u32 index);
+    Move(
+        u32 old_index,
+        u32 new_index
+    );
+    Push(RoomListEntry value);
+    // Pop();
+    // Clear();
+};
+
+
+callback interface SlidingSyncViewRoomsListDelegate {
+    void did_receive_update(SlidingSyncViewRoomsListDiff diff);
+};
+
+callback interface SlidingSyncViewRoomsCountDelegate {
+    void did_receive_update(u32 count);
+};
+
+interface SlidingSyncView {
+    StoppableSpawn on_rooms_update(SlidingSyncViewRoomsListDelegate update);
+    StoppableSpawn on_rooms_count_update(SlidingSyncViewRoomsCountDelegate update);
+    StoppableSpawn on_state_update(SlidingSyncViewStateDelegate update);
+
+    u32? current_room_count();
+    sequence<RoomListEntry> current_rooms_list();
+
+};
+
+interface SlidingSync {
+
+    void on_update(SlidingSyncDelegate? update);
+
+    void start_sync();
+
+    [Throws=ClientError]
+    void subscribe(string room_id, RoomSubscription? settings);
+    [Throws=ClientError]
+    void unsubscribe(string room_id);
+
+    SlidingSyncView? get_view(string name);
+interface ClientBuilder {
+    constructor();
+
+    [Self=ByArc]
+    ClientBuilder base_path(string path);
+
+    [Self=ByArc]
+    ClientBuilder username(string username);
+
+    [Self=ByArc]
+    ClientBuilder homeserver_url(string url);
+
+    [Throws=ClientError, Self=ByArc]
+    Client build();
+};
+
+interface Client {
+    void set_delegate(ClientDelegate? delegate);
+
+    [Throws=ClientError]
+    void login(string username, string password);
+
+    [Throws=ClientError]
+    void restore_login(string restore_token);
+
+    void start_sync();
+
+    [Throws=ClientError]
+    string restore_token();
+
+    boolean is_guest();
+
+    boolean has_first_synced();
+
+    boolean is_syncing();
+
+    [Throws=ClientError]
+    string user_id();
+
+    [Throws=ClientError]
+    string display_name();
+
+    [Throws=ClientError]
+    string avatar_url();
+
+    [Throws=ClientError]
+    string device_id();
+
+    sequence<Room> rooms();
+
+    [Throws=ClientError]
+    sequence<u8> get_media_content(MediaSource source);
+
+    [Throws=ClientError]
+    SessionVerificationController get_session_verification_controller();
+
+    [Throws=ClientError]
+    SlidingSync full_sliding_sync();
+};
+
+callback interface RoomDelegate {
+    void did_receive_message(AnyMessage message);
+};
+
+interface Room {
+    void set_delegate(RoomDelegate? delegate);
+
+    string id();
+    string? name();
+    string? topic();
+    string? avatar_url();
+
+    boolean is_direct();
+    boolean is_public();
+    boolean is_space();
+    boolean is_encrypted();
+    boolean is_tombstoned();
+
+    [Throws=ClientError]
+    string display_name();
+
+    [Throws=ClientError]
+    string? member_avatar_url(string user_id);
+
+    [Throws=ClientError]
+    string? member_display_name(string user_id);
+
+    BackwardsStream? start_live_event_listener();
+    void stop_live_event_listener();
+
+    [Throws=ClientError]
+    void send(MessageEventContent msg, string? txn_id);
+};
+
+interface BackwardsStream {
+    sequence<AnyMessage> paginate_backwards(u64 count);
+};
+
+interface MessageEventContent {};
+
+interface AnyMessage {
+    TextMessage? text_message();
+    ImageMessage? image_message();
+    NoticeMessage? notice_message();
+    EmoteMessage? emote_message();
+};
+
+interface BaseMessage {
+    string id();
+    string body();
+    string sender();
+    u64 origin_server_ts();
+    string? transaction_id();
+};
+
+interface TextMessage {
+    BaseMessage base_message();
+    string? html_body();
+};
+
+interface ImageMessage {
+    BaseMessage base_message();
+    MediaSource source();
+    u64? width();
+    u64? height();
+    string? blurhash();
+};
+
+interface NoticeMessage {
+    BaseMessage base_message();
+    string? html_body();
+};
+
+interface EmoteMessage {
+    BaseMessage base_message();
+    string? html_body();
+};
+
+interface MediaSource {
+    string url();
+};
+
+interface SessionVerificationEmoji {
+    string symbol();
+    string description();
+};
+
+callback interface SessionVerificationControllerDelegate {
+    void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
+    void did_fail();
+    void did_cancel();
+    void did_finish();
+};
+
+interface SessionVerificationController {
+    void set_delegate(SessionVerificationControllerDelegate? delegate);
+
+    boolean is_verified();
+
+    [Throws=ClientError]
+    void request_verification();
+
+    [Throws=ClientError]
+    void approve_verification();
+
+    [Throws=ClientError]
+    void decline_verification();
+
+    [Throws=ClientError]
+    void cancel_verification();
+};
