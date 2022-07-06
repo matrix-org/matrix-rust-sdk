@@ -35,7 +35,7 @@ lipo -create \
   -output "${GENERATED_DIR}/libmatrix_crypto_ffi.a"
 
 # Generate uniffi files
-uniffi-bindgen generate "${SRC_ROOT}/crates/${TARGET_CRATE}/src/olm.udl" --language swift --config-path "${SRC_ROOT}/crates/${TARGET_CRATE}/uniffi.toml" --out-dir ${GENERATED_DIR}
+uniffi-bindgen generate "${SRC_ROOT}/bindings/${TARGET_CRATE}/src/olm.udl" --language swift --config "${SRC_ROOT}/bindings/${TARGET_CRATE}/uniffi.toml" --out-dir ${GENERATED_DIR}
 
 # Move headers to the right place
 HEADERS_DIR=${GENERATED_DIR}/headers
