@@ -157,9 +157,7 @@ interface MediaSource {
 [Error]
 enum AuthenticationError {
   "ClientMissing",
-  "ClientBuilderFailed",
-  "GetLoginFlowsFailed",
-  "LoginFailed",
+  "Generic",
 };
 
 interface AuthenticationService {

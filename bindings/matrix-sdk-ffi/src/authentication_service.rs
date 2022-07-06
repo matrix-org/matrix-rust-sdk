@@ -17,22 +17,18 @@ struct ClientContainer {
 pub enum AuthenticationError {
     #[error("A successfull call to use_server must be made first.")]
     ClientMissing,
-    #[error("The client could not be built: {message}")]
-    ClientBuilderFailed { message: String },
-    #[error("Unable to get the supported login flows: {message}")]
-    GetLoginFlowsFailed { message: String },
-    #[error("Login was unsuccessful: {message}")]
-    LoginFailed { message: String },
+    #[error("An error occurred: {message}")]
+    Generic { message: String },
 }
 
 impl From<anyhow::Error> for AuthenticationError {
     fn from(e: anyhow::Error) -> AuthenticationError {
-        AuthenticationError::LoginFailed { message: e.to_string() }
+        AuthenticationError::Generic { message: e.to_string() }
     }
 }
 
 impl AuthenticationService {
-    /// Creates a new service to authenticate with the specified server.
+    /// Creates a new service to authenticate a user with.
     pub fn new(base_path: String) -> Self {
         AuthenticationService {
             base_path,
@@ -50,7 +46,8 @@ impl AuthenticationService {
             .and_then(|client| Ok(client.homeserver()))
     }
 
-    /// The OIDC Provider that is trusted by the homeserver.
+    /// The OIDC Provider that is trusted by the homeserver. `nil` when
+    /// not configured.
     pub fn authentication_issuer(&self) -> Result<Option<String>, AuthenticationError> {
         self.client_container
             .read()
@@ -67,11 +64,7 @@ impl AuthenticationService {
             .client
             .as_ref()
             .ok_or(AuthenticationError::ClientMissing)
-            .and_then(|client| {
-                client.supports_password_login().map_err(|error| {
-                    AuthenticationError::GetLoginFlowsFailed { message: error.to_string() }
-                })
-            })
+            .and_then(|client| client.supports_password_login().map_err(AuthenticationError::from))
     }
 
     /// Updates the server to authenticate with the specified homeserver.
@@ -89,9 +82,7 @@ impl AuthenticationService {
                 client_containter.client = Some(client);
                 Ok(())
             }
-            Err(error) => {
-                Err(AuthenticationError::ClientBuilderFailed { message: error.to_string() })
-            }
+            Err(error) => Err(AuthenticationError::Generic { message: error.to_string() }),
         }
     }
 
@@ -105,7 +96,7 @@ impl AuthenticationService {
             Some(client) => client
                 .login(username, password)
                 .and_then(|_| Ok(client.clone()))
-                .map_err(|error| AuthenticationError::from(error)),
+                .map_err(AuthenticationError::from),
             None => Err(AuthenticationError::ClientMissing),
         }
     }
