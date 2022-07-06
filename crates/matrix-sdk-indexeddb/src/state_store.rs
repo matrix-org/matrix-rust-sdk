@@ -56,7 +56,7 @@ use crate::safe_encode::SafeEncode;
 struct StoreKeyWrapper(Vec<u8>);
 
 #[derive(Debug, thiserror::Error)]
-pub enum SerializationError {
+pub enum IndexedDBStoreError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
@@ -67,9 +67,9 @@ pub enum SerializationError {
     StoreError(#[from] StoreError),
 }
 
-impl From<indexed_db_futures::web_sys::DomException> for SerializationError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> SerializationError {
-        SerializationError::DomException {
+impl From<indexed_db_futures::web_sys::DomException> for IndexedDBStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexedDBStoreError {
+        IndexedDBStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
             code: frm.code(),
@@ -77,12 +77,12 @@ impl From<indexed_db_futures::web_sys::DomException> for SerializationError {
     }
 }
 
-impl From<SerializationError> for StoreError {
-    fn from(e: SerializationError) -> Self {
+impl From<IndexedDBStoreError> for StoreError {
+    fn from(e: IndexedDBStoreError) -> Self {
         match e {
-            SerializationError::Json(e) => StoreError::Json(e),
-            SerializationError::StoreError(e) => e,
-            SerializationError::Encryption(e) => match e {
+            IndexedDBStoreError::Json(e) => StoreError::Json(e),
+            IndexedDBStoreError::StoreError(e) => e,
+            IndexedDBStoreError::Encryption(e) => match e {
                 EncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
                 EncryptionError::Serialization(e) => StoreError::Json(e),
                 EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
@@ -159,7 +159,7 @@ impl std::fmt::Debug for IndexeddbStore {
     }
 }
 
-type Result<A, E = SerializationError> = std::result::Result<A, E>;
+type Result<A, E = IndexedDBStoreError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
     async fn open_helper(name: String, store_cipher: Option<Arc<StoreCipher>>) -> Result<Self> {
@@ -292,7 +292,7 @@ impl IndexeddbStore {
     fn serialize_event(
         &self,
         event: &impl Serialize,
-    ) -> std::result::Result<JsValue, SerializationError> {
+    ) -> std::result::Result<JsValue, IndexedDBStoreError> {
         Ok(match &self.store_cipher {
             Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
             None => JsValue::from_serde(event)?,
@@ -302,7 +302,7 @@ impl IndexeddbStore {
     fn deserialize_event<T: DeserializeOwned>(
         &self,
         event: JsValue,
-    ) -> std::result::Result<T, SerializationError> {
+    ) -> std::result::Result<T, IndexedDBStoreError> {
         match &self.store_cipher {
             Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
             None => Ok(event.into_serde()?),
@@ -323,7 +323,7 @@ impl IndexeddbStore {
         &self,
         table_name: &str,
         key: T,
-    ) -> Result<IdbKeyRange, SerializationError>
+    ) -> Result<IdbKeyRange, IndexedDBStoreError>
     where
         T: SafeEncode,
     {
@@ -331,7 +331,7 @@ impl IndexeddbStore {
             Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e).into())))
+        .map_err(|e| IndexedDBStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
     }
 
     #[cfg(feature = "experimental-timeline")]
@@ -863,7 +863,7 @@ impl IndexeddbStore {
             }
         }
 
-        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())
+        tx.await.into_result().map_err::<IndexedDBStoreError, _>(|e| e.into())
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
@@ -1070,7 +1070,7 @@ impl IndexeddbStore {
             .await?
             .map(|f| {
                 self.deserialize_event::<BTreeSet<OwnedUserId>>(f)
-                    .map_err::<SerializationError, _>(|e| e)
+                    .map_err::<IndexedDBStoreError, _>(|e| e)
             })
             .unwrap_or_else(|| Ok(Default::default()))
     }
@@ -1084,7 +1084,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ACCOUNT_DATA)?
             .get(&self.encode_key(KEYS::ACCOUNT_DATA, event_type))?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
+            .map(|f| self.deserialize_event(f).map_err::<IndexedDBStoreError, _>(|e| e))
             .transpose()
     }
 
@@ -1098,7 +1098,7 @@ impl IndexeddbStore {
             .object_store(KEYS::ROOM_ACCOUNT_DATA)?
             .get(&self.encode_key(KEYS::ROOM_ACCOUNT_DATA, (room_id, event_type)))?
             .await?
-            .map(|f| self.deserialize_event(f).map_err::<SerializationError, _>(|e| e))
+            .map(|f| self.deserialize_event(f).map_err::<IndexedDBStoreError, _>(|e| e))
             .transpose()
     }
 
@@ -1191,7 +1191,7 @@ impl IndexeddbStore {
 
         tx.object_store(KEYS::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
 
-        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())?;
+        tx.await.into_result().map_err::<IndexedDBStoreError, _>(|e| e.into())?;
         Ok(prev)
     }
 
@@ -1264,7 +1264,7 @@ impl IndexeddbStore {
                 store.delete(&key)?;
             }
         }
-        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())
+        tx.await.into_result().map_err::<IndexedDBStoreError, _>(|e| e.into())
     }
 
     #[cfg(feature = "experimental-timeline")]
