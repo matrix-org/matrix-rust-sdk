@@ -299,7 +299,7 @@ impl Client {
         if let Some(server) = &self.inner.authentication_issuer {
             return Some(server.read().await.clone());
         }
-        return None;
+        None
     }
 
     /// Get the user id of the current owner of the client.

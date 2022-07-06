@@ -323,7 +323,7 @@ impl ClientBuilder {
         };
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
-        let authentication_issuer = authentication_issuer.map(|server| RwLock::new(server));
+        let authentication_issuer = authentication_issuer.map(RwLock::new);
 
         let inner = Arc::new(ClientInner {
             homeserver,

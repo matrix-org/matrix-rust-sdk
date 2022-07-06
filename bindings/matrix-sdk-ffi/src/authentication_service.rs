@@ -15,7 +15,7 @@ struct ClientContainer {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthenticationError {
-    #[error("A successfull call to use_server must be made first.")]
+    #[error("A successful call to use_server must be made first.")]
     ClientMissing,
     #[error("An error occurred: {message}")]
     Generic { message: String },
@@ -78,8 +78,8 @@ impl AuthenticationService {
 
         match client {
             Ok(client) => {
-                let mut client_containter = self.client_container.write();
-                client_containter.client = Some(client);
+                let mut client_container = self.client_container.write();
+                client_container.client = Some(client);
                 Ok(())
             }
             Err(error) => Err(AuthenticationError::Generic { message: error.to_string() }),
