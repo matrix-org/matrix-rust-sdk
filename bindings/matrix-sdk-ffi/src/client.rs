@@ -89,9 +89,8 @@ impl Client {
     pub fn supports_password_login(&self) -> anyhow::Result<bool> {
         RUNTIME.block_on(async move {
             let login_types = self.client.get_login_types().await?;
-            let supports_password = login_types.flows.iter().any(|login_type| match login_type {
-                get_login_types::v3::LoginType::Password(_) => true,
-                _ => false,
+            let supports_password = login_types.flows.iter().any(|login_type| {
+                matches!(login_type, get_login_types::v3::LoginType::Password(_))
             });
             Ok(supports_password)
         })

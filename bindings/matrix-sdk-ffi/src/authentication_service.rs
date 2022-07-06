@@ -43,7 +43,7 @@ impl AuthenticationService {
             .client
             .as_ref()
             .ok_or(AuthenticationError::ClientMissing)
-            .and_then(|client| Ok(client.homeserver()))
+            .map(|client| client.homeserver())
     }
 
     /// The OIDC Provider that is trusted by the homeserver. `nil` when
@@ -54,7 +54,7 @@ impl AuthenticationService {
             .client
             .as_ref()
             .ok_or(AuthenticationError::ClientMissing)
-            .and_then(|client| Ok(client.authentication_issuer()))
+            .map(|client| client.authentication_issuer())
     }
 
     /// Whether the current homeserver supports the password login flow.
@@ -74,16 +74,12 @@ impl AuthenticationService {
         let client = Arc::new(ClientBuilder::new())
             .base_path(self.base_path.clone())
             .username(username)
-            .build();
+            .build()
+            .map_err(AuthenticationError::from)?;
 
-        match client {
-            Ok(client) => {
-                let mut client_container = self.client_container.write();
-                client_container.client = Some(client);
-                Ok(())
-            }
-            Err(error) => Err(AuthenticationError::Generic { message: error.to_string() }),
-        }
+        let mut client_container = self.client_container.write();
+        client_container.client = Some(client);
+        Ok(())
     }
 
     /// Performs a password login using the current homeserver.
@@ -93,10 +89,22 @@ impl AuthenticationService {
         password: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
         match self.client_container.read().client.as_ref() {
-            Some(client) => client
-                .login(username, password)
-                .and_then(|_| Ok(client.clone()))
-                .map_err(AuthenticationError::from),
+            Some(client) => {
+                let homeserver_url = client.homeserver();
+
+                // Create a new client to setup the store path for the username
+                let client = Arc::new(ClientBuilder::new())
+                    .base_path(self.base_path.clone())
+                    .homeserver_url(homeserver_url)
+                    .username(username.clone())
+                    .build()
+                    .map_err(AuthenticationError::from)?;
+
+                client
+                    .login(username, password)
+                    .map(|_| client.clone())
+                    .map_err(AuthenticationError::from)
+            }
             None => Err(AuthenticationError::ClientMissing),
         }
     }
