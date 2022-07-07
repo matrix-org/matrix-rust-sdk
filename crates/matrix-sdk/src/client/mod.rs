@@ -2200,7 +2200,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use mockito::{mock, Matcher};
-    use ruma::{api::MatrixVersion, device_id, room_id, user_id};
+    use ruma::{api::MatrixVersion, device_id, room_id, user_id, UserId};
     use url::Url;
 
     use super::{Client, ClientBuilder, Session};
@@ -2247,6 +2247,42 @@ pub(crate) mod tests {
         // let bc = &client.base_client;
         // let ignored_users = bc.ignored_users.read().await;
         // assert_eq!(1, ignored_users.len())
+    }
+
+    #[async_test]
+    async fn successful_discovery() {
+        let server_url = mockito::server_url();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
+
+        let _m_well_known = mock("GET", "/.well-known/matrix/client")
+            .with_status(200)
+            .with_body(
+                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
+            )
+            .create();
+
+        let _m_versions = mock("GET", "/_matrix/client/versions")
+            .with_status(200)
+            .with_body(test_json::VERSIONS.to_string())
+            .create();
+        let client = Client::builder().user_id(&alice).build().await.unwrap();
+
+        assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
+    }
+
+    #[async_test]
+    async fn discovery_broken_server() {
+        let server_url = mockito::server_url();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
+
+        let _m = mock("GET", "/.well-known/matrix/client").with_status(404).create();
+
+        assert!(
+            Client::builder().user_id(&alice).build().await.is_err(),
+            "Creating a client from a user ID should fail when the .well-known request fails."
+        );
     }
 
     #[async_test]

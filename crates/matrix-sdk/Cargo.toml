@@ -55,9 +55,6 @@ docsrs = [
     "image-proc",
 ]
 
-# This is an internal feature only used for tests
-__test = []
-
 [dependencies]
 anyhow = { version = "1.0.57", optional = true }
 anymap2 = "0.13.0"

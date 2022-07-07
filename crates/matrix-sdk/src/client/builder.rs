@@ -343,12 +343,12 @@ impl ClientBuilder {
 }
 
 fn homeserver_from_name(server_name: &ServerName) -> String {
-    #[cfg(not(any(test, feature = "__test")))]
+    #[cfg(not(test))]
     return format!("https://{}", server_name);
 
     // Mockito only knows how to test http endpoints:
     // https://github.com/lipanski/mockito/issues/127
-    #[cfg(any(test, feature = "__test"))]
+    #[cfg(test)]
     return format!("http://{}", server_name);
 }
 

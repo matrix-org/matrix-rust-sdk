@@ -3,8 +3,6 @@
 
 use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
-#[cfg(feature = "__test")]
-use matrix_sdk::{config::RequestConfig, Client};
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
@@ -12,8 +10,6 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{async_test, test_json};
 use mockito::{mock, Matcher};
-#[cfg(feature = "__test")]
-use ruma::UserId;
 use ruma::{
     api::{
         client::{
@@ -46,53 +42,6 @@ async fn set_homeserver() {
     client.set_homeserver(homeserver.clone()).await;
 
     assert_eq!(client.homeserver().await, homeserver);
-}
-
-#[cfg(feature = "__test")]
-#[async_test]
-async fn successful_discovery() {
-    let server_url = mockito::server_url();
-    let domain = server_url.strip_prefix("http://").unwrap();
-    let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
-
-    let _m_well_known = mock("GET", "/.well-known/matrix/client")
-        .with_status(200)
-        .with_body(test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()))
-        .create();
-
-    let _m_versions = mock("GET", "/_matrix/client/versions")
-        .with_status(200)
-        .with_body(test_json::VERSIONS.to_string())
-        .create();
-
-    let client = Client::builder()
-        .request_config(RequestConfig::new().disable_retry())
-        .user_id(&alice)
-        .build()
-        .await
-        .unwrap();
-
-    assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
-}
-
-#[cfg(feature = "__test")]
-#[async_test]
-async fn discovery_broken_server() {
-    let server_url = mockito::server_url();
-    let domain = server_url.strip_prefix("http://").unwrap();
-    let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
-
-    let _m = mock("GET", "/.well-known/matrix/client").with_status(404).create();
-
-    assert!(
-        Client::builder()
-            .request_config(RequestConfig::new().disable_retry())
-            .user_id(&alice)
-            .build()
-            .await
-            .is_err(),
-        "Creating a client from a user ID should fail when the .well-known request fails."
-    );
 }
 
 #[async_test]

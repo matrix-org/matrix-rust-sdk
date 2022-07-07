@@ -127,7 +127,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: nextest
-          args: run --workspace --features __test
+          args: run --workspace
 
       - name: Test documentation
         uses: actions-rs/cargo@v1

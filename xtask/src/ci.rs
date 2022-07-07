@@ -154,7 +154,7 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     ]);
 
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo nextest run -p matrix-sdk --features __test")
+        cmd!("rustup run stable cargo nextest run -p matrix-sdk")
             .args(arg_set.split_whitespace())
             .run()?;
         cmd!("rustup run stable cargo test --doc -p matrix-sdk")
