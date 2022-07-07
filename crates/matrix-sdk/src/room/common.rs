@@ -1003,7 +1003,7 @@ impl Common {
         }
 
         let via = self.route().await?;
-        Ok(self.room_id().matrix_to_uri(via.iter().map(Deref::deref)))
+        Ok(self.room_id().matrix_to_uri(via))
     }
 
     /// Get a `matrix:` permalink to this room.
@@ -1022,7 +1022,7 @@ impl Common {
         }
 
         let via = self.route().await?;
-        Ok(self.room_id().matrix_uri(via.iter().map(Deref::deref), join))
+        Ok(self.room_id().matrix_uri(via, join))
     }
 
     /// Get a `matrix.to` permalink to an event in this room.
@@ -1045,7 +1045,7 @@ impl Common {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
-        Ok(self.room_id().matrix_to_event_uri(event_id, via.iter().map(Deref::deref)))
+        Ok(self.room_id().matrix_to_event_uri(event_id, via))
     }
 
     /// Get a `matrix:` permalink to an event in this room.
@@ -1068,7 +1068,7 @@ impl Common {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
-        Ok(self.room_id().matrix_event_uri(event_id, via.iter().map(Deref::deref)))
+        Ok(self.room_id().matrix_event_uri(event_id, via))
     }
 }
 
