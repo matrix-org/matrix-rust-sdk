@@ -7,7 +7,7 @@ use matrix_sdk::{
 use matrix_sdk_test::{async_test, test_json};
 use mockito::{mock, Matcher};
 use ruma::{
-    device_id,
+    device_id, event_id,
     events::{AnySyncStateEvent, StateEventType},
     room_id, user_id,
 };
