@@ -32,9 +32,18 @@ describe(Attachment.name, () => {
     });
 
     test('can decrypt data', () => {
+        expect(encryptedAttachment.hasMediaEncryptionInfoBeenConsumed).toStrictEqual(false);
+
         const decryptedAttachment = Attachment.decrypt(encryptedAttachment);
 
         expect(textDecoder.decode(decryptedAttachment)).toStrictEqual(originalData);
+        expect(encryptedAttachment.hasMediaEncryptionInfoBeenConsumed).toStrictEqual(true);
+    });
+
+    test('can only decrypt once', () => {
+        expect(encryptedAttachment.hasMediaEncryptionInfoBeenConsumed).toStrictEqual(true);
+
+        expect(() => { textDecoder.decode(decryptedAttachment) }).toThrow()
     });
 });
 
@@ -61,6 +70,8 @@ describe(EncryptedAttachment.name, () => {
             })
         );
 
+        expect(encryptedAttachment.hasMediaEncryptionInfoBeenConsumed).toStrictEqual(false);
         expect(textDecoder.decode(Attachment.decrypt(encryptedAttachment))).toStrictEqual(originalData);
+        expect(encryptedAttachment.hasMediaEncryptionInfoBeenConsumed).toStrictEqual(true);
     });
 });

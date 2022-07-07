@@ -30,7 +30,7 @@ impl Attachment {
         let mut encrypted_data = Vec::new();
         encryptor.read_to_end(&mut encrypted_data).map_err(into_err)?;
 
-        let media_encryption_info = encryptor.finish();
+        let media_encryption_info = Some(encryptor.finish());
 
         Ok(EncryptedAttachment {
             encrypted_data: Uint8Array::new(encrypted_data),
@@ -42,16 +42,30 @@ impl Attachment {
     ///
     /// The encrypted attachment can be created manually, or from the
     /// `encrypt` method.
+    ///
+    /// **Warning**: The encrypted attachment can be used only
+    /// **once**! The encrypted data will still be present, but the
+    /// media encryption info (which contain secrets) will be
+    /// destroyed. It is still possible to get a JSON-encoded backup
+    /// by calling `EncryptedAttachment.mediaEncryptionInfo`.
     #[napi]
-    pub fn decrypt(attachment: &EncryptedAttachment) -> napi::Result<Uint8Array> {
+    pub fn decrypt(attachment: &mut EncryptedAttachment) -> napi::Result<Uint8Array> {
+        let media_encryption_info = match attachment.media_encryption_info.take() {
+            Some(media_encryption_info) => media_encryption_info,
+            None => {
+                return Err(napi::Error::from_reason(
+                    "The media encryption info are absent from the given encrypted attachment"
+                        .to_string(),
+                ))
+            }
+        };
+
         let encrypted_data: &[u8] = attachment.encrypted_data.deref();
 
         let mut cursor = Cursor::new(encrypted_data);
-        let mut decryptor = matrix_sdk_crypto::AttachmentDecryptor::new(
-            &mut cursor,
-            attachment.media_encryption_info.clone(),
-        )
-        .map_err(into_err)?;
+        let mut decryptor =
+            matrix_sdk_crypto::AttachmentDecryptor::new(&mut cursor, media_encryption_info)
+                .map_err(into_err)?;
 
         let mut decrypted_data = Vec::new();
         decryptor.read_to_end(&mut decrypted_data).map_err(into_err)?;
@@ -63,7 +77,7 @@ impl Attachment {
 /// An encrypted attachment, usually created from `Attachment.encrypt`.
 #[napi]
 pub struct EncryptedAttachment {
-    media_encryption_info: matrix_sdk_crypto::MediaEncryptionInfo,
+    media_encryption_info: Option<matrix_sdk_crypto::MediaEncryptionInfo>,
 
     /// The actual encrypted data.
     pub encrypted_data: Uint8Array,
@@ -87,15 +101,26 @@ impl EncryptedAttachment {
     pub fn new(encrypted_data: Uint8Array, media_encryption_info: String) -> napi::Result<Self> {
         Ok(Self {
             encrypted_data,
-            media_encryption_info: serde_json::from_str(media_encryption_info.as_str())
-                .map_err(into_err)?,
+            media_encryption_info: Some(
+                serde_json::from_str(media_encryption_info.as_str()).map_err(into_err)?,
+            ),
         })
     }
 
     /// Return the media encryption info as a JSON-encoded string. The
     /// structure is fully valid.
+    ///
+    /// If the media encryption info have been consumed already, it
+    /// will return `null`.
     #[napi(getter)]
-    pub fn media_encryption_info(&self) -> String {
-        serde_json::to_string(&self.media_encryption_info).unwrap()
+    pub fn media_encryption_info(&self) -> Option<String> {
+        serde_json::to_string(self.media_encryption_info.as_ref()?).ok()
+    }
+
+    /// Check whether the media encryption info has been consumed by
+    /// `Attachment.decrypt` already.
+    #[napi(getter)]
+    pub fn has_media_encryption_info_been_consumed(&self) -> bool {
+        self.media_encryption_info.is_none()
     }
 }
