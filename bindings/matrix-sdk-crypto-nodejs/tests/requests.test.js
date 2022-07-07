@@ -26,5 +26,4 @@ for (const request of [
             expect(() => { new (request)() }).toThrow();
         });
     })
-
 }
