@@ -64,7 +64,9 @@ impl Attachment {
 #[napi]
 pub struct EncryptedAttachment {
     media_encryption_info: matrix_sdk_crypto::MediaEncryptionInfo,
-    encrypted_data: Uint8Array,
+
+    /// The actual encrypted data.
+    pub encrypted_data: Uint8Array,
 }
 
 #[napi]
@@ -92,15 +94,5 @@ impl EncryptedAttachment {
     #[napi(getter)]
     pub fn media_encryption_info(&self) -> String {
         serde_json::to_string(&self.media_encryption_info).unwrap()
-    }
-
-    /// Return a **copy** of the encrypted data in a new `Uint8Array`.
-    ///
-    /// We are aware this is not ideal to copy the value, but the
-    /// current available Node.js API does seem be limited in that
-    /// regard.
-    #[napi(getter)]
-    pub fn encrypted_data(&self) -> Uint8Array {
-        Uint8Array::new(self.encrypted_data.deref().to_owned())
     }
 }
