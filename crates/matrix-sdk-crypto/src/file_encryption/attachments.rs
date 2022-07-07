@@ -313,7 +313,7 @@ mod tests {
     fn example_key() -> MediaEncryptionInfo {
         let info = json!({
             "v": "v2",
-            "web_key": {
+            "key": {
                 "kty": "oct",
                 "alg": "A256CTR",
                 "ext": true,
