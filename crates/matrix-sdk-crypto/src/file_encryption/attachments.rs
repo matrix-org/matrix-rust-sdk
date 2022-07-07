@@ -279,10 +279,11 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
 /// file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaEncryptionInfo {
-    #[serde(rename = "v")]
     /// The version of the encryption scheme.
+    #[serde(rename = "v")]
     pub version: String,
     /// The web key that was used to encrypt the file.
+    #[serde(rename = "key")]
     pub web_key: JsonWebKey,
     /// The initialization vector that was used to encrypt the file.
     pub iv: Base64,

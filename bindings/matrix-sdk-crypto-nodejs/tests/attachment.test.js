@@ -14,7 +14,7 @@ describe(Attachment.name, () => {
 
         expect(mediaEncryptionInfo).toMatchObject({
             v: 'v2',
-            web_key: {
+            key: {
                 kty: expect.any(String),
                 key_ops: expect.arrayContaining(['encrypt', 'decrypt']),
                 alg: expect.any(String),
@@ -47,7 +47,7 @@ describe(EncryptedAttachment.name, () => {
             new Uint8Array([24, 150, 67, 37, 144]),
             JSON.stringify({
                 v: 'v2',
-                web_key: {
+                key: {
                     kty: 'oct',
                     key_ops: [ 'encrypt', 'decrypt' ],
                     alg: 'A256CTR',
