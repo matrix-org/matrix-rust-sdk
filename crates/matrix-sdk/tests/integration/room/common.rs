@@ -810,4 +810,14 @@ async fn room_permalink() {
         room.matrix_permalink(true).await.unwrap().to_string(),
         "matrix:r/canonical:localhost?action=join"
     );
+
+    let event_id = event_id!("$15139375512JaHAW");
+    assert_eq!(
+        room.matrix_to_event_permalink(event_id).await.unwrap().to_string(),
+        "https://matrix.to/#/%21test_room%3A127.0.0.1/%2415139375512JaHAW?via=mymatrix&via=yourmatrix&via=localhost"
+    );
+    assert_eq!(
+        room.matrix_event_permalink(event_id).await.unwrap().to_string(),
+        "matrix:roomid/test_room:127.0.0.1/e/15139375512JaHAW?via=mymatrix&via=yourmatrix&via=localhost"
+    );
 }
