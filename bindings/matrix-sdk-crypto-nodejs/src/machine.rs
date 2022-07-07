@@ -215,8 +215,7 @@ impl OlmMachine {
             .into_iter()
             .map(requests::OutgoingRequest)
             .map(TryFrom::try_from)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(into_err)
+            .collect()
     }
 
     /// Mark the request with the given request ID as sent.
