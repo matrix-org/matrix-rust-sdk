@@ -297,9 +297,10 @@ impl Client {
     /// The OIDC Provider that is trusted by the homeserver.
     pub async fn authentication_issuer(&self) -> Option<Url> {
         if let Some(server) = &self.inner.authentication_issuer {
-            return Some(server.read().await.clone());
+            Some(server.read().await.clone())
+        } else {
+            None
         }
-        None
     }
 
     /// Get the user id of the current owner of the client.

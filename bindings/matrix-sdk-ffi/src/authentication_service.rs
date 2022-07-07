@@ -6,11 +6,7 @@ use super::{client::Client, client_builder::ClientBuilder};
 
 pub struct AuthenticationService {
     base_path: String,
-    client_container: RwLock<ClientContainer>,
-}
-
-struct ClientContainer {
-    client: Option<Arc<Client>>,
+    client: RwLock<Option<Arc<Client>>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -30,28 +26,23 @@ impl From<anyhow::Error> for AuthenticationError {
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     pub fn new(base_path: String) -> Self {
-        AuthenticationService {
-            base_path,
-            client_container: RwLock::new(ClientContainer { client: None }),
-        }
+        AuthenticationService { base_path, client: RwLock::new(None) }
     }
 
     /// The currently configured homeserver.
     pub fn homeserver(&self) -> Result<String, AuthenticationError> {
-        self.client_container
+        self.client
             .read()
-            .client
             .as_ref()
             .ok_or(AuthenticationError::ClientMissing)
             .map(|client| client.homeserver())
     }
 
-    /// The OIDC Provider that is trusted by the homeserver. `nil` when
+    /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
     pub fn authentication_issuer(&self) -> Result<Option<String>, AuthenticationError> {
-        self.client_container
+        self.client
             .read()
-            .client
             .as_ref()
             .ok_or(AuthenticationError::ClientMissing)
             .map(|client| client.authentication_issuer())
@@ -59,9 +50,8 @@ impl AuthenticationService {
 
     /// Whether the current homeserver supports the password login flow.
     pub fn supports_password_login(&self) -> Result<bool, AuthenticationError> {
-        self.client_container
+        self.client
             .read()
-            .client
             .as_ref()
             .ok_or(AuthenticationError::ClientMissing)
             .and_then(|client| client.supports_password_login().map_err(AuthenticationError::from))
@@ -77,8 +67,7 @@ impl AuthenticationService {
             .build()
             .map_err(AuthenticationError::from)?;
 
-        let mut client_container = self.client_container.write();
-        client_container.client = Some(client);
+        *self.client.write() = Some(client);
         Ok(())
     }
 
@@ -88,7 +77,7 @@ impl AuthenticationService {
         username: String,
         password: String,
     ) -> Result<Arc<Client>, AuthenticationError> {
-        match self.client_container.read().client.as_ref() {
+        match self.client.read().as_ref() {
             Some(client) => {
                 let homeserver_url = client.homeserver();
 

@@ -77,7 +77,7 @@ impl Client {
         RUNTIME.block_on(async move { self.client.homeserver().await.to_string() })
     }
 
-    /// The OIDC Provider that is trusted by the homeserver. `nil` when
+    /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
     pub fn authentication_issuer(&self) -> Option<String> {
         RUNTIME.block_on(async move {

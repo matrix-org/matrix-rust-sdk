@@ -116,7 +116,7 @@ features = ["client-api-c", "compat", "rand", "unstable-msc2448"]
 [dependencies.ruma-client-api]
 git = "https://github.com/ruma/ruma"
 rev = "96155915f"
-features = ["compat", "unstable-msc2965"]
+features = ["unstable-msc2965"]
 
 [dependencies.tokio-stream]
 version = "0.1.8"
