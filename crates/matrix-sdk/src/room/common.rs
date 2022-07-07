@@ -1029,6 +1029,10 @@ impl Common {
     ///
     /// We try to use the synced members in the room for [routing] the room ID.
     ///
+    /// *Note*: This method does not check if the given event ID is actually
+    /// part of this room. It needs to be checked before calling this method
+    /// otherwise the permalink won't work.
+    ///
     /// # Arguments
     ///
     /// * `event_id` - The ID of the event.
@@ -1047,6 +1051,10 @@ impl Common {
     /// Get a `matrix:` permalink to an event in this room.
     ///
     /// We try to use the synced members in the room for [routing] the room ID.
+    ///
+    /// *Note*: This method does not check if the given event ID is actually
+    /// part of this room. It needs to be checked before calling this method
+    /// otherwise the permalink won't work.
     ///
     /// # Arguments
     ///
