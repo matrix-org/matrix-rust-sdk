@@ -80,6 +80,9 @@ impl EncryptedAttachment {
     ///
     /// The media encryption information aren't stored as a string:
     /// they are parsed, validated and fully deserialized.
+    ///
+    /// See [the specification to learn
+    /// more](https://spec.matrix.org/unstable/client-server-api/#extensions-to-mroommessage-msgtypes).
     #[napi(constructor)]
     pub fn new(encrypted_data: Uint8Array, media_encryption_info: String) -> napi::Result<Self> {
         Ok(Self {
