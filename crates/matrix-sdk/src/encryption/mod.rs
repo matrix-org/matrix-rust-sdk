@@ -126,7 +126,7 @@ impl Client {
                 let keys = reader.finish();
                 ruma::events::room::EncryptedFileInit {
                     url: response.content_uri,
-                    key: keys.web_key,
+                    key: keys.key,
                     iv: keys.iv,
                     hashes: keys.hashes,
                     v: keys.version,
@@ -155,7 +155,7 @@ impl Client {
             let keys = reader.finish();
             ruma::events::room::EncryptedFileInit {
                 url: response.content_uri,
-                key: keys.web_key,
+                key: keys.key,
                 iv: keys.iv,
                 hashes: keys.hashes,
                 v: keys.version,
