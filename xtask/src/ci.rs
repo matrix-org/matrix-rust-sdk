@@ -71,6 +71,7 @@ enum WasmFeatureSet {
     MatrixSdkIndexeddbStores,
     IndexeddbNoCrypto,
     IndexeddbWithCrypto,
+    Indexeddb,
     MatrixSdkCommandBot,
 }
 
@@ -200,6 +201,13 @@ fn run_appservice_tests() -> Result<()> {
 }
 
 fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    // it's the alias
+    if let Some(WasmFeatureSet::Indexeddb) = cmd {
+        run_wasm_checks(Some(WasmFeatureSet::IndexeddbNoCrypto))?;
+        run_wasm_checks(Some(WasmFeatureSet::IndexeddbWithCrypto))?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode"),
         (
@@ -261,6 +269,12 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 }
 
 fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    // it's the alias
+    if let Some(WasmFeatureSet::Indexeddb) = cmd {
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbNoCrypto))?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbWithCrypto))?;
+        return Ok(());
+    }
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, ("matrix-sdk-qrcode", "")),
         (
