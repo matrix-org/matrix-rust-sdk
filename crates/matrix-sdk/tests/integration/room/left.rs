@@ -17,7 +17,7 @@ async fn forget_room() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 

@@ -28,7 +28,7 @@ async fn invite_user_by_id() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/invite$"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
@@ -51,7 +51,7 @@ async fn invite_user_by_3pid() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/invite$"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
@@ -83,7 +83,7 @@ async fn leave_room() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/leave$"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
@@ -105,7 +105,7 @@ async fn ban_user() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/ban$"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
@@ -128,7 +128,7 @@ async fn kick_user() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/kick$"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
@@ -151,7 +151,7 @@ async fn read_receipt() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
@@ -174,7 +174,7 @@ async fn read_marker() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/read_markers$"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
@@ -197,7 +197,7 @@ async fn typing_notice() {
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/typing"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGOUT))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         .mount(&server)
         .await;
 
