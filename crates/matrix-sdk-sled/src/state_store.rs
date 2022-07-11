@@ -91,10 +91,10 @@ pub enum SledStoreError {
     MigrationConflict { path: PathBuf, old_version: usize, new_version: usize },
 }
 
-/// Sometimes Migrations can't procede without having to drop existing
+/// Sometimes Migrations can't proceed without having to drop existing
 /// data. This allows you to configure, how these cases should be handled.
 #[allow(dead_code)]
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum MigrationConflictStrategy {
     /// Just drop the data, we don't care that we have to sync again
     Drop,
@@ -102,9 +102,9 @@ pub enum MigrationConflictStrategy {
     /// DB in question. The caller then has to take care about what they want
     /// to do and try again after.
     Raise,
-    /// _Default_: The _entire_ database is backed up under `$path.$timestamp.backup`
-    /// (this includes the crypto store if they are linked), before the state tables
-    /// are dropped.
+    /// _Default_: The _entire_ database is backed up under
+    /// `$path.$timestamp.backup` (this includes the crypto store if they
+    /// are linked), before the state tables are dropped.
     BackupAndDrop,
 }
 
@@ -208,7 +208,7 @@ const ALL_GLOBAL_KEYS: &[&str] = &[VERSION_KEY];
 
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
-#[derive(Builder, Debug, PartialEq)]
+#[derive(Builder, Debug, PartialEq, Eq)]
 #[builder(name = "SledStoreBuilder", build_fn(skip))]
 pub struct SledStoreBuilderConfig {
     path: PathBuf,
@@ -1754,9 +1754,10 @@ mod encrypted_tests {
 
 #[cfg(test)]
 mod migration {
-    use super::{MigrationConflictStrategy, Result, SledStoreBuilder, SledStoreError};
     use matrix_sdk_test::async_test;
     use tempfile::TempDir;
+
+    use super::{MigrationConflictStrategy, Result, SledStoreBuilder, SledStoreError};
 
     #[async_test]
     pub async fn migrating_v1_to_2_plain() -> Result<()> {
