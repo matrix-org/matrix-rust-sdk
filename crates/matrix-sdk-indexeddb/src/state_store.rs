@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    sync::{
+        Arc, atomic::{AtomicBool, Ordering}
+    }
+};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -211,6 +216,13 @@ fn drop_stores(db: &IdbDatabase) -> Result<(), JsValue> {
     Ok(())
 }
 
+fn create_stores(db: &IdbDatabase) -> Result<(), JsValue> {
+    for name in ALL_STORES {
+        db.create_object_store(name)?;
+    }
+    Ok(())
+}
+
 async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     let now = JsDate::now();
     let backup_name = format!("backup-{}-{}", source.name(), now);
@@ -322,23 +334,40 @@ impl IndexeddbStoreBuilder {
             None
         };
 
-        let (must_drop_stores, create_stores) = {
+        let recreate_stores = {
             // checkup up in a separate call, whether we have to backup or do anything else
             // to the db. Unfortunately the set_on_upgrade_needed doesn't allow async fn
             // which we need to execute the backup.
             let has_store_cipher = store_cipher.is_some();
-            let pre_db: IdbDatabase = IdbDatabase::open(&name)?.into_future().await?;
+            let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
+            let created = Arc::new(AtomicBool::new(false));
+            let created_inner = created.clone();
+
+            db_req.set_on_upgrade_needed(Some(
+                move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+                    // in case this is a fresh db, we dont't want to trigger
+                    // further migrations other than just creating the full
+                    // schema.
+                    if evt.old_version() < 1.0 {
+                        create_stores(evt.db())?;
+                        created_inner.store(true, Ordering::Relaxed);
+                    }
+                    Ok(())
+            }));
+
+            let pre_db = db_req.into_future().await?;
             let old_version = pre_db.version();
 
-            if old_version < 1.0 {
-                (false, true)
+            if created.load(Ordering::Relaxed) {
+                // this is a fresh DB, return
+                false
             } else if old_version == 1.0 && has_store_cipher {
                 match migration_strategy {
                     MigrationConflictStrategy::BackupAndDrop => {
                         backup(&pre_db, &meta_db).await?;
-                        (true, true)
+                        true
                     }
-                    MigrationConflictStrategy::Drop => (true, true),
+                    MigrationConflictStrategy::Drop => true,
                     MigrationConflictStrategy::Raise => {
                         return Err(IndexeddbStoreError::MigrationConflict {
                             name,
@@ -349,7 +378,7 @@ impl IndexeddbStoreBuilder {
                 }
             } else {
                 // Nothing to be done
-                (false, false)
+                false
             }
         };
 
@@ -357,16 +386,9 @@ impl IndexeddbStoreBuilder {
         db_req.set_on_upgrade_needed(Some(
             move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
                 // changing the format can only happen in the upgrade procedure
-                if must_drop_stores {
+                if recreate_stores {
                     drop_stores(&evt.db())?;
-                }
-
-                if create_stores {
-                    // migrating to version 1
-                    let db = evt.db();
-                    for name in ALL_STORES {
-                        db.create_object_store(name)?;
-                    }
+                    create_stores(&evt.db())?;
                 }
                 Ok(())
             },
@@ -1707,6 +1729,19 @@ mod migration_tests {
         db_req.into_future().await?;
         Ok(())
     }
+    #[async_test]
+    pub async fn test_no_upgrade() -> Result<()> {
+        let name =
+            format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStoreBuilder::default().name(name).build().await?;
+        // this didn't create any backup
+        assert_eq!(store.has_backups().await?, false);
+        // simple check that the layout exists.
+        assert_eq!(store.get_sync_token().await?, None);
+        Ok(())
+    }
 
     #[async_test]
     pub async fn test_migrating_v1_to_1_1_plain() -> Result<()> {
@@ -1718,6 +1753,7 @@ mod migration_tests {
         let store = IndexeddbStoreBuilder::default().name(name).build().await?;
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
+        assert_eq!(store.get_sync_token().await?, None);
         Ok(())
     }
 
@@ -1734,6 +1770,7 @@ mod migration_tests {
         // this creates a backup by default
         assert_eq!(store.has_backups().await?, true);
         assert!(store.latest_backup().await?.is_some(), "No backup_found");
+        assert_eq!(store.get_sync_token().await?, None);
         Ok(())
     }
 
@@ -1755,6 +1792,7 @@ mod migration_tests {
             .await?;
         // this creates a backup by default
         assert_eq!(store.has_backups().await?, false);
+        assert_eq!(store.get_sync_token().await?, None);
         Ok(())
     }
 
@@ -1774,6 +1812,7 @@ mod migration_tests {
             .migration_conflict_strategy(MigrationConflictStrategy::Raise)
             .build()
             .await;
+
         if let Err(IndexeddbStoreError::MigrationConflict { .. }) = store_res {
             // all fine!
         } else {
