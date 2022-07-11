@@ -29,7 +29,7 @@ impl Signatures {
 
     /// Add the given signature from the given signer and the given key ID to
     /// the collection.
-    #[napi]
+    #[napi(strict)]
     pub fn add_signature(
         &mut self,
         signer: &UserId,
@@ -43,13 +43,13 @@ impl Signatures {
 
     /// Try to find an Ed25519 signature from the given signer with
     /// the given key ID.
-    #[napi]
+    #[napi(strict)]
     pub fn get_signature(&self, signer: &UserId, key_id: &DeviceKeyId) -> Option<Ed25519Signature> {
         self.inner.get_signature(signer.inner.as_ref(), key_id.inner.as_ref()).map(Into::into)
     }
 
     /// Get the map of signatures that belong to the given user.
-    #[napi]
+    #[napi(strict)]
     pub fn get(&self, signer: &UserId) -> Option<HashMap<String, MaybeSignature>> {
         self.inner.get(signer.inner.as_ref()).map(|map| {
             map.iter()

@@ -24,7 +24,7 @@ impl From<ruma::OwnedUserId> for UserId {
 #[napi]
 impl UserId {
     /// Parse/validate and create a new `UserId`.
-    #[napi(constructor)]
+    #[napi(constructor, strict)]
     pub fn new(id: String) -> napi::Result<Self> {
         Ok(Self::from(ruma::UserId::parse(id.as_str()).map_err(into_err)?))
     }
@@ -78,7 +78,7 @@ impl From<ruma::OwnedDeviceId> for DeviceId {
 #[napi]
 impl DeviceId {
     /// Create a new `DeviceId`.
-    #[napi(constructor)]
+    #[napi(constructor, strict)]
     pub fn new(id: String) -> Self {
         Self::from(Into::<ruma::OwnedDeviceId>::into(id))
     }
@@ -109,7 +109,7 @@ impl From<ruma::OwnedDeviceKeyId> for DeviceKeyId {
 #[napi]
 impl DeviceKeyId {
     /// Parse/validate and create a new `DeviceKeyId`.
-    #[napi(constructor)]
+    #[napi(constructor, strict)]
     pub fn new(id: String) -> napi::Result<Self> {
         Ok(Self::from(ruma::DeviceKeyId::parse(id.as_str()).map_err(into_err)?))
     }
@@ -212,7 +212,7 @@ impl From<ruma::OwnedRoomId> for RoomId {
 #[napi]
 impl RoomId {
     /// Parse/validate and create a new `RoomId`.
-    #[napi(constructor)]
+    #[napi(constructor, strict)]
     pub fn new(id: String) -> napi::Result<Self> {
         Ok(Self::from(ruma::RoomId::parse(id).map_err(into_err)?))
     }
@@ -252,7 +252,7 @@ pub struct ServerName {
 #[napi]
 impl ServerName {
     /// Parse/validate and create a new `ServerName`.
-    #[napi(constructor)]
+    #[napi(constructor, strict)]
     pub fn new(name: String) -> napi::Result<Self> {
         Ok(Self { inner: ruma::ServerName::parse(name).map_err(into_err)? })
     }
