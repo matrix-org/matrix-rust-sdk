@@ -18,15 +18,22 @@ use ruma::{
 };
 use serde_json::json;
 use warp::{Filter, Reply};
+use wiremock::{
+    matchers::{body_json, header, method, path},
+    Mock, MockServer, ResponseTemplate,
+};
 
 fn registration_string() -> String {
     include_str!("../tests/registration.yaml").to_owned()
 }
 
-async fn appservice(registration: Option<Registration>) -> Result<AppService> {
+async fn appservice(
+    homeserver_url: Option<String>,
+    registration: Option<Registration>,
+) -> Result<AppService> {
     // env::set_var(
     //     "RUST_LOG",
-    //     "mockito=debug,matrix_sdk=debug,ruma=debug,warp=debug",
+    //     "wiremock=debug,matrix_sdk=debug,ruma=debug,warp=debug",
     // );
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -35,7 +42,7 @@ async fn appservice(registration: Option<Registration>) -> Result<AppService> {
         None => AppServiceRegistration::try_from_yaml_str(registration_string()).unwrap(),
     };
 
-    let homeserver_url = mockito::server_url();
+    let homeserver_url = homeserver_url.unwrap_or_else(|| "http://localhost:1234".to_owned());
     let server_name = "localhost";
 
     let client_builder = Client::builder()
@@ -53,28 +60,27 @@ async fn appservice(registration: Option<Registration>) -> Result<AppService> {
 
 #[async_test]
 async fn test_register_virtual_user() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let server = MockServer::start().await;
+    let appservice = appservice(Some(server.uri()), None).await?;
 
     let localpart = "someone";
-    let _mock = mockito::mock("POST", "/_matrix/client/r0/register")
-        .match_query(mockito::Matcher::Missing)
-        .match_header(
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/r0/register"))
+        .and(header(
             "authorization",
-            mockito::Matcher::Exact(format!("Bearer {}", appservice.registration().as_token)),
-        )
-        .match_body(mockito::Matcher::Json(json!({
+            format!("Bearer {}", appservice.registration().as_token).as_str(),
+        ))
+        .and(body_json(json!({
             "username": localpart.to_owned(),
             "type": "m.login.application_service"
         })))
-        .with_body(format!(
-            r#"{{
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "abc123",
             "device_id": "GHTYAJCE",
-            "user_id": "@{localpart}:localhost"
-        }}"#,
-            localpart = localpart
-        ))
-        .create();
+            "user_id": format!("@{localpart}:localhost"),
+        })))
+        .mount(&server)
+        .await;
 
     appservice.register_virtual_user(localpart).await?;
 
@@ -89,7 +95,7 @@ async fn test_put_transaction() -> Result<()> {
     transaction_builder.add_room_event(EventsJson::Member);
     let transaction = transaction_builder.build_json_transaction();
 
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     let status = warp::test::request()
         .method("PUT")
@@ -114,7 +120,7 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
     transaction_builder.add_room_event(EventsJson::Member);
     let transaction = transaction_builder.build_json_transaction();
 
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     #[allow(clippy::mutex_atomic)]
     let on_state_member = Arc::new(Mutex::new(false));
@@ -174,7 +180,7 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
 
 #[async_test]
 async fn test_get_user() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
     appservice.register_user_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
     let uri = "/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token";
@@ -195,7 +201,7 @@ async fn test_get_user() -> Result<()> {
 
 #[async_test]
 async fn test_get_room() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
     appservice.register_room_query(Box::new(|_, _| Box::pin(async move { true }))).await;
 
     let uri = "/_matrix/app/v1/rooms/%23magicforest%3Aexample.com?access_token=hs_token";
@@ -222,7 +228,7 @@ async fn test_invalid_access_token() -> Result<()> {
     let transaction =
         transaction_builder.add_room_event(EventsJson::Member).build_json_transaction();
 
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     let status = warp::test::request()
         .method("PUT")
@@ -247,7 +253,7 @@ async fn test_no_access_token() -> Result<()> {
     transaction_builder.add_room_event(EventsJson::Member);
     let transaction = transaction_builder.build_json_transaction();
 
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     {
         let status = warp::test::request()
@@ -268,7 +274,7 @@ async fn test_no_access_token() -> Result<()> {
 
 #[async_test]
 async fn test_event_handler() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     #[allow(clippy::mutex_atomic)]
     let on_state_member = Arc::new(Mutex::new(false));
@@ -304,7 +310,7 @@ async fn test_event_handler() -> Result<()> {
 
 #[async_test]
 async fn test_unrelated_path() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     let status = {
         let consumer_filter = warp::any()
@@ -340,7 +346,7 @@ async fn test_appservice_on_sub_path() -> Result<()> {
     transaction_builder.add_room_event(EventsJson::MemberNameChange);
     let transaction_2 = transaction_builder.build_json_transaction();
 
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     {
         warp::test::request()
@@ -447,7 +453,7 @@ async fn test_receive_transaction() -> Result<()> {
         }))?
         .cast::<AnyRoomEvent>(),
     ];
-    let appservice = appservice(None).await?;
+    let appservice = appservice(None, None).await?;
 
     let alice = appservice.virtual_user_client("_appservice_alice").await?;
     let bob = appservice.virtual_user_client("_appservice_bob").await?;

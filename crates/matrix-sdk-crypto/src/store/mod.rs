@@ -535,10 +535,8 @@ impl Store {
     pub async fn import_secret(
         &self,
         secret_name: &SecretName,
-        secret: String,
+        secret: &str,
     ) -> Result<(), SecretImportError> {
-        let secret = zeroize::Zeroizing::new(secret);
-
         match secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
@@ -548,7 +546,7 @@ impl Store {
                 {
                     let identity = self.identity.lock().await;
 
-                    identity.import_secret(public_identity, secret_name, &secret).await?;
+                    identity.import_secret(public_identity, secret_name, secret).await?;
                     info!(
                         secret_name = secret_name.as_ref(),
                         "Successfully imported a private cross signing key"

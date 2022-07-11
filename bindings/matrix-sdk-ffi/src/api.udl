@@ -38,6 +38,8 @@ interface Client {
     [Throws=ClientError]
     void restore_login(string restore_token);
 
+    string homeserver();
+
     void start_sync();
 
     [Throws=ClientError]
@@ -150,6 +152,31 @@ interface EmoteMessage {
 
 interface MediaSource {
     string url();
+};
+
+[Error]
+enum AuthenticationError {
+  "ClientMissing",
+  "Generic",
+};
+
+interface AuthenticationService {
+    constructor(string base_path);
+    
+    [Throws=AuthenticationError]
+    string homeserver();
+    
+    [Throws=AuthenticationError]
+    string? authentication_issuer();
+
+    [Throws=AuthenticationError]
+    boolean supports_password_login();
+    
+    [Throws=AuthenticationError]
+    void use_server(string server_name);
+    
+    [Throws=AuthenticationError]
+    Client login(string username, string password);
 };
 
 interface SessionVerificationEmoji {

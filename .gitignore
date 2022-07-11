@@ -8,3 +8,6 @@ emsdk-*
 ## User settings
 xcuserdata/
 .vscode/
+
+## OS garbage
+.DS_Store
