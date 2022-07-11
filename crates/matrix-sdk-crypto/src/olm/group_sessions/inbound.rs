@@ -45,7 +45,6 @@ use vodozemac::{
     },
     PickleError,
 };
-use zeroize::Zeroize;
 
 use super::{BackedUpRoomKey, ExportedRoomKey, SessionKey};
 use crate::error::{EventError, MegolmResult};
@@ -97,10 +96,10 @@ impl InboundGroupSession {
         sender_key: &str,
         signing_key: &str,
         room_id: &RoomId,
-        session_key: SessionKey,
+        session_key: &SessionKey,
         history_visibility: Option<HistoryVisibility>,
     ) -> Self {
-        let session = InnerSession::new(&session_key);
+        let session = InnerSession::new(session_key);
         let session_id = session.session_id();
         let first_known_index = session.first_known_index();
 
@@ -159,10 +158,9 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub fn from_forwarded_key(
         sender_key: &str,
-        content: &mut ToDeviceForwardedRoomKeyEventContent,
+        content: &ToDeviceForwardedRoomKeyEventContent,
     ) -> Result<Self, SessionKeyDecodeError> {
         let key = ExportedSessionKey::from_base64(&content.session_key)?;
-        content.session_key.zeroize();
 
         let session = InnerSession::import(&key);
         let first_known_index = session.first_known_index();
@@ -180,7 +178,7 @@ impl InboundGroupSession {
             first_known_index,
             history_visibility: None.into(),
             signing_keys: sender_claimed_key.into(),
-            room_id: (&*content.room_id).into(),
+            room_id: (*content.room_id).into(),
             forwarding_chains: forwarding_chains.into(),
             imported: true,
             backed_up: AtomicBool::new(false).into(),
@@ -292,7 +290,7 @@ impl InboundGroupSession {
             history_visibility: pickle.history_visibility.into(),
             first_known_index,
             signing_keys: pickle.signing_key.into(),
-            room_id: (&*pickle.room_id).into(),
+            room_id: (*pickle.room_id).into(),
             forwarding_chains: pickle.forwarding_chains.into(),
             backed_up: AtomicBool::from(pickle.backed_up).into(),
             imported: pickle.imported,
@@ -353,8 +351,9 @@ impl InboundGroupSession {
         let message = MegolmMessage::from_base64(&content.ciphertext)?;
 
         let decrypted = self.decrypt_helper(&message).await?;
+        let plaintext = String::from_utf8_lossy(&decrypted.plaintext);
 
-        let mut decrypted_value = serde_json::from_str::<Value>(&decrypted.plaintext)?;
+        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
         let decrypted_object = decrypted_value.as_object_mut().ok_or(EventError::NotAnObject)?;
 
         let server_ts: i64 = event.origin_server_ts.0.into();
@@ -447,7 +446,7 @@ impl From<ExportedRoomKey> for InboundGroupSession {
             history_visibility: None.into(),
             first_known_index,
             signing_keys: key.sender_claimed_keys.into(),
-            room_id: (&*key.room_id).into(),
+            room_id: (*key.room_id).into(),
             forwarding_chains: key.forwarding_curve25519_key_chain.into(),
             imported: true,
             backed_up: AtomicBool::from(false).into(),

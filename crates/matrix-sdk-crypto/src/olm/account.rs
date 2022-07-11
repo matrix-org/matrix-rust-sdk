@@ -100,7 +100,6 @@ pub(crate) struct OlmDecryptionInfo {
     pub sender: OwnedUserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
-    pub deserialized_event: Option<AnyToDeviceEvent>,
     pub event: Raw<AnyToDeviceEvent>,
     pub signing_key: String,
     pub sender_key: String,
@@ -189,7 +188,6 @@ impl Account {
                     event,
                     signing_key,
                     sender_key: content.sender_key.clone(),
-                    deserialized_event: None,
                     inbound_group_session: None,
                 }),
                 Err(OlmError::SessionWedged(user_id, sender_key)) => {
@@ -459,7 +457,7 @@ pub struct ReadOnlyAccount {
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: OwnedUserId,
-    /// The device id of the account owner.
+    /// The device ID of the account owner.
     pub device_id: OwnedDeviceId,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
@@ -506,7 +504,7 @@ impl ReadOnlyAccount {
         &self.user_id
     }
 
-    /// Get the device id that owns this account.
+    /// Get the device ID that owns this account.
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }
@@ -729,8 +727,8 @@ impl ReadOnlyAccount {
         let identity_keys = account.identity_keys();
 
         Ok(Self {
-            user_id: (&*pickle.user_id).into(),
-            device_id: (&*pickle.device_id).into(),
+            user_id: (*pickle.user_id).into(),
+            device_id: (*pickle.device_id).into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
@@ -955,7 +953,7 @@ impl ReadOnlyAccount {
     /// # Arguments
     /// * `device` - The other account's device.
     ///
-    /// * `key_map` - A map from the algorithm and device id to the one-time key
+    /// * `key_map` - A map from the algorithm and device ID to the one-time key
     ///   that the other account created and shared with us.
     pub async fn create_outbound_session(
         &self,
@@ -1040,7 +1038,9 @@ impl ReadOnlyAccount {
             last_use_time: now,
         };
 
-        Ok(InboundCreationResult { session, plaintext: result.plaintext })
+        let plaintext = String::from_utf8_lossy(&result.plaintext).to_string();
+
+        Ok(InboundCreationResult { session, plaintext })
     }
 
     /// Create a group session pair.
@@ -1083,7 +1083,7 @@ impl ReadOnlyAccount {
             &sender_key,
             &signing_key,
             room_id,
-            outbound.session_key().await,
+            &outbound.session_key().await,
             Some(visibility),
         );
 

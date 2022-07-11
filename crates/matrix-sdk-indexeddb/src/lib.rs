@@ -28,7 +28,7 @@ pub use state_store::{IndexeddbStore as StateStore, IndexeddbStoreBuilder as Sta
 async fn open_stores_with_name(
     name: impl Into<String>,
     passphrase: Option<&str>,
-) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
+) -> Result<(StateStore, CryptoStore), OpenStoreError> {
     let name = name.into();
     let mut builder = StateStoreBuilder::default();
     builder.name(name.clone());
@@ -41,7 +41,7 @@ async fn open_stores_with_name(
     let crypto_store =
         CryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone()).await?;
 
-    Ok((Box::new(state_store), Box::new(crypto_store)))
+    Ok((state_store, crypto_store))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -71,7 +71,7 @@ pub async fn make_store_config(
 
         let state_store = builder.build().await.map_err(StoreError::from)?;
 
-        Ok(StoreConfig::new().state_store(Box::new(state_store)))
+        Ok(StoreConfig::new().state_store(state_store))
     }
 }
 

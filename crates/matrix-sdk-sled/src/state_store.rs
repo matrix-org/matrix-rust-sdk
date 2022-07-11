@@ -34,6 +34,12 @@ use matrix_sdk_base::{
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as KeyEncryptionError, StoreCipher};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    canonical_json::redact_in_place,
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
+    CanonicalJsonObject, RoomVersionId,
+};
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -45,12 +51,6 @@ use ruma::{
     receipt::ReceiptType,
     serde::Raw,
     EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
-};
-#[cfg(feature = "experimental-timeline")]
-use ruma::{
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
-    signatures::{redact_in_place, CanonicalJsonObject},
-    RoomVersionId,
 };
 #[cfg(feature = "experimental-timeline")]
 use serde::Deserialize;

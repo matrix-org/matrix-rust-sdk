@@ -686,7 +686,7 @@ impl ReadOnlyUserIdentity {
     ) -> Result<Self, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        Ok(Self { user_id: (&*master_key.0.user_id).into(), master_key, self_signing_key })
+        Ok(Self { user_id: (*master_key.0.user_id).into(), master_key, self_signing_key })
     }
 
     #[cfg(test)]
@@ -799,7 +799,7 @@ impl ReadOnlyOwnUserIdentity {
         master_key.verify_subkey(&user_signing_key)?;
 
         Ok(Self {
-            user_id: (&*master_key.0.user_id).into(),
+            user_id: (*master_key.0.user_id).into(),
             master_key,
             self_signing_key,
             user_signing_key,

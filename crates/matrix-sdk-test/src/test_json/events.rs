@@ -327,7 +327,7 @@ pub static LOGIN_TYPES: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static LOGOUT: Lazy<JsonValue> = Lazy::new(|| json!({}));
+pub static EMPTY: Lazy<JsonValue> = Lazy::new(|| json!({}));
 
 pub static EVENT_ID: Lazy<JsonValue> = Lazy::new(|| {
     json!({

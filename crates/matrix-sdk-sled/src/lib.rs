@@ -56,7 +56,7 @@ pub fn make_store_config(
     #[cfg(all(feature = "crypto-store", not(feature = "state-store")))]
     {
         let crypto_store = CryptoStore::open_with_passphrase(path, passphrase)?;
-        Ok(StoreConfig::new().crypto_store(Box::new(crypto_store)))
+        Ok(StoreConfig::new().crypto_store(crypto_store))
     }
 
     #[cfg(not(feature = "crypto-store"))]
@@ -69,7 +69,7 @@ pub fn make_store_config(
         };
         let state_store = store_builder.build().map_err(StoreError::backend)?;
 
-        Ok(StoreConfig::new().state_store(Box::new(state_store)))
+        Ok(StoreConfig::new().state_store(state_store))
     }
 }
 
@@ -79,7 +79,7 @@ pub fn make_store_config(
 fn open_stores_with_path(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
-) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
+) -> Result<(StateStore, CryptoStore), OpenStoreError> {
     let mut store_builder = SledStateStoreBuilder::default();
     store_builder.path(path.as_ref().to_path_buf());
 
@@ -89,5 +89,5 @@ fn open_stores_with_path(
 
     let state_store = store_builder.build().map_err(StoreError::backend)?;
     let crypto_store = state_store.open_crypto_store()?;
-    Ok((Box::new(state_store), Box::new(crypto_store)))
+    Ok((state_store, crypto_store))
 }

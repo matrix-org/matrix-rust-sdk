@@ -1,7 +1,8 @@
 use std::ops::Deref;
 
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
+use thiserror::Error;
 
+use crate::{room::Common, BaseRoom, Client, Error, Result, RoomMember, RoomType};
 /// A room in the invited state.
 ///
 /// This struct contains all methods specific to a `Room` with type
@@ -10,6 +11,24 @@ use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 #[derive(Debug, Clone)]
 pub struct Invited {
     pub(crate) inner: Common,
+}
+
+/// Details of the (latest) invite.
+#[derive(Debug, Clone)]
+pub struct Invite {
+    /// Who has been invited.
+    pub invitee: RoomMember,
+    /// Who sent the invite.
+    pub inviter: Option<RoomMember>,
+}
+
+#[derive(Error, Debug)]
+pub enum InvitationError {
+    /// The client isn't logged in.
+    #[error("The client isn't authenticated")]
+    NotAuthenticated,
+    #[error("No membership event found")]
+    EventMissing,
 }
 
 impl Invited {
@@ -37,6 +56,24 @@ impl Invited {
     /// Accept the invitation.
     pub async fn accept_invitation(&self) -> Result<()> {
         self.inner.join().await
+    }
+
+    /// The membership details of the (latest) invite for this room.
+    pub async fn invite_details(&self) -> Result<Invite> {
+        let user_id = self
+            .inner
+            .client
+            .user_id()
+            .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::NotAuthenticated)))?;
+        let invitee = self
+            .inner
+            .get_member(user_id)
+            .await?
+            .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
+        let event = invitee.event();
+        let inviter_id = event.sender();
+        let inviter = self.inner.get_member(inviter_id).await?;
+        Ok(Invite { invitee, inviter })
     }
 }
 

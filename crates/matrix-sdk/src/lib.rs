@@ -58,7 +58,9 @@ mod sync;
 pub mod encryption;
 
 pub use account::Account;
-pub use client::{Client, ClientBuildError, ClientBuilder, LoopCtrl};
+#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+pub use client::SsoLoginBuilder;
+pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, Result, RumaApiError};

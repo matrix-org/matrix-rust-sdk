@@ -564,9 +564,7 @@ impl BackupMachine {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{
-        device_id, room_id, signatures::CanonicalJsonValue, user_id, DeviceId, RoomId, UserId,
-    };
+    use ruma::{device_id, room_id, user_id, CanonicalJsonValue, DeviceId, RoomId, UserId};
     use serde_json::json;
 
     use crate::{store::RecoveryKey, types::RoomKeyBackupInfo, OlmError, OlmMachine};

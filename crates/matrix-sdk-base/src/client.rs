@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt,
 };
@@ -111,7 +112,7 @@ impl BaseClient {
         let store = config.state_store.map(Store::new).unwrap_or_else(Store::open_memory_store);
         #[cfg(feature = "e2e-encryption")]
         let crypto_store =
-            config.crypto_store.unwrap_or_else(|| Box::new(MemoryCryptoStore::default())).into();
+            config.crypto_store.unwrap_or_else(|| Arc::new(MemoryCryptoStore::default()));
 
         BaseClient {
             store,
@@ -149,7 +150,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - A successful login response that contains our access
-    ///   token and device id.
+    ///   token and device ID.
     pub async fn receive_login_response(
         &self,
         response: &api::session::login::v3::Response,
@@ -329,25 +330,19 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        if event
-                            .event
-                            .get_field::<OwnedUserId>("sender")?
-                            .map_or(false, |id| id != user_id)
-                        {
-                            let actions = push_rules.get_actions(&event.event, context).to_vec();
+                        let actions = push_rules.get_actions(&event.event, context);
 
-                            if actions.iter().any(|a| matches!(a, Action::Notify)) {
-                                changes.add_notification(
-                                    room_id,
-                                    Notification::new(
-                                        actions,
-                                        event.event.clone(),
-                                        false,
-                                        room_id.to_owned(),
-                                        MilliSecondsSinceUnixEpoch::now(),
-                                    ),
-                                );
-                            }
+                        if actions.iter().any(|a| matches!(a, Action::Notify)) {
+                            changes.add_notification(
+                                room_id,
+                                Notification::new(
+                                    actions.to_owned(),
+                                    event.event.clone(),
+                                    false,
+                                    room_id.to_owned(),
+                                    MilliSecondsSinceUnixEpoch::now(),
+                                ),
+                            );
                         }
                         // TODO if there is an
                         // Action::SetTweak(Tweak::Highlight) we need to store
@@ -447,7 +442,7 @@ impl BaseClient {
                 // having confusing profile changes when a member gets
                 // kicked/banned.
                 if member.state_key() == member.sender() {
-                    profiles.insert(member.sender().to_owned(), (&member).into());
+                    profiles.insert(member.sender().to_owned(), member.borrow().into());
                 }
 
                 members.insert(member.state_key().to_owned(), member);
@@ -573,7 +568,7 @@ impl BaseClient {
         };
 
         let mut changes = StateChanges::new(next_batch.clone());
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         self.handle_account_data(&account_data.events, &mut changes).await;
 
@@ -830,7 +825,7 @@ impl BaseClient {
             })
             .collect();
 
-        let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         if let Some(room) = self.store.get_room(room_id) {
             let mut room_info = room.clone_info();
@@ -860,7 +855,7 @@ impl BaseClient {
                             .profiles
                             .entry(room_id.to_owned())
                             .or_default()
-                            .insert(member.sender().to_owned(), (&member).into());
+                            .insert(member.sender().to_owned(), member.borrow().into());
                     }
 
                     changes
@@ -1053,6 +1048,7 @@ impl BaseClient {
         };
 
         Ok(Some(PushConditionRoomCtx {
+            user_id: user_id.to_owned(),
             room_id: room_id.to_owned(),
             member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,

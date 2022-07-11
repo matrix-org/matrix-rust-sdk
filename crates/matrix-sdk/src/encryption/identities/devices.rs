@@ -404,7 +404,7 @@ pub struct UserDevices {
 }
 
 impl UserDevices {
-    /// Get the specific device with the given device id.
+    /// Get the specific device with the given device ID.
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.inner.get(device_id).map(|d| Device { inner: d, client: self.client.clone() })
     }

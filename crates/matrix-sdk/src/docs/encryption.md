@@ -210,7 +210,7 @@ step. This will replace the access token from the previous login call but
 won't create a new device.
 
 **Note** that the default store supports only a single device, logging in
-with a different device id (either `None` or a device ID of another client)
+with a different device ID (either `None` or a device ID of another client)
 is **not** supported using the default store.
 
 ## Common pitfalls

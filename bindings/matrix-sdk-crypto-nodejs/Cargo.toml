@@ -1,0 +1,41 @@
+[package]
+authors = ["Ivan Enderlin <ivane@element.io>"]
+description = "Matrix encryption library, for NodeJS"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
+license = "Apache-2.0"
+name = "matrix-sdk-crypto-nodejs"
+readme = "README.md"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version = "1.60"
+version = "0.5.0"
+
+[package.metadata.docs.rs]
+features = ["docsrs"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+qrcode = ["matrix-sdk-crypto/qrcode"]
+docsrs = []
+tracing = ["tracing-subscriber"]
+
+[dependencies]
+matrix-sdk-crypto = { version = "0.5.0", path = "../../crates/matrix-sdk-crypto" }
+matrix-sdk-common = { version = "0.5.0", path = "../../crates/matrix-sdk-common" }
+matrix-sdk-sled = { version = "0.1.0", path = "../../crates/matrix-sdk-sled", default-features = false, features = ["crypto-store"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f", features = ["client-api-c", "rand", "unstable-msc2676", "unstable-msc2677"] }
+vodozemac = {  git = "https://github.com/matrix-org/vodozemac/", rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd" }
+napi = { version = "2.6.1", default-features = false, features = ["napi6", "tokio_rt"] }
+napi-derive = "2.6.0"
+serde_json = "1.0.79"
+http = "0.2.6"
+zeroize = "1.3.0"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "time", "smallvec", "fmt", "env-filter"], optional = true }
+
+[build-dependencies]
+napi-build = "2.0.0"

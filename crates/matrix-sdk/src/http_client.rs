@@ -125,7 +125,7 @@ impl HttpClient {
         }
 
         trace!("Serializing request");
-        let request = if !self.request_config.assert_identity {
+        let request = if !config.assert_identity {
             let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
                 // Small optimization: Don't take the session lock if we know the auth token
                 // isn't going to be used anyways.
@@ -169,7 +169,7 @@ impl HttpClient {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct HttpSettings {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) disable_ssl_verification: bool,

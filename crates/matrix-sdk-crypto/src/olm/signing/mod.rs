@@ -633,7 +633,7 @@ impl PrivateCrossSigningIdentity {
         let user_signing = keys.user_signing_key.map(UserSigning::from_pickle).transpose()?;
 
         Ok(Self {
-            user_id: (&*pickle.user_id).into(),
+            user_id: (*pickle.user_id).into(),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             master_key: Arc::new(Mutex::new(master)),
             self_signing_key: Arc::new(Mutex::new(self_signing)),
@@ -660,9 +660,7 @@ impl PrivateCrossSigningIdentity {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{
-        device_id, signatures::CanonicalJsonValue, user_id, DeviceKeyAlgorithm, DeviceKeyId, UserId,
-    };
+    use ruma::{device_id, user_id, CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
     use serde_json::json;
 
     use super::{PrivateCrossSigningIdentity, Signing};
