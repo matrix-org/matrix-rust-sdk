@@ -10,7 +10,7 @@ use ruma::{
 use tracing::{info, instrument};
 
 use super::Client;
-use crate::{config::RequestConfig, Result};
+use crate::Result;
 
 /// The login method.
 ///
@@ -112,7 +112,7 @@ impl<'a> LoginBuilder<'a> {
             initial_device_display_name: self.initial_device_display_name,
         });
 
-        let response = self.client.send(request, Some(RequestConfig::short_retry())).await?;
+        let response = self.client.send(request, None).await?;
         self.client.receive_login_response(&response).await?;
 
         Ok(response)

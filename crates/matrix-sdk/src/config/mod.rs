@@ -18,5 +18,5 @@ mod request;
 mod sync;
 
 pub use matrix_sdk_base::store::StoreConfig;
-pub use request::RequestConfig;
+pub use request::{Limit, RequestConfig};
 pub use sync::SyncSettings;

@@ -19,6 +19,24 @@ use std::{
 
 use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 
+/// Limits for a request.
+#[derive(Clone, Copy, Debug)]
+pub enum Limit<T> {
+    /// Use the default limits.
+    Default,
+
+    /// Remove all limits, e.g. no timeout, no limits to the number of retries.
+    Unlimited,
+
+    /// Specific limit.
+    Limit(T),
+}
+impl<T> Default for Limit<T> {
+    fn default() -> Self {
+        Limit::Default
+    }
+}
+
 /// Configuration for requests the `Client` makes.
 ///
 /// This sets how often and for how long a request should be repeated. As well
@@ -40,10 +58,19 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 #[derive(Copy, Clone)]
 pub struct RequestConfig {
     pub(crate) timeout: Duration,
+
+    /// If specified, the number of retries for requests.
+    ///
+    /// Note that some requests use `short_retry_limit` instead
+    /// of `retry_limit`.
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
     pub(crate) assert_identity: bool,
+
+    /// If specified, a number of retries for specific requests
+    /// that typically should adopt shorter retries.
+    pub(crate) short_retry_limit: Limit<u64>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -66,6 +93,7 @@ impl Default for RequestConfig {
             retry_timeout: Default::default(),
             force_auth: false,
             assert_identity: false,
+            short_retry_limit: Default::default(),
         }
     }
 }
@@ -78,10 +106,22 @@ impl RequestConfig {
     }
 
     /// Create a new `RequestConfig` with default values, except the retry limit
-    /// which is set to 3.
+    /// which is set to `short_retry_limit`, or 3 by default.
     #[must_use]
-    pub fn short_retry() -> Self {
-        Self::default().retry_limit(3)
+    pub fn short_retry(&self) -> Self {
+        match self.short_retry_limit {
+            Limit::Unlimited => Self::default(),
+            Limit::Default => Self::default().retry_limit(3),
+            Limit::Limit(v) => Self::default().retry_limit(v),
+        }
+    }
+
+    /// The number of times a short retry request should be retried.
+    /// The default is 3.
+    #[must_use]
+    pub fn short_retry_limit(mut self, limit: Limit<u64>) -> Self {
+        self.short_retry_limit = limit;
+        self
     }
 
     /// This is a convince method to disable the retries of a request. Setting

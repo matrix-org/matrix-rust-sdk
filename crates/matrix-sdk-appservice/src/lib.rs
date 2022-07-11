@@ -100,7 +100,6 @@ pub use matrix_sdk;
 pub use matrix_sdk::ruma;
 use matrix_sdk::{
     bytes::Bytes,
-    config::RequestConfig,
     event_handler::{EventHandler, EventHandlerResult, SyncEvent},
     reqwest::Url,
     Client, ClientBuildError, ClientBuilder, Session,
@@ -491,10 +490,10 @@ impl AppService {
             initial_device_display_name
         });
 
-        let response = self
-            .get_cached_client(None)?
-            .send(request, Some(RequestConfig::short_retry().force_auth()))
-            .await?;
+        let client = self.get_cached_client(None)?;
+
+        let response =
+            client.send(request, Some(client.request_config().short_retry().force_auth())).await?;
 
         Ok(Session {
             access_token: response.access_token,

@@ -1082,7 +1082,7 @@ impl Client {
         info!("Registering to {}", homeserver);
 
         let config = if self.inner.appservice_mode {
-            Some(RequestConfig::short_retry().force_auth())
+            Some(self.inner.http_client.request_config.short_retry().force_auth())
         } else {
             None
         };
@@ -2187,6 +2187,11 @@ impl Client {
                 ))
             }
         })
+    }
+
+    /// Return the request configuration used by this client.
+    pub fn request_config(&self) -> &RequestConfig {
+        &self.inner.http_client.request_config
     }
 }
 
