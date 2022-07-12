@@ -1,4 +1,15 @@
-name: Release Crypto-NodeJS
+name: Release Crypto-Node.js
+#
+# This workflow releases the crypto-bindings for nodejs
+#
+# It is triggered when seeing a tag prefixed matching `matrix-sdk-crypto-nodejs-v[0-9]+.*`,
+# which then build the native bindings for linux, mac and windows via the CI and uploads
+# them to the corresponding Github Release tag. Once they are finished, this workflow will
+# package the npm tar.gz and uploads that to the Github Release tag as well, before publishing
+# it to npmjs.com automatically.
+#
+# The usual way to trigger this is by manually triggering the `prep-crypto-nodejs-release`
+# workflow. See its documentation for instructions how to use it.
 
 env:
   PKG_PATH: "bindings/matrix-sdk-crypto-nodejs"
