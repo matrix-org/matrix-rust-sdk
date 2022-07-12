@@ -21,11 +21,11 @@ pub mod encryption;
 pub mod events;
 mod future;
 pub mod identifiers;
-mod logger;
 pub mod machine;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;
+mod tracing;
 
 use js_sys::{Object, Reflect};
 use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};

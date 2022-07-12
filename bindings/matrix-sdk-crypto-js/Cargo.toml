@@ -22,9 +22,10 @@ wasm-opt = ['-Oz']
 crate-type = ["cdylib"]
 
 [features]
-default = []
+default = ["tracing"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
 docsrs = []
+tracing = []
 
 [dependencies]
 matrix-sdk-common = { version = "0.5.0", path = "../../crates/matrix-sdk-common" }
