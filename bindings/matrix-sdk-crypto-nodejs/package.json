@@ -1,5 +1,5 @@
 {
-    "name": "@matrix-org/matrix-sdk-crypto",
+    "name": "@matrix-org/matrix-sdk-crypto-nodejs",
     "version": "0.1.0",
     "main": "index.js",
     "types": "index.d.ts",
