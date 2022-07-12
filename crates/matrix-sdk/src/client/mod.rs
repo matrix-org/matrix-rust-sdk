@@ -80,7 +80,10 @@ use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
+    event_handler::{
+        EventHandler, EventHandlerData, EventHandlerHandle, EventHandlerResult,
+        EventHandlerWrapper, EventKind, SyncEvent,
+    },
     http_client::HttpClient,
     room, Account, Error, Result,
 };
@@ -101,8 +104,8 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-type EventHandlerFn = Box<dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync>;
-type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerFn>>;
+pub(crate) type EventHandlerFn = Box<dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync>;
+type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerWrapper>>;
 
 type NotificationHandlerFut = EventHandlerFut;
 type NotificationHandlerFn =
@@ -437,7 +440,7 @@ impl Client {
     /// }).await;
     /// # });
     /// ```
-    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
+    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
@@ -446,8 +449,10 @@ impl Client {
         let event_type = Ev::TYPE;
         let key = (Ev::KIND, Ev::TYPE);
 
-        self.inner.event_handlers.write().await.entry(key).or_default().push(Box::new(
-            move |data| {
+        let handle = EventHandlerHandle::new(H::ID);
+
+        self.inner.event_handlers.write().await.entry(key).or_default().push(EventHandlerWrapper {
+            handler_function: Box::new(move |data| {
                 let maybe_fut = serde_json::from_str(data.raw.get())
                     .map(|ev| handler.clone().handle_event(ev, data));
 
@@ -464,19 +469,43 @@ impl Client {
                         Err(e) => {
                             warn!(
                                 "Failed to deserialize `{event_type}` event, skipping event
-                                 handler.\nDeserialization error: {e}",
+                                     handler.\nDeserialization error: {e}",
                             );
                         }
                     }
                 })
-            },
-        ));
+            }),
+            handle: handle.clone(),
+        });
 
-        self
+        handle
     }
 
     pub(crate) async fn event_handlers(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
         self.inner.event_handlers.read().await
+    }
+
+    /// Remove the event handler associated with the token.
+    ///
+    ///  # Arguments
+    ///
+    /// `handle` - The [`EventHandlerHandle`] that was passed to
+    /// [`Client::register_event_handler`] when registering the handler.
+    pub async fn remove_event_handler(&self, handle: EventHandlerHandle) -> &Self {
+        let event_id = handle.1;
+        let mut empty = false;
+
+        if let Some(v) = self.inner.event_handlers.write().await.get_mut(&event_id) {
+            v.retain(|e| -> bool { e.handle.0.ne(&handle.0) });
+
+            empty = v.is_empty();
+        }
+
+        if empty {
+            self.inner.event_handlers.write().await.remove(&event_id);
+        }
+
+        self
     }
 
     /// Add an arbitrary value for use as event handler context.

@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = [
     "e2e-encryption",
     "sled",
-    "native-tls"
+    "native-tls", 
 ]
 
 e2e-encryption = [
@@ -117,6 +117,14 @@ features = ["client-api-c", "compat", "rand", "unstable-msc2448", "unstable-msc2
 version = "0.1.8"
 features = ["net"]
 optional = true
+
+[dependencies.uuid]
+version = "1.1.2"
+features = [
+    "v4",                
+    "fast-rng",          
+    "macro-diagnostics", 
+]
 
 [dependencies.warp]
 version = "0.3.2"

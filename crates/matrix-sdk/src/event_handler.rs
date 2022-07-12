@@ -1,4 +1,5 @@
 // Copyright 2021 Jonas Platte
+// Copyright 2022 Famedly GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,9 +39,13 @@ use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw};
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
+<<<<<<< HEAD
 use tracing::error;
+=======
+use uuid::Uuid;
+>>>>>>> 24deb588 (feat(sdk): Implement remove_event_handler)
 
-use crate::{room, Client};
+use crate::{client::EventHandlerFn, room, Client};
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -84,6 +89,23 @@ pub trait SyncEvent {
     const KIND: EventKind;
     #[doc(hidden)]
     const TYPE: &'static str;
+}
+
+pub(crate) struct EventHandlerWrapper {
+    pub handler_function: EventHandlerFn,
+    pub handle: EventHandlerHandle,
+}
+
+#[derive(Debug, Clone)]
+/// Handle to remove a registered event handler.
+pub struct EventHandlerHandle(pub(crate) Uuid, pub(crate) (EventKind, &'static str));
+
+impl EventHandlerHandle {
+    #[must_use]
+    /// Returns a new [`EventHandlerHandle`].
+    pub(crate) fn new(event_id: (EventKind, &'static str)) -> Self {
+        EventHandlerHandle(Uuid::new_v4(), event_id)
+    }
 }
 
 /// Interface for event handlers.
@@ -381,14 +403,14 @@ impl Client {
                 .get(&event_handler_id)
                 .into_iter()
                 .flatten()
-                .map(|handler| {
+                .map(|handler_wrapper| {
                     let data = EventHandlerData {
                         client: self.clone(),
                         room: room.clone(),
                         raw: raw_event.json(),
                         encryption_info,
                     };
-                    (handler)(data)
+                    (handler_wrapper.handler_function)(data)
                 })
                 .collect();
 
@@ -605,7 +627,8 @@ mod tests {
                     future::ready(())
                 }
             })
-            .await
+            .await;
+        client
             .register_event_handler({
                 let typing_count = typing_count.clone();
                 move |_ev: SyncTypingEvent| {
@@ -613,7 +636,8 @@ mod tests {
                     future::ready(())
                 }
             })
-            .await
+            .await;
+        client
             .register_event_handler({
                 let power_levels_count = power_levels_count.clone();
                 move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
@@ -621,7 +645,8 @@ mod tests {
                     future::ready(())
                 }
             })
-            .await
+            .await;
+        client
             .register_event_handler({
                 let invited_member_count = invited_member_count.clone();
                 move |_ev: StrippedRoomMemberEvent| {
