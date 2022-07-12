@@ -1,0 +1,8 @@
+src/
+tests/
+Cargo.toml
+build.rs
+*.node
+*.tgz
+tsconfig.json
+cliff.toml

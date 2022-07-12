@@ -1,0 +1,117 @@
+name: Release Crypto-Node.js
+#
+# This workflow releases the crypto-bindings for nodejs
+#
+# It is triggered when seeing a tag prefixed matching `matrix-sdk-crypto-nodejs-v[0-9]+.*`,
+# which then build the native bindings for linux, mac and windows via the CI and uploads
+# them to the corresponding Github Release tag. Once they are finished, this workflow will
+# package the npm tar.gz and uploads that to the Github Release tag as well, before publishing
+# it to npmjs.com automatically.
+#
+# The usual way to trigger this is by manually triggering the `prep-crypto-nodejs-release`
+# workflow. See its documentation for instructions how to use it.
+
+env:
+  PKG_PATH: "bindings/matrix-sdk-crypto-nodejs"
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc'
+  CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER: 'i686-linux-gnu-gcc'
+  CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'
+
+on:
+  push:
+    tags:
+      - matrix-sdk-crypto-nodejs-v[0-9]+.*
+
+jobs:
+  upload-assets:
+    name: "Upload prebuilt libraries"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ----------------------------------- Linux
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: i686-unknown-linux-gnu
+            apt_install: gcc-i686-linux-gnu g++-i686-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            apt_install: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          - target: arm-unknown-linux-gnueabihf
+            os: ubuntu-latest
+            apt_install: gcc-arm-linux-gnueabihf
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          # ----------------------------------- macOS
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          # ----------------------------------- Windows
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: i686-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          target: ${{ matrix.target }}
+          override: true
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+      - if: ${{ matrix.apt_install }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.apt_install }}
+      - name: Build lib
+        working-directory: ${{env.PKG_PATH}}
+        run: |
+          npm install --ignore-scripts
+          npx napi build --platform --release --strip --target ${{ matrix.target }}
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: ${{env.PKG_PATH}}/*.node
+
+  publish-nodejs-package:
+    name: "Package nodejs package"
+    runs-on: ubuntu-latest
+    environment: NPM
+    needs:
+      - upload-assets
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          override: true
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+      - name: Build lib
+        working-directory: ${{env.PKG_PATH}}
+        run: |
+          npm install --ignore-scripts
+          npm run build
+          npm pack
+      - name: Upload npm package to release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: ${{env.PKG_PATH}}/*tgz
+      - name: Publish to npmjs.com
+        uses: JS-DevTools/npm-publish@v1
+        with:
+          token: ${{ secrets.NPM_TOKEN }}

@@ -133,6 +133,7 @@ jobs:
   test-apple:
     name: matrix-rust-components-swift
     runs-on: macos-12
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
       - name: Checkout
