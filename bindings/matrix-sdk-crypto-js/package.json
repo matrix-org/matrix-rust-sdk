@@ -1,5 +1,5 @@
 {
-    "name": "matrix-sdk-crypto-js",
+    "name": "@matrix-org/matrix-sdk-crypto-js",
     "version": "0.5.0",
     "homepage": "https://github.com/matrix-org/matrix-rust-sdk",
     "description": "Matrix encryption library, for JavaScript",
