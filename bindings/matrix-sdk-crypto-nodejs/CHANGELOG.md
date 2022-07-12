@@ -1,6 +1,6 @@
 # Matrix-Rust-SDK Node.js Bindings
 
-## 0.5.0-beta.0 - 2022-07-21
+## 0.1.0-beta.0 - 2022-07-21
 
 Welcome to the first release of `matrix-sdk-crypto-nodejs`. This is a
 Node.js binding for the Rust `matrix-sdk-crypto` library. This is a
