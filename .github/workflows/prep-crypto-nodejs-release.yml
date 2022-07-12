@@ -103,6 +103,7 @@ jobs:
         uses: peter-evans/create-pull-request@v4
         with:
           branch: "gh-action/release-${{ env.TAG_PREFIX }}${{ inputs.version }}"
+          base: "main"
           title: "Preparing Release ${{ env.TAG_PREFIX }}${{ inputs.version }}"
           body: |
             Automatic Pull-Request to merge release ${{ env.TAG_PREFIX }}${{ inputs.version }} back into main
