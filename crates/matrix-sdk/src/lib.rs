@@ -45,6 +45,9 @@ mod sync;
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
 
+#[cfg(feature = "guaranteed_completion")]
+pub mod guaranteed_completion;
+
 pub use account::Account;
 #[cfg(feature = "sso-login")]
 pub use client::SsoLoginBuilder;
