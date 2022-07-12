@@ -56,7 +56,7 @@ pub fn make_store_config(
     #[cfg(all(feature = "crypto-store", not(feature = "state-store")))]
     {
         let crypto_store = CryptoStore::open_with_passphrase(path, passphrase)?;
-        Ok(StoreConfig::new().crypto_store(Box::new(crypto_store)))
+        Ok(StoreConfig::new().crypto_store(crypto_store))
     }
 
     #[cfg(not(feature = "crypto-store"))]
@@ -67,7 +67,7 @@ pub fn make_store_config(
             StateStore::open_with_path(path)?
         };
 
-        Ok(StoreConfig::new().state_store(Box::new(state_store)))
+        Ok(StoreConfig::new().state_store(state_store))
     }
 }
 
@@ -77,14 +77,14 @@ pub fn make_store_config(
 fn open_stores_with_path(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
-) -> Result<(Box<StateStore>, Box<CryptoStore>), OpenStoreError> {
+) -> Result<(StateStore, CryptoStore), OpenStoreError> {
     if let Some(passphrase) = passphrase {
         let state_store = StateStore::open_with_passphrase(path, passphrase)?;
         let crypto_store = state_store.open_crypto_store()?;
-        Ok((Box::new(state_store), Box::new(crypto_store)))
+        Ok((state_store, crypto_store))
     } else {
         let state_store = StateStore::open_with_path(path)?;
         let crypto_store = state_store.open_crypto_store()?;
-        Ok((Box::new(state_store), Box::new(crypto_store)))
+        Ok((state_store, crypto_store))
     }
 }

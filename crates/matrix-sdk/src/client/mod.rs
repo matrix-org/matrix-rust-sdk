@@ -24,7 +24,7 @@ use std::{
 
 use anymap2::any::CloneAnySendSync;
 #[cfg(target_arch = "wasm32")]
-pub use async_once_cell::OnceCell;
+use async_once_cell::OnceCell;
 use dashmap::DashMap;
 use futures_core::stream::Stream;
 use matrix_sdk_base::{
@@ -70,7 +70,7 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::OnceCell;
+use tokio::sync::OnceCell;
 use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 
@@ -86,8 +86,14 @@ use crate::{
 };
 
 mod builder;
+mod login_builder;
 
-pub use self::builder::{ClientBuildError, ClientBuilder};
+#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+pub use self::login_builder::SsoLoginBuilder;
+pub use self::{
+    builder::{ClientBuildError, ClientBuilder},
+    login_builder::LoginBuilder,
+};
 
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
@@ -129,6 +135,8 @@ pub struct Client {
 pub(crate) struct ClientInner {
     /// The URL of the homeserver to connect to.
     homeserver: RwLock<Url>,
+    /// The OIDC Provider that is trusted by the homeserver.
+    authentication_issuer: Option<RwLock<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -247,10 +255,30 @@ impl Client {
     #[cfg(feature = "appservice")]
     pub async fn receive_transaction(
         &self,
-        _transaction_id: &TransactionId,
+        transaction_id: &TransactionId,
         sync_response: sync_events::v3::Response,
     ) -> Result<()> {
-        // TODO: transaction id checking, see PR #560
+        const TXN_ID_KEY: &[u8] = b"appservice.txn_id";
+
+        let store = self.store();
+        let store_tokens = store.get_custom_value(TXN_ID_KEY).await?;
+        let mut txn_id_bytes = transaction_id.as_bytes().to_vec();
+        if let Some(mut store_tokens) = store_tokens {
+            // The data is separated by a NULL byte.
+            let mut store_tokens_split = store_tokens.split(|x| *x == b'\0');
+            if store_tokens_split.any(|x| x == transaction_id.as_bytes()) {
+                // We already encountered this transaction id before, so we exit early instead
+                // of processing further.
+                //
+                // Spec: https://spec.matrix.org/v1.3/application-service-api/#pushing-events
+                return Ok(());
+            }
+            store_tokens.push(b'\0');
+            store_tokens.append(&mut txn_id_bytes);
+            self.store().set_custom_value(TXN_ID_KEY, store_tokens).await?;
+        } else {
+            self.store().set_custom_value(TXN_ID_KEY, txn_id_bytes).await?;
+        }
         self.process_sync(sync_response).await?;
 
         Ok(())
@@ -266,12 +294,21 @@ impl Client {
         self.inner.homeserver.read().await.clone()
     }
 
+    /// The OIDC Provider that is trusted by the homeserver.
+    pub async fn authentication_issuer(&self) -> Option<Url> {
+        if let Some(server) = &self.inner.authentication_issuer {
+            Some(server.read().await.clone())
+        } else {
+            None
+        }
+    }
+
     /// Get the user id of the current owner of the client.
     pub fn user_id(&self) -> Option<&UserId> {
         self.session().map(|s| s.user_id.as_ref())
     }
 
-    /// Get the device id that identifies the current session.
+    /// Get the device ID that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
         self.session().map(|s| s.device_id.as_ref())
     }
@@ -281,7 +318,7 @@ impl Client {
     /// Will be `None` if the client has not been logged in.
     ///
     /// Can be used with [`Client::restore_login`] to restore a previously
-    /// logged in session.
+    /// logged-in session.
     pub fn session(&self) -> Option<&Session> {
         self.store().session()
     }
@@ -665,29 +702,26 @@ impl Client {
         }
     }
 
-    /// Login to the server.
+    /// Login to the server with a username and password.
     ///
     /// This can be used for the first login as well as for subsequent logins,
-    /// note that if the device id isn't provided a new device will be created.
+    /// note that if the device ID isn't provided a new device will be created.
     ///
-    /// If this isn't the first login a device id should be provided to restore
-    /// the correct stores.
+    /// If this isn't the first login, a device ID should be provided through
+    /// [`LoginBuilder::device_id`] to restore the correct stores.
     ///
     /// Alternatively the [`restore_login`] method can be used to restore a
-    /// logged in client without the password.
+    /// logged-in client without the password.
     ///
     /// # Arguments
     ///
-    /// * `user` - The user that should be logged in to the homeserver.
+    /// * `user` - The user ID or user ID localpart of the user that should be
+    ///   logged into the homeserver.
     ///
     /// * `password` - The password of the user.
     ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be done
-    ///   only if the client also holds the encryption keys for this device.
-    ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use futures::executor::block_on;
@@ -700,246 +734,38 @@ impl Client {
     /// let user = "example";
     ///
     /// let response = client
-    ///     .login(user, "wordpass", None, Some("My bot")).await?;
+    ///     .login_username(user, "wordpass")
+    ///     .initial_device_display_name("My bot")
+    ///     .send()
+    ///     .await?;
     ///
     /// println!(
     ///     "Logged in as {}, got device_id {} and access_token {}",
-    ///     user, response.device_id, response.access_token
+    ///     user, response.device_id, response.access_token,
     /// );
     /// # anyhow::Ok(()) });
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(self, user, password))]
-    pub async fn login(
+    pub fn login_username<'a>(
         &self,
-        user: impl AsRef<str>,
-        password: &str,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-    ) -> Result<login::v3::Response> {
-        let homeserver = self.homeserver().await;
-        info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in");
-
-        let login_info = login::v3::LoginInfo::Password(login::v3::Password::new(
-            UserIdentifier::UserIdOrLocalpart(user.as_ref()),
-            password,
-        ));
-
-        let request = assign!(login::v3::Request::new(login_info), {
-            device_id: device_id.map(|d| d.into()),
-            initial_device_display_name,
-        });
-
-        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
-        self.receive_login_response(&response).await?;
-
-        Ok(response)
+        id: &'a (impl AsRef<str> + ?Sized),
+        password: &'a str,
+    ) -> LoginBuilder<'a> {
+        self.login_identifier(UserIdentifier::UserIdOrLocalpart(id.as_ref()), password)
     }
 
-    /// Login to the server via Single Sign-On.
+    /// Login to the server with a user identifier and password.
     ///
-    /// This takes care of the whole SSO flow:
-    ///   * Spawn a local http server
-    ///   * Provide a callback to open the SSO login URL in a web browser
-    ///   * Wait for the local http server to get the loginToken
-    ///   * Call [`login_with_token`]
-    ///
-    /// If cancellation is needed the method should be wrapped in a cancellable
-    /// task. **Note** that users with root access to the system have the
-    /// ability to snoop in on the data/token that is passed to the local
-    /// HTTP server that will be spawned.
-    ///
-    /// If you need more control over the SSO login process, you should use
-    /// [`get_sso_login_url`] and [`login_with_token`] directly.
-    ///
-    /// This should only be used for the first login.
-    ///
-    /// The [`restore_login`] method should be used to restore a
-    /// logged in client after the first login.
-    ///
-    /// A device id should be provided to restore the correct stores, if the
-    /// device id isn't provided a new device will be created.
-    ///
-    /// # Arguments
-    ///
-    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL.
-    ///   It should usually be used to open the SSO URL in a browser and must
-    ///   return `Ok(())` if the URL was successfully opened. If it returns
-    ///   `Err`, the error will be forwarded.
-    ///
-    /// * `server_url` - The local URL the server is going to try to bind to, e.g. `http://localhost:3030`.
-    ///   If `None`, the server will try to open a random port on `127.0.0.1`.
-    ///
-    /// * `server_response` - The text that will be shown on the webpage at the
-    ///   end of the login process. This can be an HTML page. If `None`, a
-    ///   default text will be displayed.
-    ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be
-    ///   provided only if the client also holds the encryption keys for this
-    ///   device.
-    ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///   associated with the device_id. Only necessary the first time you login
-    ///   with this device_id. It can be changed later.
-    ///
-    /// * `idp_id` - The optional ID of the identity provider to login with.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use matrix_sdk::Client;
-    /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("https://example.com").unwrap();
-    /// # block_on(async {
-    /// let client = Client::new(homeserver).await.unwrap();
-    ///
-    /// let response = client
-    ///     .login_with_sso(
-    ///         |sso_url| async move {
-    ///             // Open sso_url
-    ///             Ok(())
-    ///         },
-    ///         None,
-    ///         None,
-    ///         None,
-    ///         Some("My app"),
-    ///         None,
-    ///     )
-    ///     .await
-    ///     .unwrap();
-    ///
-    /// println!("Logged in as {}, got device_id {} and access_token {}",
-    ///          response.user_id, response.device_id, response.access_token);
-    /// # })
-    /// ```
-    ///
-    /// [`get_sso_login_url`]: #method.get_sso_login_url
-    /// [`login_with_token`]: #method.login_with_token
-    /// [`restore_login`]: #method.restore_login
-    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
-    #[deny(clippy::future_not_send)]
-    pub async fn login_with_sso<C>(
+    /// This is more general form of [`login_username`][Self::login_username]
+    /// that also accepts third-party identifiers instead of just the user ID or
+    /// its localpart.
+    pub fn login_identifier<'a>(
         &self,
-        use_sso_login_url: impl FnOnce(String) -> C + Send,
-        server_url: Option<&str>,
-        server_response: Option<&str>,
-        device_id: Option<&str>,
-        initial_device_display_name: Option<&str>,
-        idp_id: Option<&str>,
-    ) -> Result<login::v3::Response>
-    where
-        C: Future<Output = Result<()>> + Send,
-    {
-        use std::{
-            collections::HashMap,
-            io::{Error as IoError, ErrorKind as IoErrorKind},
-            ops::Range,
-        };
-
-        use rand::{thread_rng, Rng};
-        use warp::Filter;
-
-        /// The range of ports the SSO server will try to bind to randomly.
-        ///
-        /// This is used to avoid binding to a port blocked by browsers.
-        /// See <https://fetch.spec.whatwg.org/#port-blocking>.
-        const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
-        /// The number of times the SSO server will try to bind to a random port
-        const SSO_SERVER_BIND_TRIES: u8 = 10;
-
-        let homeserver = self.homeserver().await;
-        info!("Logging in to {}", homeserver);
-
-        let (signal_tx, signal_rx) = tokio::sync::oneshot::channel();
-        let (data_tx, data_rx) = tokio::sync::oneshot::channel();
-        let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
-
-        let mut redirect_url = match server_url {
-            Some(s) => Url::parse(s)?,
-            None => {
-                Url::parse("http://127.0.0.1:0/").expect("Couldn't parse good known localhost URL")
-            }
-        };
-
-        let response = match server_response {
-            Some(s) => s.to_string(),
-            None => String::from(
-                "The Single Sign-On login process is complete. You can close this page now.",
-            ),
-        };
-
-        let route = warp::get().and(warp::query::<HashMap<String, String>>()).map(
-            move |p: HashMap<String, String>| {
-                if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
-                    if let Some(token) = p.get("loginToken") {
-                        data_tx.send(Some(token.to_owned())).unwrap();
-                    } else {
-                        data_tx.send(None).unwrap();
-                    }
-                }
-                http::Response::builder().body(response.clone())
-            },
-        );
-
-        let listener = {
-            if redirect_url.port().expect("The redirect URL doesn't include a port") == 0 {
-                let host = redirect_url.host_str().expect("The redirect URL doesn't have a host");
-                let mut n = 0u8;
-                let mut port = 0u16;
-                let mut res = Err(IoError::new(IoErrorKind::Other, ""));
-
-                while res.is_err() && n < SSO_SERVER_BIND_TRIES {
-                    port = thread_rng().gen_range(SSO_SERVER_BIND_RANGE);
-                    res = tokio::net::TcpListener::bind((host, port)).await;
-                    n += 1;
-                }
-                match res {
-                    Ok(s) => {
-                        redirect_url
-                            .set_port(Some(port))
-                            .expect("Could not set new port on redirect URL");
-                        s
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-            } else {
-                match tokio::net::TcpListener::bind(redirect_url.as_str()).await {
-                    Ok(s) => s,
-                    Err(err) => return Err(err.into()),
-                }
-            }
-        };
-
-        let server = warp::serve(route).serve_incoming_with_graceful_shutdown(
-            tokio_stream::wrappers::TcpListenerStream::new(listener),
-            async {
-                signal_rx.await.ok();
-            },
-        );
-
-        tokio::spawn(server);
-
-        let sso_url = self.get_sso_login_url(redirect_url.as_str(), idp_id).await?;
-
-        match use_sso_login_url(sso_url).await {
-            Ok(t) => t,
-            Err(err) => return Err(err),
-        };
-
-        let token = match data_rx.await {
-            Ok(Some(t)) => t,
-            Ok(None) => {
-                return Err(IoError::new(IoErrorKind::Other, "Could not get the loginToken").into())
-            }
-            Err(err) => return Err(IoError::new(IoErrorKind::Other, format!("{}", err)).into()),
-        };
-
-        let _ = signal_tx.send(());
-
-        self.login_with_token(token.as_str(), device_id, initial_device_display_name).await
+        id: UserIdentifier<'a>,
+        password: &'a str,
+    ) -> LoginBuilder<'a> {
+        LoginBuilder::new_password(self.clone(), id, password)
     }
 
     /// Login to the server with a token.
@@ -950,27 +776,19 @@ impl Client {
     ///
     /// This should only be used for the first login.
     ///
-    /// The [`restore_login`] method should be used to restore a
-    /// logged in client after the first login.
+    /// The [`restore_login`] method should be used to restore a logged-in
+    /// client after the first login.
     ///
-    /// A device id should be provided to restore the correct stores, if the
-    /// device id isn't provided a new device will be created.
+    /// A device ID should be provided through [`LoginBuilder::device_id`] to
+    /// restore the correct stores, if the device ID isn't provided a new
+    /// device will be created.
     ///
     /// # Arguments
     ///
     /// * `token` - A login token.
     ///
-    /// * `device_id` - A unique id that will be associated with this session.
-    ///   If not given the homeserver will create one. Can be an existing
-    ///   device_id from a previous login call. Note that this should be
-    ///   provided only if the client also holds the encryption keys for this
-    ///   device.
-    ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///   associated with the device_id. Only necessary the first time you login
-    ///   with this device_id. It can be changed later.
-    ///
     /// # Example
+    ///
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
@@ -988,7 +806,71 @@ impl Client {
     /// // Receive the loginToken param at redirect_url
     ///
     /// let response = client
-    ///     .login_with_token(login_token, None, Some("My app")).await
+    ///     .login_token(login_token)
+    ///     .initial_device_display_name("My app")
+    ///     .send()
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     response.user_id, response.device_id, response.access_token,
+    /// );
+    /// # })
+    /// ```
+    ///
+    /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`restore_login`]: #method.restore_login
+    pub fn login_token<'a>(&self, token: &'a str) -> LoginBuilder<'a> {
+        LoginBuilder::new_token(self.clone(), token)
+    }
+
+    /// Login to the server via Single Sign-On.
+    ///
+    /// This takes care of the whole SSO flow:
+    ///   * Spawn a local http server
+    ///   * Provide a callback to open the SSO login URL in a web browser
+    ///   * Wait for the local http server to get the loginToken
+    ///   * Call [`login_token`]
+    ///
+    /// If cancellation is needed the method should be wrapped in a cancellable
+    /// task. **Note** that users with root access to the system have the
+    /// ability to snoop in on the data/token that is passed to the local
+    /// HTTP server that will be spawned.
+    ///
+    /// If you need more control over the SSO login process, you should use
+    /// [`get_sso_login_url`] and [`login_token`] directly.
+    ///
+    /// This should only be used for the first login.
+    ///
+    /// The [`restore_login`] method should be used to restore a logged-in
+    /// client after the first login.
+    ///
+    /// # Arguments
+    ///
+    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL.
+    ///   It should usually be used to open the SSO URL in a browser and must
+    ///   return `Ok(())` if the URL was successfully opened. If it returns
+    ///   `Err`, the error will be forwarded.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("https://example.com").unwrap();
+    /// # block_on(async {
+    /// let client = Client::new(homeserver).await.unwrap();
+    ///
+    /// let response = client
+    ///     .login_sso(|sso_url| async move {
+    ///         // Open sso_url
+    ///         Ok(())
+    ///     })
+    ///     .initial_device_display_name("My app")
+    ///     .send()
+    ///     .await
     ///     .unwrap();
     ///
     /// println!("Logged in as {}, got device_id {} and access_token {}",
@@ -997,7 +879,76 @@ impl Client {
     /// ```
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`login_token`]: #method.login_token
     /// [`restore_login`]: #method.restore_login
+    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    pub fn login_sso<'a, F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<'a, F>
+    where
+        F: FnOnce(String) -> Fut + Send,
+        Fut: Future<Output = Result<()>> + Send,
+    {
+        SsoLoginBuilder::new(self.clone(), use_sso_login_url)
+    }
+
+    /// Login to the server with a username and password.
+    #[deprecated = "Replaced by [`Client::login_username`](#method.login_username)"]
+    #[instrument(skip(self, user, password))]
+    pub async fn login(
+        &self,
+        user: impl AsRef<str>,
+        password: &str,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::v3::Response> {
+        let mut builder = self.login_username(&user, password);
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
+
+        builder.send().await
+    }
+
+    /// Login to the server via Single Sign-On.
+    #[deprecated = "Replaced by [`Client::login_sso`](#method.login_sso)"]
+    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    #[deny(clippy::future_not_send)]
+    pub async fn login_with_sso<C>(
+        &self,
+        use_sso_login_url: impl FnOnce(String) -> C + Send,
+        server_url: Option<&str>,
+        server_response: Option<&str>,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+        idp_id: Option<&str>,
+    ) -> Result<login::v3::Response>
+    where
+        C: Future<Output = Result<()>> + Send,
+    {
+        let mut builder = self.login_sso(use_sso_login_url);
+        if let Some(value) = server_url {
+            builder = builder.server_url(value);
+        }
+        if let Some(value) = server_response {
+            builder = builder.server_response(value);
+        }
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
+        if let Some(value) = idp_id {
+            builder = builder.identity_provider_id(value);
+        }
+
+        builder.send().await
+    }
+
+    /// Login to the server with a token.
+    #[deprecated = "Replaced by [`Client::login_token`](#method.login_token)"]
     #[instrument(skip(self, token))]
     #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
     pub async fn login_with_token(
@@ -1006,22 +957,15 @@ impl Client {
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::v3::Response> {
-        let homeserver = self.homeserver().await;
-        info!("Logging in to {}", homeserver);
+        let mut builder = self.login_token(token);
+        if let Some(value) = device_id {
+            builder = builder.device_id(value);
+        }
+        if let Some(value) = initial_device_display_name {
+            builder = builder.initial_device_display_name(value);
+        }
 
-        let request = assign!(
-            login::v3::Request::new(
-                login::v3::LoginInfo::Token(login::v3::Token::new(token)),
-            ), {
-                device_id: device_id.map(|d| d.into()),
-                initial_device_display_name,
-            }
-        );
-
-        let response = self.send(request, Some(RequestConfig::short_retry())).await?;
-        self.receive_login_response(&response).await?;
-
-        Ok(response)
+        builder.send().await
     }
 
     /// Receive a login response and update the homeserver and the base client
@@ -1050,7 +994,7 @@ impl Client {
     /// the stored state and encryption keys.
     ///
     /// Alternatively, if the whole session isn't stored the [`login`] method
-    /// can be used with a device id.
+    /// can be used with a device ID.
     ///
     /// # Arguments
     ///
@@ -2257,356 +2201,61 @@ impl Client {
     }
 }
 
-// mockito (the http mocking library) is not supported for wasm32
+// The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
-    use matrix_sdk_test::async_test;
+    use std::time::Duration;
+
+    use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
-
-    use matrix_sdk_base::{
-        media::{MediaFormat, MediaRequest, MediaThumbnailSize},
-        DisplayName,
-    };
-    #[cfg(feature = "experimental-timeline")]
-    use matrix_sdk_common::deserialized_responses::SyncRoomEvent;
-    use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
-    use mockito::{mock, Matcher};
-    use ruma::{
-        api::{
-            client::{
-                self as client_api,
-                account::register::{v3::Request as RegistrationRequest, RegistrationKind},
-                directory::{
-                    get_public_rooms,
-                    get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
-                },
-                media::get_content_thumbnail::v3::Method,
-                membership::Invite3pidInit,
-                session::get_login_types::v3::LoginType,
-                uiaa::{self, UiaaResponse},
-            },
-            error::{FromHttpResponseError, ServerError},
-            MatrixVersion,
-        },
-        assign, device_id,
-        directory::Filter,
-        event_id,
-        events::{
-            room::{
-                message::{ImageMessageEventContent, RoomMessageEventContent},
-                ImageInfo, MediaSource,
-            },
-            AnySyncStateEvent, StateEventType,
-        },
-        mxc_uri, room_id, thirdparty, uint, user_id, TransactionId, UserId,
-    };
-    use serde_json::json;
+    use ruma::{api::MatrixVersion, device_id, room_id, user_id, UserId};
     use url::Url;
+    use wiremock::{
+        matchers::{header, method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     use super::{Client, ClientBuilder, Session};
-    use crate::{
-        attachment::{
-            AttachmentConfig, AttachmentInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo,
-            Thumbnail,
-        },
-        config::{RequestConfig, SyncSettings},
-        error::RumaApiError,
-        HttpError, RoomMember,
-    };
+    use crate::config::{RequestConfig, SyncSettings};
 
-    fn test_client_builder() -> ClientBuilder {
-        let homeserver = Url::parse(&mockito::server_url()).unwrap();
+    fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
+        let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
         Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
     }
 
-    async fn no_retry_test_client() -> Client {
-        test_client_builder()
+    async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
+        test_client_builder(homeserver_url)
             .request_config(RequestConfig::new().disable_retry())
             .build()
             .await
             .unwrap()
     }
 
-    pub(crate) async fn logged_in_client() -> Client {
+    pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user_id!("@example:localhost").to_owned(),
             device_id: device_id!("DEVICEID").to_owned(),
         };
-        let client = no_retry_test_client().await;
+        let client = no_retry_test_client(homeserver_url).await;
         client.restore_login(session).await.unwrap();
 
         client
     }
 
     #[async_test]
-    async fn set_homeserver() {
-        let client = no_retry_test_client().await;
-        let homeserver = Url::from_str("http://example.com/").unwrap();
-        client.set_homeserver(homeserver.clone()).await;
-
-        assert_eq!(client.homeserver().await, homeserver);
-    }
-
-    #[async_test]
-    async fn successful_discovery() {
-        let server_url = mockito::server_url();
-        let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
-
-        let _m_well_known = mock("GET", "/.well-known/matrix/client")
-            .with_status(200)
-            .with_body(
-                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
-            )
-            .create();
-
-        let _m_versions = mock("GET", "/_matrix/client/versions")
-            .with_status(200)
-            .with_body(test_json::VERSIONS.to_string())
-            .create();
-        let client = Client::builder().user_id(&alice).build().await.unwrap();
-
-        assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
-    }
-
-    #[async_test]
-    async fn discovery_broken_server() {
-        let server_url = mockito::server_url();
-        let domain = server_url.strip_prefix("http://").unwrap();
-        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
-
-        let _m = mock("GET", "/.well-known/matrix/client").with_status(404).create();
-
-        assert!(
-            Client::builder().user_id(&alice).build().await.is_err(),
-            "Creating a client from a user ID should fail when the .well-known request fails."
-        );
-    }
-
-    #[async_test]
-    async fn login() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = no_retry_test_client().await;
-
-        let _m_types = mock("GET", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN_TYPES.to_string())
-            .create();
-
-        let can_password = client
-            .get_login_types()
-            .await
-            .unwrap()
-            .flows
-            .iter()
-            .any(|flow| matches!(flow, LoginType::Password(_)));
-        assert!(can_password);
-
-        let _m_login = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN.to_string())
-            .create();
-
-        client.login("example", "wordpass", None, None).await.unwrap();
-
-        let logged_in = client.logged_in();
-        assert!(logged_in, "Client should be logged in");
-
-        assert_eq!(client.homeserver().await, homeserver);
-    }
-
-    #[async_test]
-    async fn login_with_discovery() {
-        let client = no_retry_test_client().await;
-
-        let _m_login = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN_WITH_DISCOVERY.to_string())
-            .create();
-
-        client.login("example", "wordpass", None, None).await.unwrap();
-
-        let logged_in = client.logged_in();
-        assert!(logged_in, "Client should be logged in");
-
-        assert_eq!(client.homeserver().await.as_str(), "https://example.org/");
-    }
-
-    #[async_test]
-    async fn login_no_discovery() {
-        let client = no_retry_test_client().await;
-
-        let _m_login = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN.to_string())
-            .create();
-
-        client.login("example", "wordpass", None, None).await.unwrap();
-
-        let logged_in = client.logged_in();
-        assert!(logged_in, "Client should be logged in");
-
-        assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
-    }
-
-    #[async_test]
-    #[cfg(feature = "sso-login")]
-    async fn login_with_sso() {
-        let _m_login = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN.to_string())
-            .create();
-
-        let _homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = no_retry_test_client().await;
-        let idp = crate::client::get_login_types::v3::IdentityProvider::new(
-            "some-id".to_owned(),
-            "idp-name".to_owned(),
-        );
-        client
-            .login_with_sso(
-                |sso_url| async move {
-                    let sso_url = Url::parse(sso_url.as_str()).unwrap();
-
-                    let (_, redirect) =
-                        sso_url.query_pairs().find(|(key, _)| key == "redirectUrl").unwrap();
-
-                    let mut redirect_url = Url::parse(redirect.into_owned().as_str()).unwrap();
-                    redirect_url.set_query(Some("loginToken=tinytoken"));
-
-                    reqwest::get(redirect_url.to_string()).await.unwrap();
-
-                    Ok(())
-                },
-                None,
-                None,
-                None,
-                None,
-                Some(&idp.id),
-            )
-            .await
-            .unwrap();
-
-        let logged_in = client.logged_in();
-        assert!(logged_in, "Client should be logged in");
-    }
-
-    #[async_test]
-    async fn login_with_sso_token() {
-        let client = no_retry_test_client().await;
-
-        let _m = mock("GET", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN_TYPES.to_string())
-            .create();
-
-        let can_sso = client
-            .get_login_types()
-            .await
-            .unwrap()
-            .flows
-            .iter()
-            .any(|flow| matches!(flow, LoginType::Sso(_)));
-        assert!(can_sso);
-
-        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030", None).await;
-        assert!(sso_url.is_ok());
-
-        let _m = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN.to_string())
-            .create();
-
-        client.login_with_token("averysmalltoken", None, None).await.unwrap();
-
-        let logged_in = client.logged_in();
-        assert!(logged_in, "Client should be logged in");
-    }
-
-    #[async_test]
-    async fn devices() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", "/_matrix/client/r0/devices")
-            .with_status(200)
-            .with_body(test_json::DEVICES.to_string())
-            .create();
-
-        assert!(client.devices().await.is_ok());
-    }
-
-    #[async_test]
-    async fn resolve_room_alias() {
-        let client = no_retry_test_client().await;
-
-        let _m = mock("GET", "/_matrix/client/r0/directory/room/%23alias%3Aexample%2Eorg")
-            .with_status(200)
-            .with_body(test_json::GET_ALIAS.to_string())
-            .create();
-
-        let alias = ruma::room_alias_id!("#alias:example.org");
-        assert!(client.resolve_room_alias(alias).await.is_ok());
-    }
-
-    #[async_test]
-    async fn test_join_leave_room() {
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let client = logged_in_client().await;
-        let session = client.session().unwrap().clone();
-
-        let room = client.get_joined_room(room_id);
-        assert!(room.is_none());
-
-        client.sync_once(SyncSettings::default()).await.unwrap();
-
-        let room = client.get_left_room(room_id);
-        assert!(room.is_none());
-
-        let room = client.get_joined_room(room_id);
-        assert!(room.is_some());
-
-        // test store reloads with correct room state from the state store
-        let joined_client = no_retry_test_client().await;
-        joined_client.restore_login(session).await.unwrap();
-
-        // joined room reloaded from state store
-        joined_client.sync_once(SyncSettings::default()).await.unwrap();
-        let room = joined_client.get_joined_room(room_id);
-        assert!(room.is_some());
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
-            .create();
-
-        joined_client.sync_once(SyncSettings::default()).await.unwrap();
-
-        let room = joined_client.get_joined_room(room_id);
-        assert!(room.is_none());
-
-        let room = joined_client.get_left_room(room_id);
-        assert!(room.is_some());
-    }
-
-    #[async_test]
     async fn account_data() {
-        let client = logged_in_client().await;
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(test_json::SYNC.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/sync".to_owned()))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::SYNC))
+            .mount(&server)
+            .await;
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync_once(sync_settings).await.unwrap();
@@ -2617,8 +2266,54 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn successful_discovery() {
+        let server = MockServer::start().await;
+        let server_url = server.uri();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&server)
+            .await;
+        let client = Client::builder().user_id(&alice).build().await.unwrap();
+
+        assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
+    }
+
+    #[async_test]
+    async fn discovery_broken_server() {
+        let server = MockServer::start().await;
+        let server_url = server.uri();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        assert!(
+            Client::builder().user_id(&alice).build().await.is_err(),
+            "Creating a client from a user ID should fail when the .well-known request fails."
+        );
+    }
+
+    #[async_test]
     async fn room_creation() {
-        let client = logged_in_client().await;
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
         let response = EventBuilder::default()
             .add_state_event(EventsJson::Member)
@@ -2628,937 +2323,16 @@ pub(crate) mod tests {
         client.inner.base_client.receive_sync_response(response).await.unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
+        assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
 
         let room = client.get_joined_room(room_id);
         assert!(room.is_some());
     }
 
     #[async_test]
-    async fn login_error() {
-        let client = no_retry_test_client().await;
-
-        let _m = mock("POST", "/_matrix/client/r0/login")
-            .with_status(403)
-            .with_body(test_json::LOGIN_RESPONSE_ERR.to_string())
-            .create();
-
-        if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::Http(HttpError::Api(FromHttpResponseError::Server(
-                ServerError::Known(RumaApiError::ClientApi(client_api::Error {
-                    kind,
-                    message,
-                    status_code,
-                })),
-            ))) = err
-            {
-                if let client_api::error::ErrorKind::Forbidden = kind {
-                } else {
-                    panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
-                }
-                assert_eq!(message, "Invalid password".to_owned());
-                assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
-            } else {
-                panic!("found the wrong `Error` type {:?}, expected `Error::RumaResponse", err);
-            }
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
-    }
-
-    #[async_test]
-    async fn register_error() {
-        let client = no_retry_test_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_owned()))
-            .with_status(403)
-            .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
-            .create();
-
-        let user = assign!(RegistrationRequest::new(), {
-            username: Some("user"),
-            password: Some("password"),
-            auth: Some(uiaa::AuthData::FallbackAcknowledgement(
-                uiaa::FallbackAcknowledgement::new("foobar"),
-            )),
-            kind: RegistrationKind::User,
-        });
-
-        if let Err(err) = client.register(user).await {
-            if let HttpError::UiaaError(FromHttpResponseError::Server(ServerError::Known(
-                UiaaResponse::MatrixError(client_api::Error { kind, message, status_code }),
-            ))) = err
-            {
-                if let client_api::error::ErrorKind::Forbidden = kind {
-                } else {
-                    panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
-                }
-                assert_eq!(message, "Invalid password".to_owned());
-                assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
-            } else {
-                panic!("found the wrong `Error` type {:#?}, expected `UiaaResponse`", err);
-            }
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
-    }
-
-    #[async_test]
-    async fn join_room_by_id() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join".to_owned()))
-            .with_status(200)
-            .with_body(test_json::ROOM_ID.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let room_id = room_id!("!testroom:example.org");
-
-        assert_eq!(
-            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
-            // field
-            client.join_room_by_id(room_id).await.unwrap().room_id,
-            room_id
-        );
-    }
-
-    #[async_test]
-    async fn join_room_by_id_or_alias() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/join/".to_owned()))
-            .with_status(200)
-            .with_body(test_json::ROOM_ID.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let room_id = room_id!("!testroom:example.org").into();
-
-        assert_eq!(
-            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
-            // field
-            client
-                .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
-                .await
-                .unwrap()
-                .room_id,
-            room_id!("!testroom:example.org")
-        );
-    }
-
-    #[async_test]
-    async fn invite_user_by_id() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_owned()))
-            .with_status(200)
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let user = user_id!("@example:localhost");
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.invite_user_by_id(user).await.unwrap();
-    }
-
-    #[async_test]
-    async fn invite_user_by_3pid() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_owned()))
-            .with_status(200)
-            // empty JSON object
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.invite_user_by_3pid(
-            Invite3pidInit {
-                id_server: "example.org",
-                id_access_token: "IdToken",
-                medium: thirdparty::Medium::Email,
-                address: "address",
-            }
-            .into(),
-        )
-        .await
-        .unwrap();
-    }
-
-    #[async_test]
-    async fn room_search_all() {
-        let client = no_retry_test_client().await;
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
-            .with_status(200)
-            .with_body(test_json::PUBLIC_ROOMS.to_string())
-            .create();
-
-        let get_public_rooms::v3::Response { chunk, .. } =
-            client.public_rooms(Some(10), None, None).await.unwrap();
-        assert_eq!(chunk.len(), 1);
-    }
-
-    #[async_test]
-    async fn room_search_filtered() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_owned()))
-            .with_status(200)
-            .with_body(test_json::PUBLIC_ROOMS.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let generic_search_term = Some("cheese");
-        let filter = assign!(Filter::new(), { generic_search_term });
-        let request = assign!(PublicRoomsFilterRequest::new(), { filter });
-
-        let get_public_rooms_filtered::v3::Response { chunk, .. } =
-            client.public_rooms_filtered(request).await.unwrap();
-        assert_eq!(chunk.len(), 1);
-    }
-
-    #[async_test]
-    async fn leave_room() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/leave".to_owned()))
-            .with_status(200)
-            // this is an empty JSON object
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.leave().await.unwrap();
-    }
-
-    #[async_test]
-    async fn ban_user() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/ban".to_owned()))
-            .with_status(200)
-            // this is an empty JSON object
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let user = user_id!("@example:localhost");
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.ban_user(user, None).await.unwrap();
-    }
-
-    #[async_test]
-    async fn kick_user() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/kick".to_owned()))
-            .with_status(200)
-            // this is an empty JSON object
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let user = user_id!("@example:localhost");
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.kick_user(user, None).await.unwrap();
-    }
-
-    #[async_test]
-    async fn forget_room() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/forget".to_owned()))
-            .with_status(200)
-            // this is an empty JSON object
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::LEAVE_SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.forget().await.unwrap();
-    }
-
-    #[async_test]
-    async fn read_receipt() {
-        let client = logged_in_client().await;
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/receipt".to_owned()))
-            .with_status(200)
-            // this is an empty JSON object
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let event_id = event_id!("$xxxxxx:example.org");
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.read_receipt(event_id).await.unwrap();
-    }
-
-    #[async_test]
-    async fn read_marker() {
-        let client = logged_in_client().await;
-
-        let _m =
-            mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/read_markers".to_owned()))
-                .with_status(200)
-                // this is an empty JSON object
-                .with_body(test_json::LOGOUT.to_string())
-                .match_header("authorization", "Bearer 1234")
-                .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let event_id = event_id!("$xxxxxx:example.org");
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.read_marker(event_id, None).await.unwrap();
-    }
-
-    #[async_test]
-    async fn typing_notice() {
-        let client = logged_in_client().await;
-
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/typing".to_owned()))
-            .with_status(200)
-            // this is an empty JSON object
-            .with_body(test_json::LOGOUT.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        room.typing_notice(true).await.unwrap();
-    }
-
-    #[async_test]
-    async fn room_state_event_send() {
-        use ruma::events::room::member::{MembershipState, RoomMemberEventContent};
-
-        let client = logged_in_client().await;
-
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state/.*".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::EVENT_ID.to_string())
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
-
-        let room = client.get_joined_room(room_id).unwrap();
-
-        let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
-        let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
-            avatar_url: Some(avatar_url.to_owned())
-        });
-        let response = room.send_state_event(member_event, "").await.unwrap();
-        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
-    }
-
-    #[async_test]
-    async fn room_message_send() {
-        let client = logged_in_client().await;
-
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::EVENT_ID.to_string())
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        let content = RoomMessageEventContent::text_plain("Hello world");
-        let txn_id = TransactionId::new();
-        let response = room.send(content, Some(&txn_id)).await.unwrap();
-
-        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
-    }
-
-    #[async_test]
-    async fn room_attachment_send() {
-        let client = logged_in_client().await;
-
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .match_body(Matcher::PartialJson(json!({
-                "info": {
-                    "mimetype": "image/jpeg"
-                }
-            })))
-            .with_body(test_json::EVENT_ID.to_string())
-            .create();
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
-            .with_status(200)
-            .match_header("content-type", "image/jpeg")
-            .with_body(
-                json!({
-                  "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-                })
-                .to_string(),
-            )
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        let mut media = Cursor::new("Hello world");
-
-        let response = room
-            .send_attachment("image", &mime::IMAGE_JPEG, &mut media, AttachmentConfig::new())
-            .await
-            .unwrap();
-
-        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
-    }
-
-    #[async_test]
-    async fn room_attachment_send_info() {
-        let client = logged_in_client().await;
-
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .match_body(Matcher::PartialJson(json!({
-                "info": {
-                    "mimetype": "image/jpeg",
-                    "h": 600,
-                    "w": 800,
-                }
-            })))
-            .with_body(test_json::EVENT_ID.to_string())
-            .create();
-
-        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
-            .with_status(200)
-            .match_header("content-type", "image/jpeg")
-            .with_body(
-                json!({
-                  "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-                })
-                .to_string(),
-            )
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        let mut media = Cursor::new("Hello world");
-
-        let config = AttachmentConfig::new().info(AttachmentInfo::Image(BaseImageInfo {
-            height: Some(uint!(600)),
-            width: Some(uint!(800)),
-            size: None,
-            blurhash: None,
-        }));
-
-        let response =
-            room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
-
-        upload_mock.assert();
-        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
-    }
-
-    #[async_test]
-    async fn room_attachment_send_wrong_info() {
-        let client = logged_in_client().await;
-
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .match_body(Matcher::PartialJson(json!({
-                "info": {
-                    "mimetype": "image/jpeg",
-                    "h": 600,
-                    "w": 800,
-                }
-            })))
-            .with_body(test_json::EVENT_ID.to_string())
-            .create();
-
-        let _m = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
-            .with_status(200)
-            .match_header("content-type", "image/jpeg")
-            .with_body(
-                json!({
-                  "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-                })
-                .to_string(),
-            )
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        let mut media = Cursor::new("Hello world");
-
-        let config = AttachmentConfig::new().info(AttachmentInfo::Video(BaseVideoInfo {
-            height: Some(uint!(600)),
-            width: Some(uint!(800)),
-            duration: Some(Duration::from_millis(3600)),
-            size: None,
-            blurhash: None,
-        }));
-
-        let response = room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await;
-
-        assert!(response.is_err())
-    }
-
-    #[async_test]
-    async fn room_attachment_send_info_thumbnail() {
-        let client = logged_in_client().await;
-
-        let _m = mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .match_body(Matcher::PartialJson(json!({
-                "info": {
-                    "mimetype": "image/jpeg",
-                    "h": 600,
-                    "w": 800,
-                    "thumbnail_info": {
-                        "h": 360,
-                        "w": 480,
-                        "mimetype":"image/jpeg",
-                        "size": 3600,
-                    },
-                    "thumbnail_url": "mxc://example.com/AQwafuaFswefuhsfAFAgsw",
-                }
-            })))
-            .with_body(test_json::EVENT_ID.to_string())
-            .create();
-
-        let upload_mock = mock("POST", Matcher::Regex(r"^/_matrix/media/r0/upload".to_owned()))
-            .with_status(200)
-            .match_header("content-type", "image/jpeg")
-            .with_body(
-                json!({
-                  "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-                })
-                .to_string(),
-            )
-            .expect(2)
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        let mut media = Cursor::new("Hello world");
-
-        let mut thumbnail_reader = Cursor::new("Thumbnail");
-
-        let config = AttachmentConfig::with_thumbnail(Thumbnail {
-            reader: &mut thumbnail_reader,
-            content_type: &mime::IMAGE_JPEG,
-            info: Some(BaseThumbnailInfo {
-                height: Some(uint!(360)),
-                width: Some(uint!(480)),
-                size: Some(uint!(3600)),
-            }),
-        })
-        .info(AttachmentInfo::Image(BaseImageInfo {
-            height: Some(uint!(600)),
-            width: Some(uint!(800)),
-            size: None,
-            blurhash: None,
-        }));
-
-        let response =
-            room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await.unwrap();
-
-        upload_mock.assert();
-        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
-    }
-
-    #[async_test]
-    async fn room_redact() {
-        let client = logged_in_client().await;
-
-        let _m =
-            mock("PUT", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?".to_owned()))
-                .with_status(200)
-                .match_header("authorization", "Bearer 1234")
-                .with_body(test_json::EVENT_ID.to_string())
-                .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        let event_id = event_id!("$xxxxxxxx:example.com");
-
-        let txn_id = TransactionId::new();
-        let reason = Some("Indecent material");
-        let response = room.redact(event_id, reason, Some(txn_id)).await.unwrap();
-
-        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
-    }
-
-    #[async_test]
-    async fn user_presence() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .create();
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::MEMBERS.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-        let members: Vec<RoomMember> = room.active_members().await.unwrap();
-
-        assert_eq!(2, members.len());
-        // assert!(room.power_levels.is_some())
-    }
-
-    #[async_test]
-    async fn calculate_room_names_from_summary() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::DEFAULT_SYNC_SUMMARY.to_string())
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-        let _response = client.sync_once(sync_settings).await.unwrap();
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        assert_eq!(
-            DisplayName::Calculated("example2".to_owned()),
-            room.display_name().await.unwrap()
-        );
-    }
-
-    #[async_test]
-    async fn invited_rooms() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::INVITE_SYNC.to_string())
-            .create();
-
-        let _response = client.sync_once(SyncSettings::default()).await.unwrap();
-
-        assert!(client.joined_rooms().is_empty());
-        assert!(client.left_rooms().is_empty());
-        assert!(!client.invited_rooms().is_empty());
-
-        assert!(client.get_invited_room(room_id!("!696r7674:example.com")).is_some());
-    }
-
-    #[async_test]
-    async fn left_rooms() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::LEAVE_SYNC.to_string())
-            .create();
-
-        let _response = client.sync_once(SyncSettings::default()).await.unwrap();
-
-        assert!(client.joined_rooms().is_empty());
-        assert!(!client.left_rooms().is_empty());
-        assert!(client.invited_rooms().is_empty());
-
-        assert!(client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).is_some())
-    }
-
-    #[async_test]
-    async fn sync() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(test_json::SYNC.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let response = client.sync_once(sync_settings).await.unwrap();
-
-        assert_ne!(response.next_batch, "");
-
-        assert!(client.sync_token().await.is_some());
-    }
-
-    #[async_test]
-    async fn room_names() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::SYNC.to_string())
-            .expect_at_least(1)
-            .create();
-
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let _response = client.sync_once(sync_settings).await.unwrap();
-
-        assert_eq!(client.rooms().len(), 1);
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-
-        assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .match_header("authorization", "Bearer 1234")
-            .with_body(test_json::INVITE_SYNC.to_string())
-            .expect_at_least(1)
-            .create();
-
-        let _response = client.sync_once(SyncSettings::new()).await.unwrap();
-
-        assert_eq!(client.rooms().len(), 1);
-        let invited_room = client.get_invited_room(room_id!("!696r7674:example.com")).unwrap();
-
-        assert_eq!(
-            DisplayName::Named("My Room Name".to_owned()),
-            invited_room.display_name().await.unwrap()
-        );
-    }
-
-    #[async_test]
-    async fn delete_devices() {
-        let client = no_retry_test_client().await;
-
-        let _m = mock("POST", "/_matrix/client/r0/delete_devices")
-            .with_status(401)
-            .with_body(
-                json!({
-                    "flows": [
-                        {
-                            "stages": [
-                                "m.login.password"
-                            ]
-                        }
-                    ],
-                    "params": {},
-                    "session": "vBslorikviAjxzYBASOBGfPp"
-                })
-                .to_string(),
-            )
-            .create();
-
-        let _m = mock("POST", "/_matrix/client/r0/delete_devices")
-            .with_status(401)
-            // empty response
-            // TODO rename that response type.
-            .with_body(test_json::LOGOUT.to_string())
-            .create();
-
-        let devices = &[device_id!("DEVICEID").to_owned()];
-
-        if let Err(e) = client.delete_devices(devices, None).await {
-            if let Some(info) = e.uiaa_response() {
-                let mut auth_parameters = BTreeMap::new();
-
-                let identifier = json!({
-                    "type": "m.id.user",
-                    "user": "example",
-                });
-                auth_parameters.insert("identifier".to_owned(), identifier);
-                auth_parameters.insert("password".to_owned(), "wordpass".into());
-
-                let auth_data = uiaa::AuthData::Password(assign!(
-                    uiaa::Password::new(
-                        uiaa::UserIdentifier::UserIdOrLocalpart("example"),
-                        "wordpass",
-                    ), {
-                        session: info.session.as_deref(),
-                    }
-                ));
-
-                client.delete_devices(devices, Some(auth_data)).await.unwrap();
-            }
-        }
-    }
-
-    #[async_test]
     async fn retry_limit_http_requests() {
-        let client = test_client_builder()
+        let server = MockServer::start().await;
+        let client = test_client_builder(Some(server.uri()))
             .request_config(RequestConfig::new().retry_limit(3))
             .build()
             .await
@@ -3566,20 +2340,22 @@ pub(crate) mod tests {
 
         assert!(client.inner.http_client.request_config.retry_limit.unwrap() == 3);
 
-        let m = mock("POST", "/_matrix/client/r0/login").with_status(501).expect(3).create();
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(3)
+            .mount(&server)
+            .await;
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
+        client.login_username("example", "wordpass").send().await.unwrap_err();
     }
 
     #[async_test]
     async fn retry_timeout_http_requests() {
         // Keep this timeout small so that the test doesn't take long
         let retry_timeout = Duration::from_secs(5);
-        let client = test_client_builder()
+        let server = MockServer::start().await;
+        let client = test_client_builder(Some(server.uri()))
             .request_config(RequestConfig::new().retry_timeout(retry_timeout))
             .build()
             .await
@@ -3587,469 +2363,43 @@ pub(crate) mod tests {
 
         assert!(client.inner.http_client.request_config.retry_timeout.unwrap() == retry_timeout);
 
-        let m =
-            mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(2).create();
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(2..)
+            .mount(&server)
+            .await;
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
+        client.login_username("example", "wordpass").send().await.unwrap_err();
     }
 
     #[async_test]
     async fn short_retry_initial_http_requests() {
-        let client = test_client_builder().build().await.unwrap();
+        let server = MockServer::start().await;
+        let client = test_client_builder(Some(server.uri())).build().await.unwrap();
 
-        let m =
-            mock("POST", "/_matrix/client/r0/login").with_status(501).expect_at_least(3).create();
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/r0/login"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(3..)
+            .mount(&server)
+            .await;
 
-        if client.login("example", "wordpass", None, None).await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
+        client.login_username("example", "wordpass").send().await.unwrap_err();
     }
 
     #[async_test]
     async fn no_retry_http_requests() {
-        let client = logged_in_client().await;
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
 
-        let m = mock("GET", "/_matrix/client/r0/devices").with_status(501).create();
-
-        if client.devices().await.is_err() {
-            m.assert();
-        } else {
-            panic!("this request should return an `Err` variant")
-        }
-    }
-
-    #[async_test]
-    async fn get_media_content() {
-        let client = logged_in_client().await;
-
-        let request = MediaRequest {
-            source: MediaSource::Plain(mxc_uri!("mxc://localhost/textfile").to_owned()),
-            format: MediaFormat::File,
-        };
-
-        let m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_owned()),
-        )
-        .with_status(200)
-        .with_body("Some very interesting text.")
-        .expect(2)
-        .create();
-
-        assert!(client.get_media_content(&request, true).await.is_ok());
-        assert!(client.get_media_content(&request, true).await.is_ok());
-        assert!(client.get_media_content(&request, false).await.is_ok());
-        m.assert();
-    }
-
-    #[async_test]
-    async fn get_media_file() {
-        let client = logged_in_client().await;
-
-        let event_content = ImageMessageEventContent::plain(
-            "filename.jpg".into(),
-            mxc_uri!("mxc://example.org/image").to_owned(),
-            Some(Box::new(assign!(ImageInfo::new(), {
-                height: Some(uint!(398)),
-                width: Some(uint!(394)),
-                mimetype: Some("image/jpeg".into()),
-                size: Some(uint!(31037)),
-            }))),
-        );
-
-        let m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_owned()),
-        )
-        .with_status(200)
-        .with_body("binaryjpegdata")
-        .create();
-
-        assert!(client.get_file(event_content.clone(), true).await.is_ok());
-        assert!(client.get_file(event_content.clone(), true).await.is_ok());
-        m.assert();
-
-        let m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_owned()),
-        )
-        .with_status(200)
-        .with_body("smallerbinaryjpegdata")
-        .create();
-
-        assert!(client
-            .get_thumbnail(
-                event_content,
-                MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-                true
-            )
-            .await
-            .is_ok());
-        m.assert();
-    }
-
-    #[async_test]
-    async fn whoami() {
-        let client = logged_in_client().await;
-
-        let _m = mock("GET", "/_matrix/client/r0/account/whoami")
-            .with_status(200)
-            .with_body(test_json::WHOAMI.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let user_id = user_id!("@joe:example.org");
-
-        assert_eq!(client.whoami().await.unwrap().user_id, user_id);
-    }
-
-    #[async_test]
-    async fn test_state_event_getting() {
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
-        };
-
-        let sync = json!({
-            "next_batch": "1234",
-            "rooms": {
-                "join": {
-                    "!SVkFJHzfwvuaIEawgC:localhost": {
-                        "state": {
-                          "events": [
-                            {
-                              "type": "m.custom.note",
-                              "sender": "@example:localhost",
-                              "content": {
-                                "body": "Note 1",
-                              },
-                              "state_key": "note.1",
-                              "origin_server_ts": 1611853078727u64,
-                              "unsigned": {
-                                "replaces_state": "$2s9GcbVxbbFS3EZY9vN1zhavaDJnF32cAIGAxi99NuQ",
-                                "age": 15458166523u64
-                              },
-                              "event_id": "$NVCTvrlxodf3ZGjJ6foxepEq8ysSkTq8wG0wKeQBVZg"
-                            },
-                            {
-                              "type": "m.custom.note",
-                              "sender": "@example2:localhost",
-                              "content": {
-                                "body": "Note 2",
-                              },
-                              "state_key": "note.2",
-                              "origin_server_ts": 1611853078727u64,
-                              "unsigned": {
-                                "replaces_state": "$2s9GcbVxbbFS3EZY9vN1zhavaDJnF32cAIGAxi99NuQ",
-                                "age": 15458166523u64
-                              },
-                              "event_id": "$NVCTvrlxodf3ZGjJ6foxepEq8ysSkTq8wG0wKeQBVZg"
-                            },
-                            {
-                              "type": "m.room.encryption",
-                              "sender": "@example:localhost",
-                              "content": {
-                                "algorithm": "m.megolm.v1.aes-sha2"
-                              },
-                              "state_key": "",
-                              "origin_server_ts": 1586437448151u64,
-                              "unsigned": {
-                                "age": 40873797099u64
-                              },
-                              "event_id": "$vyG3wu1QdJSh5gc-09SwjXBXlXo8gS7s4QV_Yxha0Xw"
-                            },
-                          ]
-                        }
-                    }
-                }
-            }
-        });
-
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(sync.to_string())
-            .create();
-
-        let client = test_client_builder()
-            .request_config(RequestConfig::new().retry_limit(3))
-            .build()
-            .await
-            .unwrap();
-        client.restore_login(session.clone()).await.unwrap();
-
-        let room = client.get_joined_room(room_id);
-        assert!(room.is_none());
-
-        client.sync_once(SyncSettings::default()).await.unwrap();
-
-        let room = client.get_joined_room(room_id).unwrap();
-
-        let state_events = room.get_state_events(StateEventType::RoomEncryption).await.unwrap();
-        assert_eq!(state_events.len(), 1);
-
-        let state_events = room.get_state_events("m.custom.note".into()).await.unwrap();
-        assert_eq!(state_events.len(), 2);
-
-        let encryption_event = room
-            .get_state_event(StateEventType::RoomEncryption, "")
-            .await
-            .unwrap()
-            .unwrap()
-            .deserialize()
-            .unwrap();
-
-        matches::assert_matches!(encryption_event, AnySyncStateEvent::RoomEncryption(_));
-    }
-
-    // FIXME: removing timelines during reading the stream currently leaves to an
-    // inconsistent undefined state. This tests shows that, but because
-    // different implementations deal with problem in different,
-    // inconsistent manners, isn't activated.
-    //#[async_test]
-    #[allow(dead_code)]
-    #[cfg(feature = "experimental-timeline")]
-    async fn room_timeline_with_remove() {
-        let client = logged_in_client().await;
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(test_json::SYNC.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _ = client.sync_once(sync_settings).await.unwrap();
-        sync.assert();
-        drop(sync);
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-        let (forward_stream, backward_stream) = room.timeline().await.unwrap();
-
-        // these two syncs lead to the store removing its existing timeline
-        // and replace them with new ones
-        let sync_2 = mock(
-            "GET",
-            Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_1.*".to_owned(),
-            ),
-        )
-        .with_status(200)
-        .with_body(test_json::MORE_SYNC.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-
-        let sync_3 = mock(
-            "GET",
-            Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
-            ),
-        )
-        .with_status(200)
-        .with_body(test_json::MORE_SYNC_2.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-
-        let mocked_messages = mock(
-            "GET",
-            Matcher::Regex(
-                r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                    .to_owned(),
-            ),
-        )
-        .with_status(200)
-        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_1.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-
-        let mocked_messages_2 = mock(
-            "GET",
-            Matcher::Regex(
-                r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                    .to_owned(),
-            ),
-        )
-        .with_status(200)
-        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_2.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-
-        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_1".to_owned()));
-        let sync_settings = SyncSettings::new()
-            .timeout(Duration::from_millis(3000))
-            .token("s526_47314_0_7_1_1_1_11444_1");
-        let _ = client.sync_once(sync_settings).await.unwrap();
-        sync_2.assert();
-        let sync_settings = SyncSettings::new()
-            .timeout(Duration::from_millis(3000))
-            .token("s526_47314_0_7_1_1_1_11444_2");
-        let _ = client.sync_once(sync_settings).await.unwrap();
-        sync_3.assert();
-
-        let expected_forward_events = vec![
-            "$152037280074GZeOm:localhost",
-            "$editevid:localhost",
-            "$151957878228ssqrJ:localhost",
-            "$15275046980maRLj:localhost",
-            "$15275047031IXQRi:localhost",
-            "$098237280074GZeOm:localhost",
-            "$152037280074GZeOm2:localhost",
-            "$editevid2:localhost",
-            "$151957878228ssqrJ2:localhost",
-            "$15275046980maRLj2:localhost",
-            "$15275047031IXQRi2:localhost",
-            "$098237280074GZeOm2:localhost",
-        ];
-
-        use futures_util::StreamExt;
-        let forward_events = forward_stream
-            .take(expected_forward_events.len())
-            .collect::<Vec<SyncRoomEvent>>()
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/r0/devices"))
+            .respond_with(ResponseTemplate::new(501))
+            .expect(1)
+            .mount(&server)
             .await;
 
-        for (r, e) in forward_events.into_iter().zip(expected_forward_events.iter()) {
-            assert_eq!(&r.event_id().unwrap().as_str(), e);
-        }
-
-        let expected_backwards_events = vec![
-            "$152037280074GZeOm:localhost",
-            "$1444812213350496Caaaf:example.com",
-            "$1444812213350496Cbbbf:example.com",
-            "$1444812213350496Ccccf:example.com",
-            "$1444812213350496Caaak:example.com",
-            "$1444812213350496Cbbbk:example.com",
-            "$1444812213350496Cccck:example.com",
-        ];
-
-        let backward_events = backward_stream
-            .take(expected_backwards_events.len())
-            .collect::<Vec<crate::Result<SyncRoomEvent>>>()
-            .await;
-
-        for (r, e) in backward_events.into_iter().zip(expected_backwards_events.iter()) {
-            assert_eq!(&r.unwrap().event_id().unwrap().as_str(), e);
-        }
-
-        mocked_messages.assert();
-        mocked_messages_2.assert();
-    }
-
-    #[async_test]
-    #[cfg(feature = "experimental-timeline")]
-    async fn room_timeline() {
-        let client = logged_in_client().await;
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-        let sync = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_owned()))
-            .with_status(200)
-            .with_body(test_json::MORE_SYNC.to_string())
-            .match_header("authorization", "Bearer 1234")
-            .create();
-
-        let _ = client.sync_once(sync_settings).await.unwrap();
-        sync.assert();
-        drop(sync);
-        let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
-        let (forward_stream, backward_stream) = room.timeline().await.unwrap();
-
-        let sync_2 = mock(
-            "GET",
-            Matcher::Regex(
-                r"^/_matrix/client/r0/sync\?.*since=s526_47314_0_7_1_1_1_11444_2.*".to_owned(),
-            ),
-        )
-        .with_status(200)
-        .with_body(test_json::MORE_SYNC_2.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-
-        let mocked_messages = mock(
-            "GET",
-            Matcher::Regex(
-                r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
-                    .to_owned(),
-            ),
-        )
-        .with_status(200)
-        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_1.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-
-        let mocked_messages_2 = mock(
-            "GET",
-            Matcher::Regex(
-                r"^/_matrix/client/r0/rooms/.*/messages.*from=t47409-4357353_219380_26003_2269.*"
-                    .to_owned(),
-            ),
-        )
-        .with_status(200)
-        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_2.to_string())
-        .match_header("authorization", "Bearer 1234")
-        .create();
-
-        assert_eq!(client.sync_token().await, Some("s526_47314_0_7_1_1_1_11444_2".to_owned()));
-        let sync_settings = SyncSettings::new()
-            .timeout(Duration::from_millis(3000))
-            .token("s526_47314_0_7_1_1_1_11444_2");
-        let _ = client.sync_once(sync_settings).await.unwrap();
-        sync_2.assert();
-
-        let expected_forward_events = vec![
-            "$152037280074GZeOm2:localhost",
-            "$editevid2:localhost",
-            "$151957878228ssqrJ2:localhost",
-            "$15275046980maRLj2:localhost",
-            "$15275047031IXQRi2:localhost",
-            "$098237280074GZeOm2:localhost",
-        ];
-
-        use futures_util::StreamExt;
-        let forward_events = forward_stream
-            .take(expected_forward_events.len())
-            .collect::<Vec<SyncRoomEvent>>()
-            .await;
-
-        for (r, e) in forward_events.into_iter().zip(expected_forward_events.iter()) {
-            assert_eq!(&r.event_id().unwrap().as_str(), e);
-        }
-
-        let expected_backwards_events = vec![
-            "$098237280074GZeOm:localhost",
-            "$15275047031IXQRi:localhost",
-            "$15275046980maRLj:localhost",
-            "$151957878228ssqrJ:localhost",
-            "$editevid:localhost",
-            "$152037280074GZeOm:localhost",
-            // ^^^ These come from the first sync before we asked for the timeline and thus
-            //     where cached
-            //
-            // While the following are fetched over the network transparently to us after,
-            // when scrolling back in time:
-            "$1444812213350496Caaaf:example.com",
-            "$1444812213350496Cbbbf:example.com",
-            "$1444812213350496Ccccf:example.com",
-            "$1444812213350496Caaak:example.com",
-            "$1444812213350496Cbbbk:example.com",
-            "$1444812213350496Cccck:example.com",
-        ];
-
-        let backward_events = backward_stream
-            .take(expected_backwards_events.len())
-            .collect::<Vec<crate::Result<SyncRoomEvent>>>()
-            .await;
-
-        for (r, e) in backward_events.into_iter().zip(expected_backwards_events.iter()) {
-            assert_eq!(&r.unwrap().event_id().unwrap().as_str(), e);
-        }
-
-        mocked_messages.assert();
-        mocked_messages_2.assert();
+        client.devices().await.unwrap_err();
     }
 }

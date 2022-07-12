@@ -20,7 +20,7 @@ mod qrcode;
 mod requests;
 mod sas;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
@@ -148,7 +148,7 @@ impl VerificationStore {
     }
 
     pub fn inner(&self) -> &dyn CryptoStore {
-        &*self.inner
+        self.inner.deref()
     }
 }
 
@@ -710,20 +710,21 @@ pub(crate) mod tests {
     use std::convert::TryInto;
 
     use ruma::{
-        events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent},
+        events::{AnyToDeviceEventContent, ToDeviceEvent},
         UserId,
     };
 
     use super::event_enums::OutgoingContent;
     use crate::{
         requests::{OutgoingRequest, OutgoingRequests},
+        types::events::ToDeviceEvents,
         OutgoingVerificationRequest,
     };
 
     pub(crate) fn request_to_event(
         sender: &UserId,
         request: &OutgoingVerificationRequest,
-    ) -> AnyToDeviceEvent {
+    ) -> ToDeviceEvents {
         let content =
             request.to_owned().try_into().expect("Can't fetch content out of the request");
         wrap_any_to_device_content(sender, content)
@@ -732,7 +733,7 @@ pub(crate) mod tests {
     pub(crate) fn outgoing_request_to_event(
         sender: &UserId,
         request: &OutgoingRequest,
-    ) -> AnyToDeviceEvent {
+    ) -> ToDeviceEvents {
         match request.request() {
             OutgoingRequests::ToDeviceRequest(r) => request_to_event(sender, &r.clone().into()),
             _ => panic!("Unsupported outgoing request"),
@@ -742,31 +743,31 @@ pub(crate) mod tests {
     pub(crate) fn wrap_any_to_device_content(
         sender: &UserId,
         content: OutgoingContent,
-    ) -> AnyToDeviceEvent {
+    ) -> ToDeviceEvents {
         let content = if let OutgoingContent::ToDevice(c) = content { c } else { unreachable!() };
         let sender = sender.to_owned();
 
         match content {
             AnyToDeviceEventContent::KeyVerificationRequest(c) => {
-                AnyToDeviceEvent::KeyVerificationRequest(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationRequest(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationReady(c) => {
-                AnyToDeviceEvent::KeyVerificationReady(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationReady(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationKey(c) => {
-                AnyToDeviceEvent::KeyVerificationKey(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationKey(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationStart(c) => {
-                AnyToDeviceEvent::KeyVerificationStart(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationStart(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationAccept(c) => {
-                AnyToDeviceEvent::KeyVerificationAccept(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationAccept(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationMac(c) => {
-                AnyToDeviceEvent::KeyVerificationMac(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationMac(ToDeviceEvent { sender, content: c })
             }
             AnyToDeviceEventContent::KeyVerificationDone(c) => {
-                AnyToDeviceEvent::KeyVerificationDone(ToDeviceEvent { sender, content: c })
+                ToDeviceEvents::KeyVerificationDone(ToDeviceEvent { sender, content: c })
             }
 
             _ => unreachable!(),

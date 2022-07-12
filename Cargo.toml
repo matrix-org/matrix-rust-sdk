@@ -1,6 +1,15 @@
 [workspace]
-members = ["benchmarks", "crates/*", "labs/*", "xtask"]
-# xtask and labs should only be compiled when invoked explicitly
+members = [
+    "benchmarks",
+    "bindings/matrix-sdk-crypto-ffi",
+    "bindings/matrix-sdk-crypto-js",
+    "bindings/matrix-sdk-crypto-nodejs",
+    "bindings/matrix-sdk-ffi",
+    "crates/*",
+    "labs/*",
+    "xtask",
+]
+# xtask, labs and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
@@ -11,3 +20,4 @@ lto = true
 # Optimize quote even in debug mode. Speeds up proc-macros enough to account
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.
 quote = { opt-level = 2 }
+sha2 = { opt-level = 2 }

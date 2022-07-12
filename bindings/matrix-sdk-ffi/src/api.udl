@@ -1,0 +1,210 @@
+namespace sdk {
+    MediaSource media_source_from_url(string url);
+    MessageEventContent message_event_content_from_markdown(string md);
+    string gen_transaction_id();
+};
+
+[Error]
+interface ClientError {
+    Generic(string msg);
+};
+
+callback interface ClientDelegate {
+    void did_receive_sync_update();
+};
+
+interface ClientBuilder {
+    constructor();
+
+    [Self=ByArc]
+    ClientBuilder base_path(string path);
+
+    [Self=ByArc]
+    ClientBuilder username(string username);
+
+    [Self=ByArc]
+    ClientBuilder homeserver_url(string url);
+
+    [Throws=ClientError, Self=ByArc]
+    Client build();
+};
+
+interface Client {
+    void set_delegate(ClientDelegate? delegate);
+
+    [Throws=ClientError]
+    void login(string username, string password);
+
+    [Throws=ClientError]
+    void restore_login(string restore_token);
+
+    string homeserver();
+
+    void start_sync();
+
+    [Throws=ClientError]
+    string restore_token();
+
+    boolean is_guest();
+
+    boolean has_first_synced();
+
+    boolean is_syncing();
+
+    [Throws=ClientError]
+    string user_id();
+
+    [Throws=ClientError]
+    string display_name();
+
+    [Throws=ClientError]
+    string avatar_url();
+
+    [Throws=ClientError]
+    string device_id();
+
+    sequence<Room> rooms();
+
+    [Throws=ClientError]
+    sequence<u8> get_media_content(MediaSource source);
+
+    [Throws=ClientError]
+    SessionVerificationController get_session_verification_controller();
+};
+
+callback interface RoomDelegate {
+    void did_receive_message(AnyMessage message);
+};
+
+interface Room {
+    void set_delegate(RoomDelegate? delegate);
+
+    string id();
+    string? name();
+    string? topic();
+    string? avatar_url();
+
+    boolean is_direct();
+    boolean is_public();
+    boolean is_space();
+    boolean is_encrypted();
+    boolean is_tombstoned();
+
+    [Throws=ClientError]
+    string display_name();
+
+    [Throws=ClientError]
+    string? member_avatar_url(string user_id);
+
+    [Throws=ClientError]
+    string? member_display_name(string user_id);
+
+    BackwardsStream? start_live_event_listener();
+    void stop_live_event_listener();
+
+    [Throws=ClientError]
+    void send(MessageEventContent msg, string? txn_id);
+};
+
+interface BackwardsStream {
+    sequence<AnyMessage> paginate_backwards(u64 count);
+};
+
+interface MessageEventContent {};
+
+interface AnyMessage {
+    TextMessage? text_message();
+    ImageMessage? image_message();
+    NoticeMessage? notice_message();
+    EmoteMessage? emote_message();
+};
+
+interface BaseMessage {
+    string id();
+    string body();
+    string sender();
+    u64 origin_server_ts();
+    string? transaction_id();
+};
+
+interface TextMessage {
+    BaseMessage base_message();
+    string? html_body();
+};
+
+interface ImageMessage {
+    BaseMessage base_message();
+    MediaSource source();
+    u64? width();
+    u64? height();
+    string? blurhash();
+};
+
+interface NoticeMessage {
+    BaseMessage base_message();
+    string? html_body();
+};
+
+interface EmoteMessage {
+    BaseMessage base_message();
+    string? html_body();
+};
+
+interface MediaSource {
+    string url();
+};
+
+[Error]
+enum AuthenticationError {
+  "ClientMissing",
+  "Generic",
+};
+
+interface AuthenticationService {
+    constructor(string base_path);
+    
+    [Throws=AuthenticationError]
+    string homeserver();
+    
+    [Throws=AuthenticationError]
+    string? authentication_issuer();
+
+    [Throws=AuthenticationError]
+    boolean supports_password_login();
+    
+    [Throws=AuthenticationError]
+    void use_server(string server_name);
+    
+    [Throws=AuthenticationError]
+    Client login(string username, string password);
+};
+
+interface SessionVerificationEmoji {
+    string symbol();
+    string description();
+};
+
+callback interface SessionVerificationControllerDelegate {
+    void did_receive_verification_data(sequence<SessionVerificationEmoji> data);
+    void did_fail();
+    void did_cancel();
+    void did_finish();
+};
+
+interface SessionVerificationController {
+    void set_delegate(SessionVerificationControllerDelegate? delegate);
+
+    boolean is_verified();
+
+    [Throws=ClientError]
+    void request_verification();
+
+    [Throws=ClientError]
+    void approve_verification();
+
+    [Throws=ClientError]
+    void decline_verification();
+
+    [Throws=ClientError]
+    void cancel_verification();
+};

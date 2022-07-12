@@ -134,7 +134,7 @@ impl QrVerification {
         self.identities.other_user_id()
     }
 
-    /// Get the device id of the other side.
+    /// Get the device ID of the other side.
     pub fn other_device_id(&self) -> &DeviceId {
         self.identities.other_device_id()
     }

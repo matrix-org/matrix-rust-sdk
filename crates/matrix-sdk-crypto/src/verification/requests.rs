@@ -823,7 +823,7 @@ struct Requested {
     /// The verification methods supported by the sender.
     pub their_methods: Vec<VerificationMethod>,
 
-    /// The device id of the device that responded to the verification request.
+    /// The device ID of the device that responded to the verification request.
     pub other_device_id: OwnedDeviceId,
 }
 
@@ -905,7 +905,7 @@ struct Ready {
     /// The verification methods supported by the us.
     pub our_methods: Vec<VerificationMethod>,
 
-    /// The device id of the device that responded to the verification request.
+    /// The device ID of the device that responded to the verification request.
     pub other_device_id: OwnedDeviceId,
 }
 
@@ -1200,7 +1200,7 @@ impl RequestState<Ready> {
 
 #[derive(Clone, Debug)]
 struct Passive {
-    /// The device id of the device that responded to the verification request.
+    /// The device ID of the device that responded to the verification request.
     #[allow(dead_code)]
     pub other_device_id: OwnedDeviceId,
 }

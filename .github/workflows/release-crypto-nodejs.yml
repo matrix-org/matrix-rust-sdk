@@ -1,7 +1,7 @@
 name: Release Crypto-NodeJS
 
 env:
-  PKG_PATH: "crates/matrix-sdk-crypto-nodejs"
+  PKG_PATH: "bindings/matrix-sdk-crypto-nodejs"
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc'
   CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER: 'i686-linux-gnu-gcc'
   CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'

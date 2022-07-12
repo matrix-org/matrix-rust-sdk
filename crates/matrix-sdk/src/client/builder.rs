@@ -58,7 +58,7 @@ use crate::{
 /// # anyhow::Ok(())
 /// ```
 #[must_use]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ClientBuilder {
     homeserver_cfg: Option<HomeserverConfig>,
     http_cfg: Option<HttpConfig>,
@@ -127,7 +127,7 @@ impl ClientBuilder {
     ///
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
-    /// # let custom_state_store = Box::new(MemoryStore::new());
+    /// # let custom_state_store = MemoryStore::new();
     /// use matrix_sdk::{Client, config::StoreConfig};
     ///
     /// let store_config = StoreConfig::new().state_store(custom_state_store);
@@ -143,7 +143,7 @@ impl ClientBuilder {
     /// Set a custom implementation of a `StateStore`.
     ///
     /// The state store should be opened before being set.
-    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+    pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
         self.store_config = self.store_config.state_store(store);
         self
     }
@@ -154,7 +154,7 @@ impl ClientBuilder {
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(
         mut self,
-        store: Box<dyn matrix_sdk_base::crypto::store::CryptoStore>,
+        store: impl matrix_sdk_base::crypto::store::CryptoStore + 'static,
     ) -> Self {
         self.store_config = self.store_config.crypto_store(store);
         self
@@ -239,8 +239,11 @@ impl ClientBuilder {
 
     /// All outgoing http requests will have a GET query key-value appended with
     /// `user_id` being the key and the `user_id` from the `Session` being
-    /// the value. Will error if there's no `Session`. This is called
-    /// [identity assertion] in the Matrix Application Service Spec
+    /// the value. This is called [identity assertion] in the
+    /// Matrix Application Service Spec.
+    ///
+    /// Requests that don't require authentication might not do identity
+    /// assertion.
     ///
     /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
     #[doc(hidden)]
@@ -295,6 +298,7 @@ impl ClientBuilder {
         let base_client = BaseClient::with_store_config(self.store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
+        let mut authentication_issuer: Option<Url> = None;
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
             HomeserverConfig::ServerName(server_name) => {
@@ -313,14 +317,20 @@ impl ClientBuilder {
                         err => ClientBuildError::Http(err),
                     })?;
 
+                if let Some(issuer) = well_known.authentication.map(|auth| auth.issuer) {
+                    authentication_issuer = Url::parse(&issuer).ok();
+                };
+
                 well_known.homeserver.base_url
             }
         };
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
+        let authentication_issuer = authentication_issuer.map(RwLock::new);
 
         let inner = Arc::new(ClientInner {
             homeserver,
+            authentication_issuer,
             http_client,
             base_client,
             server_versions: OnceCell::new_with(self.server_versions),
@@ -346,19 +356,19 @@ fn homeserver_from_name(server_name: &ServerName) -> String {
     #[cfg(not(test))]
     return format!("https://{}", server_name);
 
-    // Mockito only knows how to test http endpoints:
-    // https://github.com/lipanski/mockito/issues/127
+    // Wiremock only knows how to test http endpoints:
+    // https://github.com/LukeMathWalker/wiremock-rs/issues/58
     #[cfg(test)]
     return format!("http://{}", server_name);
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum HomeserverConfig {
     Url(String),
     ServerName(OwnedServerName),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum HttpConfig {
     Settings(HttpSettings),
     Custom(Arc<dyn HttpSend>),

@@ -191,6 +191,11 @@ impl Room {
         self.inner.read().unwrap().canonical_alias().map(ToOwned::to_owned)
     }
 
+    /// Get the canonical alias of this room.
+    pub fn alt_aliases(&self) -> Vec<OwnedRoomAliasId> {
+        self.inner.read().unwrap().alt_aliases().to_owned()
+    }
+
     /// Get the `m.room.create` content of this room.
     ///
     /// This usually isn't optional but some servers might not send an
@@ -755,6 +760,16 @@ impl RoomInfo {
     /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<&RoomAliasId> {
         self.base_info.canonical_alias.as_ref()?.as_original()?.content.alias.as_deref()
+    }
+
+    /// Get the alternative aliases of this room.
+    pub fn alt_aliases(&self) -> &[OwnedRoomAliasId] {
+        self.base_info
+            .canonical_alias
+            .as_ref()
+            .and_then(|ev| ev.as_original())
+            .map(|ev| ev.content.alt_aliases.as_ref())
+            .unwrap_or_default()
     }
 
     /// Get the room ID of this room.

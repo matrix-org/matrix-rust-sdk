@@ -14,7 +14,7 @@
 
 use std::convert::TryInto;
 
-use ruma::{serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+use ruma::{CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
 use serde::Serialize;
 use serde_json::Value;
 use vodozemac::{olm::Account, Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature};

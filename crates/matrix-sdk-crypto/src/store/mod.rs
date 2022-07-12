@@ -535,10 +535,8 @@ impl Store {
     pub async fn import_secret(
         &self,
         secret_name: &SecretName,
-        secret: String,
+        secret: &str,
     ) -> Result<(), SecretImportError> {
-        let secret = zeroize::Zeroizing::new(secret);
-
         match secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
@@ -548,7 +546,7 @@ impl Store {
                 {
                     let identity = self.identity.lock().await;
 
-                    identity.import_secret(public_identity, secret_name, &secret).await?;
+                    identity.import_secret(public_identity, secret_name, secret).await?;
                     info!(
                         secret_name = secret_name.as_ref(),
                         "Successfully imported a private cross signing key"
@@ -579,7 +577,7 @@ impl Deref for Store {
     type Target = dyn CryptoStore;
 
     fn deref(&self) -> &Self::Target {
-        &*self.inner
+        self.inner.deref()
     }
 }
 
@@ -737,7 +735,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// * `dirty` - Should the user be also marked for a key query.
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool>;
 
-    /// Get the device for the given user with the given device id.
+    /// Get the device for the given user with the given device ID.
     ///
     /// # Arguments
     ///
@@ -804,4 +802,32 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// * `request_id` - The unique request id that identifies this outgoing key
     /// request.
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()>;
+}
+
+/// A type that can be type-erased into `Arc<dyn CryptoStore>`.
+///
+/// This trait is not meant to be implemented directly outside
+/// `matrix-sdk-crypto`, but it is automatically implemented for everything that
+/// implements `CryptoStore`.
+pub trait IntoCryptoStore {
+    #[doc(hidden)]
+    fn into_crypto_store(self) -> Arc<dyn CryptoStore>;
+}
+
+impl<T> IntoCryptoStore for T
+where
+    T: CryptoStore + Sized + 'static,
+{
+    fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
+        Arc::new(self)
+    }
+}
+
+impl<T> IntoCryptoStore for Arc<T>
+where
+    T: CryptoStore + 'static,
+{
+    fn into_crypto_store(self) -> Arc<dyn CryptoStore> {
+        self
+    }
 }

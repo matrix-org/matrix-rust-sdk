@@ -39,7 +39,11 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    let response = client.login(username, password, None, Some("rust-sdk")).await?;
+    let response = client
+        .login_username(username, password)
+        .initial_device_display_name("rust-sdk")
+        .send()
+        .await?;
 
     let user_id = &response.user_id;
     let client_ref = &client;

@@ -162,7 +162,7 @@ pub(crate) mod tests {
             "test_key",
             "test_key",
             room_id,
-            outbound.session_key().await,
+            &outbound.session_key().await,
             None,
         );
 
@@ -173,7 +173,10 @@ pub(crate) mod tests {
         let plaintext = "This is a secret to everybody".to_owned();
         let ciphertext = outbound.encrypt_helper(plaintext.clone()).await;
 
-        assert_eq!(plaintext, inbound.decrypt_helper(&ciphertext).await.unwrap().plaintext);
+        assert_eq!(
+            plaintext.as_bytes(),
+            inbound.decrypt_helper(&ciphertext).await.unwrap().plaintext
+        );
     }
 
     #[async_test]
@@ -199,7 +202,7 @@ pub(crate) mod tests {
             "test_key",
             "test_key",
             room_id,
-            outbound.session_key().await,
+            &outbound.session_key().await,
             None,
         );
 
