@@ -113,4 +113,5 @@ jobs:
       - name: Publish to npmjs.com
         uses: JS-DevTools/npm-publish@v1
         with:
+          package: ${{env.PKG_PATH}}/package.json
           token: ${{ secrets.NPM_TOKEN }}
