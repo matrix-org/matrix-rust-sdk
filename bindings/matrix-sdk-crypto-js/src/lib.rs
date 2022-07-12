@@ -21,6 +21,7 @@ pub mod encryption;
 pub mod events;
 mod future;
 pub mod identifiers;
+mod logger;
 pub mod machine;
 pub mod requests;
 pub mod responses;
