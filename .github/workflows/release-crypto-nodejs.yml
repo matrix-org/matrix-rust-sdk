@@ -87,7 +87,6 @@ jobs:
   publish-nodejs-package:
     name: "Package nodejs package"
     runs-on: ubuntu-latest
-    environment: NPM
     needs:
       - upload-assets
     steps:
