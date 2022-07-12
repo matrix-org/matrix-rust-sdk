@@ -29,6 +29,16 @@ pub mod sync_events;
 use js_sys::{Object, Reflect};
 use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};
 
+/// Run some stuff when the Wasm module is instantiated.
+///
+/// Right now, it does the following:
+///
+/// * Redirect Rust panics to JavaScript console.
+#[wasm_bindgen(start)]
+pub fn start() {
+    console_error_panic_hook::set_once();
+}
+
 /// A really hacky and dirty code to downcast a `JsValue` to `T:
 /// RefFromWasmAbi`, inspired by
 /// https://github.com/rustwasm/wasm-bindgen/issues/2231#issuecomment-656293288.
