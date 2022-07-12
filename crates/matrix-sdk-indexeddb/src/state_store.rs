@@ -15,8 +15,9 @@
 use std::{
     collections::BTreeSet,
     sync::{
-        Arc, atomic::{AtomicBool, Ordering}
-    }
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::anyhow;
@@ -353,7 +354,8 @@ impl IndexeddbStoreBuilder {
                         created_inner.store(true, Ordering::Relaxed);
                     }
                     Ok(())
-            }));
+                },
+            ));
 
             let pre_db = db_req.into_future().await?;
             let old_version = pre_db.version();
@@ -1731,8 +1733,7 @@ mod migration_tests {
     }
     #[async_test]
     pub async fn test_no_upgrade() -> Result<()> {
-        let name =
-            format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+        let name = format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
 
         // this transparently migrates to the latest version
         let store = IndexeddbStoreBuilder::default().name(name).build().await?;
