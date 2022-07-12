@@ -125,7 +125,8 @@ impl HttpClient {
         }
 
         trace!("Serializing request");
-        let request = if !config.assert_identity {
+        // We can't assert the identity without a session.
+        let request = if !config.assert_identity || session.is_none() {
             let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
                 // Small optimization: Don't take the session lock if we know the auth token
                 // isn't going to be used anyways.
