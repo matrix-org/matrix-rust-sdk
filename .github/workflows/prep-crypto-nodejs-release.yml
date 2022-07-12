@@ -40,6 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
 
       # Generate changelog since last tag, if given
       - name: Generate a changelog for upload
@@ -65,10 +66,8 @@ jobs:
 
       - name: Set version
         id: package_version
-        uses: KageKirin/set-node-package-version@v0
         working-directory: ${{ env.PKG_PATH }}
-        with:
-          version: ${{ inputs.version }}
+        run: npm version ${{ inputs.version }}
 
       - uses: EndBug/add-and-commit@v9
         with:
