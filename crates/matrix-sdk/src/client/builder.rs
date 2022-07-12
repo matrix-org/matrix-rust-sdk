@@ -239,8 +239,11 @@ impl ClientBuilder {
 
     /// All outgoing http requests will have a GET query key-value appended with
     /// `user_id` being the key and the `user_id` from the `Session` being
-    /// the value. Will error if there's no `Session`. This is called
-    /// [identity assertion] in the Matrix Application Service Spec
+    /// the value. This is called [identity assertion] in the
+    /// Matrix Application Service Spec.
+    ///
+    /// Requests that don't require authentication might not do identity
+    /// assertion.
     ///
     /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
     #[doc(hidden)]
