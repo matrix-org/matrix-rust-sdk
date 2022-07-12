@@ -21,15 +21,10 @@
         "node": ">= 14"
     },
     "scripts": {
-<<<<<<< HEAD:crates/matrix-sdk-crypto-nodejs/package.json
-        "build": "napi build --platform --release --strip",
-        "postinstall": "node download-lib.js",
-        "test": "jest --verbose",
-=======
         "release-build": "napi build --platform --release --strip",
         "build": "napi build --platform",
+        "postinstall": "node download-lib.js",
         "test": "jest --verbose --testTimeout 10000",
->>>>>>> origin/main:bindings/matrix-sdk-crypto-nodejs/package.json
         "doc": "typedoc --tsconfig ."
     },
     "dependencies": {
