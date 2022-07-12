@@ -91,7 +91,7 @@ jobs:
 
       # no changes, use the default changelog for the body
       - name: Update Github Release notes
-        if: !inputs.previous_version
+        if: ${{!inputs.previous_version}}
         uses: softprops/action-gh-release@v1
         with:
           draft: true
