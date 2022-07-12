@@ -2,6 +2,7 @@ use std::fmt::{self, Write as _};
 
 use tracing::{
     field::{Field, Visit},
+    metadata::LevelFilter,
     Event, Id, Level, Metadata, Subscriber,
 };
 use tracing_subscriber::{
@@ -35,8 +36,8 @@ impl From<LoggerLevel> for Level {
 }
 
 #[wasm_bindgen(js_name = "useLogger")]
-pub fn use_logger(level: LoggerLevel) {
-    tracing_subscriber::registry().with(Layer::new(level)).init();
+pub fn use_logger(max_level: LoggerLevel) {
+    tracing_subscriber::registry().with(Layer::new(max_level)).init();
 }
 
 #[wasm_bindgen]
@@ -64,15 +65,15 @@ extern "C" {
 }
 
 struct Layer {
-    level: Level,
+    max_level: Level,
 }
 
 impl Layer {
-    fn new<L>(level: L) -> Self
+    fn new<L>(max_level: L) -> Self
     where
         L: Into<Level>,
     {
-        Self { level: level.into() }
+        Self { max_level: max_level.into() }
     }
 }
 
@@ -81,7 +82,11 @@ where
     S: Subscriber,
 {
     fn enabled(&self, metadata: &Metadata<'_>, _: Context<'_, S>) -> bool {
-        metadata.level() >= &self.level
+        metadata.level() <= &self.max_level
+    }
+
+    fn max_level_hint(&self) -> Option<LevelFilter> {
+        Some(LevelFilter::from_level(self.max_level))
     }
 
     fn on_enter(&self, id: &Id, _: Context<'_, S>) {
