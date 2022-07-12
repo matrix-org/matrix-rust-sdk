@@ -114,4 +114,5 @@ jobs:
         uses: JS-DevTools/npm-publish@v1
         with:
           package: ${{env.PKG_PATH}}/package.json
+          access: public
           token: ${{ secrets.NPM_TOKEN }}
