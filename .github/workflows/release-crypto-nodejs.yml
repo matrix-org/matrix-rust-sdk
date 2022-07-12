@@ -7,9 +7,6 @@ env:
   CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'
 
 on:
-  pull_request:
-    branches:
-      - main
   push:
     tags:
       - matrix-sdk-crypto-nodejs-v[0-9]+.*
@@ -79,6 +76,7 @@ jobs:
   publish-nodejs-package:
     name: "Package nodejs package"
     runs-on: ubuntu-latest
+    environment: NPM
     needs:
       - upload-assets
     steps:
@@ -102,3 +100,7 @@ jobs:
         with:
           draft: true
           files: ${{env.PKG_PATH}}/*tgz
+      - name: Publish to npmjs.com
+        uses: JS-DevTools/npm-publish@v1
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
