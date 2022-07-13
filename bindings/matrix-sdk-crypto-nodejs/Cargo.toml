@@ -22,7 +22,7 @@ crate-type = ["cdylib"]
 default = []
 qrcode = ["matrix-sdk-crypto/qrcode"]
 docsrs = []
-tracing = ["tracing-subscriber"]
+tracing = ["dep:tracing-subscriber"]
 
 [dependencies]
 matrix-sdk-crypto = { version = "0.5.0", path = "../../crates/matrix-sdk-crypto" }

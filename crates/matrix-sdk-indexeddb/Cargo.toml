@@ -15,7 +15,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["e2e-encryption"]
-e2e-encryption = ["matrix-sdk-base/e2e-encryption", "matrix-sdk-crypto"]
+e2e-encryption = ["matrix-sdk-base/e2e-encryption", "dep:matrix-sdk-crypto"]
 experimental-timeline = ["matrix-sdk-base/experimental-timeline"]
 
 
