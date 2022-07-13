@@ -1,0 +1,196 @@
+name: Build & Publish snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      rust-checkout-ref:
+        description: 'The branch, tag or SHA to checkout on the rust sdk.'     
+        required: true
+        default: 'main'
+
+jobs:
+  build_native:
+    name: Build and generate crypto native libs
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        targets: [ {value: armv7-linux-androideabi, folder: armeabi-v7a}, {value: i686-linux-android, folder: x86}, {value: aarch64-linux-android, folder: arm64-v8a}]
+        
+    steps:
+    
+      - name: Checkout this repo
+        uses: actions/checkout@v3
+        with: 
+          path: main
+
+      - name: Checkout matrix rust sdk repo
+        uses: actions/checkout@v3
+        with:
+          repository: matrix-org/matrix-rust-sdk
+          path: rust-sdk
+          ref: '${{ github.event.inputs.rust-checkout-ref }}'
+    
+      - name: Install android sdk
+        uses: malinskiy/action-android/install-sdk@release/0.1.2
+        
+      - name: Install android ndk   
+        uses: nttld/setup-ndk@v1
+        id: install-ndk
+        with:
+          ndk-version: r22b
+          
+      - name: Create symlinks for buildchain
+        run: |
+          export PATH="${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin:$PATH"
+          echo $PATH
+    
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          target: ${{ matrix.targets.value }}
+          toolchain: stable
+          override: true
+            
+      - name: Create cargo config
+        run: |
+          echo [target.aarch64-linux-android] > $HOME/.cargo/config.toml
+          echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
+          echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang\"  >> $HOME/.cargo/config.toml
+          
+          echo [target.i686-linux-android] >> $HOME/.cargo/config.toml
+          echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
+          echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android30-clang\"  >> $HOME/.cargo/config.toml
+          
+          echo [target.armv7-linux-androideabi] >> $HOME/.cargo/config.toml
+          echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
+          echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang\"  >> $HOME/.cargo/config.toml
+          
+          cat $HOME/.cargo/config.toml
+        
+      - name: Cargo install uniffi_bindgen
+        continue-on-error: true
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: uniffi_bindgen    
+
+      - name: Cargo build    
+        uses: actions-rs/cargo@v1
+        env: 
+          ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
+        with:
+          command: build
+          args: --manifest-path rust-sdk/crates/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.targets.value }}
+          
+      - name: Rename native file
+        run: |
+          mv rust-sdk/target/${{ matrix.targets.value }}/release/libmatrix_crypto.so rust-sdk/target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+          
+      - name: Upload native file
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.targets.folder }}
+          path: rust-sdk/target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+   
+  build_android:
+    name: Build and publish android library 
+    runs-on: macos-latest
+    needs: build_native
+    env:
+        OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+        OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+        SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+        SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        SONATYPE_STAGING_PROFILE_ID: ${{ secrets.SONATYPE_STAGING_PROFILE_ID }}
+        SNAPSHOT: true
+
+    steps:
+    - name: Checkout this repo
+      uses: actions/checkout@v3
+
+    - name: Checkout matrix rust sdk repo
+      uses: actions/checkout@v3
+      with:
+        repository: matrix-org/matrix-rust-sdk
+        path: rust-sdk  
+    
+    - name: Create jniLibs folder
+      run: |
+          mkdir -p crypto/crypto-android/src/main/jniLibs   
+          
+    - name: Download all binary result
+      uses: actions/download-artifact@v2
+      with:
+        path: crypto/crypto-android/src/main/jniLibs
+    
+    - name: set up JDK 11
+      uses: actions/setup-java@v2
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        cache: gradle
+        
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+            ${{ runner.os }}-gradle-
+  
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        target: ${{ matrix.targets.value }}
+        toolchain: stable
+        override: true
+            
+    - name: Cargo install uniffi_bindgen
+      continue-on-error: true
+      uses: actions-rs/cargo@v1
+      with:
+        command: install
+        args: uniffi_bindgen    
+    
+    - name: Generate bindings
+      run: |
+        uniffi-bindgen generate rust-sdk/crates/matrix-sdk-crypto-ffi/src/olm.udl  --language kotlin --out-dir crypto/crypto-android/build/generated/source/uniffi/release/java
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      
+    - name: Build crypto module
+      run: ./gradlew :crypto:crypto-android:assembleRelease
+      
+    - name: Upload library file (aar)
+      uses: actions/upload-artifact@v2
+      with:
+        name: crypto-release
+        path: crypto/crypto-android/build/outputs/aar/crypto-android-release.aar
+  
+    - name: Publish to MavenCentral
+      run: ./gradlew publishReleasePublicationToSonatypeRepository
