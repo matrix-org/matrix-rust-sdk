@@ -1,12 +1,13 @@
-name: Build & Publish snapshot
+name: "Kotlin: Build & Publish snapshot"
 
 on:
   workflow_dispatch:
     inputs:
       rust-checkout-ref:
-        description: 'The branch, tag or SHA to checkout on the rust sdk.'     
+        description: 'The branch, tag or SHA to build the kotlin sdk from'     
         required: true
         default: 'main'
+  pull_request:
 
 jobs:
   build_native:
@@ -17,17 +18,15 @@ jobs:
         targets: [ {value: armv7-linux-androideabi, folder: armeabi-v7a}, {value: i686-linux-android, folder: x86}, {value: aarch64-linux-android, folder: arm64-v8a}]
         
     steps:
+      # for testing only
+      - name: Checkout this repo
+        uses: actions/checkout@v3
+        if: ${{ !github.event.inputs.rust-checkout-ref }}
     
       - name: Checkout this repo
         uses: actions/checkout@v3
+        if: ${{ github.event.inputs.rust-checkout-ref }}
         with: 
-          path: main
-
-      - name: Checkout matrix rust sdk repo
-        uses: actions/checkout@v3
-        with:
-          repository: matrix-org/matrix-rust-sdk
-          path: rust-sdk
           ref: '${{ github.event.inputs.rust-checkout-ref }}'
     
       - name: Install android sdk
@@ -91,17 +90,17 @@ jobs:
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
         with:
           command: build
-          args: --manifest-path rust-sdk/crates/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.targets.value }}
+          args: --manifest-path bindings/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.targets.value }}
           
       - name: Rename native file
         run: |
-          mv rust-sdk/target/${{ matrix.targets.value }}/release/libmatrix_crypto.so rust-sdk/target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+          mv target/${{ matrix.targets.value }}/release/libmatrix_crypto.so target/${{ matrix.targets.value }}/release/libuniffi_olm.so
           
       - name: Upload native file
         uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.targets.folder }}
-          path: rust-sdk/target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+          path: target/${{ matrix.targets.value }}/release/libuniffi_olm.so
    
   build_android:
     name: Build and publish android library 
@@ -119,21 +118,15 @@ jobs:
     steps:
     - name: Checkout this repo
       uses: actions/checkout@v3
-
-    - name: Checkout matrix rust sdk repo
-      uses: actions/checkout@v3
-      with:
-        repository: matrix-org/matrix-rust-sdk
-        path: rust-sdk  
     
     - name: Create jniLibs folder
       run: |
-          mkdir -p crypto/crypto-android/src/main/jniLibs   
+          mkdir -p bindings/kotlin/crypto/crypto-android/src/main/jniLibs   
           
     - name: Download all binary result
       uses: actions/download-artifact@v2
       with:
-        path: crypto/crypto-android/src/main/jniLibs
+        path: bindings/kotlin/crypto/crypto-android/src/main/jniLibs
     
     - name: set up JDK 11
       uses: actions/setup-java@v2
@@ -165,7 +158,6 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        target: ${{ matrix.targets.value }}
         toolchain: stable
         override: true
             
@@ -178,19 +170,22 @@ jobs:
     
     - name: Generate bindings
       run: |
-        uniffi-bindgen generate rust-sdk/crates/matrix-sdk-crypto-ffi/src/olm.udl  --language kotlin --out-dir crypto/crypto-android/build/generated/source/uniffi/release/java
+        uniffi-bindgen generate bindings/matrix-sdk-crypto-ffi/src/olm.udl  --language kotlin --out-dir bindings/kotlin/crypto/crypto-android/build/generated/source/uniffi/release/java
     
     - name: Grant execute permission for gradlew
+      working-directory: bindings/kotlin
       run: chmod +x gradlew
       
     - name: Build crypto module
+      working-directory: bindings/kotlin
       run: ./gradlew :crypto:crypto-android:assembleRelease
       
     - name: Upload library file (aar)
       uses: actions/upload-artifact@v2
       with:
         name: crypto-release
-        path: crypto/crypto-android/build/outputs/aar/crypto-android-release.aar
+        path: bindings/kotlin/crypto/crypto-android/build/outputs/aar/crypto-android-release.aar
   
     - name: Publish to MavenCentral
+      working-directory: bindings/kotlin
       run: ./gradlew publishReleasePublicationToSonatypeRepository
