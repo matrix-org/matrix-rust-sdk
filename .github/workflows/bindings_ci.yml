@@ -162,7 +162,7 @@ jobs:
           args: uniffi_bindgen --version ^0.18
 
       - name: Generate .xcframework
-        run: sh bindings/apple/debug_build_xcframework.sh ci
+        run: sh bindings/apple/debug_build_xcframework.sh x86_64 ci
 
       - name: Run XCTests
         run: |

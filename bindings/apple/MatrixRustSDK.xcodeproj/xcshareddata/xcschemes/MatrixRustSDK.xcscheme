@@ -1,10 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "1320"
-   version = "1.3">
+   version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Run Script"
+               scriptText = "#PATH=~/.cargo/bin:${PATH}&#10;echo $ARCHS&#10;#sh $PROJECT_DIR/debug_build_xcframework.sh &quot;$ARCHS&quot; CI&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "18CE89D327B2939900CA89E1"
+                     BuildableName = "MatrixRustSDK.app"
+                     BlueprintName = "MatrixRustSDK"
+                     ReferencedContainer = "container:MatrixRustSDK.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -35,16 +53,6 @@
                BlueprintIdentifier = "18CE89E327B2939A00CA89E1"
                BuildableName = "MatrixRustSDKTests.xctest"
                BlueprintName = "MatrixRustSDKTests"
-               ReferencedContainer = "container:MatrixRustSDK.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "18CE89ED27B2939A00CA89E1"
-               BuildableName = "MatrixRustSDKUITests.xctest"
-               BlueprintName = "MatrixRustSDKUITests"
                ReferencedContainer = "container:MatrixRustSDK.xcodeproj">
             </BuildableReference>
          </TestableReference>
