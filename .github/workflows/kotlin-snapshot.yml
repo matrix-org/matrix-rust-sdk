@@ -15,7 +15,16 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        targets: [ {value: armv7-linux-androideabi, folder: armeabi-v7a}, {value: i686-linux-android, folder: x86}, {value: aarch64-linux-android, folder: arm64-v8a}]
+        include:
+          - name: armv7
+            target: armv7-linux-androideabi
+            jni-folder: armeabi-v7a
+          - name: i869
+            target: i686-linux-android
+            jni-folder: x86
+          - name: Aarch64
+            target: aarch64-linux-android
+            jni-folder: arm64-v8a
         
     steps:
       # for testing only
@@ -57,26 +66,10 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          target: ${{ matrix.targets.value }}
+          target: ${{ matrix.target }}
           toolchain: stable
           override: true
-            
-      - name: Create cargo config
-        run: |
-          echo [target.aarch64-linux-android] > $HOME/.cargo/config.toml
-          echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
-          echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang\"  >> $HOME/.cargo/config.toml
-          
-          echo [target.i686-linux-android] >> $HOME/.cargo/config.toml
-          echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
-          echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android30-clang\"  >> $HOME/.cargo/config.toml
-          
-          echo [target.armv7-linux-androideabi] >> $HOME/.cargo/config.toml
-          echo ar = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/ar\" >> $HOME/.cargo/config.toml
-          echo linker = \"${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang\"  >> $HOME/.cargo/config.toml
-          
-          cat $HOME/.cargo/config.toml
-        
+
       - name: Cargo install uniffi_bindgen
         continue-on-error: true
         uses: actions-rs/cargo@v1
@@ -88,19 +81,37 @@ jobs:
         uses: actions-rs/cargo@v1
         env: 
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
+
+          # AARCH64 build env
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android30-clang
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_AR: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
+          AR_aarch64_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
+          CC_aarch64_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android30-clang
+
+          # I686 build env
+          CARGO_TARGET_I686_LINUX_ANDROID_LINKER: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/i686-linux-android30-clang
+          CARGO_TARGET_I686_LINUX_ANDROID_AR: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
+          AR_i686_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
+          CC_i686_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/i686-linux-android30-clang
+
+          # ARMV7 build env
+          CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi30-clang
+          CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_AR: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
+          AR_armv7_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
+          CC_armv7_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi30-clang
         with:
           command: build
-          args: --manifest-path bindings/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.targets.value }}
+          args: --manifest-path bindings/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.target }}
           
       - name: Rename native file
         run: |
-          mv target/${{ matrix.targets.value }}/release/libmatrix_crypto.so target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+          mv target/${{ matrix.target }}/release/matrix_crypto_ffi.so target/${{ matrix.target }}/release/libuniffi_olm.so
           
       - name: Upload native file
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.targets.folder }}
-          path: target/${{ matrix.targets.value }}/release/libuniffi_olm.so
+          name: ${{ matrix.jni-folder }}
+          path: target/${{ matrix.target }}/release/libuniffi_olm.so
    
   build_android:
     name: Build and publish android library 
