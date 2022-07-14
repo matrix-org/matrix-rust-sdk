@@ -82,7 +82,7 @@ async fn test_register_virtual_user() -> Result<()> {
         .mount(&server)
         .await;
 
-    appservice.register_virtual_user(localpart).await?;
+    appservice.register_virtual_user(localpart, None).await?;
 
     Ok(())
 }

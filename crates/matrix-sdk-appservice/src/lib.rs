@@ -106,7 +106,7 @@ use ruma::{
     },
     assign,
     events::{room::member::MembershipState, AnyRoomEvent, AnyStateEvent},
-    IdParseError, OwnedRoomId, OwnedServerName,
+    DeviceId, IdParseError, OwnedRoomId, OwnedServerName,
 };
 use serde::Deserialize;
 use tokio::task::JoinHandle;
@@ -305,18 +305,23 @@ impl AppService {
     /// # Returns
     /// This function may return a UIAA response, which should be checked for
     /// with [`Error::uiaa_response()`].
-    pub async fn register_virtual_user(&self, localpart: impl AsRef<str>) -> Result<()> {
-        if self.is_user_registered(localpart.as_ref()).await? {
+    pub async fn register_virtual_user<'a>(
+        &self,
+        localpart: &'a str,
+        device_id: Option<&'a DeviceId>,
+    ) -> Result<()> {
+        if self.is_user_registered(localpart).await? {
             return Ok(());
         }
         let request = assign!(register::v3::Request::new(), {
-            username: Some(localpart.as_ref()),
+            username: Some(localpart),
             login_type: Some(&register::LoginType::ApplicationService),
+            device_id,
         });
 
         let client = self.virtual_user(None).await?;
         client.register(request).await?;
-        self.set_user_registered(localpart.as_ref()).await?;
+        self.set_user_registered(localpart).await?;
 
         Ok(())
     }
