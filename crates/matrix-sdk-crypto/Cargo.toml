@@ -17,12 +17,12 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-qrcode = ["matrix-sdk-qrcode"]
-backups_v1 = ["olm-rs", "bs58"]
+qrcode = ["dep:matrix-sdk-qrcode"]
+backups_v1 = ["dep:olm-rs", "dep:bs58"]
 docsrs = []
 
 # Testing helpers for implementations based upon this
-testing = ["http"]
+testing = ["dep:http"]
 
 [dependencies]
 aes = "0.8.1"

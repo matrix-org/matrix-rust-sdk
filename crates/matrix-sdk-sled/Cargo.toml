@@ -16,12 +16,16 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = ["state-store"]
 
-state-store = ["matrix-sdk-base"]
+state-store = ["dep:matrix-sdk-base"]
 crypto-store = [
-    "matrix-sdk-crypto",
-    "matrix-sdk-base/e2e-encryption",
+    "dep:matrix-sdk-base",
+    "dep:matrix-sdk-crypto",
+    "matrix-sdk-base?/e2e-encryption",
 ]
-experimental-timeline = ["matrix-sdk-base/experimental-timeline"]
+experimental-timeline = [
+    "dep:matrix-sdk-base",
+    "matrix-sdk-base?/experimental-timeline",
+]
 
 [dependencies]
 async-stream = "0.3.3"
