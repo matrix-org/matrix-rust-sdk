@@ -143,12 +143,6 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace = console, js_name = "log")]
     fn log(message: String);
-
-    #[wasm_bindgen(js_namespace = console, js_name= "group")]
-    fn log_group_open(label: String);
-
-    #[wasm_bindgen(js_namespace = console, js_name= "groupEnd")]
-    fn log_group_close();
 }
 
 #[cfg(feature = "tracing")]
@@ -190,14 +184,6 @@ where
         } else {
             Some(LevelFilter::from_level(self.min_level))
         }
-    }
-
-    fn on_enter(&self, id: &Id, _: Context<'_, S>) {
-        log_group_open(format!("t{:x}", id.into_u64()));
-    }
-
-    fn on_exit(&self, _: &Id, _: Context<'_, S>) {
-        log_group_close();
     }
 
     fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
