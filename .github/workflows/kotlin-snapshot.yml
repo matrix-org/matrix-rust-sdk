@@ -99,7 +99,7 @@ jobs:
           CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_AR: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
           AR_armv7_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
           CC_armv7_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi30-clang
-        run: cargo build -p matrix-sdk-crypto-ffi git --release --target=${{ matrix.target }}
+        run: cargo build -p matrix-sdk-crypto-ffi --release --target=${{ matrix.target }}
           
       - name: Rename native file
         run: |
