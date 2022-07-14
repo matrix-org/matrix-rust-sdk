@@ -125,6 +125,8 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
     #[allow(clippy::mutex_atomic)]
     let on_state_member = Arc::new(Mutex::new(false));
     appservice
+        .virtual_user(None)
+        .await?
         .register_event_handler({
             let on_state_member = on_state_member.clone();
             move |_ev: OriginalSyncRoomMemberEvent| {
@@ -132,7 +134,7 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
                 future::ready(())
             }
         })
-        .await?;
+        .await;
 
     let status = warp::test::request()
         .method("PUT")
@@ -279,6 +281,8 @@ async fn test_event_handler() -> Result<()> {
     #[allow(clippy::mutex_atomic)]
     let on_state_member = Arc::new(Mutex::new(false));
     appservice
+        .virtual_user(None)
+        .await?
         .register_event_handler({
             let on_state_member = on_state_member.clone();
             move |_ev: OriginalSyncRoomMemberEvent| {
@@ -286,7 +290,7 @@ async fn test_event_handler() -> Result<()> {
                 future::ready(())
             }
         })
-        .await?;
+        .await;
 
     let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
@@ -365,7 +369,8 @@ async fn test_appservice_on_sub_path() -> Result<()> {
     };
 
     let members = appservice
-        .get_cached_client(None)?
+        .virtual_user(None)
+        .await?
         .get_room(room_id)
         .expect("Expected room to be available")
         .members_no_sync()
@@ -455,8 +460,8 @@ async fn test_receive_transaction() -> Result<()> {
     ];
     let appservice = appservice(None, None).await?;
 
-    let alice = appservice.virtual_user_client("_appservice_alice").await?;
-    let bob = appservice.virtual_user_client("_appservice_bob").await?;
+    let alice = appservice.virtual_user(Some("_appservice_alice")).await?;
+    let bob = appservice.virtual_user(Some("_appservice_bob")).await?;
     appservice
         .receive_transaction(push_events::v1::IncomingRequest::new("dontcare".into(), json))
         .await?;

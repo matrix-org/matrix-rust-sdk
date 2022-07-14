@@ -3,7 +3,7 @@ const { version } = require("./package.json");
 const { platform, arch } = process
 
 const DOWNLOADS_BASE_URL = "https://github.com/matrix-org/matrix-rust-sdk/releases/download";
-const CURRENT_VERSION = `matrix-sdk-crypto-nodejs-${version}`;
+const CURRENT_VERSION = `matrix-sdk-crypto-nodejs-v${version}`;
 
 const byteHelper = function (value) {
     if (value === 0) {

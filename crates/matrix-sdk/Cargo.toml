@@ -28,18 +28,18 @@ e2e-encryption = [
     "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
 ]
 
-sled = ["matrix-sdk-sled/state-store"]
-indexeddb = ["matrix-sdk-indexeddb"]
+sled = ["dep:matrix-sdk-sled", "matrix-sdk-sled?/state-store"]
+indexeddb = ["dep:matrix-sdk-indexeddb"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
-sso-login = ["warp", "rand", "tokio-stream"]
+sso-login = ["warp", "dep:rand", "dep:tokio-stream"]
 appservice = ["ruma/appservice-api-s"]
-image-proc = ["image"]
-image-rayon = ["image-proc", "image/jpeg_rayon"]
+image-proc = ["dep:image"]
+image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
 experimental-timeline = [
     "matrix-sdk-base/experimental-timeline",

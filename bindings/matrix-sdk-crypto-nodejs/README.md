@@ -13,7 +13,7 @@ Encryption](https://en.wikipedia.org/wiki/End-to-end_encryption)) for
 
 Just add the latest release to your `package.json`:
 ```sh
-$ npm install --save matrix-sdk-crypto
+$ npm install --save @matrix-org/matrix-sdk-crypto-nodejs
 ```
 
 When installing, NPM will download the corresponding prebuilt Rust library for your current host system. The following are supported:
