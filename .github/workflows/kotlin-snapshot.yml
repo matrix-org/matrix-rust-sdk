@@ -78,7 +78,7 @@ jobs:
           args: uniffi_bindgen    
 
       - name: Cargo build    
-        uses: actions-rs/cargo@v1
+        # uses: actions-rs/cargo@v1
         env: 
           ANDROID_NDK: ${{ steps.install-ndk.outputs.ndk-path }}
 
@@ -99,13 +99,11 @@ jobs:
           CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_AR: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
           AR_armv7_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar
           CC_armv7_linux_android: ${{ steps.install-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi30-clang
-        with:
-          command: build
-          args: --manifest-path bindings/matrix-sdk-crypto-ffi/Cargo.toml --release --target=${{ matrix.target }}
+        run: cargo build -p matrix-sdk-crypto-ffi git --release --target=${{ matrix.target }}
           
       - name: Rename native file
         run: |
-          mv target/${{ matrix.target }}/release/matrix_crypto_ffi.so target/${{ matrix.target }}/release/libuniffi_olm.so
+          mv target/${{ matrix.target }}/release/libmatrix_crypto_ffi.so target/${{ matrix.target }}/release/libuniffi_olm.so
           
       - name: Upload native file
         uses: actions/upload-artifact@v2
