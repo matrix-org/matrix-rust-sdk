@@ -85,7 +85,7 @@
 //!
 //! [Application Service]: https://matrix.org/docs/spec/application_service/r0.1.2
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
-//! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
+//! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
 use std::{convert::TryInto, sync::Arc};
 
@@ -216,8 +216,8 @@ impl AppService {
     ///
     /// # Arguments
     ///
-    /// * `localpart` - Used for constructing the accordingly. If `None` is
-    ///   given it uses the `sender_localpart` from the registration.
+    /// * `localpart` - Used for constructing the virtual user accordingly. If
+    ///   `None` is given it uses the `sender_localpart` from the registration.
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
@@ -243,6 +243,11 @@ impl AppService {
     /// Create a new virtual user builder for the given `localpart`.
     pub fn virtual_user_builder<'a>(&'a self, localpart: &'a str) -> VirtualUserBuilder<'a> {
         VirtualUserBuilder::new(self, localpart)
+    }
+
+    /// Get the map containing all constructed virtual user clients.
+    pub fn virtual_users(&self) -> Arc<DashMap<Localpart, Client>> {
+        self.clients.clone()
     }
 
     /// Register a responder for queries about the existence of a user with a
@@ -491,8 +496,7 @@ impl AppService {
         Ok(())
     }
 
-    /// Convenience method that runs an http server depending on the selected
-    /// server feature.
+    /// Convenience method that runs an http server.
     ///
     /// This is a blocking call that tries to listen on the provided host and
     /// port.
