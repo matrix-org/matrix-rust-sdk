@@ -28,13 +28,14 @@
     "devDependencies": {
         "wasm-pack": "^0.10.2",
         "jest": "^28.1.0",
-        "typedoc": "^0.22.17"
+        "typedoc": "^0.22.17",
+        "cross-env": "^7.0.3"
     },
     "engines": {
         "node": ">= 10"
     },
     "scripts": {
-        "build": "RUSTFLAGS='-C opt-level=z' wasm-pack build --release --target nodejs --out-name matrix_sdk_crypto --out-dir ./pkg",
+        "build": "cross-env RUSTFLAGS='-C opt-level=z' wasm-pack build --release --target nodejs --out-name matrix_sdk_crypto --out-dir ./pkg",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig ."
     }
