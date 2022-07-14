@@ -21,7 +21,12 @@ on:
   push:
     tags:
       - matrix-sdk-crypto-nodejs-v[0-9]+.*
-
+  workflow_call:
+    inputs:
+      tag:
+        description: "The tag to build with"
+        required: true
+        type: string
 jobs:
   upload-assets:
     name: "Upload prebuilt libraries"
@@ -57,7 +62,15 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
+      # use the given tag
       - uses: actions/checkout@v3
+        name: "Checking out ${{ inputs.tag }}"
+        if: "${{ inputs.tag }}"
+        with:
+          ref: ${{ inputs.tag }}
+      # use the default
+      - uses: actions/checkout@v3
+        if: "${{ !inputs.tag }}"
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -90,7 +103,15 @@ jobs:
     needs:
       - upload-assets
     steps:
+      # use the given tag
       - uses: actions/checkout@v3
+        name: "Checking out ${{ inputs.tag }}"
+        if: "${{ inputs.tag }}"
+        with:
+          ref: ${{ inputs.tag }}
+      # use the default
+      - uses: actions/checkout@v3
+        if: "${{ !inputs.tag }}"
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:

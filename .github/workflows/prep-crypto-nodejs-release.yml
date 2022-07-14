@@ -38,6 +38,8 @@ jobs:
   prepare-release:
     name: "Preparing crypto-nodejs release tag"
     runs-on: ubuntu-latest
+    outputs:
+      tag: "${{ env.TAG_PREFIX }}${{ inputs.version }}"
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
@@ -98,12 +100,18 @@ jobs:
           tag_name: ${{ env.TAG_PREFIX }}${{ inputs.version }}
           body_path: "${{ env.PKG_PATH }}/CHANGELOG.md"
 
-      # finally, let's create a PR for all this, too
+      # let's create a PR for all this, too
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v4
         with:
-          branch: "gh-action/release-${{ env.TAG_PREFIX }}${{ inputs.version }}"
-          base: "main"
           title: "Preparing Release ${{ env.TAG_PREFIX }}${{ inputs.version }}"
           body: |
-            Automatic Pull-Request to merge release ${{ env.TAG_PREFIX }}${{ inputs.version }} back into main
+            Automatic Pull-Request to merge release ${{ env.TAG_PREFIX }}${{ inputs.version }}
+
+  trigger-release:
+    # and trigger the tagging release workflow
+    uses: matrix-org/matrix-rust-sdk/.github/workflows/release-crypto-nodejs.yml@ben-release-crypto-nodes-beta0
+    needs: ['prepare-release']
+    name: "Trigger release Workflow"
+    with:
+      tag: ${{needs.prepare-release.outputs.tag}}
