@@ -289,7 +289,7 @@ impl Client {
         } else {
             self.store().set_custom_value(TXN_ID_KEY, txn_id_bytes).await?;
         }
-        self.process_sync(sync_response).await?;
+        self.process_sync(sync_response, true).await?;
 
         Ok(())
     }
@@ -2321,7 +2321,7 @@ impl Client {
         }
 
         let response = self.send(request, Some(request_config)).await?;
-        let response = self.process_sync(response).await?;
+        let response = self.process_sync(response, false).await?;
 
         #[cfg(feature = "e2e-encryption")]
         if let Err(e) = self.send_outgoing_requests().await {

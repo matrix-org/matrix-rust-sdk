@@ -560,12 +560,20 @@ impl BaseClient {
 
     /// Receive a response from a sync call.
     ///
+    /// This will not check if we previously had this response.
+    ///
+    /// This is meant to be only called directly by appservice code.
+    /// Use `receive_sync_response` otherwise.
+    ///
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
-    pub async fn receive_sync_response(
+    /// * `transaction` - If true we got an appservice transaction instead of a
+    ///   sync.
+    pub async fn process_sync_response(
         &self,
         response: api::sync::sync_events::v3::Response,
+        transaction: bool,
     ) -> Result<SyncResponse> {
         #[allow(unused_variables)]
         let api::sync::sync_events::v3::Response {
@@ -579,13 +587,6 @@ impl BaseClient {
             device_unused_fallback_key_types,
             ..
         } = response;
-
-        // The server might respond multiple times with the same sync token, in
-        // that case we already received this response and there's nothing to
-        // do.
-        if self.store.sync_token.read().await.as_ref() == Some(&next_batch) {
-            return Ok(SyncResponse::new(next_batch));
-        }
 
         let now = Instant::now();
 
@@ -608,7 +609,11 @@ impl BaseClient {
             }
         };
 
-        let mut changes = StateChanges::new(next_batch.clone());
+        let mut changes = if !transaction {
+            StateChanges::new(Some(next_batch.clone()))
+        } else {
+            StateChanges::new(None)
+        };
         let mut ambiguity_cache = AmbiguityCache::new(self.store.inner.clone());
 
         self.handle_account_data(&account_data.events, &mut changes).await;
@@ -780,7 +785,9 @@ impl BaseClient {
         changes.ambiguity_maps = ambiguity_cache.cache;
 
         self.store.save_changes(&changes).await?;
-        *self.store.sync_token.write().await = Some(next_batch.clone());
+        if !transaction {
+            *self.store.sync_token.write().await = Some(next_batch.clone());
+        }
         self.apply_changes(&changes).await;
 
         info!("Processed a sync response in {:?}", now.elapsed());
@@ -801,6 +808,31 @@ impl BaseClient {
         };
 
         Ok(response)
+    }
+
+    /// Receive a response from a sync call.
+    ///
+    /// This will additionally to `process_sync_response` also check if we
+    /// already have process the sync token before and if so, we skip it.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The response that we received after a successful sync.
+    pub async fn receive_sync_response(
+        &self,
+        response: api::sync::sync_events::v3::Response,
+    ) -> Result<SyncResponse> {
+        #[allow(unused_variables)]
+        let api::sync::sync_events::v3::Response { ref next_batch, .. } = response;
+
+        // The server might respond multiple times with the same sync token, in
+        // that case we already received this response and there's nothing to
+        // do.
+        if self.store.sync_token.read().await.as_ref() == Some(next_batch) {
+            return Ok(SyncResponse::new(next_batch.to_string()));
+        }
+
+        self.process_sync_response(response, false).await
     }
 
     pub(crate) async fn apply_changes(&self, changes: &StateChanges) {

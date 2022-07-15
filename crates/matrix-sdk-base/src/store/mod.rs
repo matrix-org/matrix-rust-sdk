@@ -711,8 +711,8 @@ pub struct StateChanges {
 
 impl StateChanges {
     /// Create a new `StateChanges` struct with the given sync_token.
-    pub fn new(sync_token: String) -> Self {
-        Self { sync_token: Some(sync_token), ..Default::default() }
+    pub fn new(sync_token: Option<String>) -> Self {
+        Self { sync_token, ..Default::default() }
     }
 
     /// Update the `StateChanges` struct with the given `PresenceEvent`.

@@ -609,7 +609,7 @@ mod tests {
                 ),
             )
             .build_sync_response();
-        client.process_sync(response).await?;
+        client.process_sync(response, false).await?;
 
         assert_eq!(member_count.load(SeqCst), 1);
         assert_eq!(typing_count.load(SeqCst), 1);
@@ -672,7 +672,7 @@ mod tests {
                     .add_state_event(StateTestEvent::PowerLevels),
             )
             .build_sync_response();
-        client.process_sync(response).await?;
+        client.process_sync(response, false).await?;
 
         assert_eq!(member_count.load(SeqCst), 2);
         assert_eq!(power_levels_count.load(SeqCst), 1);
@@ -722,7 +722,7 @@ mod tests {
         client.remove_event_handler(handle_a);
         client.remove_event_handler(handle_b);
 
-        client.process_sync(response).await?;
+        client.process_sync(response, false).await?;
 
         assert_eq!(member_count.load(SeqCst), 2);
 
@@ -777,7 +777,7 @@ mod tests {
                 JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
             )
             .build_sync_response();
-        client.process_sync(response).await?;
+        client.process_sync(response, false).await?;
 
         assert_eq!(counter.load(SeqCst), 1);
         Ok(())
@@ -799,7 +799,7 @@ mod tests {
                 JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
             )
             .build_sync_response();
-        client.process_sync(response).await?;
+        client.process_sync(response, false).await?;
 
         assert_eq!(counter.load(SeqCst), 1);
         Ok(())

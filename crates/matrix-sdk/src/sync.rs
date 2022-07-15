@@ -15,8 +15,13 @@ impl Client {
     pub(crate) async fn process_sync(
         &self,
         response: sync_events::v3::Response,
+        transaction: bool,
     ) -> Result<SyncResponse> {
-        let response = self.base_client().receive_sync_response(response).await?;
+        let response = if !transaction {
+            self.base_client().receive_sync_response(response).await?
+        } else {
+            self.base_client().process_sync_response(response, true).await?
+        };
         self.handle_sync_response(response).await
     }
 
