@@ -9,7 +9,7 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_appservice::*;
-use matrix_sdk_test::{appservice::TransactionBuilder, async_test, test_json, EventsJson};
+use matrix_sdk_test::{appservice::TransactionBuilder, async_test, test_json, TimelineTestEvent};
 use ruma::{
     api::{appservice::event::push_events, MatrixVersion},
     events::AnyRoomEvent,
@@ -92,7 +92,7 @@ async fn test_put_transaction() -> Result<()> {
     let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
     let mut transaction_builder = TransactionBuilder::new();
-    transaction_builder.add_room_event(EventsJson::Member);
+    transaction_builder.add_room_event(TimelineTestEvent::Member);
     let transaction = transaction_builder.build_json_transaction();
 
     let appservice = appservice(None, None).await?;
@@ -117,7 +117,7 @@ async fn test_put_transaction_with_repeating_txn_id() -> Result<()> {
     let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
     let mut transaction_builder = TransactionBuilder::new();
-    transaction_builder.add_room_event(EventsJson::Member);
+    transaction_builder.add_room_event(TimelineTestEvent::Member);
     let transaction = transaction_builder.build_json_transaction();
 
     let appservice = appservice(None, None).await?;
@@ -228,7 +228,7 @@ async fn test_invalid_access_token() -> Result<()> {
 
     let mut transaction_builder = TransactionBuilder::new();
     let transaction =
-        transaction_builder.add_room_event(EventsJson::Member).build_json_transaction();
+        transaction_builder.add_room_event(TimelineTestEvent::Member).build_json_transaction();
 
     let appservice = appservice(None, None).await?;
 
@@ -252,7 +252,7 @@ async fn test_no_access_token() -> Result<()> {
     let uri = "/_matrix/app/v1/transactions/1";
 
     let mut transaction_builder = TransactionBuilder::new();
-    transaction_builder.add_room_event(EventsJson::Member);
+    transaction_builder.add_room_event(TimelineTestEvent::Member);
     let transaction = transaction_builder.build_json_transaction();
 
     let appservice = appservice(None, None).await?;
@@ -295,7 +295,7 @@ async fn test_event_handler() -> Result<()> {
     let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
     let mut transaction_builder = TransactionBuilder::new();
-    transaction_builder.add_room_event(EventsJson::Member);
+    transaction_builder.add_room_event(TimelineTestEvent::Member);
     let transaction = transaction_builder.build_json_transaction();
 
     warp::test::request()
@@ -343,11 +343,11 @@ async fn test_appservice_on_sub_path() -> Result<()> {
     let uri_2 = "/sub_path/_matrix/app/v1/transactions/2?access_token=hs_token";
 
     let mut transaction_builder = TransactionBuilder::new();
-    transaction_builder.add_room_event(EventsJson::Member);
+    transaction_builder.add_room_event(TimelineTestEvent::Member);
     let transaction_1 = transaction_builder.build_json_transaction();
 
     let mut transaction_builder = TransactionBuilder::new();
-    transaction_builder.add_room_event(EventsJson::MemberNameChange);
+    transaction_builder.add_room_event(TimelineTestEvent::MemberNameChange);
     let transaction_2 = transaction_builder.build_json_transaction();
 
     let appservice = appservice(None, None).await?;
