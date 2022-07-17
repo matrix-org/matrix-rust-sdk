@@ -7,84 +7,42 @@
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
-pub mod events;
+pub mod api_responses;
 pub mod members;
+pub mod messages;
 pub mod sync;
+pub mod sync_events;
 
-pub use events::{
-    ALIAS, ALIASES, EMPTY, ENCRYPTION, EVENT_ID, KEYS_QUERY, KEYS_UPLOAD, LOGIN,
-    LOGIN_RESPONSE_ERR, LOGIN_TYPES, LOGIN_WITH_DISCOVERY, MEMBER, MEMBER_INVITE,
-    MEMBER_NAME_CHANGE, MEMBER_STRIPPED, MESSAGE_EDIT, MESSAGE_TEXT, NAME, NAME_STRIPPED,
-    POWER_LEVELS, PRESENCE, PUBLIC_ROOMS, PUSH_RULES, REACTION, READ_RECEIPT, READ_RECEIPT_OTHER,
-    REDACTED, REDACTED_INVALID, REDACTED_STATE, REDACTION, REGISTRATION_RESPONSE_ERR, ROOM_ID,
-    ROOM_MESSAGES, SYNC_ROOM_MESSAGES_BATCH_1, SYNC_ROOM_MESSAGES_BATCH_2, TAG, TOPIC, TYPING,
+pub use api_responses::{
+    DEVICES, GET_ALIAS, KEYS_QUERY, KEYS_UPLOAD, LOGIN, LOGIN_RESPONSE_ERR, LOGIN_TYPES,
+    LOGIN_WITH_DISCOVERY, PUBLIC_ROOMS, REGISTRATION_RESPONSE_ERR, VERSIONS, WELL_KNOWN, WHOAMI,
 };
 pub use members::MEMBERS;
+pub use messages::{ROOM_MESSAGES, ROOM_MESSAGES_BATCH_1, ROOM_MESSAGES_BATCH_2};
 pub use sync::{
     DEFAULT_SYNC_ROOM_ID, DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT,
     MORE_SYNC, MORE_SYNC_2, SYNC, VOIP_SYNC,
 };
+pub use sync_events::{
+    ALIAS, ALIASES, ENCRYPTION, MEMBER, MEMBER_INVITE, MEMBER_NAME_CHANGE, MEMBER_STRIPPED,
+    MESSAGE_EDIT, MESSAGE_TEXT, NAME, NAME_STRIPPED, POWER_LEVELS, PRESENCE, PUSH_RULES, REACTION,
+    READ_RECEIPT, READ_RECEIPT_OTHER, REDACTED, REDACTED_INVALID, REDACTED_STATE, REDACTION, TAG,
+    TOPIC, TYPING,
+};
 
-pub static DEVICES: Lazy<JsonValue> = Lazy::new(|| {
+/// An empty response.
+pub static EMPTY: Lazy<JsonValue> = Lazy::new(|| json!({}));
+
+/// A response with only an event ID.
+pub static EVENT_ID: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-        "devices": [
-            {
-                "device_id": "BNYQQWUMXO",
-                "display_name": "Client 1",
-                "last_seen_ip": "-",
-                "last_seen_ts": 1596117733037u64,
-                "user_id": "@example:localhost"
-            },
-            {
-                "device_id": "LEBKSEUSNR",
-                "display_name": "Client 2",
-                "last_seen_ip": "-",
-                "last_seen_ts": 1599057006985u64,
-                "user_id": "@example:localhost"
-            }
-        ]
+        "event_id": "$h29iv0s8:example.com"
     })
 });
 
-pub static GET_ALIAS: Lazy<JsonValue> = Lazy::new(|| {
+/// A response with only a room ID.
+pub static ROOM_ID: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-        "room_id": "!lUbmUPdxdXxEQurqOs:example.net",
-        "servers": [
-          "example.org",
-          "example.net",
-          "matrix.org",
-        ]
-    })
-});
-
-pub static WELL_KNOWN: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "m.homeserver": {
-            "base_url": "HOMESERVER_URL"
-        }
-    })
-});
-
-pub static VERSIONS: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "versions": [
-            "r0.0.1",
-            "r0.1.0",
-            "r0.2.0",
-            "r0.3.0",
-            "r0.4.0",
-            "r0.5.0",
-            "r0.6.0"
-        ],
-        "unstable_features": {
-            "org.matrix.label_based_filtering":true,
-            "org.matrix.e2e_cross_signing":true
-        }
-    })
-});
-
-pub static WHOAMI: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "user_id": "@joe:example.org"
+        "room_id": "!testroom:example.org"
     })
 });

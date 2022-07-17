@@ -674,7 +674,7 @@ macro_rules! statestore_integration_tests {
                     // Add message response
                     let messages = MessageResponse::try_from_http_response(
                         Response::builder()
-                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1).expect("Parsing SYNC_ROOM_MESSAGES_BATCH_1 failed"))
+                        .body(serde_json::to_vec(&*test_json::ROOM_MESSAGES_BATCH_1).expect("Parsing ROOM_MESSAGES_BATCH_1 failed"))
                         .unwrap(),
                         )
                         .unwrap();
@@ -699,7 +699,7 @@ macro_rules! statestore_integration_tests {
                     // Add second message response
                     let messages = MessageResponse::try_from_http_response(
                         Response::builder()
-                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2).expect("Parsing SYNC_ROOM_MESSAGES_BATCH_2 failed"))
+                        .body(serde_json::to_vec(&*test_json::ROOM_MESSAGES_BATCH_2).expect("Parsing ROOM_MESSAGES_BATCH_2 failed"))
                         .unwrap(),
                         )
                         .unwrap();

@@ -201,9 +201,7 @@ async fn room_timeline_with_remove() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
         .and(query_param("from", "t392-516_47314_0_7_1_1_1_11444_1"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_MESSAGES_BATCH_1))
         .expect(1)
         .named("messages_batch_1")
         .mount(&server)
@@ -213,9 +211,7 @@ async fn room_timeline_with_remove() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
         .and(query_param("from", "t47409-4357353_219380_26003_2269"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_MESSAGES_BATCH_2))
         .expect(1)
         .named("messages_batch_2")
         .mount(&server)
@@ -299,9 +295,7 @@ async fn room_timeline() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
         .and(query_param("from", "t392-516_47314_0_7_1_1_1_11444_1"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_MESSAGES_BATCH_1))
         .expect(1)
         .named("messages_batch_1")
         .mount(&server)
@@ -311,9 +305,7 @@ async fn room_timeline() {
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
         .and(header("authorization", "Bearer 1234"))
         .and(query_param("from", "t47409-4357353_219380_26003_2269"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_MESSAGES_BATCH_2))
         .expect(1)
         .named("messages_batch_2")
         .mount(&server)
