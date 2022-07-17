@@ -32,7 +32,7 @@ async fn user_presence() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
     let members: Vec<RoomMember> = room.active_members().await.unwrap();
 
     assert_eq!(2, members.len());
@@ -47,7 +47,7 @@ async fn calculate_room_names_from_summary() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     assert_eq!(DisplayName::Calculated("example2".to_owned()), room.display_name().await.unwrap());
 }
@@ -63,7 +63,7 @@ async fn room_names() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     assert_eq!(client.rooms().len(), 1);
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     assert_eq!(DisplayName::Aliased("tutorial".to_owned()), room.display_name().await.unwrap());
 
@@ -83,7 +83,7 @@ async fn room_names() {
 
 #[async_test]
 async fn test_state_event_getting() {
-    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
     let (client, server) = logged_in_client().await;
 
@@ -187,7 +187,7 @@ async fn room_timeline_with_remove() {
 
     let _ = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
     let (forward_stream, backward_stream) = room.timeline().await.unwrap();
 
     // these two syncs lead to the store removing its existing timeline
@@ -288,7 +288,7 @@ async fn room_timeline() {
 
     let _ = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
     let (forward_stream, backward_stream) = room.timeline().await.unwrap();
 
     let sync_token = client.sync_token().await.unwrap();

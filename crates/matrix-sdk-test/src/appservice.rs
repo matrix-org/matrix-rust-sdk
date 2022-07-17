@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use ruma::{events::AnyRoomEvent, room_id, serde::Raw};
+use ruma::{events::AnyRoomEvent, serde::Raw};
 use serde_json::Value;
 
 use crate::{test_json, EventsJson};
@@ -12,8 +12,7 @@ use crate::{test_json, EventsJson};
 /// issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information"
 pub fn value_with_room_id(value: &Value) -> Value {
     let mut val = value.clone();
-    let room_id =
-        Value::try_from(room_id!("!SVkFJHzfwvuaIEawgC:localhost").to_string()).expect("room_id");
+    let room_id = Value::try_from(test_json::DEFAULT_SYNC_ROOM_ID.to_string()).expect("room_id");
     val.as_object_mut().expect("mutable test_json").insert("room_id".to_owned(), room_id);
 
     val

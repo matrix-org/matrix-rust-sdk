@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk_test::{async_test, test_json};
-use ruma::room_id;
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
@@ -27,7 +26,7 @@ async fn forget_room() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_left_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.forget().await.unwrap();
 }

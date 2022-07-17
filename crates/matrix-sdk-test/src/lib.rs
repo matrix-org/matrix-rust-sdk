@@ -8,7 +8,6 @@ use ruma::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnySyncEphemeralRoomEvent,
         AnySyncRoomEvent, AnySyncStateEvent,
     },
-    room_id,
     serde::Raw,
     OwnedRoomId, RoomId,
 };
@@ -151,7 +150,7 @@ impl EventBuilder {
 
         let event = serde_json::from_value(val.clone()).unwrap();
 
-        self.add_joined_event(room_id!("!SVkFJHzfwvuaIEawgC:localhost"), event);
+        self.add_joined_event(*test_json::DEFAULT_SYNC_ROOM_ID, event);
         self
     }
 
@@ -229,7 +228,7 @@ impl EventBuilder {
     /// [build_sync_response()](#method.build_sync_response) if you need a typed
     /// response.
     pub fn build_json_sync_response(&mut self) -> JsonValue {
-        let main_room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+        let main_room_id = *test_json::DEFAULT_SYNC_ROOM_ID;
 
         // First time building a sync response, so initialize the `prev_batch` to a
         // default one.

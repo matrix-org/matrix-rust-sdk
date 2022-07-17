@@ -641,7 +641,7 @@ macro_rules! statestore_integration_tests {
                 async fn test_room_timeline() {
                     let store = get_store().await.unwrap();
                     let mut stored_events = Vec::new();
-                    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+                    let room_id = *test_json::DEFAULT_SYNC_ROOM_ID;
 
                     // Before the first sync the timeline should be empty
                     assert!(store.room_timeline(room_id).await.expect("failed to read timeline").is_none(), "TL wasn't empty");
