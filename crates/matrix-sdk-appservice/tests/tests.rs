@@ -9,7 +9,7 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_appservice::*;
-use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
+use matrix_sdk_test::{appservice::TransactionBuilder, async_test, test_json, EventsJson};
 use ruma::{
     api::{appservice::event::push_events, MatrixVersion},
     events::AnyRoomEvent,
@@ -338,7 +338,7 @@ async fn test_unrelated_path() -> Result<()> {
 
 #[async_test]
 async fn test_appservice_on_sub_path() -> Result<()> {
-    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
     let uri_1 = "/sub_path/_matrix/app/v1/transactions/1?access_token=hs_token";
     let uri_2 = "/sub_path/_matrix/app/v1/transactions/2?access_token=hs_token";
 

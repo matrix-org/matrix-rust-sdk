@@ -2210,7 +2210,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::{api::MatrixVersion, device_id, room_id, user_id, UserId};
+    use ruma::{api::MatrixVersion, device_id, user_id, UserId};
     use url::Url;
     use wiremock::{
         matchers::{header, method, path},
@@ -2321,7 +2321,7 @@ pub(crate) mod tests {
             .build_sync_response();
 
         client.inner.base_client.receive_sync_response(response).await.unwrap();
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
 

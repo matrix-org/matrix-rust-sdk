@@ -365,7 +365,7 @@ async fn resolve_room_alias() {
 
 #[async_test]
 async fn join_leave_room() {
-    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
     let (client, server) = logged_in_client().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
@@ -501,7 +501,7 @@ async fn left_rooms() {
     assert!(!client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
 
-    assert!(client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).is_some())
+    assert!(client.get_left_room(&test_json::DEFAULT_SYNC_ROOM_ID).is_some())
 }
 
 #[async_test]

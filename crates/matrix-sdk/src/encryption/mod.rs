@@ -872,11 +872,10 @@ impl Encryption {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
+    use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use ruma::{
         event_id,
         events::reaction::{ReactionEventContent, Relation},
-        room_id,
     };
     use serde_json::json;
     use wiremock::{
@@ -892,7 +891,7 @@ mod tests {
         let client = logged_in_client(Some(server.uri())).await;
 
         let event_id = event_id!("$2:example.org");
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()))
