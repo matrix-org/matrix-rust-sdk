@@ -40,28 +40,28 @@ impl TimelineTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::Alias => test_json::events::ALIAS.to_owned(),
-            Self::Aliases => test_json::events::ALIASES.to_owned(),
-            Self::Create => test_json::events::CREATE.to_owned(),
-            Self::Encryption => test_json::events::ENCRYPTION.to_owned(),
-            Self::HistoryVisibility => test_json::events::HISTORY_VISIBILITY.to_owned(),
-            Self::JoinRules => test_json::events::JOIN_RULES.to_owned(),
-            Self::Member => test_json::events::MEMBER.to_owned(),
-            Self::MemberInvite => test_json::events::MEMBER_INVITE.to_owned(),
-            Self::MemberNameChange => test_json::events::MEMBER_NAME_CHANGE.to_owned(),
-            Self::MessageEdit => test_json::events::MESSAGE_EDIT.to_owned(),
-            Self::MessageEmote => test_json::events::MESSAGE_EMOTE.to_owned(),
-            Self::MessageNotice => test_json::events::MESSAGE_NOTICE.to_owned(),
-            Self::MessageText => test_json::events::MESSAGE_TEXT.to_owned(),
-            Self::PowerLevels => test_json::events::POWER_LEVELS.to_owned(),
-            Self::Reaction => test_json::events::REACTION.to_owned(),
-            Self::RedactedInvalid => test_json::events::REDACTED_INVALID.to_owned(),
-            Self::RedactedMessage => test_json::events::REDACTED.to_owned(),
-            Self::RedactedState => test_json::events::REDACTED_STATE.to_owned(),
-            Self::Redaction => test_json::events::REDACTION.to_owned(),
-            Self::RoomAvatar => test_json::events::ROOM_AVATAR.to_owned(),
-            Self::RoomName => test_json::events::NAME.to_owned(),
-            Self::RoomTopic => test_json::events::TOPIC.to_owned(),
+            Self::Alias => test_json::sync_events::ALIAS.to_owned(),
+            Self::Aliases => test_json::sync_events::ALIASES.to_owned(),
+            Self::Create => test_json::sync_events::CREATE.to_owned(),
+            Self::Encryption => test_json::sync_events::ENCRYPTION.to_owned(),
+            Self::HistoryVisibility => test_json::sync_events::HISTORY_VISIBILITY.to_owned(),
+            Self::JoinRules => test_json::sync_events::JOIN_RULES.to_owned(),
+            Self::Member => test_json::sync_events::MEMBER.to_owned(),
+            Self::MemberInvite => test_json::sync_events::MEMBER_INVITE.to_owned(),
+            Self::MemberNameChange => test_json::sync_events::MEMBER_NAME_CHANGE.to_owned(),
+            Self::MessageEdit => test_json::sync_events::MESSAGE_EDIT.to_owned(),
+            Self::MessageEmote => test_json::sync_events::MESSAGE_EMOTE.to_owned(),
+            Self::MessageNotice => test_json::sync_events::MESSAGE_NOTICE.to_owned(),
+            Self::MessageText => test_json::sync_events::MESSAGE_TEXT.to_owned(),
+            Self::PowerLevels => test_json::sync_events::POWER_LEVELS.to_owned(),
+            Self::Reaction => test_json::sync_events::REACTION.to_owned(),
+            Self::RedactedInvalid => test_json::sync_events::REDACTED_INVALID.to_owned(),
+            Self::RedactedMessage => test_json::sync_events::REDACTED.to_owned(),
+            Self::RedactedState => test_json::sync_events::REDACTED_STATE.to_owned(),
+            Self::Redaction => test_json::sync_events::REDACTION.to_owned(),
+            Self::RoomAvatar => test_json::sync_events::ROOM_AVATAR.to_owned(),
+            Self::RoomName => test_json::sync_events::NAME.to_owned(),
+            Self::RoomTopic => test_json::sync_events::TOPIC.to_owned(),
             Self::Custom(json) => json,
         }
     }
@@ -96,21 +96,21 @@ impl StateTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::Alias => test_json::events::ALIAS.to_owned(),
-            Self::Aliases => test_json::events::ALIASES.to_owned(),
-            Self::Create => test_json::events::CREATE.to_owned(),
-            Self::Encryption => test_json::events::ENCRYPTION.to_owned(),
-            Self::HistoryVisibility => test_json::events::HISTORY_VISIBILITY.to_owned(),
-            Self::JoinRules => test_json::events::JOIN_RULES.to_owned(),
-            Self::Member => test_json::events::MEMBER.to_owned(),
-            Self::MemberInvite => test_json::events::MEMBER_INVITE.to_owned(),
-            Self::MemberNameChange => test_json::events::MEMBER_NAME_CHANGE.to_owned(),
-            Self::PowerLevels => test_json::events::POWER_LEVELS.to_owned(),
-            Self::RedactedInvalid => test_json::events::REDACTED_INVALID.to_owned(),
-            Self::RedactedState => test_json::events::REDACTED_STATE.to_owned(),
-            Self::RoomAvatar => test_json::events::ROOM_AVATAR.to_owned(),
-            Self::RoomName => test_json::events::NAME.to_owned(),
-            Self::RoomTopic => test_json::events::TOPIC.to_owned(),
+            Self::Alias => test_json::sync_events::ALIAS.to_owned(),
+            Self::Aliases => test_json::sync_events::ALIASES.to_owned(),
+            Self::Create => test_json::sync_events::CREATE.to_owned(),
+            Self::Encryption => test_json::sync_events::ENCRYPTION.to_owned(),
+            Self::HistoryVisibility => test_json::sync_events::HISTORY_VISIBILITY.to_owned(),
+            Self::JoinRules => test_json::sync_events::JOIN_RULES.to_owned(),
+            Self::Member => test_json::sync_events::MEMBER.to_owned(),
+            Self::MemberInvite => test_json::sync_events::MEMBER_INVITE.to_owned(),
+            Self::MemberNameChange => test_json::sync_events::MEMBER_NAME_CHANGE.to_owned(),
+            Self::PowerLevels => test_json::sync_events::POWER_LEVELS.to_owned(),
+            Self::RedactedInvalid => test_json::sync_events::REDACTED_INVALID.to_owned(),
+            Self::RedactedState => test_json::sync_events::REDACTED_STATE.to_owned(),
+            Self::RoomAvatar => test_json::sync_events::ROOM_AVATAR.to_owned(),
+            Self::RoomName => test_json::sync_events::NAME.to_owned(),
+            Self::RoomTopic => test_json::sync_events::TOPIC.to_owned(),
             Self::Custom(json) => json,
         }
     }
@@ -132,8 +132,8 @@ impl StrippedStateTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::Member => test_json::events::MEMBER_STRIPPED.to_owned(),
-            Self::RoomName => test_json::events::NAME_STRIPPED.to_owned(),
+            Self::Member => test_json::sync_events::MEMBER_STRIPPED.to_owned(),
+            Self::RoomName => test_json::sync_events::NAME_STRIPPED.to_owned(),
             Self::Custom(json) => json,
         }
     }
@@ -154,7 +154,7 @@ impl RoomAccountDataTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::FullyRead => test_json::events::FULLY_READ.to_owned(),
+            Self::FullyRead => test_json::sync_events::FULLY_READ.to_owned(),
             Self::Custom(json) => json,
         }
     }
@@ -177,9 +177,9 @@ impl EphemeralTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::ReadReceipt => test_json::events::READ_RECEIPT.to_owned(),
-            Self::ReadReceiptOther => test_json::events::READ_RECEIPT_OTHER.to_owned(),
-            Self::Typing => test_json::events::TYPING.to_owned(),
+            Self::ReadReceipt => test_json::sync_events::READ_RECEIPT.to_owned(),
+            Self::ReadReceiptOther => test_json::sync_events::READ_RECEIPT_OTHER.to_owned(),
+            Self::Typing => test_json::sync_events::TYPING.to_owned(),
             Self::Custom(json) => json,
         }
     }
@@ -200,7 +200,7 @@ impl PresenceTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::Presence => test_json::events::PRESENCE.to_owned(),
+            Self::Presence => test_json::sync_events::PRESENCE.to_owned(),
             Self::Custom(json) => json,
         }
     }
@@ -222,8 +222,8 @@ impl GlobalAccountDataTestEvent {
     /// Get the JSON representation of this test event.
     pub fn into_json_value(self) -> JsonValue {
         match self {
-            Self::PushRules => test_json::events::PUSH_RULES.to_owned(),
-            Self::Tags => test_json::events::TAG.to_owned(),
+            Self::PushRules => test_json::sync_events::PUSH_RULES.to_owned(),
+            Self::Tags => test_json::sync_events::TAG.to_owned(),
             Self::Custom(json) => json,
         }
     }

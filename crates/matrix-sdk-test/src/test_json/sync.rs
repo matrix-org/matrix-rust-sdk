@@ -1,3 +1,5 @@
+//! Complete sync responses.
+
 use once_cell::sync::Lazy;
 use ruma::{room_id, RoomId};
 use serde_json::{json, Value as JsonValue};
