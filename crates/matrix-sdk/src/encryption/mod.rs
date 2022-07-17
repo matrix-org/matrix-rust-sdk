@@ -872,7 +872,7 @@ impl Encryption {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
+    use matrix_sdk_test::{async_test, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent};
     use ruma::{
         event_id,
         events::reaction::{ReactionEventContent, Relation},
@@ -902,9 +902,12 @@ mod tests {
             .await;
 
         let response = EventBuilder::default()
-            .add_state_event(EventsJson::Member)
-            .add_state_event(EventsJson::PowerLevels)
-            .add_state_event(EventsJson::Encryption)
+            .add_joined_room(
+                JoinedRoomBuilder::default()
+                    .add_state_event(StateTestEvent::Member)
+                    .add_state_event(StateTestEvent::PowerLevels)
+                    .add_state_event(StateTestEvent::Encryption),
+            )
             .build_sync_response();
 
         client.inner.base_client.receive_sync_response(response).await.unwrap();
