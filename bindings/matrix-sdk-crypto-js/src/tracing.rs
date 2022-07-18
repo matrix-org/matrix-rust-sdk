@@ -155,8 +155,8 @@ mod inner {
         #[wasm_bindgen(js_namespace = console, js_name = "warn")]
         fn log_warn(message: String);
 
-        #[wasm_bindgen(js_namespace = console, js_name = "log")]
-        fn log(message: String);
+        #[wasm_bindgen(js_namespace = console, js_name = "error")]
+        fn log_error(message: String);
     }
 
     struct Layer {
@@ -215,7 +215,7 @@ mod inner {
                 Level::DEBUG => log_debug(message),
                 Level::INFO => log_info(message),
                 Level::WARN => log_warn(message),
-                Level::ERROR => log(message),
+                Level::ERROR => log_error(message),
             }
         }
     }
