@@ -726,24 +726,22 @@ impl BaseClient {
 
     /// Receive a response from a sync call.
     ///
-    /// This will not check if we previously had this response.
-    ///
-    /// This is meant to be only called directly by appservice code.
-    /// Use `receive_sync_response` otherwise.
+    /// This will additionally to `process_sync_response` also check if we
+    /// already have process the sync token before and if so, we skip it.
     ///
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
     /// * `transaction` - If true we got an appservice transaction instead of a
     ///   sync.
-    pub async fn process_sync_response(
+    pub async fn receive_sync_response(
         &self,
         response: api::sync::sync_events::v3::Response,
         transaction: bool,
     ) -> Result<SyncResponse> {
         #[allow(unused_variables)]
         let api::sync::sync_events::v3::Response {
-            next_batch,
+            ref next_batch,
             rooms,
             presence,
             account_data,
@@ -753,6 +751,17 @@ impl BaseClient {
             device_unused_fallback_key_types,
             ..
         } = response;
+
+        // TODO: We could move handling the transaction token here instead of doing it
+        // earlier. This would bring the code into one place
+        if !transaction {
+            // The server might respond multiple times with the same sync token, in
+            // that case we already received this response and there's nothing to
+            // do.
+            if self.store.sync_token.read().await.as_ref() == Some(next_batch) {
+                return Ok(SyncResponse::new(Some(next_batch.to_string())));
+            }
+        }
 
         let now = Instant::now();
 
@@ -835,7 +844,7 @@ impl BaseClient {
         info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
-            next_batch: if !transaction { Some(next_batch) } else { None },
+            next_batch: if !transaction { Some(next_batch.to_string()) } else { None },
             rooms: new_rooms,
             presence,
             account_data,
@@ -852,32 +861,7 @@ impl BaseClient {
         Ok(response)
     }
 
-    /// Receive a response from a sync call.
-    ///
-    /// This will additionally to `process_sync_response` also check if we
-    /// already have process the sync token before and if so, we skip it.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The response that we received after a successful sync.
-    pub async fn receive_sync_response(
-        &self,
-        response: api::sync::sync_events::v3::Response,
-    ) -> Result<SyncResponse> {
-        #[allow(unused_variables)]
-        let api::sync::sync_events::v3::Response { ref next_batch, .. } = response;
-
-        // The server might respond multiple times with the same sync token, in
-        // that case we already received this response and there's nothing to
-        // do.
-        if self.store.sync_token.read().await.as_ref() == Some(next_batch) {
-            return Ok(SyncResponse::new(Some(next_batch.to_string())));
-        }
-
-        self.process_sync_response(response, false).await
-    }
-
-    pub(crate) async fn apply_changes(&self, changes: &StateChanges) {
+    async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.store.get_room(room_id) {
                 room.update_summary(room_info.clone())
@@ -1263,7 +1247,7 @@ mod tests {
                 })),
             ))
             .build_sync_response();
-        client.receive_sync_response(response).await.unwrap();
+        client.receive_sync_response(response, false).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Left);
 
         let response = ev_builder
@@ -1281,7 +1265,7 @@ mod tests {
                 })),
             ))
             .build_sync_response();
-        client.receive_sync_response(response).await.unwrap();
+        client.receive_sync_response(response, false).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Invited);
     }
 
@@ -1372,7 +1356,7 @@ mod tests {
             }
         }))).expect("static json doesn't fail to parse");
 
-        client.receive_sync_response(response).await.unwrap();
+        client.receive_sync_response(response, false).await.unwrap();
 
         let room = client.get_room(room_id).expect("Room not found");
         assert_eq!(room.room_type(), RoomType::Invited);

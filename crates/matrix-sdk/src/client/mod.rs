@@ -2730,7 +2730,7 @@ pub(crate) mod tests {
             )
             .build_sync_response();
 
-        client.inner.base_client.receive_sync_response(response).await.unwrap();
+        client.inner.base_client.receive_sync_response(response, false).await.unwrap();
         let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
