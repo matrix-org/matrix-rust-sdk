@@ -299,7 +299,8 @@ describe(OlmMachine.name, () => {
                 room,
                 'm.room.message',
                 JSON.stringify({
-                    "hello": "world"
+                    "msgtype": "m.text",
+                    "body": "Hello, World!"
                 }),
             ));
 
@@ -328,7 +329,8 @@ describe(OlmMachine.name, () => {
             expect(decrypted).toBeInstanceOf(DecryptedRoomEvent);
 
             const event = JSON.parse(decrypted.event);
-            expect(event.content.hello).toStrictEqual("world");
+            expect(event.content.msgtype).toStrictEqual("m.text");
+            expect(event.content.body).toStrictEqual("Hello, World!");
 
             expect(decrypted.sender.toString()).toStrictEqual(user.toString());
             expect(decrypted.senderDevice.toString()).toStrictEqual(device.toString());
