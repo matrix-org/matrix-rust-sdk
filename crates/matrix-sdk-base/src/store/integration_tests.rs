@@ -55,6 +55,7 @@ macro_rules! statestore_integration_tests {
                     device_id, event_id,
                     events::{
                         presence::PresenceEvent,
+                        receipt::ReceiptType,
                         room::{
                             member::{
                                 MembershipState, OriginalSyncRoomMemberEvent, SyncRoomMemberEvent,
@@ -69,7 +70,6 @@ macro_rules! statestore_integration_tests {
                         StateEventType, StateUnsigned,
                     },
                     mxc_uri,
-                    receipt::ReceiptType,
                     room_id,
                     serde::Raw,
                     uint, user_id, MilliSecondsSinceUnixEpoch, UserId, EventId, OwnedEventId,

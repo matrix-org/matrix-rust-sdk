@@ -55,7 +55,7 @@ impl Attachment {
             None => {
                 return Err(napi::Error::from_reason(
                     "The media encryption info are absent from the given encrypted attachment"
-                        .to_string(),
+                        .to_owned(),
                 ))
             }
         };
