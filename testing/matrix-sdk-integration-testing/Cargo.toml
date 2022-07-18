@@ -1,0 +1,16 @@
+[package]
+name = "matrix-sdk-integration-testing"
+description = "internal integration testing for matrix rust sdk"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dev-dependencies]
+matrix-sdk = { path = "../../crates/matrix-sdk" }
+tokio = { version = "1", features = ["rt", "macros"] }
+tempfile = "3.3.0"
+anyhow = "1"
+lazy_static = "1.4"
+assign = "1"
