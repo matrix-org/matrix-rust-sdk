@@ -39,7 +39,6 @@ mod inner {
         sync::{Arc, Once},
     };
 
-    use super::*;
     use tracing::{
         field::{Field, Visit},
         metadata::LevelFilter,
@@ -50,6 +49,8 @@ mod inner {
         prelude::*,
         reload, Registry,
     };
+
+    use super::*;
 
     type TracingInner = Arc<reload::Handle<Layer, Registry>>;
 
