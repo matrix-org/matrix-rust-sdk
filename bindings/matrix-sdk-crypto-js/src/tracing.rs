@@ -75,12 +75,13 @@ mod inner {
 
         /// Install the tracing layer.
         ///
-        /// `Tracing` is a singleton. Once it is installed, consecutive
-        /// calls to `install` will construct a new `Tracing` object but
-        /// with the exact same inner state. Calling `install` with a new
-        /// `min_level` will just update the `min_level` parameter; in
-        /// that regard, it is similar to calling the `min_level` method
-        /// on an existing `Tracing` object.
+        /// `Tracing` is a singleton. Once it is installed,
+        /// consecutive calls to the constructor will construct a new
+        /// `Tracing` object but with the exact same inner
+        /// state. Calling the constructor with a new `min_level` will
+        /// just update the `min_level` parameter; in that regard, it
+        /// is similar to calling the `min_level` method on an
+        /// existing `Tracing` object.
         #[wasm_bindgen(constructor)]
         pub fn new(min_level: LoggerLevel) -> Result<Tracing, JsError> {
             static mut INSTALL: Option<TracingInner> = None;
