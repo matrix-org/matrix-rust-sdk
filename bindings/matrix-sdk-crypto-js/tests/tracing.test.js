@@ -12,12 +12,12 @@ describe('LoggerLevel', () => {
 
 describe(Tracing.name, () => {
     if (Tracing.isAvailable()) {
-        let tracing = Tracing.install(LoggerLevel.Debug);
+        let tracing = new Tracing(LoggerLevel.Debug);
 
         test('can installed several times', () => {
-            Tracing.install(LoggerLevel.Debug);
-            Tracing.install(LoggerLevel.Warn);
-            Tracing.install(LoggerLevel.Debug);
+            new Tracing(LoggerLevel.Debug);
+            new Tracing(LoggerLevel.Warn);
+            new Tracing(LoggerLevel.Debug);
         });
 
         const originalConsoleDebug = console.debug;
@@ -78,7 +78,7 @@ describe(Tracing.name, () => {
         }
     } else {
         test('cannot be constructed', () => {
-            expect(Tracing.install(LoggerLevel.Error)).toBeUndefined();
+            expect(() => { new Tracing(LoggerLevel.Error) }).toThrow();
         });
     }
 });
