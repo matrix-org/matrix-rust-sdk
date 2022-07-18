@@ -45,6 +45,6 @@ getrandom = { version = "0.2.6", features = ["js"] }
 matrix-sdk-base = { path = "../matrix-sdk-base", features = ["testing"] }
 matrix-sdk-common = { path = "../matrix-sdk-common" }
 matrix-sdk-crypto = { path = "../matrix-sdk-crypto", features = ["testing"] }
-matrix-sdk-test = { path = "../matrix-sdk-test" }
+matrix-sdk-test = { path = "../../testing/matrix-sdk-test" }
 uuid = "1.0.0"
 wasm-bindgen-test = "0.3.30"
