@@ -16,11 +16,13 @@ use serde_json::{from_value as from_json_value, json, Value as JsonValue};
 
 use super::test_json;
 
+mod bulk;
 mod invited_room;
 mod joined_room;
 mod left_room;
 mod test_event;
 
+pub use bulk::bulk_room_members;
 pub use invited_room::InvitedRoomBuilder;
 pub use joined_room::JoinedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
