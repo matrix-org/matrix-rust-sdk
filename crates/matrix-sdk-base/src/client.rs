@@ -558,6 +558,33 @@ impl BaseClient {
         changes.account_data = account_data;
     }
 
+    /// Processes everything from the `/sync` `invite` timeline.
+    async fn process_invited_rooms(
+        &self,
+        invited_rooms: BTreeMap<OwnedRoomId, api::sync::sync_events::v3::InvitedRoom>,
+        changes: &mut StateChanges,
+        new_rooms: &mut Rooms,
+    ) -> Result<()> {
+        for (room_id, new_info) in invited_rooms {
+            let room = self.store.get_or_create_stripped_room(&room_id).await;
+            let mut room_info = room.clone_info();
+
+            if let Some(r) = self.store.get_room(&room_id) {
+                let mut room_info = r.clone_info();
+                room_info.mark_as_invited();
+                changes.add_room(room_info);
+            }
+
+            self.handle_invited_state(&new_info.invite_state.events, &mut room_info, changes);
+
+            changes.add_stripped_room(room_info);
+
+            new_rooms.invite.insert(room_id, new_info);
+        }
+        Ok(())
+    }
+
+    /// Processes everything from the `/sync` `leave` timeline.
     async fn process_left_rooms(
         &self,
         left_rooms: BTreeMap<OwnedRoomId, api::sync::sync_events::v3::LeftRoom>,
@@ -597,6 +624,7 @@ impl BaseClient {
         Ok(())
     }
 
+    /// Processes everything from the `/sync` `join` timeline.
     #[allow(unused_variables)]
     async fn process_joined_rooms(
         &self,
@@ -779,22 +807,7 @@ impl BaseClient {
         )
         .await?;
 
-        for (room_id, new_info) in rooms.invite {
-            let room = self.store.get_or_create_stripped_room(&room_id).await;
-            let mut room_info = room.clone_info();
-
-            if let Some(r) = self.store.get_room(&room_id) {
-                let mut room_info = r.clone_info();
-                room_info.mark_as_invited();
-                changes.add_room(room_info);
-            }
-
-            self.handle_invited_state(&new_info.invite_state.events, &mut room_info, &mut changes);
-
-            changes.add_stripped_room(room_info);
-
-            new_rooms.invite.insert(room_id, new_info);
-        }
+        self.process_invited_rooms(rooms.invite, &mut changes, &mut new_rooms).await?;
 
         // TODO remove this, we're processing account data events here again
         // because we want to have the push rules in place before we process
