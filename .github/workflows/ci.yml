@@ -16,6 +16,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+
+  cancel-others:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.9.1
+        with:
+          access_token: ${{ github.token }}
+
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
@@ -238,7 +247,7 @@ jobs:
 
       - name: Check logs
         working-directory: testing/matrix-sdk-integration-testing/assets
-        run: docker logs backend
+        run: docker logs
 
       - name: Run matrix sdk integration tests
         run: cargo test -p matrix-sdk-integration-testing
