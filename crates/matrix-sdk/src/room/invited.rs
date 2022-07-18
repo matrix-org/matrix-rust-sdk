@@ -67,12 +67,12 @@ impl Invited {
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::NotAuthenticated)))?;
         let invitee = self
             .inner
-            .get_member(user_id)
+            .get_member_no_sync(user_id)
             .await?
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
         let event = invitee.event();
         let inviter_id = event.sender();
-        let inviter = self.inner.get_member(inviter_id).await?;
+        let inviter = self.inner.get_member_no_sync(inviter_id).await?;
         Ok(Invite { invitee, inviter })
     }
 }
