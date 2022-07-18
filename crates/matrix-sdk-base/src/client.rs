@@ -558,6 +558,7 @@ impl BaseClient {
         changes.account_data = account_data;
     }
 
+    #[allow(unused_variables)]
     async fn process_joined_rooms(
         &self,
         joined_rooms: BTreeMap<OwnedRoomId, api::sync::sync_events::v3::JoinedRoom>,
@@ -565,6 +566,7 @@ impl BaseClient {
         ambiguity_cache: &mut AmbiguityCache,
         push_rules: &Ruleset,
         new_rooms: &mut Rooms,
+        next_batch: Option<String>,
     ) -> Result<()> {
         for (room_id, new_info) in joined_rooms {
             let room = self.store.get_or_create_room(&room_id, RoomType::Joined).await;
@@ -628,16 +630,16 @@ impl BaseClient {
             room_info.update_notification_count(notification_count);
 
             #[cfg(feature = "experimental-timeline")]
-            let timeline_slice = TimelineSlice::new(
-                timeline.events.clone(),
-                next_batch.clone(),
-                timeline.prev_batch.clone(),
-                timeline.limited,
-                true,
-            );
-
-            #[cfg(feature = "experimental-timeline")]
-            changes.add_timeline(&room_id, timeline_slice);
+            if next_batch.is_some() {
+                let timeline_slice = TimelineSlice::new(
+                    timeline.events.clone(),
+                    next_batch.clone().unwrap(),
+                    timeline.prev_batch.clone(),
+                    timeline.limited,
+                    true,
+                );
+                changes.add_timeline(&room_id, timeline_slice);
+            }
 
             new_rooms.join.insert(
                 room_id,
@@ -725,6 +727,7 @@ impl BaseClient {
             &mut ambiguity_cache,
             &push_rules,
             &mut new_rooms,
+            if !transaction { Some(next_batch.clone()) } else { None },
         )
         .await?;
 
