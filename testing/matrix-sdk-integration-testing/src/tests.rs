@@ -1,25 +1,20 @@
+use std::{collections::HashMap, option_env};
 
-use std::option_env;
-use matrix_sdk::{
-    store::make_store_config, Client, ClientBuilder,
-    ruma::{
-        api::client::{
-            account::register::v3::Request as RegistrationRequest, room::Visibility, uiaa,
-        },
-    }
-};
 use anyhow::Result;
-use tempfile::{tempdir, TempDir};
 use assign::assign;
 use lazy_static::lazy_static;
-
-use std::collections::HashMap;
-use std::sync::Mutex;
+use matrix_sdk::{
+    ruma::api::client::{
+        account::register::v3::Request as RegistrationRequest, uiaa,
+    },
+    store::make_store_config,
+    Client,
+};
+use tempfile::{tempdir, TempDir};
+use tokio::sync::Mutex;
 
 lazy_static! {
-    static ref USERS: Mutex<HashMap<String, (Client, TempDir)>> = {
-        Mutex::new(HashMap::new())
-    };    
+    static ref USERS: Mutex<HashMap<String, (Client, TempDir)>> = Mutex::new(HashMap::new());
 }
 
 /// read the test configuration from the environment
@@ -30,19 +25,18 @@ pub fn test_server_conf() -> (String, String) {
     )
 }
 
-
 pub async fn get_client_for_user(username: String) -> Result<Client> {
-    let mut users = USERS.lock().expect("Static doesn't fail");
+    let mut users = USERS.lock().await;
     if let Some((client, _)) = users.get(&username) {
-        return Ok(client.clone())
+        return Ok(client.clone());
     }
-    
+
     let (homeserver_url, _domain_name) = test_server_conf();
 
     let tmp_dir = tempdir()?;
 
     let client = Client::builder()
-        .user_agent("matrix-sdk-integation-tests".to_owned())
+        .user_agent("matrix-sdk-integation-tests")
         .store_config(make_store_config(tmp_dir.path(), None)?)
         .homeserver_url(homeserver_url)
         .build()
@@ -66,7 +60,6 @@ pub async fn get_client_for_user(username: String) -> Result<Client> {
     users.insert(username, (client.clone(), tmp_dir)); // keeping temp dir around so it doesn't get destroyed yet
 
     Ok(client)
-
 }
 
 mod invitations;

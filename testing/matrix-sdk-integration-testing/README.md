@@ -16,7 +16,7 @@ You can see the patches we do to configuration (namely activate registration and
 
 The integration tests expect environment variables `HOMESERVER_URL` be the http-url to access the synapse server and `HOMESERVER_DOMAIN` to be set to the domain configured in that server. If you are using the provided `docker-compose`, the default will be fine. 
 
-## Maintainance
+## Maintenance
 
 To drop the database of your docker-compose run:
 

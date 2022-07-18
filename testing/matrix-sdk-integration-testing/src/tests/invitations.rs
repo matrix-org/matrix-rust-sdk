@@ -1,17 +1,13 @@
-
-use super::get_client_for_user;
 use anyhow::{bail, Result};
 use assign::assign;
 use matrix_sdk::{
-    room::Room,
-    ruma::api::client::room::{
-        create_room::v3::Request as CreateRoomRequest,
-    }
+    room::Room, ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
 };
+
+use super::get_client_for_user;
 
 #[tokio::test]
 async fn test_invitation_details() -> Result<()> {
-
     let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
     let sebastian = get_client_for_user("sebastian".to_owned()).await?;
 
@@ -37,4 +33,4 @@ async fn test_invitation_details() -> Result<()> {
         bail!("The room tamatoa invited sebastian in isn't an invite: {:?}", room);
     }
     Ok(())
-} 
+}
