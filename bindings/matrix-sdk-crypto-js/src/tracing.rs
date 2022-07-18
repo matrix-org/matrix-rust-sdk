@@ -1,12 +1,12 @@
-use std::fmt;
+use std::{fmt, sync::Arc};
 #[cfg(feature = "tracing")]
-use std::fmt::Write as _;
+use std::{fmt::Write as _, sync::Once};
 
 #[cfg(feature = "tracing")]
 use tracing::{
     field::{Field, Visit},
     metadata::LevelFilter,
-    Event, Id, Level, Metadata, Subscriber,
+    Event, Level, Metadata, Subscriber,
 };
 #[cfg(feature = "tracing")]
 use tracing_subscriber::{
@@ -16,11 +16,13 @@ use tracing_subscriber::{
 };
 use wasm_bindgen::prelude::*;
 
+type TracingInner = Arc<reload::Handle<Layer, Registry>>;
+
 /// Type to install and to manipulate the tracing layer.
 #[wasm_bindgen]
 pub struct Tracing {
     #[cfg(feature = "tracing")]
-    handle: reload::Handle<Layer, Registry>,
+    handle: TracingInner,
 }
 
 impl fmt::Debug for Tracing {
@@ -39,8 +41,12 @@ impl Tracing {
 
     /// Install the tracing layer.
     ///
-    /// **Warning**: It must be installed only **once**, otherwise a
-    /// runtime error will be raised.
+    /// `Tracing` is a singleton. Once it is installed, consecutive
+    /// calls to `install` will construct a new `Tracing` object but
+    /// with the exact same inner state. Calling `install` with a new
+    /// `min_level` will just update the `min_level` parameter; in
+    /// that regard, it is similar to calling the `min_level` method
+    /// on an existing `Tracing` object.
     pub fn install(_min_level: LoggerLevel) -> Option<Tracing> {
         #[cfg(not(feature = "tracing"))]
         {
@@ -49,11 +55,28 @@ impl Tracing {
 
         #[cfg(feature = "tracing")]
         {
-            let (filter, reload_handle) = reload::Layer::new(Layer::new(_min_level));
+            static mut INSTALL: Option<TracingInner> = None;
+            static INSTALLED: Once = Once::new();
 
-            tracing_subscriber::registry().with(filter).init();
+            INSTALLED.call_once(|| {
+                let (filter, reload_handle) = reload::Layer::new(Layer::new(_min_level.clone()));
 
-            Some(Self { handle: reload_handle })
+                tracing_subscriber::registry().with(filter).init();
+
+                unsafe { INSTALL = Some(Arc::new(reload_handle)) };
+            });
+
+            let tracing = Tracing {
+                handle: unsafe { INSTALL.as_ref() }
+                    .cloned()
+                    .expect("`Tracing` has not been installed correctly"),
+            };
+
+            // If it's not the first call to `install`, the
+            // `min_level` can be different. Let's update it.
+            tracing.min_level(_min_level);
+
+            Some(tracing)
         }
     }
 

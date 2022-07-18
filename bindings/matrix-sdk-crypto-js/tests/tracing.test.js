@@ -14,6 +14,12 @@ describe(Tracing.name, () => {
     if (Tracing.isAvailable()) {
         let tracing = Tracing.install(LoggerLevel.Debug);
 
+        test('can installed several times', () => {
+            Tracing.install(LoggerLevel.Debug);
+            Tracing.install(LoggerLevel.Warn);
+            Tracing.install(LoggerLevel.Debug);
+        });
+
         const originalConsoleDebug = console.debug;
 
         for (const [testName, testPreState, testPostState, expectedGotcha] of [
