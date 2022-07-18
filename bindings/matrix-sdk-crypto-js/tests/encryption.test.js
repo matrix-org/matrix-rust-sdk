@@ -1,4 +1,4 @@
-const { EncryptionAlgorithm, EncryptionSettings, HistoryVisibility, VerificationState } = require('../pkg/matrix_sdk_crypto');
+const { EncryptionAlgorithm, EncryptionSettings, HistoryVisibility, VerificationState } = require('../pkg/matrix_sdk_crypto_js');
 
 describe('EncryptionAlgorithm', () => {
     test('has the correct variant values', () => {

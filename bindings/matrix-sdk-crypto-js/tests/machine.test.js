@@ -1,4 +1,4 @@
-const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../pkg/matrix_sdk_crypto');
+const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../pkg/matrix_sdk_crypto_js');
 
 describe(OlmMachine.name, () => {
     test('can be instantiated with the async initializer', async () => {
