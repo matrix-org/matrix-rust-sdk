@@ -558,6 +558,45 @@ impl BaseClient {
         changes.account_data = account_data;
     }
 
+    async fn process_left_rooms(
+        &self,
+        left_rooms: BTreeMap<OwnedRoomId, api::sync::sync_events::v3::LeftRoom>,
+        changes: &mut StateChanges,
+        ambiguity_cache: &mut AmbiguityCache,
+        push_rules: &Ruleset,
+        new_rooms: &mut Rooms,
+    ) -> Result<()> {
+        for (room_id, new_info) in left_rooms {
+            let room = self.store.get_or_create_room(&room_id, RoomType::Left).await;
+            let mut room_info = room.clone_info();
+            room_info.mark_as_left();
+
+            let mut user_ids = self
+                .handle_state(&new_info.state.events, &mut room_info, changes, ambiguity_cache)
+                .await?;
+
+            let timeline = self
+                .handle_timeline(
+                    &room,
+                    new_info.timeline,
+                    push_rules,
+                    &mut user_ids,
+                    &mut room_info,
+                    changes,
+                    ambiguity_cache,
+                )
+                .await?;
+
+            self.handle_room_account_data(&room_id, &new_info.account_data.events, changes).await;
+
+            changes.add_room(room_info);
+            new_rooms
+                .leave
+                .insert(room_id, LeftRoom::new(timeline, new_info.state, new_info.account_data));
+        }
+        Ok(())
+    }
+
     #[allow(unused_variables)]
     async fn process_joined_rooms(
         &self,
@@ -731,40 +770,14 @@ impl BaseClient {
         )
         .await?;
 
-        for (room_id, new_info) in rooms.leave {
-            let room = self.store.get_or_create_room(&room_id, RoomType::Left).await;
-            let mut room_info = room.clone_info();
-            room_info.mark_as_left();
-
-            let mut user_ids = self
-                .handle_state(
-                    &new_info.state.events,
-                    &mut room_info,
-                    &mut changes,
-                    &mut ambiguity_cache,
-                )
-                .await?;
-
-            let timeline = self
-                .handle_timeline(
-                    &room,
-                    new_info.timeline,
-                    &push_rules,
-                    &mut user_ids,
-                    &mut room_info,
-                    &mut changes,
-                    &mut ambiguity_cache,
-                )
-                .await?;
-
-            self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
-                .await;
-
-            changes.add_room(room_info);
-            new_rooms
-                .leave
-                .insert(room_id, LeftRoom::new(timeline, new_info.state, new_info.account_data));
-        }
+        self.process_left_rooms(
+            rooms.leave,
+            &mut changes,
+            &mut ambiguity_cache,
+            &push_rules,
+            &mut new_rooms,
+        )
+        .await?;
 
         for (room_id, new_info) in rooms.invite {
             let room = self.store.get_or_create_stripped_room(&room_id).await;
