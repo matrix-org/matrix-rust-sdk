@@ -247,7 +247,7 @@ jobs:
 
       - name: Check logs
         working-directory: testing/matrix-sdk-integration-testing/assets
-        run: docker logs
+        run: docker-compose logs
 
       - name: Run matrix sdk integration tests
         run: cargo test -p matrix-sdk-integration-testing
