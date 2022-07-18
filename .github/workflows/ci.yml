@@ -207,3 +207,38 @@ jobs:
         with:
           command: run
           args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
+
+  integration-tests:
+    name: Integration test
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Start synapse docker
+        working-directory: testing/matrix-sdk-integration-testing/assets
+        run: docker-compose up -d
+
+      - name: Check running containers
+        working-directory: testing/matrix-sdk-integration-testing/assets
+        run: docker ps -a
+
+      - name: Check logs
+        working-directory: testing/matrix-sdk-integration-testing/assets
+        run: docker logs backend
+
+      - name: Run matrix sdk integration tests
+        run: cargo test -p matrix-sdk-integration-testing
