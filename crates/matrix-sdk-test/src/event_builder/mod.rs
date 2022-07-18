@@ -136,6 +136,15 @@ impl EventBuilder {
         self
     }
 
+    /// Add presence in bulk.
+    pub fn add_presence_bulk<I>(&mut self, events: I) -> &mut Self
+    where
+        I: IntoIterator<Item = Raw<PresenceEvent>>,
+    {
+        self.presence.extend(events);
+        self
+    }
+
     /// Add global account data.
     pub fn add_global_account_data_event(
         &mut self,
@@ -148,6 +157,15 @@ impl EventBuilder {
         };
 
         self.account_data.push(from_json_value(val).unwrap());
+        self
+    }
+
+    /// Add global account data in bulk.
+    pub fn add_global_account_data_bulk<I>(&mut self, events: I) -> &mut Self
+    where
+        I: IntoIterator<Item = Raw<AnyGlobalAccountDataEvent>>,
+    {
+        self.account_data.extend(events);
         self
     }
 
