@@ -932,7 +932,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
-        let mut changes = StateChanges::new("".to_owned());
+        let mut changes = StateChanges::new(Some("".to_owned()));
         let summary = assign!(RumaSummary::new(), {
             heroes: vec![me.to_string(), matthew.to_string()],
         });
@@ -955,7 +955,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
-        let mut changes = StateChanges::new("".to_owned());
+        let mut changes = StateChanges::new(Some("".to_owned()));
 
         changes.add_stripped_member(room_id, make_stripped_member_event(matthew, "Matthew"));
         changes.add_stripped_member(room_id, make_stripped_member_event(me, "Me"));
@@ -974,7 +974,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
-        let mut changes = StateChanges::new("".to_owned());
+        let mut changes = StateChanges::new(Some("".to_owned()));
         let summary = assign!(RumaSummary::new(), {
             joined_member_count: Some(2u32.into()),
             heroes: vec![me.to_string(), matthew.to_string()],
@@ -1006,7 +1006,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
-        let mut changes = StateChanges::new("".to_owned());
+        let mut changes = StateChanges::new(Some("".to_owned()));
 
         changes
             .members
@@ -1033,7 +1033,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let matthew = user_id!("@matthew:example.org");
         let me = user_id!("@me:example.org");
-        let mut changes = StateChanges::new("".to_owned());
+        let mut changes = StateChanges::new(Some("".to_owned()));
         let summary = assign!(RumaSummary::new(), {
             joined_member_count: Some(1u32.into()),
             heroes: vec![me.to_string(), matthew.to_string()],

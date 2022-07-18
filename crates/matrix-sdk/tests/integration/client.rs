@@ -256,7 +256,7 @@ async fn sync() {
 
     let response = client.sync_once(sync_settings).await.unwrap();
 
-    assert_ne!(response.next_batch, "");
+    assert_ne!(response.next_batch, Some(String::new()));
 
     assert!(client.sync_token().await.is_some());
 }

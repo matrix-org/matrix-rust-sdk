@@ -127,7 +127,7 @@ impl From<TimelineEvent> for SyncTimelineEvent {
 pub struct SyncResponse {
     /// The batch token to supply in the `since` param of the next `/sync`
     /// request.
-    pub next_batch: String,
+    pub next_batch: Option<String>,
     /// Updates to rooms.
     pub rooms: Rooms,
     /// Updates to the presence status of other users.
@@ -150,7 +150,7 @@ pub struct SyncResponse {
 }
 
 impl SyncResponse {
-    pub fn new(next_batch: String) -> Self {
+    pub fn new(next_batch: Option<String>) -> Self {
         Self { next_batch, ..Default::default() }
     }
 }

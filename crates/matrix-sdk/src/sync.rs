@@ -139,7 +139,7 @@ impl Client {
 
         match response {
             Ok(r) => {
-                sync_settings.token = Some(r.next_batch.clone());
+                sync_settings.token = r.next_batch.clone();
                 Ok(r)
             }
             Err(e) => {
