@@ -27,10 +27,10 @@ use ruma::{
     },
     assign,
     events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
-    receipt::ReceiptType,
     serde::Raw,
     EventId, OwnedTransactionId, TransactionId, UserId,
 };
+use ruma_client_api::receipt::create_receipt::v3::ReceiptType;
 use serde_json::Value;
 use tracing::debug;
 #[cfg(feature = "e2e-encryption")]

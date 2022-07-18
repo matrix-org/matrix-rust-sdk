@@ -1003,7 +1003,7 @@ impl Common {
         }
 
         let via = self.route().await?;
-        Ok(self.room_id().matrix_to_uri(via))
+        Ok(self.room_id().matrix_to_uri_via(via))
     }
 
     /// Get a `matrix:` permalink to this room.
@@ -1022,7 +1022,7 @@ impl Common {
         }
 
         let via = self.route().await?;
-        Ok(self.room_id().matrix_uri(via, join))
+        Ok(self.room_id().matrix_uri_via(via, join))
     }
 
     /// Get a `matrix.to` permalink to an event in this room.
@@ -1045,7 +1045,7 @@ impl Common {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
-        Ok(self.room_id().matrix_to_event_uri(event_id, via))
+        Ok(self.room_id().matrix_to_event_uri_via(event_id, via))
     }
 
     /// Get a `matrix:` permalink to an event in this room.
@@ -1068,7 +1068,7 @@ impl Common {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
-        Ok(self.room_id().matrix_event_uri(event_id, via))
+        Ok(self.room_id().matrix_event_uri_via(event_id, via))
     }
 }
 
@@ -1125,7 +1125,7 @@ impl<'a> MessagesOptions<'a> {
     }
 
     fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
-        assign!(get_message_events::v3::Request::new(room_id, self.from, self.dir), {
+        assign!(get_message_events::v3::Request::new(room_id, Some(self.from), self.dir), {
             to: self.to,
             limit: self.limit,
             filter: self.filter,

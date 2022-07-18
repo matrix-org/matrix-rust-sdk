@@ -3,10 +3,9 @@ use std::{borrow::Cow, ops::Deref};
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::{
-        secret::request::SecretName, GlobalAccountDataEventType, RoomAccountDataEventType,
-        StateEventType,
+        receipt::ReceiptType, secret::request::SecretName, GlobalAccountDataEventType,
+        RoomAccountDataEventType, StateEventType,
     },
-    receipt::ReceiptType,
     DeviceId, EventEncryptionAlgorithm, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId,
     RoomId, TransactionId, UserId,
 };

@@ -30,7 +30,7 @@ tracing = []
 [dependencies]
 matrix-sdk-common = { version = "0.5.0", path = "../../crates/matrix-sdk-common" }
 matrix-sdk-crypto = { version = "0.5.0", path = "../../crates/matrix-sdk-crypto" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "7ec599e83d8ba6b2ace9e4fe184fc7560b0ff6ae", features = ["client-api-c", "js", "rand", "unstable-msc2676", "unstable-msc2677"] }
 vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd", features = ["js"] }
 wasm-bindgen = "0.2.80"
 wasm-bindgen-futures = "0.4.30"

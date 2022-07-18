@@ -12,7 +12,7 @@ criterion = { version = "0.3.5", features = ["async", "async_tokio", "html_repor
 matrix-sdk-crypto = { path = "../crates/matrix-sdk-crypto", version = "0.5.0" }
 matrix-sdk-sled = { path = "../crates/matrix-sdk-sled", version = "0.1.0", default-features = false, features = ["crypto-store"] }
 matrix-sdk-test = { path = "../crates/matrix-sdk-test", version = "0.5.0" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "7ec599e83d8ba6b2ace9e4fe184fc7560b0ff6ae" }
 serde_json = "1.0.79"
 tempfile = "3.3.0"
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread"] }
