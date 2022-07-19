@@ -74,26 +74,27 @@ impl Client {
 
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
-        RUNTIME.block_on(async move { self.client.homeserver().await.to_string() })
+        RUNTIME.block_on(async move { self.async_homeserver().await })
+    }
+
+    pub async fn async_homeserver(&self) -> String {
+        self.client.homeserver().await.to_string()
     }
 
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
-    pub fn authentication_issuer(&self) -> Option<String> {
-        RUNTIME.block_on(async move {
-            self.client.authentication_issuer().await.map(|server| server.to_string())
-        })
+    pub async fn authentication_issuer(&self) -> Option<String> {
+        self.client.authentication_issuer().await.map(|server| server.to_string())
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
-    pub fn supports_password_login(&self) -> anyhow::Result<bool> {
-        RUNTIME.block_on(async move {
-            let login_types = self.client.get_login_types().await?;
-            let supports_password = login_types.flows.iter().any(|login_type| {
-                matches!(login_type, get_login_types::v3::LoginType::Password(_))
-            });
-            Ok(supports_password)
-        })
+    pub async fn supports_password_login(&self) -> anyhow::Result<bool> {
+        let login_types = self.client.get_login_types().await?;
+        let supports_password = login_types
+            .flows
+            .iter()
+            .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
+        Ok(supports_password)
     }
 
     pub fn start_sync(&self) {

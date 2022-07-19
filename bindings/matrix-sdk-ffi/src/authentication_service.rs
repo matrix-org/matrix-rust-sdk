@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
+use futures_util::future::join3;
 use parking_lot::RwLock;
 
-use super::{client::Client, client_builder::ClientBuilder};
+use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
 
 pub struct AuthenticationService {
     base_path: String,
@@ -67,18 +68,24 @@ impl AuthenticationService {
     pub fn configure_homeserver(&self, server_name: String) -> Result<(), AuthenticationError> {
         // Construct a username as the builder currently requires one.
         let username = format!("@auth:{}", server_name);
-        let client = Arc::new(ClientBuilder::new())
-            .base_path(self.base_path.clone())
-            .username(username)
-            .build()
-            .map_err(AuthenticationError::from)?;
 
-        let details = Arc::new(self.details_from_client(&client)?);
+        let mut builder =
+            Arc::new(ClientBuilder::new()).base_path(self.base_path.clone()).username(username);
 
-        *self.client.write() = Some(client);
-        *self.homeserver_details.write() = Some(details);
+        if server_name.starts_with("http://") || server_name.starts_with("https://") {
+            builder = builder.homeserver_url(server_name)
+        }
 
-        Ok(())
+        let client = builder.build().map_err(AuthenticationError::from)?;
+
+        RUNTIME.block_on(async move {
+            let details = Arc::new(self.details_from_client(&client).await?);
+
+            *self.client.write() = Some(client);
+            *self.homeserver_details.write() = Some(details);
+
+            Ok(())
+        })
     }
 
     /// Performs a password login using the current homeserver.
@@ -109,18 +116,21 @@ impl AuthenticationService {
     }
 
     /// Get the homeserver login details from a client.
-    fn details_from_client(
+    async fn details_from_client(
         &self,
         client: &Arc<Client>,
     ) -> Result<HomeserverLoginDetails, AuthenticationError> {
-        let homeserver = client.homeserver();
-        let authentication_issuer = client.authentication_issuer();
-        let supports_password_login =
-            client.supports_password_login().map_err(AuthenticationError::from)?;
-        Ok(HomeserverLoginDetails {
-            url: homeserver,
-            authentication_issuer,
-            supports_password_login,
-        })
+        let login_details = join3(
+            client.async_homeserver(),
+            client.authentication_issuer(),
+            client.supports_password_login(),
+        )
+        .await;
+
+        let url = login_details.0;
+        let authentication_issuer = login_details.1;
+        let supports_password_login = login_details.2.map_err(AuthenticationError::from)?;
+
+        Ok(HomeserverLoginDetails { url, authentication_issuer, supports_password_login })
     }
 }
