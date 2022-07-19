@@ -23,42 +23,42 @@ impl From<anyhow::Error> for AuthenticationError {
     }
 }
 
+pub struct HomeserverLoginDetails {
+    url: String,
+    authentication_issuer: Option<String>,
+    supports_password_login: bool,
+}
+
+impl HomeserverLoginDetails {
+    /// The URL of the currently configured homeserver.
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    /// The OIDC Provider that is trusted by the homeserver. `None` when
+    /// not configured.
+    pub fn authentication_issuer(&self) -> Option<String> {
+        self.authentication_issuer.clone()
+    }
+
+    /// Whether the current homeserver supports the password login flow.
+    pub fn supports_password_login(&self) -> bool {
+        self.supports_password_login
+    }
+}
+
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     pub fn new(base_path: String) -> Self {
         AuthenticationService { base_path, client: RwLock::new(None) }
     }
 
-    /// The currently configured homeserver.
-    pub fn homeserver(&self) -> Result<String, AuthenticationError> {
-        self.client
-            .read()
-            .as_ref()
-            .ok_or(AuthenticationError::ClientMissing)
-            .map(|client| client.homeserver())
-    }
-
-    /// The OIDC Provider that is trusted by the homeserver. `None` when
-    /// not configured.
-    pub fn authentication_issuer(&self) -> Result<Option<String>, AuthenticationError> {
-        self.client
-            .read()
-            .as_ref()
-            .ok_or(AuthenticationError::ClientMissing)
-            .map(|client| client.authentication_issuer())
-    }
-
-    /// Whether the current homeserver supports the password login flow.
-    pub fn supports_password_login(&self) -> Result<bool, AuthenticationError> {
-        self.client
-            .read()
-            .as_ref()
-            .ok_or(AuthenticationError::ClientMissing)
-            .and_then(|client| client.supports_password_login().map_err(AuthenticationError::from))
-    }
-
-    /// Updates the server to authenticate with the specified homeserver.
-    pub fn use_server(&self, server_name: String) -> Result<(), AuthenticationError> {
+    /// Updates the service to authenticate with the homeserver for the
+    /// specified address.
+    pub fn configure_homeserver(
+        &self,
+        server_name: String,
+    ) -> Result<Arc<HomeserverLoginDetails>, AuthenticationError> {
         // Construct a username as the builder currently requires one.
         let username = format!("@auth:{}", server_name);
         let client = Arc::new(ClientBuilder::new())
@@ -67,8 +67,10 @@ impl AuthenticationService {
             .build()
             .map_err(AuthenticationError::from)?;
 
+        let details = self.details_from_client(&client)?;
+
         *self.client.write() = Some(client);
-        Ok(())
+        Ok(Arc::new(details))
     }
 
     /// Performs a password login using the current homeserver.
@@ -96,5 +98,20 @@ impl AuthenticationService {
             }
             None => Err(AuthenticationError::ClientMissing),
         }
+    }
+
+    fn details_from_client(
+        &self,
+        client: &Arc<Client>,
+    ) -> Result<HomeserverLoginDetails, AuthenticationError> {
+        let homeserver = client.homeserver();
+        let authentication_issuer = client.authentication_issuer();
+        let supports_password_login =
+            client.supports_password_login().map_err(AuthenticationError::from)?;
+        Ok(HomeserverLoginDetails {
+            url: homeserver,
+            authentication_issuer,
+            supports_password_login,
+        })
     }
 }

@@ -156,24 +156,21 @@ interface MediaSource {
 
 [Error]
 enum AuthenticationError {
-  "ClientMissing",
-  "Generic",
+    "ClientMissing",
+    "Generic",
+};
+
+interface HomeserverLoginDetails {
+    string url();
+    string? authentication_issuer();
+    boolean supports_password_login();
 };
 
 interface AuthenticationService {
     constructor(string base_path);
     
     [Throws=AuthenticationError]
-    string homeserver();
-    
-    [Throws=AuthenticationError]
-    string? authentication_issuer();
-
-    [Throws=AuthenticationError]
-    boolean supports_password_login();
-    
-    [Throws=AuthenticationError]
-    void use_server(string server_name);
+    HomeserverLoginDetails configure_homeserver(string server_name);
     
     [Throws=AuthenticationError]
     Client login(string username, string password);
