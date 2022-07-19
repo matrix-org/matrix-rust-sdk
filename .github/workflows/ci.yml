@@ -237,17 +237,22 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
-      - name: Start synapse docker
-        working-directory: testing/matrix-sdk-integration-testing/assets
-        run: docker-compose up -d
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
 
-      - name: Check running containers
-        working-directory: testing/matrix-sdk-integration-testing/assets
-        run: docker ps -a
-
-      - name: Check logs
-        working-directory: testing/matrix-sdk-integration-testing/assets
-        run: docker-compose logs
+      - uses: gnunicorn/setup-matrix-synapse@main
+        with:
+          uploadLogs: false
+          httpPort: 8228
+          disableRateLimiting: true
+          serverName: "matrix-sdk.rs"
+          public_baseurl: "http://10.0.2.2:8228/"
+          customConfig: |
+            {
+              "enable_registration_without_verification": true,
+              "enable_registration": true
+            }
 
       - name: Run matrix sdk integration tests
         run: cargo test -p matrix-sdk-integration-testing
