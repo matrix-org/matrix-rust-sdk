@@ -1,4 +1,7 @@
-use ruma::{api::client::sync::sync_events::v3::InvitedRoom, OwnedRoomId};
+use ruma::{
+    api::client::sync::sync_events::v3::InvitedRoom, events::AnyStrippedStateEvent, serde::Raw,
+    OwnedRoomId,
+};
 
 use super::StrippedStateTestEvent;
 use crate::test_json;
@@ -20,6 +23,15 @@ impl InvitedRoomBuilder {
     /// Add an event to the state.
     pub fn add_state_event(mut self, event: StrippedStateTestEvent) -> Self {
         self.inner.invite_state.events.push(event.into_raw_event());
+        self
+    }
+
+    /// Add events to the state in bulk.
+    pub fn add_state_bulk<I>(mut self, events: I) -> Self
+    where
+        I: IntoIterator<Item = Raw<AnyStrippedStateEvent>>,
+    {
+        self.inner.invite_state.events.extend(events);
         self
     }
 }

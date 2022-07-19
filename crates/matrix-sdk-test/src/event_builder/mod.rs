@@ -16,11 +16,13 @@ use serde_json::{from_value as from_json_value, json, Value as JsonValue};
 
 use super::test_json;
 
+mod bulk;
 mod invited_room;
 mod joined_room;
 mod left_room;
 mod test_event;
 
+pub use bulk::bulk_room_members;
 pub use invited_room::InvitedRoomBuilder;
 pub use joined_room::JoinedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
@@ -136,6 +138,15 @@ impl EventBuilder {
         self
     }
 
+    /// Add presence in bulk.
+    pub fn add_presence_bulk<I>(&mut self, events: I) -> &mut Self
+    where
+        I: IntoIterator<Item = Raw<PresenceEvent>>,
+    {
+        self.presence.extend(events);
+        self
+    }
+
     /// Add global account data.
     pub fn add_global_account_data_event(
         &mut self,
@@ -148,6 +159,15 @@ impl EventBuilder {
         };
 
         self.account_data.push(from_json_value(val).unwrap());
+        self
+    }
+
+    /// Add global account data in bulk.
+    pub fn add_global_account_data_bulk<I>(&mut self, events: I) -> &mut Self
+    where
+        I: IntoIterator<Item = Raw<AnyGlobalAccountDataEvent>>,
+    {
+        self.account_data.extend(events);
         self
     }
 
