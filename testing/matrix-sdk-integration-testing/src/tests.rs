@@ -4,9 +4,7 @@ use anyhow::Result;
 use assign::assign;
 use lazy_static::lazy_static;
 use matrix_sdk::{
-    ruma::api::client::{
-        account::register::v3::Request as RegistrationRequest, uiaa,
-    },
+    ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
     store::make_store_config,
     Client,
 };
