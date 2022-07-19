@@ -114,6 +114,8 @@ interface SlidingSync {
     void unsubscribe(string room_id);
 
     SlidingSyncView? get_view(string name);
+};
+
 interface ClientBuilder {
     constructor();
 

@@ -11,7 +11,7 @@ use futures_signals::{
 use futures_util::{pin_mut, StreamExt};
 pub use matrix_sdk::{RoomListEntry as MatrixRoomEntry, SlidingSyncState};
 use parking_lot::RwLock;
-use ruma::api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription;
+use matrix_sdk::ruma::api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription;
 
 use super::{Client, RUNTIME};
 
@@ -257,7 +257,7 @@ impl SlidingSync {
         let delegate = self.delegate.clone();
 
         RUNTIME.spawn(async move {
-            let (_cancel, stream) = inner.stream().expect("Doesn't fail.");
+            let (_cancel, stream) = inner.stream().await.expect("Doesn't fail.");
             pin_mut!(stream);
             for update in stream.next().await {
                 let update = match update {
