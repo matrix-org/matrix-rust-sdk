@@ -1,5 +1,5 @@
 use log::warn;
-use ruma::{DeviceId, RoomId, UserId};
+use matrix_sdk::ruma::{DeviceId, RoomId, UserId};
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},

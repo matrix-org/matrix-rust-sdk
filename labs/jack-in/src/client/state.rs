@@ -7,7 +7,7 @@ use std::{
 use futures_signals::{signal::Mutable, signal_vec::MutableVec};
 use log::warn;
 use matrix_sdk::{Client, SlidingSyncRoom, SlidingSyncView};
-use ruma::{events::AnyRoomEvent, OwnedRoomId};
+use matrix_sdk::ruma::{events::AnyRoomEvent, OwnedRoomId};
 use tuirealm::tui::widgets::TableState;
 
 #[derive(Clone, Default)]

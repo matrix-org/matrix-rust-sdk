@@ -5,7 +5,7 @@
 use eyre::{eyre, Result};
 use log::{warn, LevelFilter};
 use matrix_sdk::{Client, Session};
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use matrix_sdk::ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use tuirealm::{application::PollStrategy, AttrValue, Attribute, Event, Update};
 // -- internal
 mod app;

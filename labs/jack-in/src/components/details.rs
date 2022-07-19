@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use log::warn;
-use ruma::{
+use matrix_sdk::ruma::{
     events::{AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEvent},
     RoomId,
 };
