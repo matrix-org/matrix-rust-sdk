@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use matrix_sdk::{config::SyncSettings, DisplayName, RoomMember};
-use matrix_sdk_test::{async_test, test_json};
+use matrix_sdk_test::{
+    async_test, bulk_room_members, test_json, EventBuilder, JoinedRoomBuilder, TimelineTestEvent,
+};
 use ruma::{
     event_id,
-    events::{AnySyncStateEvent, StateEventType},
+    events::{room::member::MembershipState, AnySyncStateEvent, StateEventType},
     room_id,
 };
-use serde_json::{json, Value as JsonValue};
+use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
@@ -361,92 +363,26 @@ async fn room_timeline() {
 }
 
 #[async_test]
-async fn room_permalink() {
-    fn sync_response(index: u8, room_timeline_events: &[JsonValue]) -> JsonValue {
-        json!({
-            "device_one_time_keys_count": {},
-            "next_batch": format!("s526_47314_0_7_1_1_1_11444_{}", index + 1),
-            "device_lists": {
-                "changed": [],
-                "left": []
-            },
-            "account_data": {
-                "events": []
-            },
-            "rooms": {
-                "invite": {},
-                "join": {
-                    "!test_room:127.0.0.1": {
-                        "summary": {},
-                        "account_data": {
-                            "events": []
-                        },
-                        "ephemeral": {
-                            "events": []
-                        },
-                        "state": {
-                            "events": []
-                        },
-                        "timeline": {
-                            "events": room_timeline_events,
-                            "limited": false,
-                            "prev_batch": format!("s526_47314_0_7_1_1_1_11444_{}", index - 1),
-                        },
-                        "unread_notifications": {
-                            "highlight_count": 0,
-                            "notification_count": 0,
-                        }
-                    }
-                },
-                "leave": {}
-            },
-            "to_device": {
-                "events": []
-            },
-            "presence": {
-                "events": []
-            }
-        })
-    }
-
-    fn room_member_events(nb: usize, server: &str) -> Vec<JsonValue> {
-        let mut events = Vec::with_capacity(nb);
-        for i in 0..nb {
-            let id = format!("${server}{i}");
-            let user = format!("@user{i}:{server}");
-            events.push(json!({
-                "content": {
-                    "membership": "join",
-                },
-                "event_id": id,
-                "origin_server_ts": 151800140,
-                "sender": user,
-                "state_key": user,
-                "type": "m.room.member",
-            }))
-        }
-        events
-    }
-
+async fn room_route() {
     let (client, server) = logged_in_client().await;
+    let mut ev_builder = EventBuilder::new();
+    let room_id = room_id!("!test_room:127.0.0.1");
 
     // Without elligible server
-    let mut sync_index = 1;
-    let res = sync_response(
-        sync_index,
-        &[
-            json!({
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
                 "content": {
                     "creator": "@creator:127.0.0.1",
                     "room_version": "6",
                 },
                 "event_id": "$151957878228ekrDs",
                 "origin_server_ts": 15195787,
-                "sender": "@creator:localhost",
+                "sender": "@creator:127.0.0.1",
                 "state_key": "",
                 "type": "m.room.create",
-            }),
-            json!({
+            })))
+            .add_timeline_event(TimelineTestEvent::Custom(json!({
                 "content": {
                     "membership": "join",
                 },
@@ -455,110 +391,79 @@ async fn room_permalink() {
                 "sender": "@creator:127.0.0.1",
                 "state_key": "@creator:127.0.0.1",
                 "type": "m.room.member",
-            }),
-        ],
+            }))),
     );
-    mock_sync(&server, res, None).await;
-    client.sync_once(SyncSettings::new()).await.unwrap();
-    let room = client.get_room(room_id!("!test_room:127.0.0.1")).unwrap();
 
-    assert_eq!(
-        room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1"
-    );
-    assert_eq!(
-        room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1"
-    );
-    assert_eq!(
-        room.matrix_permalink(true).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?action=join"
-    );
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    client.sync_once(SyncSettings::new()).await.unwrap();
+    let room = client.get_room(room_id).unwrap();
+
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 0);
 
     // With a single elligible server
-    sync_index += 1;
-    let res = sync_response(
-        sync_index,
-        &[json!({
-            "content": {
-                "membership": "join",
-            },
-            "event_id": "$151800140517rfvjc",
-            "origin_server_ts": 151800140,
-            "sender": "@example:localhost",
-            "state_key": "@example:localhost",
-            "type": "m.room.member",
-        })],
-    );
+    let mut batch = 0;
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+        bulk_room_members(batch, 0..1, "localhost", &MembershipState::Join),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
-    assert_eq!(
-        room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=localhost"
-    );
-    assert_eq!(
-        room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?via=localhost"
-    );
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 1);
+    assert_eq!(route[0], "localhost");
 
     // With two elligible servers
-    sync_index += 1;
-    let res = sync_response(sync_index, &room_member_events(15, "notarealhs"));
+    batch += 1;
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+        bulk_room_members(batch, 0..15, "notarealhs", &MembershipState::Join),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
-    assert_eq!(
-        room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=localhost"
-    );
-    assert_eq!(
-        room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=localhost"
-    );
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 2);
+    assert_eq!(route[0], "notarealhs");
+    assert_eq!(route[1], "localhost");
 
     // With three elligible servers
-    sync_index += 1;
-    let res = sync_response(sync_index, &room_member_events(5, "mymatrix"));
+    batch += 1;
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+        bulk_room_members(batch, 0..5, "mymatrix", &MembershipState::Join),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
-    assert_eq!(
-        room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=mymatrix&via=localhost"
-    );
-    assert_eq!(
-        room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=mymatrix&via=localhost"
-    );
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 3);
+    assert_eq!(route[0], "notarealhs");
+    assert_eq!(route[1], "mymatrix");
+    assert_eq!(route[2], "localhost");
 
     // With four elligible servers
-    sync_index += 1;
-    let res = sync_response(sync_index, &room_member_events(10, "yourmatrix"));
+    batch += 1;
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_state_bulk(
+        bulk_room_members(batch, 0..10, "yourmatrix", &MembershipState::Join),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
-    assert_eq!(
-        room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=yourmatrix&via=mymatrix"
-    );
-    assert_eq!(
-        room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=yourmatrix&via=mymatrix"
-    );
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 3);
+    assert_eq!(route[0], "notarealhs");
+    assert_eq!(route[1], "yourmatrix");
+    assert_eq!(route[2], "mymatrix");
 
     // With power levels
-    sync_index += 1;
-    let res = sync_response(
-        sync_index,
-        &[json!({
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
             "content": {
                 "users": {
-                    "@example:localhost": 50,
+                    "@user_0:localhost": 50,
                 },
             },
             "event_id": "$15139375512JaHAW",
@@ -566,30 +471,25 @@ async fn room_permalink() {
             "sender": "@creator:127.0.0.1",
             "state_key": "",
             "type": "m.room.power_levels",
-        })],
-    );
+        })),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
-    assert_eq!(
-        room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=localhost&via=notarealhs&via=yourmatrix"
-    );
-    assert_eq!(
-        room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?via=localhost&via=notarealhs&via=yourmatrix"
-    );
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 3);
+    assert_eq!(route[0], "localhost");
+    assert_eq!(route[1], "notarealhs");
+    assert_eq!(route[2], "yourmatrix");
 
     // With higher power levels
-    sync_index += 1;
-    let res = sync_response(
-        sync_index,
-        &[json!({
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
             "content": {
                 "users": {
-                    "@example:localhost": 50,
-                    "@user0:mymatrix": 70,
+                    "@user_0:localhost": 50,
+                    "@user_2:mymatrix": 70,
                 },
             },
             "event_id": "$15139375512JaHAZ",
@@ -597,26 +497,21 @@ async fn room_permalink() {
             "sender": "@creator:127.0.0.1",
             "state_key": "",
             "type": "m.room.power_levels",
-        })],
-    );
+        })),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
-    assert_eq!(
-        room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=mymatrix&via=notarealhs&via=yourmatrix"
-    );
-    assert_eq!(
-        room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?via=mymatrix&via=notarealhs&via=yourmatrix"
-    );
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 3);
+    assert_eq!(route[0], "mymatrix");
+    assert_eq!(route[1], "notarealhs");
+    assert_eq!(route[2], "yourmatrix");
 
     // With server ACLs
-    sync_index += 1;
-    let res = sync_response(
-        sync_index,
-        &[json!({
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
             "content": {
                 "allow": ["*"],
                 "allow_ip_literals": true,
@@ -627,38 +522,69 @@ async fn room_permalink() {
             "sender": "@creator:127.0.0.1",
             "state_key": "",
             "type": "m.room.server_acl",
-        })],
-    );
+        })),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
+
+    let route = room.route().await.unwrap();
+    assert_eq!(route.len(), 3);
+    assert_eq!(route[0], "mymatrix");
+    assert_eq!(route[1], "yourmatrix");
+    assert_eq!(route[2], "localhost");
+}
+
+#[async_test]
+async fn room_permalink() {
+    let (client, server) = logged_in_client().await;
+    let mut ev_builder = EventBuilder::new();
+    let room_id = room_id!("!test_room:127.0.0.1");
+
+    // Without aliases
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_state_bulk(bulk_room_members(
+                0,
+                0..1,
+                "localhost",
+                &MembershipState::Join,
+            ))
+            .add_timeline_state_bulk(bulk_room_members(
+                1,
+                0..5,
+                "notarealhs",
+                &MembershipState::Join,
+            )),
+    );
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    client.sync_once(SyncSettings::new()).await.unwrap();
+    let room = client.get_room(room_id).unwrap();
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=mymatrix&via=yourmatrix&via=localhost"
+        "https://matrix.to/#/%21test_room%3A127.0.0.1?via=notarealhs&via=localhost"
     );
     assert_eq!(
         room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1?via=mymatrix&via=yourmatrix&via=localhost"
+        "matrix:roomid/test_room:127.0.0.1?via=notarealhs&via=localhost"
     );
 
     // With an alternative alias
-    sync_index += 1;
-    let res = sync_response(
-        sync_index,
-        &[json!({
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
             "content": {
                 "alt_aliases": ["#alias:localhost"],
             },
             "event_id": "$15139375513VdeRF",
             "origin_server_ts": 151393755,
-            "sender": "@example:localhost",
+            "sender": "@user_0:localhost",
             "state_key": "",
             "type": "m.room.canonical_alias",
-        })],
-    );
+        })),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
@@ -668,23 +594,21 @@ async fn room_permalink() {
     assert_eq!(room.matrix_permalink(false).await.unwrap().to_string(), "matrix:r/alias:localhost");
 
     // With a canonical alias
-    sync_index += 1;
-    let res = sync_response(
-        sync_index,
-        &[json!({
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
             "content": {
                 "alias": "#canonical:localhost",
                 "alt_aliases": ["#alias:localhost"],
             },
             "event_id": "$15139375513VdeRF",
             "origin_server_ts": 151393755,
-            "sender": "@example:localhost",
+            "sender": "@user_0:localhost",
             "state_key": "",
             "type": "m.room.canonical_alias",
-        })],
-    );
+        })),
+    ));
     let sync_token = client.sync_token().await.unwrap();
-    mock_sync(&server, res, Some(sync_token.clone())).await;
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
     client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
 
     assert_eq!(
@@ -699,14 +623,68 @@ async fn room_permalink() {
         room.matrix_permalink(true).await.unwrap().to_string(),
         "matrix:r/canonical:localhost?action=join"
     );
+}
 
+#[async_test]
+async fn room_event_permalink() {
+    let (client, server) = logged_in_client().await;
+    let mut ev_builder = EventBuilder::new();
+    let room_id = room_id!("!test_room:127.0.0.1");
     let event_id = event_id!("$15139375512JaHAW");
+
+    // Without aliases
+    ev_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id)
+            .add_timeline_state_bulk(bulk_room_members(
+                0,
+                0..1,
+                "localhost",
+                &MembershipState::Join,
+            ))
+            .add_timeline_state_bulk(bulk_room_members(
+                1,
+                0..5,
+                "notarealhs",
+                &MembershipState::Join,
+            )),
+    );
+    mock_sync(&server, ev_builder.build_json_sync_response(), None).await;
+    client.sync_once(SyncSettings::new()).await.unwrap();
+    let room = client.get_room(room_id).unwrap();
+
     assert_eq!(
         room.matrix_to_event_permalink(event_id).await.unwrap().to_string(),
-        "https://matrix.to/#/%21test_room%3A127.0.0.1/%2415139375512JaHAW?via=mymatrix&via=yourmatrix&via=localhost"
+        "https://matrix.to/#/%21test_room%3A127.0.0.1/%2415139375512JaHAW?via=notarealhs&via=localhost"
     );
     assert_eq!(
         room.matrix_event_permalink(event_id).await.unwrap().to_string(),
-        "matrix:roomid/test_room:127.0.0.1/e/15139375512JaHAW?via=mymatrix&via=yourmatrix&via=localhost"
+        "matrix:roomid/test_room:127.0.0.1/e/15139375512JaHAW?via=notarealhs&via=localhost"
+    );
+
+    // Adding an alias doesn't change anything
+    ev_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
+        TimelineTestEvent::Custom(json!({
+            "content": {
+                "alias": "#canonical:localhost",
+                "alt_aliases": ["#alias:localhost"],
+            },
+            "event_id": "$15139375513VdeRF",
+            "origin_server_ts": 151393755,
+            "sender": "@user_0:localhost",
+            "state_key": "",
+            "type": "m.room.canonical_alias",
+        })),
+    ));
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, ev_builder.build_json_sync_response(), Some(sync_token.clone())).await;
+    client.sync_once(SyncSettings::new().token(sync_token)).await.unwrap();
+
+    assert_eq!(
+        room.matrix_to_event_permalink(event_id).await.unwrap().to_string(),
+        "https://matrix.to/#/%21test_room%3A127.0.0.1/%2415139375512JaHAW?via=notarealhs&via=localhost"
+    );
+    assert_eq!(
+        room.matrix_event_permalink(event_id).await.unwrap().to_string(),
+        "matrix:roomid/test_room:127.0.0.1/e/15139375512JaHAW?via=notarealhs&via=localhost"
     );
 }
