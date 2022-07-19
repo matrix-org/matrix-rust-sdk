@@ -74,7 +74,7 @@ jobs:
           default_author: github_actions
           message: "Tagging Crypto-Node.js for release"
           tag: "${{env.TAG_PREFIX}}${{ inputs.version }}"
-          new_banch: "gh-action/release-${{ env.TAG_PREFIX }}${{ inputs.version }}"
+          new_branch: "gh-action/release-${{ env.TAG_PREFIX }}${{ inputs.version }}"
           push: true
           add: |
             ${{ env.PKG_PATH }}/package.json
