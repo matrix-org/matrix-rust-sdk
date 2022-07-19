@@ -176,7 +176,7 @@ impl Common {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// let request = MessagesOptions::backward("t47429-4392820_219380_26003_2265");
+    /// let request = MessagesOptions::backward_from("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).await.unwrap();
     /// let room = client
@@ -461,7 +461,7 @@ impl Common {
         let filter = assign!(RoomEventFilter::default(), {
             lazy_load_options: LazyLoadOptions::Enabled { include_redundant_members: false },
         });
-        let options = assign!(MessagesOptions::backward(token), {
+        let options = assign!(MessagesOptions::backward_from(token), {
             limit: uint!(10),
             filter,
         });
@@ -1074,7 +1074,7 @@ impl Common {
 
 /// Options for [`messages`][Common::messages].
 ///
-/// See that method for details.
+/// See that method and <https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages> for details.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct MessagesOptions<'a> {
@@ -1083,7 +1083,11 @@ pub struct MessagesOptions<'a> {
     /// This token can be obtained from a `prev_batch` token returned for each
     /// room from the sync API, or from a start or end token returned by a
     /// previous `messages` call.
-    pub from: &'a str,
+    ///
+    /// If `from` isn't provided the homeserver shall return a list of messages
+    /// from the first or last (per the value of the dir parameter) visible
+    /// event in the room history for the requesting user.
+    pub from: Option<&'a str>,
 
     /// The token to stop returning events at.
     ///
@@ -1105,27 +1109,40 @@ pub struct MessagesOptions<'a> {
 }
 
 impl<'a> MessagesOptions<'a> {
-    /// Creates `MessagesOptions` with the given start token and direction.
+    /// Creates `MessagesOptions` with the given direction.
     ///
     /// All other parameters will be defaulted.
-    pub fn new(from: &'a str, dir: Direction) -> Self {
-        Self { from, to: None, dir, limit: uint!(10), filter: RoomEventFilter::default() }
+    pub fn new(dir: Direction) -> Self {
+        Self { from: None, to: None, dir, limit: uint!(10), filter: RoomEventFilter::default() }
+    }
+
+    /// Creates `MessagesOptions` with the given optional start token, and `dir`
+    /// set to `Backward`.
+    pub fn backward(from: Option<&'a str>) -> Self {
+        assign!(Self::new(Direction::Backward), { from })
     }
 
     /// Creates `MessagesOptions` with the given start token, and `dir` set to
     /// `Backward`.
-    pub fn backward(from: &'a str) -> Self {
-        Self::new(from, Direction::Backward)
+    pub fn backward_from(from: &'a str) -> Self {
+        Self::backward(Some(from))
+    }
+
+    /// Creates `MessagesOptions` with the given optional start token, and `dir`
+    /// set to `Forward`.
+    pub fn forward(from: Option<&'a str>) -> Self {
+        assign!(Self::new(Direction::Forward), { from })
     }
 
     /// Creates `MessagesOptions` with the given start token, and `dir` set to
     /// `Forward`.
-    pub fn forward(from: &'a str) -> Self {
-        Self::new(from, Direction::Forward)
+    pub fn forward_from(from: &'a str) -> Self {
+        Self::forward(Some(from))
     }
 
     fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
-        assign!(get_message_events::v3::Request::new(room_id, Some(self.from), self.dir), {
+        assign!(get_message_events::v3::Request::new(room_id, self.dir), {
+            from: self.from,
             to: self.to,
             limit: self.limit,
             filter: self.filter,
