@@ -6,6 +6,7 @@ use tuirealm::{
     props::{Alignment, Borders, Color, Style},
     tui::widgets::Block,
 };
+
 use super::{JackInEvent, Msg};
 
 // -- modules

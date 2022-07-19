@@ -7,7 +7,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use tokio::sync::RwLock;
+use log::warn;
+use tokio::sync::{mpsc, RwLock};
 use tuirealm::{
     props::{Alignment, Borders, Color, TextModifiers},
     terminal::TerminalBridge,
@@ -15,11 +16,11 @@ use tuirealm::{
     Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause, Update,
 };
 
-use super::components::{Details, Label, Logger, Rooms, StatusBar};
-use super::{Id, JackInEvent, MatrixPoller, Msg};
+use super::{
+    components::{Details, Label, Logger, Rooms, StatusBar},
+    Id, JackInEvent, MatrixPoller, Msg,
+};
 use crate::client::state::SlidingSyncState;
-use tokio::sync::mpsc;
-use log::warn;
 
 pub struct Model {
     /// Application
@@ -37,7 +38,11 @@ pub struct Model {
 }
 
 impl Model {
-    pub(crate) fn new(sliding_sync: SlidingSyncState, tx: mpsc::Sender<SlidingSyncState>, poller: MatrixPoller) -> Self {
+    pub(crate) fn new(
+        sliding_sync: SlidingSyncState,
+        tx: mpsc::Sender<SlidingSyncState>,
+        poller: MatrixPoller,
+    ) -> Self {
         let app = Self::init_app(sliding_sync.clone(), poller);
 
         Self {
@@ -54,13 +59,7 @@ impl Model {
 
 impl Model {
     pub fn set_title(&mut self, title: String) {
-        assert!(self
-            .app
-            .attr(
-                &Id::Label,
-                Attribute::Text,
-                AttrValue::String(title),
-            ).is_ok());
+        assert!(self.app.attr(&Id::Label, Attribute::Text, AttrValue::String(title),).is_ok());
     }
     pub fn view(&mut self) {
         assert!(self
@@ -104,7 +103,6 @@ impl Model {
         sliding_sync: SlidingSyncState,
         poller: MatrixPoller,
     ) -> Application<Id, Msg, JackInEvent> {
-
         let mut app: Application<Id, Msg, JackInEvent> = Application::init(
             EventListenerCfg::default()
                 .default_input_listener(Duration::from_millis(20))

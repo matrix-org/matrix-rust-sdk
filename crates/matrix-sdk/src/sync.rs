@@ -12,7 +12,6 @@ use crate::{event_handler::EventKind, Client, Result};
 /// Internal functionality related to getting events from the server
 /// (`sync_events` endpoint)
 impl Client {
-
     pub(crate) async fn process_sync(
         &self,
         response: sync_events::v3::Response,

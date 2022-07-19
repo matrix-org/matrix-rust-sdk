@@ -1,29 +1,22 @@
-use super::BaseClient;
-use ruma::{
-    api::client::sync::{sync_events::v3, sliding_sync_events},
+use matrix_sdk_common::deserialized_responses::{
+    AmbiguityChanges, JoinedRoom, Rooms, SyncResponse,
 };
-use crate::{
-    rooms::RoomType,
-    error::Result,
-    store::{
-        ambiguity_map::AmbiguityCache, StateChanges,
-    },
-};
+use ruma::api::client::sync::{sliding_sync_events, sync_events::v3};
 
-use matrix_sdk_common::{
-    deserialized_responses::{
-        AmbiguityChanges, JoinedRoom, Rooms, SyncResponse, 
-    },
+use super::BaseClient;
+use crate::{
+    error::Result,
+    rooms::RoomType,
+    store::{ambiguity_map::AmbiguityCache, StateChanges},
 };
 
 impl BaseClient {
-
-
     /// Process a response from a sliding sync call.
     ///
     /// # Arguments
     ///
-    /// * `response` - The response that we received after a successful sliding sync.
+    /// * `response` - The response that we received after a successful sliding
+    ///   sync.
     pub async fn process_sliding_sync(
         &self,
         response: sliding_sync_events::Response,
@@ -44,7 +37,7 @@ impl BaseClient {
             ..
         } = response;
 
-        // FIXME not yet supported by sliding sync. 
+        // FIXME not yet supported by sliding sync.
         // #[cfg(feature = "encryption")]
         // let to_device = {
         //     if let Some(o) = self.olm_machine().await {
@@ -66,18 +59,18 @@ impl BaseClient {
 
         let rooms = if let Some(rooms) = rooms {
             rooms
-        } else  {
+        } else {
             // nothing for us to handle here
-            return Ok(SyncResponse::default())
+            return Ok(SyncResponse::default());
         };
 
         let store = self.store();
         let mut changes = StateChanges::default();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 
-        // FIXME not yet supported by sliding sync. 
+        // FIXME not yet supported by sliding sync.
         // self.handle_account_data(&account_data.events, &mut changes).await;
-        
+
         let _push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
@@ -86,24 +79,25 @@ impl BaseClient {
             if let Some(invite_states) = &room_data.invite_state {
                 let room = store.get_or_create_stripped_room(&room_id).await;
                 let mut room_info = room.clone_info();
-    
+
                 if let Some(r) = store.get_room(&room_id) {
                     let mut room_info = r.clone_info();
                     room_info.mark_as_invited(); // FIXME: this might not be accurate
                     changes.add_room(room_info);
                 }
-                
+
                 self.handle_invited_state(invite_states.as_slice(), &mut room_info, &mut changes);
 
-                new_rooms.invite.insert(room_id.clone(), v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())));
+                new_rooms.invite.insert(
+                    room_id.clone(),
+                    v3::InvitedRoom::from(v3::InviteState::from(invite_states.clone())),
+                );
             } else {
-                
                 let room = store.get_or_create_room(&room_id, RoomType::Joined).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_joined(); // FIXME: this might not be accurate
 
-
-                // FIXME not yet supported by sliding sync. 
+                // FIXME not yet supported by sliding sync.
                 // room_info.update_summary(&room_data.summary);
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
@@ -117,8 +111,7 @@ impl BaseClient {
                     )
                     .await?;
 
-
-                // FIXME not yet supported by sliding sync. 
+                // FIXME not yet supported by sliding sync.
                 // if let Some(event) =
                 //     room_data.ephemeral.events.iter().find_map(|e| match e.deserialize() {
                 //         Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => Some(event.content),
@@ -128,12 +121,11 @@ impl BaseClient {
                 //     changes.add_receipts(&room_id, event);
                 // }
 
+                // FIXME not yet supported by sliding sync.
+                // self.handle_room_account_data(&room_id, &room_data.account_data.events, &mut
+                // changes)     .await;
 
-                // FIXME not yet supported by sliding sync. 
-                // self.handle_room_account_data(&room_id, &room_data.account_data.events, &mut changes)
-                //     .await;
-
-                // FIXME not yet supported by sliding sync. 
+                // FIXME not yet supported by sliding sync.
                 // if room_data.timeline.limited {
                 //     room_info.mark_members_missing();
                 // }
@@ -182,7 +174,6 @@ impl BaseClient {
                 let notification_count = room_data.unread_notifications.clone().into();
                 room_info.update_notification_count(notification_count);
 
-
                 new_rooms.join.insert(
                     room_id.clone(),
                     JoinedRoom::new(
@@ -193,17 +184,15 @@ impl BaseClient {
                         notification_count,
                     ),
                 );
-                    
+
                 changes.add_room(room_info);
             }
-
         }
 
-
-        // FIXME not yet supported by sliding sync. 
+        // FIXME not yet supported by sliding sync.
         // self.handle_account_data(&account_data.events, &mut changes).await;
 
-        // FIXME not yet supported by sliding sync. 
+        // FIXME not yet supported by sliding sync.
         // changes.presence = presence
         //     .events
         //     .iter()
@@ -223,7 +212,7 @@ impl BaseClient {
             rooms: new_rooms,
             ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications: changes.notifications,
-            // FIXME not yet supported by sliding sync. 
+            // FIXME not yet supported by sliding sync.
             presence: Default::default(),
             account_data: Default::default(),
             to_device: Default::default(),

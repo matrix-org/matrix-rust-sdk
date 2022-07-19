@@ -4,8 +4,11 @@
 
 use tuirealm::{
     command::{Cmd, CmdResult},
-    props::{Alignment, Color, Style, Borders, TextModifiers},
-    tui::{layout::Rect, widgets::{Paragraph, Block}},
+    props::{Alignment, Borders, Color, Style, TextModifiers},
+    tui::{
+        layout::Rect,
+        widgets::{Block, Paragraph},
+    },
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
 
@@ -88,7 +91,7 @@ impl MockComponent for Label {
                 .props
                 .get_or(Attribute::TextProps, AttrValue::TextModifiers(TextModifiers::empty()))
                 .unwrap_text_modifiers();
-            
+
             let borders = self
                 .props
                 .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))

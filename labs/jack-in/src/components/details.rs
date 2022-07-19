@@ -1,21 +1,24 @@
 use std::collections::BTreeMap;
 
-use ruma::{events::{AnyRoomEvent, AnyMessageLikeEvent, MessageLikeEvent}, RoomId};
+use log::warn;
+use ruma::{
+    events::{AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEvent},
+    RoomId,
+};
 use tuirealm::{
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
     props::{Alignment, Borders, Color, Style, TextModifiers},
     tui::{
-        layout::{Constraint, Rect, Layout, Direction},
+        layout::{Constraint, Direction, Layout, Rect},
         style::Modifier,
         text::Spans,
-        widgets::{Cell, Row, Table, Tabs, List, ListItem, ListState},
+        widgets::{Cell, List, ListItem, ListState, Row, Table, Tabs},
     },
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
 };
 
 use super::{super::client::state::SlidingSyncState, get_block, JackInEvent, Msg};
-use log::warn;
 
 /// ## Details
 pub struct Details {
@@ -114,7 +117,6 @@ impl Details {
 
 impl MockComponent for Details {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-
         if self.name.is_none() {
             self.refresh_data();
         }
@@ -132,7 +134,11 @@ impl MockComponent for Details {
                 Table::new(vec![Row::new(vec![Cell::from(
                     "Choose a room with up/down and press <enter> to select",
                 )])])
-                .block(get_block(borders, ("".to_owned(), Alignment::Left), false)),
+                .block(get_block(
+                    borders,
+                    ("".to_owned(), Alignment::Left),
+                    false,
+                )),
                 area,
             );
             return;
@@ -185,12 +191,15 @@ impl MockComponent for Details {
                             m.event_type().to_string()
                         }
                     }
-                    AnyRoomEvent::State(s) => {
-                        s.event_type().to_string()
-                    }
+                    AnyRoomEvent::State(s) => s.event_type().to_string(),
                 }
             };
-            details.push(ListItem::new(format!("[{}] {}: {}", e.origin_server_ts().as_secs(), e.sender().as_str(), body)));
+            details.push(ListItem::new(format!(
+                "[{}] {}: {}",
+                e.origin_server_ts().as_secs(),
+                e.sender().as_str(),
+                body
+            )));
         }
 
         frame.render_stateful_widget(

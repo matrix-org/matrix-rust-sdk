@@ -17,9 +17,7 @@ pub async fn run_client(
 ) -> Result<()> {
     let username = match client.account().get_display_name().await? {
         Some(u) => u,
-        None => {
-            client.user_id().ok_or_else(|| eyre!("Looks like you didn't login"))?.to_string()
-        }
+        None => client.user_id().ok_or_else(|| eyre!("Looks like you didn't login"))?.to_string(),
     };
 
     let homeserver = client.homeserver().await;

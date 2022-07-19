@@ -31,9 +31,9 @@ mod error;
 pub mod media;
 mod rooms;
 mod session;
-pub mod store;
 #[cfg(feature = "sliding-sync")]
 mod sliding_sync;
+pub mod store;
 #[cfg(feature = "experimental-timeline")]
 mod timeline_stream;
 mod utils;

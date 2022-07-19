@@ -13,17 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fmt::Debug,
-    sync::Arc,
-};
+use std::{fmt::Debug, sync::Arc};
 
 use anyhow::{bail, Context};
 use futures_core::stream::Stream;
 use matrix_sdk_base::deserialized_responses::SyncResponse;
 use ruma::{
-    OwnedRoomId,
-    api::client::sync::sliding_sync_events, assign, events::{RoomEventType, AnySyncRoomEvent}, serde::Raw, UInt,
+    api::client::sync::sliding_sync_events,
+    assign,
+    events::{AnySyncRoomEvent, RoomEventType},
+    serde::Raw,
+    OwnedRoomId, UInt,
 };
 use url::Url;
 
@@ -77,35 +77,33 @@ impl Default for SlidingSyncMode {
 pub enum RoomListEntry {
     /// This entry isn't known at this point and thus considered `Empty`
     Empty,
-    /// There was `OwnedRoomId` but since the server told us to invalid this entry.
-    /// it is considered stale
+    /// There was `OwnedRoomId` but since the server told us to invalid this
+    /// entry. it is considered stale
     Invalidated(OwnedRoomId),
     /// This Entry is folled with `OwnedRoomId`
     Filled(OwnedRoomId),
 }
 
 impl RoomListEntry {
-
     /// Is this entry empty or invalidated?
     pub fn empty_or_invalidated(&self) -> bool {
-        matches!{&self, RoomListEntry::Empty | RoomListEntry::Invalidated(_)}
+        matches! {&self, RoomListEntry::Empty | RoomListEntry::Invalidated(_)}
     }
 
     /// The inner room_id if given
     pub fn room_id(&self) -> Option<OwnedRoomId> {
-        match &self  {
+        match &self {
             RoomListEntry::Empty => None,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.clone())
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b.clone()),
         }
     }
 
     /// Ref to the inner room id, if given
     pub fn as_ref<'a>(&'a self) -> Option<&'a OwnedRoomId> {
-        match &self  {
+        match &self {
             RoomListEntry::Empty => None,
-            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b)
+            RoomListEntry::Invalidated(b) | RoomListEntry::Filled(b) => Some(b),
         }
-
     }
 }
 
@@ -128,12 +126,8 @@ pub struct SlidingSyncRoom {
 }
 
 impl SlidingSyncRoom {
-
     fn from(room_id: OwnedRoomId, mut inner: sliding_sync_events::SlidingSyncRoom) -> Self {
-        let sliding_sync_events::SlidingSyncRoom {
-            timeline,
-            ..
-        } =  inner;
+        let sliding_sync_events::SlidingSyncRoom { timeline, .. } = inner;
         // we overwrite to only keep one copy
         inner.timeline = vec![];
         Self {
@@ -170,7 +164,8 @@ impl SlidingSyncRoom {
         &self.inner.name
     }
 
-    /// add newer timeline events to the `AliveRoomTimeline` received over `SlidingSync`
+    /// add newer timeline events to the `AliveRoomTimeline` received over
+    /// `SlidingSync`
     pub fn received_newer_timeline(&self, items: &Vec<Raw<AnySyncRoomEvent>>) {
         let mut timeline = self.timeline.lock_mut();
         for e in items {
@@ -185,7 +180,6 @@ impl std::ops::Deref for SlidingSyncRoom {
         &self.inner
     }
 }
-
 
 type ViewState = futures_signals::signal::Mutable<SlidingSyncState>;
 type SyncMode = futures_signals::signal::Mutable<SlidingSyncMode>;
@@ -205,7 +199,6 @@ type ViewsList = Arc<futures_signals::signal_vec::MutableVec<SlidingSyncView>>;
 pub type Cancel = futures_signals::signal::Mutable<bool>;
 
 use derive_builder::Builder;
-
 
 /// The Summary of a new SlidingSync Update received
 #[derive(Debug, Clone)]
@@ -276,7 +269,6 @@ impl SlidingSyncBuilder {
         new.views = Some(views);
         new
     }
-
 }
 
 impl SlidingSync {
@@ -343,7 +335,8 @@ impl SlidingSync {
         }
 
         for (view, updates) in views.iter().zip(resp.lists.iter()) {
-            let count: u32 = updates.count.try_into().expect("the list total count convertible into u32");
+            let count: u32 =
+                updates.count.try_into().expect("the list total count convertible into u32");
             if let Some(ops) = &updates.ops {
                 if view.handle_response(count, ops)? {
                     updated_views.push(view.name.clone());
@@ -351,7 +344,7 @@ impl SlidingSync {
             }
         }
 
-        let rooms  = if let Some(room_updates) = &resp.rooms {
+        let rooms = if let Some(room_updates) = &resp.rooms {
             let mut updated = Vec::new();
             let mut rooms_map = self.rooms.lock_mut();
             for (id, room_data) in room_updates.iter() {
@@ -362,7 +355,10 @@ impl SlidingSync {
                         updated.push(id.clone())
                     }
                 } else {
-                    rooms_map.insert_cloned(id.clone(), SlidingSyncRoom::from(id.clone(), room_data.clone()));
+                    rooms_map.insert_cloned(
+                        id.clone(),
+                        SlidingSyncRoom::from(id.clone(), room_data.clone()),
+                    );
                     updated.push(id.clone());
                 }
             }
@@ -370,7 +366,6 @@ impl SlidingSync {
         } else {
             Vec::new()
         };
-
 
         Ok(UpdateSummary { views: updated_views, rooms })
     }
@@ -523,7 +518,6 @@ pub struct SlidingSyncView {
 pub const FULL_SYNC_VIEW_NAME: &'static str = "full-sync";
 
 impl SlidingSyncViewBuilder {
-
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
         Self::default()
@@ -729,10 +723,16 @@ impl SlidingSyncView {
         let _rooms_map = self.rooms.lock_mut();
         for op in ops {
             match op.op {
-                sliding_sync_events::SlidingOp::Update |
-                sliding_sync_events::SlidingOp::Sync => {
-                    let start: u32 = op.range.context("`range` must be present for Sync and Update operation")?.0.try_into()?;
-                    let room_ids = op.room_ids.clone().context("`room_ids` must be present for Sync and Update Operation")?;
+                sliding_sync_events::SlidingOp::Update | sliding_sync_events::SlidingOp::Sync => {
+                    let start: u32 = op
+                        .range
+                        .context("`range` must be present for Sync and Update operation")?
+                        .0
+                        .try_into()?;
+                    let room_ids = op
+                        .room_ids
+                        .clone()
+                        .context("`room_ids` must be present for Sync and Update Operation")?;
                     room_ids
                         .into_iter()
                         .enumerate()
@@ -743,13 +743,23 @@ impl SlidingSyncView {
                         .count();
                 }
                 sliding_sync_events::SlidingOp::Delete => {
-                    let pos: u32 = op.index.context("`index` must be present for DELETE operation")?.try_into()?;
+                    let pos: u32 = op
+                        .index
+                        .context("`index` must be present for DELETE operation")?
+                        .try_into()?;
                     rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
                 }
                 sliding_sync_events::SlidingOp::Insert => {
-                    let pos: u32 = op.index.context("`index` must be present for INSERT operation")?.try_into()?;
+                    let pos: u32 = op
+                        .index
+                        .context("`index` must be present for INSERT operation")?
+                        .try_into()?;
                     let sliced = rooms_list.as_slice();
-                    let room = RoomListEntry::Filled(op.room_id.clone().context("`room_id` must be present for INSERT operation")?);
+                    let room = RoomListEntry::Filled(
+                        op.room_id
+                            .clone()
+                            .context("`room_id` must be present for INSERT operation")?,
+                    );
                     let mut dif = 0;
                     loop {
                         let check_prev = dif > pos;
@@ -758,12 +768,13 @@ impl SlidingSyncView {
                             bail!("We were asked to insert but could not find any direction to shift to");
                         }
 
-                        if  check_prev && sliced[(pos - dif) as usize].empty_or_invalidated() {
+                        if check_prev && sliced[(pos - dif) as usize].empty_or_invalidated() {
                             // we only check for previous, if there are items left
                             rooms_list.insert_cloned(pos as usize, room);
                             rooms_list.remove((pos - dif) as usize);
                             break;
-                        } else if check_after && sliced[(pos + dif) as usize].empty_or_invalidated() {
+                        } else if check_after && sliced[(pos + dif) as usize].empty_or_invalidated()
+                        {
                             rooms_list.remove((pos + dif) as usize);
                             rooms_list.insert_cloned(pos as usize, room);
                             break;
@@ -783,11 +794,11 @@ impl SlidingSyncView {
 
                     if pos > end {
                         bail!("Invalid invalidation, end smaller than start");
-                    } 
+                    }
 
                     while pos < end {
                         if pos as usize >= max_len {
-                            break // how does this happen?
+                            break; // how does this happen?
                         }
                         let idx = pos as usize;
                         let entry = if let Some(RoomListEntry::Filled(b)) = rooms_list.get(idx) {
