@@ -1,5 +1,7 @@
 //! Types to handle requests.
 
+use std::time::Duration;
+
 use matrix_sdk_crypto::requests::{
     KeysBackupRequest as RumaKeysBackupRequest, KeysQueryRequest as RumaKeysQueryRequest,
     RoomMessageRequest as RumaRoomMessageRequest, ToDeviceRequest as RumaToDeviceRequest,
@@ -11,6 +13,8 @@ use ruma::api::client::keys::{
     upload_keys::v3::Request as RumaKeysUploadRequest,
     upload_signatures::v3::Request as RumaSignatureUploadRequest,
 };
+
+use crate::into_err;
 
 /// Data for a request to the `/keys/upload` API endpoint
 /// ([specification]).
@@ -220,22 +224,30 @@ impl KeysBackupRequest {
 }
 
 macro_rules! request {
-    ($request:ident from $ruma_request:ident maps fields $( $field:ident ),+ $(,)? ) => {
+    ($request:ident from $ruma_request:ident maps fields $( $field:ident $( { $transformation:expr } )? ),+ $(,)? ) => {
         impl TryFrom<(String, &$ruma_request)> for $request {
-            type Error = serde_json::Error;
+            type Error = napi::Error;
 
             fn try_from(
                 (request_id, request): (String, &$ruma_request),
             ) -> Result<Self, Self::Error> {
                 let mut map = serde_json::Map::new();
                 $(
-                    map.insert(stringify!($field).to_owned(), serde_json::to_value(&request.$field)?);
+                    let field = &request.$field;
+                    $(
+                        let field = {
+                            let $field = field;
+
+                            $transformation
+                        };
+                    )?
+                    map.insert(stringify!($field).to_owned(), serde_json::to_value(field).map_err(into_err)?);
                 )+
                 let value = serde_json::Value::Object(map);
 
                 Ok($request {
                     id: request_id,
-                    body: serde_json::to_string(&value)?.into(),
+                    body: serde_json::to_string(&value).map_err(into_err)?.into(),
                 })
             }
         }
@@ -243,8 +255,8 @@ macro_rules! request {
 }
 
 request!(KeysUploadRequest from RumaKeysUploadRequest maps fields device_keys, one_time_keys, fallback_keys);
-request!(KeysQueryRequest from RumaKeysQueryRequest maps fields timeout, device_keys, token);
-request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout, one_time_keys);
+request!(KeysQueryRequest from RumaKeysQueryRequest maps fields timeout { timeout.as_ref().map(Duration::as_millis).map(u64::try_from).transpose().map_err(into_err)? }, device_keys, token);
+request!(KeysClaimRequest from RumaKeysClaimRequest maps fields timeout { timeout.as_ref().map(Duration::as_millis).map(u64::try_from).transpose().map_err(into_err)? }, one_time_keys);
 request!(ToDeviceRequest from RumaToDeviceRequest maps fields event_type, txn_id, messages);
 request!(SignatureUploadRequest from RumaSignatureUploadRequest maps fields signed_keys);
 request!(RoomMessageRequest from RumaRoomMessageRequest maps fields room_id, txn_id, content);
@@ -263,7 +275,7 @@ pub type OutgoingRequests = Either7<
 pub(crate) struct OutgoingRequest(pub(crate) matrix_sdk_crypto::OutgoingRequest);
 
 impl TryFrom<OutgoingRequest> for OutgoingRequests {
-    type Error = serde_json::Error;
+    type Error = napi::Error;
 
     fn try_from(outgoing_request: OutgoingRequest) -> Result<Self, Self::Error> {
         let request_id = outgoing_request.0.request_id().to_string();

@@ -349,7 +349,7 @@ mod tests {
             "test_key",
             "test_key",
             room_id,
-            outbound.session_key().await,
+            &outbound.session_key().await,
             None,
         );
 

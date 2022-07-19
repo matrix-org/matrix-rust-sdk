@@ -42,12 +42,11 @@ use ruma::{
 use ruma::{
     events::{
         presence::PresenceEvent,
-        receipt::Receipt,
+        receipt::{Receipt, ReceiptType},
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
-    receipt::ReceiptType,
     serde::Raw,
     EventId, IdParseError, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
 };

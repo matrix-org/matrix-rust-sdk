@@ -42,7 +42,7 @@ impl From<vodozemac::Ed25519Signature> for Ed25519Signature {
 impl Ed25519Signature {
     /// Try to create an Ed25519 signature from an unpadded base64
     /// representation.
-    #[napi(constructor)]
+    #[napi(constructor, strict)]
     pub fn new(signature: String) -> napi::Result<Self> {
         Ok(Self {
             inner: vodozemac::Ed25519Signature::from_base64(signature.as_str())

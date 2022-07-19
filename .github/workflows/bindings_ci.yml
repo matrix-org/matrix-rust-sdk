@@ -133,6 +133,7 @@ jobs:
   test-apple:
     name: matrix-rust-components-swift
     runs-on: macos-12
+    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
       - name: Checkout
@@ -161,7 +162,7 @@ jobs:
           args: uniffi_bindgen --version ^0.18
 
       - name: Generate .xcframework
-        run: sh bindings/apple/debug_build_xcframework.sh ci
+        run: sh bindings/apple/debug_build_xcframework.sh x86_64 ci
 
       - name: Run XCTests
         run: |
@@ -169,4 +170,4 @@ jobs:
             -project bindings/apple/MatrixRustSDK.xcodeproj \
             -scheme MatrixRustSDK \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 13,OS=15.4'
+            -destination 'platform=iOS Simulator,name=iPhone 13'

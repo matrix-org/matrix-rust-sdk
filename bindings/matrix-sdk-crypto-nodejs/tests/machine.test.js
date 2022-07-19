@@ -381,7 +381,7 @@ describe(OlmMachine.name, () => {
 
             base64 = signature['ed25519:foobar'].signature.toBase64();
 
-            expect(base64).toMatch(/^[A-Za-z0-9+/]+$/);
+            expect(base64).toMatch(/^[A-Za-z0-9\+/]+$/);
             expect(signature['ed25519:foobar'].signature.ed25519.toBase64()).toStrictEqual(base64);
         }
 

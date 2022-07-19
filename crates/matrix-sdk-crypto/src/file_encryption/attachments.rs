@@ -136,7 +136,7 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
 
         let hash =
             info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?.as_bytes().to_owned();
-        let mut key = info.web_key.k.into_inner();
+        let mut key = info.key.k.into_inner();
         let iv = info.iv.into_inner();
 
         if key.len() != KEY_SIZE {
@@ -270,7 +270,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
             version: VERSION.to_owned(),
             hashes: self.hashes,
             iv: self.iv,
-            web_key: self.web_key,
+            key: self.web_key,
         }
     }
 }
@@ -279,11 +279,11 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
 /// file.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MediaEncryptionInfo {
-    #[serde(rename = "v")]
     /// The version of the encryption scheme.
+    #[serde(rename = "v")]
     pub version: String,
     /// The web key that was used to encrypt the file.
-    pub web_key: JsonWebKey,
+    pub key: JsonWebKey,
     /// The initialization vector that was used to encrypt the file.
     pub iv: Base64,
     /// The hashes that can be used to check the validity of the file.
@@ -292,7 +292,7 @@ pub struct MediaEncryptionInfo {
 
 impl From<EncryptedFile> for MediaEncryptionInfo {
     fn from(file: EncryptedFile) -> Self {
-        Self { version: file.v, web_key: file.key, iv: file.iv, hashes: file.hashes }
+        Self { version: file.v, key: file.key, iv: file.iv, hashes: file.hashes }
     }
 }
 
@@ -312,7 +312,7 @@ mod tests {
     fn example_key() -> MediaEncryptionInfo {
         let info = json!({
             "v": "v2",
-            "web_key": {
+            "key": {
                 "kty": "oct",
                 "alg": "A256CTR",
                 "ext": true,

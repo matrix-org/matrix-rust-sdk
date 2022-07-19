@@ -239,8 +239,11 @@ impl ClientBuilder {
 
     /// All outgoing http requests will have a GET query key-value appended with
     /// `user_id` being the key and the `user_id` from the `Session` being
-    /// the value. Will error if there's no `Session`. This is called
-    /// [identity assertion] in the Matrix Application Service Spec
+    /// the value. This is called [identity assertion] in the
+    /// Matrix Application Service Spec.
+    ///
+    /// Requests that don't require authentication might not do identity
+    /// assertion.
     ///
     /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
     #[doc(hidden)]
@@ -295,6 +298,7 @@ impl ClientBuilder {
         let base_client = BaseClient::with_store_config(self.store_config);
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
+        let mut authentication_issuer: Option<Url> = None;
         let homeserver = match homeserver_cfg {
             HomeserverConfig::Url(url) => url,
             HomeserverConfig::ServerName(server_name) => {
@@ -313,14 +317,20 @@ impl ClientBuilder {
                         err => ClientBuildError::Http(err),
                     })?;
 
+                if let Some(issuer) = well_known.authentication.map(|auth| auth.issuer) {
+                    authentication_issuer = Url::parse(&issuer).ok();
+                };
+
                 well_known.homeserver.base_url
             }
         };
 
         let homeserver = RwLock::new(Url::parse(&homeserver)?);
+        let authentication_issuer = authentication_issuer.map(RwLock::new);
 
         let inner = Arc::new(ClientInner {
             homeserver,
+            authentication_issuer,
             http_client,
             base_client,
             server_versions: OnceCell::new_with(self.server_versions),
@@ -346,8 +356,8 @@ fn homeserver_from_name(server_name: &ServerName) -> String {
     #[cfg(not(test))]
     return format!("https://{}", server_name);
 
-    // Mockito only knows how to test http endpoints:
-    // https://github.com/lipanski/mockito/issues/127
+    // Wiremock only knows how to test http endpoints:
+    // https://github.com/LukeMathWalker/wiremock-rs/issues/58
     #[cfg(test)]
     return format!("http://{}", server_name);
 }

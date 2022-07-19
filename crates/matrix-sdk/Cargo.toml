@@ -28,18 +28,18 @@ e2e-encryption = [
     "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
 ]
 
-sled = ["matrix-sdk-sled/state-store"]
-indexeddb = ["matrix-sdk-indexeddb"]
+sled = ["dep:matrix-sdk-sled", "matrix-sdk-sled?/state-store"]
+indexeddb = ["dep:matrix-sdk-indexeddb"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
-sso-login = ["warp", "rand", "tokio-stream"]
+sso-login = ["warp", "dep:rand", "dep:tokio-stream"]
 appservice = ["ruma/appservice-api-s"]
-image-proc = ["image"]
-image-rayon = ["image-proc", "image/jpeg_rayon"]
+image-proc = ["dep:image"]
+image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
 experimental-timeline = [
     "matrix-sdk-base/experimental-timeline",
@@ -119,8 +119,13 @@ default_features = false
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma"
-rev = "96155915f"
+rev = "da5def6731efd698c63fd2ffdef5f3e1836bff94"
 features = ["client-api-c", "compat", "rand", "unstable-msc2448"]
+
+[dependencies.ruma-client-api]
+git = "https://github.com/ruma/ruma"
+rev = "da5def6731efd698c63fd2ffdef5f3e1836bff94"
+features = ["unstable-msc2965"]
 
 [dependencies.tokio-stream]
 version = "0.1.8"
@@ -146,7 +151,6 @@ dirs = "4.0.0"
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 matches = "0.1.9"
 matrix-sdk-test = { version = "0.5.0", path = "../matrix-sdk-test" }
-mockito = "0.31.0"
 once_cell = "1.10.0"
 serde_json = "1.0.79"
 tempfile = "3.3.0"
@@ -158,6 +162,7 @@ wasm-bindgen-test = "0.3.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
+wiremock = "0.5.13"
 
 [[example]]
 name = "cross_signing_bootstrap"

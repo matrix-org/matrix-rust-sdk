@@ -100,7 +100,6 @@ pub(crate) struct OlmDecryptionInfo {
     pub sender: OwnedUserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
-    pub deserialized_event: Option<AnyToDeviceEvent>,
     pub event: Raw<AnyToDeviceEvent>,
     pub signing_key: String,
     pub sender_key: String,
@@ -189,7 +188,6 @@ impl Account {
                     event,
                     signing_key,
                     sender_key: content.sender_key.clone(),
-                    deserialized_event: None,
                     inbound_group_session: None,
                 }),
                 Err(OlmError::SessionWedged(user_id, sender_key)) => {
@@ -1085,7 +1083,7 @@ impl ReadOnlyAccount {
             &sender_key,
             &signing_key,
             room_id,
-            outbound.session_key().await,
+            &outbound.session_key().await,
             Some(visibility),
         );
 

@@ -20,9 +20,14 @@ lto = true
 # Optimize quote even in debug mode. Speeds up proc-macros enough to account
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.
 quote = { opt-level = 2 }
+sha2 = { opt-level = 2 }
 
 [patch.crates-io]
 ruma = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
+ruma-common = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
+ruma-client-api = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
 
 [patch."https://github.com/ruma/ruma"]
 ruma = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
+ruma-common = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
+ruma-client-api = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }

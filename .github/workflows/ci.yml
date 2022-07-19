@@ -175,7 +175,7 @@ jobs:
     steps:
       - name: Checkout the repo
         uses: actions/checkout@v2
-  
+
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -184,24 +184,24 @@ jobs:
           components: clippy
           profile: minimal
           override: true
-  
+
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.3.0
         with:
           version: latest
-  
+
       - name: Load cache
         uses: Swatinem/rust-cache@v1
-  
+
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-  
+
       - name: Rust Check
         uses: actions-rs/cargo@v1
         with:
           command: run
           args: -p xtask -- ci wasm ${{ matrix.cmd }}
-  
+
       - name: Wasm-Pack test
         uses: actions-rs/cargo@v1
         with:

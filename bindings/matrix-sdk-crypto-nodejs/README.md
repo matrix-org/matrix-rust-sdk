@@ -11,6 +11,77 @@ Encryption](https://en.wikipedia.org/wiki/End-to-end_encryption)) for
 
 ## Usage
 
+Just add the latest release to your `package.json`:
+```sh
+$ npm install --save @matrix-org/matrix-sdk-crypto-nodejs
+```
+
+When installing, NPM will download the corresponding prebuilt Rust library for your current host system. The following are supported:
+
+<table>
+  <thead>
+    <tr>
+      <th>Platform</th>
+      <th>Architecture</th>
+      <th>Triple</th>
+      <th>Prebuilt available</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="5">Linux</td>
+      <td rowspan="2"><code>aarch</code></td>
+      <td><code>aarch64-unknown-linux-gnu</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>arm-unknown-linux-gnueabihf</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="3"><code>amd</code></td>
+      <td><code>x86_64-unknown-linux-gnu</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>x86_64-unknown-linux-musl</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>i686-unknown-linux-gnu</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="2">macOS</td>
+      <td><code>aarch</code></td>
+      <td><code>arch64-apple-darwin</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>amd</code></td>
+      <td><code>x86_64-apple-darwin</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="3">Windows</td>
+      <td><code>aarch</code></td>
+      <td><code>aarch64-pc-windows-msvc</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><code>amd</code></td>
+      <td><code>x86_64-pc-windows-msvc</code></td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td><code>i686-pc-windows-msvc</code></td>
+      <td>✅</td>
+    </tr>
+  </tbody>
+</table>
+
+## Development
+
 This Node.js binding is written in [Rust]. To build this binding, you
 need to install the Rust compiler, see [the Install Rust
 Page](https://www.rust-lang.org/tools/install). Then, the workflow is
@@ -31,7 +102,7 @@ Once the Rust compiler, Node.js and npm are installed, you can run the
 following commands:
 
 ```sh
-$ npm install
+$ npm install --ignore-scripts
 $ npm run build
 $ npm run test
 ```
