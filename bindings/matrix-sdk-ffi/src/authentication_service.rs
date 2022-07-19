@@ -7,6 +7,7 @@ use super::{client::Client, client_builder::ClientBuilder};
 pub struct AuthenticationService {
     base_path: String,
     client: RwLock<Option<Arc<Client>>>,
+    homeserver_details: RwLock<Option<Arc<HomeserverLoginDetails>>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -50,15 +51,20 @@ impl HomeserverLoginDetails {
 impl AuthenticationService {
     /// Creates a new service to authenticate a user with.
     pub fn new(base_path: String) -> Self {
-        AuthenticationService { base_path, client: RwLock::new(None) }
+        AuthenticationService {
+            base_path,
+            client: RwLock::new(None),
+            homeserver_details: RwLock::new(None),
+        }
+    }
+
+    pub fn homeserver_details(&self) -> Option<Arc<HomeserverLoginDetails>> {
+        self.homeserver_details.read().clone()
     }
 
     /// Updates the service to authenticate with the homeserver for the
     /// specified address.
-    pub fn configure_homeserver(
-        &self,
-        server_name: String,
-    ) -> Result<Arc<HomeserverLoginDetails>, AuthenticationError> {
+    pub fn configure_homeserver(&self, server_name: String) -> Result<(), AuthenticationError> {
         // Construct a username as the builder currently requires one.
         let username = format!("@auth:{}", server_name);
         let client = Arc::new(ClientBuilder::new())
@@ -67,10 +73,12 @@ impl AuthenticationService {
             .build()
             .map_err(AuthenticationError::from)?;
 
-        let details = self.details_from_client(&client)?;
+        let details = Arc::new(self.details_from_client(&client)?);
 
         *self.client.write() = Some(client);
-        Ok(Arc::new(details))
+        *self.homeserver_details.write() = Some(details);
+
+        Ok(())
     }
 
     /// Performs a password login using the current homeserver.
@@ -100,6 +108,7 @@ impl AuthenticationService {
         }
     }
 
+    /// Get the homeserver login details from a client.
     fn details_from_client(
         &self,
         client: &Arc<Client>,
