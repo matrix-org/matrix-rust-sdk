@@ -31,6 +31,7 @@ thiserror = "1.0.30"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.8"
 tracing = "0.1.32"
+tracing-subscriber = { version = "0.3", features = [ "env-filter" ]}
 # keep in sync with uniffi dependency in matrix-sdk-crypto-ffi, and uniffi_bindgen in ffi CI job
 uniffi = "0.18.0"
 uniffi_macros = "0.18.0"

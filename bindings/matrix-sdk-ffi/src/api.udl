@@ -1,7 +1,17 @@
 namespace sdk {
+    void setup_tracing(LogLevel log_level);
+
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
     string gen_transaction_id();
+};
+
+enum LogLevel {
+    "Trace",
+    "Debug",
+    "Info",
+    "Warn",
+    "Error",
 };
 
 [Error]
