@@ -147,6 +147,7 @@ impl BaseClient {
     }
 
     /// Get a reference to the store.
+    #[allow(unknown_lints, clippy::explicit_auto_deref)]
     pub fn store(&self) -> &dyn StateStore {
         &*self.store
     }
