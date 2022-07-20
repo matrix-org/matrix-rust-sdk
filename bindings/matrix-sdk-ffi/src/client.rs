@@ -68,6 +68,10 @@ impl Client {
         })
     }
 
+    pub fn store_path(&self) -> Option<String> {
+        self.client.store().path().and_then(|path| path.into_os_string().into_string().ok())
+    }
+
     pub fn set_delegate(&self, delegate: Option<Box<dyn ClientDelegate>>) {
         *self.delegate.write() = delegate;
     }

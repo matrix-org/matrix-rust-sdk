@@ -16,6 +16,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::{
     collections::BTreeSet,
+    path::PathBuf,
     sync::{Arc, RwLock},
 };
 
@@ -692,6 +693,10 @@ impl MemoryStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl StateStore for MemoryStore {
+    fn path(&self) -> Option<PathBuf> {
+        None
+    }
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.save_filter(filter_name, filter_id).await
     }

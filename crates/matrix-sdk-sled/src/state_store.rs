@@ -1381,6 +1381,9 @@ impl SledStore {
 
 #[async_trait]
 impl StateStore for SledStore {
+    fn path(&self) -> Option<PathBuf> {
+        self.path.clone()
+    }
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(Into::into)
     }

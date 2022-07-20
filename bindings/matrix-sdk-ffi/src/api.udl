@@ -40,6 +40,8 @@ interface Client {
     [Throws=ClientError]
     void restore_login(string restore_token);
 
+    string? store_path();
+
     string homeserver();
 
     void start_sync();
