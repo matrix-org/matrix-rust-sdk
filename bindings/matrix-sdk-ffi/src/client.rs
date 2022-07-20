@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest},
@@ -52,6 +53,8 @@ impl Client {
     }
 
     pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
+        self.ensure_store_path()?;
+
         RUNTIME.block_on(async move {
             self.client.login_username(&username, &password).send().await?;
             Ok(())
@@ -59,6 +62,8 @@ impl Client {
     }
 
     pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
+        self.ensure_store_path()?;
+
         let RestoreToken { session, homeurl: _, is_guest: _ } =
             serde_json::from_str(&restore_token)?;
 
@@ -68,6 +73,14 @@ impl Client {
         })
     }
 
+    /// Checks if a store path has been set and throws an error if not.
+    fn ensure_store_path(&self) -> anyhow::Result<()> {
+        self.store_path()
+            .map(|_| ())
+            .ok_or(anyhow!("Login failed: Make sure to set a store path on the client."))
+    }
+
+    /// The path used by the store, or `None` if the store is in memory.
     pub fn store_path(&self) -> Option<String> {
         self.client.store().path().and_then(|path| path.into_os_string().into_string().ok())
     }

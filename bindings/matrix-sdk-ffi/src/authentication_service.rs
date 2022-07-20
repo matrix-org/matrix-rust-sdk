@@ -66,14 +66,12 @@ impl AuthenticationService {
     /// Updates the service to authenticate with the homeserver for the
     /// specified address.
     pub fn configure_homeserver(&self, server_name: String) -> Result<(), AuthenticationError> {
-        // Construct a username as the builder currently requires one.
-        let username = format!("@auth:{server_name}");
-
-        let mut builder =
-            Arc::new(ClientBuilder::new()).base_path(self.base_path.clone()).username(username);
+        let mut builder = Arc::new(ClientBuilder::new()).base_path(self.base_path.clone());
 
         if server_name.starts_with("http://") || server_name.starts_with("https://") {
             builder = builder.homeserver_url(server_name)
+        } else {
+            builder = builder.server_name(server_name);
         }
 
         let client = builder.build().map_err(AuthenticationError::from)?;
