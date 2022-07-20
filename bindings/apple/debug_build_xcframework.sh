@@ -84,8 +84,6 @@ if [ "$IS_CI" = false ] ; then
   echo "Preparing matrix-rust-components-swift"
 
   # Debug -> Copy generated files over to ../../../matrix-rust-components-swift
-  echo "$(printf "import MatrixSDKFFIWrapper\n\n"; cat "${SWIFT_DIR}/sdk.swift")" > "${SWIFT_DIR}/sdk.swift"
-
   rsync -a --delete "${GENERATED_DIR}/MatrixSDKFFI.xcframework" "${SRC_ROOT}/../matrix-rust-components-swift/"
   rsync -a --delete "${GENERATED_DIR}/swift/" "${SRC_ROOT}/../matrix-rust-components-swift/Sources/MatrixRustSDK"
 fi
