@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -1278,6 +1278,10 @@ impl IndexeddbStore {
 
 #[async_trait(?Send)]
 impl StateStore for IndexeddbStore {
+    fn path(&self) -> Option<PathBuf> {
+        None
+    }
+
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(|e| e.into())
     }
