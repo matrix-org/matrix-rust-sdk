@@ -34,7 +34,7 @@ REL_TYPE_DIR="debug"
 
 # iOS Simulator arm64
 if [ "$ACTIVE_ARCH" = "arm64" ]; then
-  cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+  cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
 
   lipo -create \
     "${TARGET_DIR}/aarch64-apple-ios-sim/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
@@ -42,7 +42,7 @@ if [ "$ACTIVE_ARCH" = "arm64" ]; then
 
 # iOS Simulator intel
 else 
-  cargo +nightly build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
+  cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
   lipo -create \
     "${TARGET_DIR}/x86_64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_ffi.a" \
