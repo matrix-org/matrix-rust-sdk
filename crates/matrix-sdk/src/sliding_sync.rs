@@ -381,7 +381,7 @@ impl SlidingSync {
         let ret_cancel = cancel.clone();
         let _pos = self.pos.clone();
 
-        // FIXME: hack for while the sliding sync server is on a proxy\
+        // FIXME: hack for while the sliding sync server is on a proxy
         let client = self.client.clone();
         if let Some(hs) = &self.homeserver {
             client.set_homeserver(hs.clone()).await;
@@ -858,7 +858,9 @@ impl SlidingSyncView {
 
 impl Client {
     /// Create a SlidingSyncBuilder tied to this client
-    pub fn sliding_sync(&self) -> SlidingSyncBuilder {
+    pub async fn sliding_sync(&self) -> SlidingSyncBuilder {
+        // ensure the version has been checked in before, as the proxy doesn't support that
+        let _ = self.server_versions().await;
         SlidingSyncBuilder::default().client(self.clone()).to_owned()
     }
     pub(crate) async fn process_sliding_sync(
