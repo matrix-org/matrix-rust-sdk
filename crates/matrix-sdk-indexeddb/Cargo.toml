@@ -29,7 +29,7 @@ indexed_db_futures = "0.2.3"
 matrix-sdk-base = { version = "0.5.0", path = "../matrix-sdk-base" }
 matrix-sdk-crypto = { version = "0.5.0", path = "../matrix-sdk-crypto", optional = true }
 matrix-sdk-store-encryption = { version = "0.1.0", path = "../matrix-sdk-store-encryption" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "da5def6731efd698c63fd2ffdef5f3e1836bff94" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b" }
 serde = "1.0.136"
 serde_json = "1.0.79"
 thiserror = "1.0.30"

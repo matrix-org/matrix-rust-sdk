@@ -34,7 +34,7 @@ http = "0.2.6"
 matrix-sdk = { version = "0.5.0", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 percent-encoding = "2.1.0"
 regex = "1.5.5"
-ruma = { git = "https://github.com/ruma/ruma", rev = "da5def6731efd698c63fd2ffdef5f3e1836bff94", features = ["client-api-c", "appservice-api-s"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b", features = ["client-api-c", "appservice-api-s"] }
 serde = "1.0.136"
 serde_json = "1.0.79"
 serde_yaml = "0.8.23"
