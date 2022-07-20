@@ -22,7 +22,7 @@ impl Client {
             rooms,
             presence,
             account_data,
-            to_device: _,
+            to_device,
             device_lists: _,
             device_one_time_keys_count: _,
             ambiguity_changes: _,
@@ -31,6 +31,7 @@ impl Client {
 
         self.handle_sync_events(EventKind::GlobalAccountData, &None, &account_data.events).await?;
         self.handle_sync_events(EventKind::Presence, &None, &presence.events).await?;
+        self.handle_sync_events(EventKind::ToDevice, &None, &to_device.events).await?;
 
         for (room_id, room_info) in &rooms.join {
             let room = self.get_room(room_id);
