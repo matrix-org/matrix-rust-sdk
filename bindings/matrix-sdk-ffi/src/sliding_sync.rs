@@ -9,10 +9,13 @@ use futures_signals::{
     signal_vec::{SignalVecExt, VecDiff},
 };
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::ruma::api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription;
+use matrix_sdk::ruma::{
+    api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription,
+    events::RoomEventType,
+};
 pub use matrix_sdk::{
     RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
-    SlidingSyncState,
+    SlidingSyncMode, SlidingSyncState,
 };
 use parking_lot::RwLock;
 
@@ -27,9 +30,11 @@ impl StoppableSpawn {
     fn new() -> StoppableSpawn {
         StoppableSpawn { cancelled: AtomicBool::new(false) }
     }
+
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed)
     }
+
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
@@ -140,10 +145,94 @@ pub trait SlidingSyncViewRoomsCountDelegate: Sync + Send {
 pub trait SlidingSyncViewStateDelegate: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
+#[derive(Clone)]
+pub struct SlidingSyncViewBuilder {
+    inner: matrix_sdk::SlidingSyncViewBuilder,
+}
+
+impl SlidingSyncViewBuilder {
+    pub fn new() -> Self {
+        SlidingSyncViewBuilder { inner: matrix_sdk::SlidingSyncViewBuilder::default() }
+    }
+
+    pub fn sync_mode(self: Arc<Self>, mode: SlidingSyncMode) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.sync_mode(mode);
+        Arc::new(builder)
+    }
+
+    pub fn sort(self: Arc<Self>, sort: Vec<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.sort(sort);
+        Arc::new(builder)
+    }
+
+    pub fn required_state(
+        self: Arc<Self>,
+        required_state: Vec<(RoomEventType, String)>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.required_state(required_state);
+        Arc::new(builder)
+    }
+
+    pub fn batch_size(self: Arc<Self>, batch_size: u32) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.batch_size(batch_size);
+        Arc::new(builder)
+    }
+
+    pub fn timeline_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.timeline_limit(limit);
+        Arc::new(builder)
+    }
+
+    pub fn no_timeline_limit(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.no_timeline_limit();
+        Arc::new(builder)
+    }
+
+    pub fn name(self: Arc<Self>, name: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.name(name);
+        Arc::new(builder)
+    }
+
+    pub fn ranges(self: Arc<Self>, ranges: Vec<(u32, u32)>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.ranges(ranges);
+        Arc::new(builder)
+    }
+
+    pub fn add_range(self: Arc<Self>, from: u32, to: u32) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.add_range(from, to);
+        Arc::new(builder)
+    }
+
+    pub fn reset_ranges(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.reset_ranges();
+        Arc::new(builder)
+    }
+
+    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSyncView>> {
+        let builder = unwrap_or_clone_arc(self);
+        Ok(Arc::new(builder.inner.build()?.into()))
+    }
+}
 
 #[derive(Clone)]
 pub struct SlidingSyncView {
     inner: matrix_sdk::SlidingSyncView,
+}
+
+impl From<matrix_sdk::SlidingSyncView> for SlidingSyncView {
+    fn from(inner: matrix_sdk::SlidingSyncView) -> Self {
+        SlidingSyncView { inner }
+    }
 }
 
 impl SlidingSyncView {
@@ -213,6 +302,7 @@ impl SlidingSyncView {
     pub fn current_room_count(&self) -> Option<u32> {
         self.inner.rooms_count.get_cloned()
     }
+
     pub fn current_rooms_list(&self) -> Vec<RoomListEntry> {
         self.inner.rooms_list.lock_ref().as_slice().into_iter().map(|e| e.into()).collect()
     }
