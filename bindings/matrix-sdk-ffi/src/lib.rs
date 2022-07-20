@@ -57,29 +57,9 @@ impl From<anyhow::Error> for ClientError {
     }
 }
 
-pub enum LogLevel {
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-impl LogLevel {
-    fn as_str(&self) -> &'static str {
-        match self {
-            LogLevel::Trace => "trace",
-            LogLevel::Debug => "debug",
-            LogLevel::Info => "info",
-            LogLevel::Warn => "warn",
-            LogLevel::Error => "error",
-        }
-    }
-}
-
-fn setup_tracing(log_level: LogLevel) {
+fn setup_tracing(configuration: String) {
     tracing_subscriber::registry()
-        .with(EnvFilter::new(log_level.as_str()))
+        .with(EnvFilter::new(configuration))
         .with(fmt::layer().with_ansi(false))
         .init();
 }
