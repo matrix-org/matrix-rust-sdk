@@ -41,41 +41,41 @@ pub enum Error {
     #[error("uri path is unknown")]
     UriPathUnknown,
 
-    #[error(transparent)]
-    HttpRequest(#[from] ruma::api::error::FromHttpRequestError),
+    #[error("HTTP request parsing error: {0}")]
+    FromHttpRequest(#[from] ruma::api::error::FromHttpRequestError),
 
-    #[error(transparent)]
+    #[error("identifier failed to parse: {0}")]
     Identifier(#[from] ruma::IdParseError),
 
-    #[error(transparent)]
+    #[error("HTTP error: {0}")]
     Http(#[from] http::Error),
 
-    #[error(transparent)]
+    #[error("url parse error: {0}")]
     Url(#[from] url::ParseError),
 
-    #[error(transparent)]
+    #[error("deserialization error: {0}")]
     Serde(#[from] serde::de::value::Error),
 
-    #[error(transparent)]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error(transparent)]
+    #[error("http uri invalid error: {0}")]
     InvalidUri(#[from] http::uri::InvalidUri),
 
     #[error(transparent)]
     Matrix(#[from] matrix_sdk::Error),
 
-    #[error(transparent)]
+    #[error("regex error: {0}")]
     Regex(#[from] regex::Error),
 
-    #[error(transparent)]
+    #[error("serde yaml error: {0}")]
     SerdeYaml(#[from] serde_yaml::Error),
 
-    #[error(transparent)]
+    #[error("serde json error: {0}")]
     SerdeJson(#[from] serde_json::Error),
 
-    #[error(transparent)]
-    Utf8Error(#[from] std::str::Utf8Error),
+    #[error("utf8 error: {0}")]
+    Utf8(#[from] std::str::Utf8Error),
 
     #[error("warp rejection: {0}")]
     WarpRejection(String),
