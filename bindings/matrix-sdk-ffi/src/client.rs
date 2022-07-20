@@ -77,7 +77,7 @@ impl Client {
     fn ensure_store_path(&self) -> anyhow::Result<()> {
         self.store_path()
             .map(|_| ())
-            .ok_or(anyhow!("Login failed: Make sure to set a store path on the client."))
+            .ok_or_else(|| anyhow!("Login failed: Make sure to set a store path on the client."))
     }
 
     /// The path used by the store, or `None` if the store is in memory.
