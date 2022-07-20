@@ -107,10 +107,11 @@ mod filters {
         warp::any()
             .and(valid_access_token(appservice.registration().hs_token.clone()))
             .map(move || appservice.clone())
-            .and(http_request().and_then(|request| async move {
-                let request = crate::transform_request_path(request).map_err(Error::from)?;
-                Ok::<http::Request<Bytes>, Rejection>(request)
-            }))
+            .and(
+                http_request().and_then(|request| async move {
+                    Ok::<http::Request<Bytes>, Rejection>(request)
+                }),
+            )
             .boxed()
     }
 
