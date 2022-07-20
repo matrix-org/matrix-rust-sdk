@@ -176,13 +176,13 @@ impl Common {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// let request = MessagesOptions::backward_from("t47429-4392820_219380_26003_2265");
+    /// let options = MessagesOptions::backward().from("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).await.unwrap();
     /// let room = client
     ///    .get_joined_room(room_id!("!roomid:example.com"))
     ///    .unwrap();
-    /// assert!(room.messages(request).await.is_ok());
+    /// assert!(room.messages(options).await.is_ok());
     /// # });
     /// ```
     pub async fn messages(&self, options: MessagesOptions<'_>) -> Result<Messages> {
@@ -461,7 +461,8 @@ impl Common {
         let filter = assign!(RoomEventFilter::default(), {
             lazy_load_options: LazyLoadOptions::Enabled { include_redundant_members: false },
         });
-        let options = assign!(MessagesOptions::backward_from(token), {
+        let options = assign!(MessagesOptions::backward(), {
+            from: Some(token),
             limit: uint!(10),
             filter,
         });
@@ -1116,28 +1117,30 @@ impl<'a> MessagesOptions<'a> {
         Self { from: None, to: None, dir, limit: uint!(10), filter: RoomEventFilter::default() }
     }
 
-    /// Creates `MessagesOptions` with the given optional start token, and `dir`
-    /// set to `Backward`.
-    pub fn backward(from: Option<&'a str>) -> Self {
-        assign!(Self::new(Direction::Backward), { from })
+    /// Creates `MessagesOptions` with `dir` set to `Backward`.
+    ///
+    /// If no `from` token is set afterwards, pagination will start at the
+    /// end of (the accessible part of) the room timeline.
+    pub fn backward() -> Self {
+        Self::new(Direction::Backward)
     }
 
-    /// Creates `MessagesOptions` with the given start token, and `dir` set to
-    /// `Backward`.
-    pub fn backward_from(from: &'a str) -> Self {
-        Self::backward(Some(from))
+    /// Creates `MessagesOptions` with `dir` set to `Forward`.
+    ///
+    /// If no `from` token is set afterwards, pagination will start at the
+    /// beginning of (the accessible part of) the room timeline.
+    pub fn forward() -> Self {
+        Self::new(Direction::Forward)
     }
 
-    /// Creates `MessagesOptions` with the given optional start token, and `dir`
-    /// set to `Forward`.
-    pub fn forward(from: Option<&'a str>) -> Self {
-        assign!(Self::new(Direction::Forward), { from })
-    }
-
-    /// Creates `MessagesOptions` with the given start token, and `dir` set to
-    /// `Forward`.
-    pub fn forward_from(from: &'a str) -> Self {
-        Self::forward(Some(from))
+    /// Creates a new `MessagesOptions` from `self` with the `from` field set to
+    /// the given value.
+    ///
+    /// Since the field is public, you can also assign to it directly. This
+    /// method merely acts as a shorthand for that, because it is very
+    /// common to set this field.
+    pub fn from(self, from: impl Into<Option<&'a str>>) -> Self {
+        Self { from: from.into(), ..self }
     }
 
     fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
