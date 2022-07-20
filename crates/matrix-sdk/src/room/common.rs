@@ -264,7 +264,7 @@ impl Common {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
@@ -344,7 +344,7 @@ impl Common {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
@@ -403,7 +403,7 @@ impl Common {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
