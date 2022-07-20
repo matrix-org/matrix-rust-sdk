@@ -20,7 +20,7 @@ use ruma::{
         },
         message::send_message_event,
         read_marker::set_read_marker,
-        receipt::create_receipt,
+        receipt::create_receipt::{self, v3::ReceiptType},
         redact::redact_event,
         state::send_state_event,
         typing::create_typing_event::v3::{Request as TypingRequest, Typing},
@@ -30,7 +30,6 @@ use ruma::{
     serde::Raw,
     EventId, OwnedTransactionId, TransactionId, UserId,
 };
-use ruma_client_api::receipt::create_receipt::v3::ReceiptType;
 use serde_json::Value;
 use tracing::debug;
 #[cfg(feature = "e2e-encryption")]
