@@ -6,6 +6,7 @@ pub mod authentication_service;
 pub mod backward_stream;
 pub mod client;
 pub mod client_builder;
+mod helpers;
 pub mod messages;
 pub mod room;
 pub mod session_verification;

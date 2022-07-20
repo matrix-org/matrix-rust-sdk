@@ -9,11 +9,15 @@ use futures_signals::{
     signal_vec::{SignalVecExt, VecDiff},
 };
 use futures_util::{pin_mut, StreamExt};
-pub use matrix_sdk::{RoomListEntry as MatrixRoomEntry, SlidingSyncState};
-use parking_lot::RwLock;
 use matrix_sdk::ruma::api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription;
+pub use matrix_sdk::{
+    RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
+    SlidingSyncState,
+};
+use parking_lot::RwLock;
 
 use super::{Client, RUNTIME};
+use crate::helpers::unwrap_or_clone_arc;
 
 pub struct StoppableSpawn {
     cancelled: AtomicBool,
@@ -137,6 +141,7 @@ pub trait SlidingSyncViewStateDelegate: Sync + Send {
     fn did_receive_update(&self, new_state: SlidingSyncState);
 }
 
+#[derive(Clone)]
 pub struct SlidingSyncView {
     inner: matrix_sdk::SlidingSyncView,
 }
@@ -222,6 +227,12 @@ pub struct SlidingSync {
     delegate: Arc<RwLock<Option<Box<dyn SlidingSyncDelegate>>>>,
 }
 
+impl From<matrix_sdk::SlidingSync> for SlidingSync {
+    fn from(other: matrix_sdk::SlidingSync) -> Self {
+        SlidingSync { inner: other, delegate: Arc::new(RwLock::new(None)) }
+    }
+}
+
 impl SlidingSync {
     pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
         *self.delegate.write() = delegate;
@@ -280,10 +291,56 @@ impl SlidingSync {
     }
 }
 
+#[derive(Clone)]
+pub struct SlidingSyncBuilder {
+    inner: MatrixSlidingSyncBuilder,
+}
+
+impl SlidingSyncBuilder {
+    pub fn homeserver(self: Arc<Self>, url: String) -> anyhow::Result<Arc<Self>> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.homeserver(url.parse()?);
+        Ok(Arc::new(builder))
+    }
+
+    pub fn add_fullsync_view(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.add_fullsync_view();
+        Arc::new(builder)
+    }
+
+    pub fn no_views(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.inner.no_views();
+        Arc::new(builder)
+    }
+
+    pub fn add_view(self: Arc<Self>, v: Arc<SlidingSyncView>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        let view = unwrap_or_clone_arc(v);
+        builder.inner.add_view(view.inner);
+        Arc::new(builder)
+    }
+
+    pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSync>> {
+        let builder = unwrap_or_clone_arc(self);
+        Ok(Arc::new(builder.inner.build()?.into()))
+    }
+}
+
 impl Client {
     pub fn full_sliding_sync(&self) -> anyhow::Result<Arc<SlidingSync>> {
-        let mut builder = self.client.sliding_sync();
-        let inner = builder.add_fullsync_view().build()?;
-        Ok(Arc::new(SlidingSync { inner, delegate: Arc::new(RwLock::new(None)) }))
+        RUNTIME.block_on(async move {
+            let mut builder = self.client.sliding_sync().await;
+            let inner = builder.add_fullsync_view().build()?;
+            Ok(Arc::new(inner.into()))
+        })
+    }
+
+    pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
+        RUNTIME.block_on(async move {
+            let inner = self.client.sliding_sync().await;
+            Arc::new(SlidingSyncBuilder { inner })
+        })
     }
 }

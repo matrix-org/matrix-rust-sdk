@@ -132,6 +132,23 @@ interface ClientBuilder {
     Client build();
 };
 
+interface SlidingSyncBuilder {
+    [Throws=ClientError, Self=ByArc]
+    SlidingSyncBuilder homeserver(string url);
+
+    [Self=ByArc]
+    SlidingSyncBuilder add_fullsync_view();
+
+    [Self=ByArc]
+    SlidingSyncBuilder no_views();
+
+    [Self=ByArc]
+    SlidingSyncBuilder add_view(SlidingSyncView view);
+
+    [Throws=ClientError, Self=ByArc]
+    SlidingSync build();
+};
+
 interface Client {
     void set_delegate(ClientDelegate? delegate);
 
@@ -176,6 +193,8 @@ interface Client {
 
     [Throws=ClientError]
     SlidingSync full_sliding_sync();
+
+    SlidingSyncBuilder sliding_sync();
 };
 
 callback interface RoomDelegate {
