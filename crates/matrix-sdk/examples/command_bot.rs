@@ -44,13 +44,13 @@ async fn login_and_sync(
         // The location to save files to
         let mut home = dirs::home_dir().expect("no home directory found");
         home.push("party_bot");
-        let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
+        let state_store = matrix_sdk_sled::SledStateStoreBuilder::default().path(home).build()?;
         client_builder = client_builder.state_store(state_store);
     }
 
     #[cfg(feature = "indexeddb")]
     {
-        let state_store = matrix_sdk_indexeddb::StateStore::open();
+        let state_store = matrix_sdk_indexeddb::StateStoreBuilder::default().build().await?;
         client_builder = client_builder.state_store(state_store);
     }
 
