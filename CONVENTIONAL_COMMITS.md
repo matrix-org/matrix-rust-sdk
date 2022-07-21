@@ -55,6 +55,10 @@ section aims at listing all the scopes used inside this project:
       <td>About the <code>matrix-sdk-common</code> crate.</td>
     </tr>
     <tr>
+      <td><code>crypto</code></td>
+      <td>About the <code>matrix-sdk-crypto</code> crate.</td>
+    </tr>
+    <tr>
       <td><code>indexeddb</code></td>
       <td>About the <code>matrix-sdk-indexeddb</code> crate.</td>
     </tr>
