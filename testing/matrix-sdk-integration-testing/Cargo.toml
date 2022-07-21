@@ -9,7 +9,7 @@ publish = false
 
 [dev-dependencies]
 matrix-sdk = { path = "../../crates/matrix-sdk" }
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 tempfile = "3.3.0"
 anyhow = "1"
 lazy_static = "1.4"
