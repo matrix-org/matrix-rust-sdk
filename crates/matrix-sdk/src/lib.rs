@@ -71,6 +71,6 @@ pub use http_client::HttpSend;
 pub use room_member::RoomMember;
 #[cfg(feature = "sliding-sync")]
 pub use sliding_sync::{
-    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncRoom, SlidingSyncState,
-    SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
+    RoomListEntry, SlidingSync, SlidingSyncBuilder, SlidingSyncMode, SlidingSyncRoom,
+    SlidingSyncState, SlidingSyncView, SlidingSyncViewBuilder, UpdateSummary,
 };
