@@ -1,3 +1,5 @@
+//! Example responses to `GET /_matrix/client/v3/rooms/{roomId}/members`
+
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 

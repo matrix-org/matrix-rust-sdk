@@ -2,8 +2,9 @@
 use base64::{encode_config as base64_encode, STANDARD_NO_PAD};
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::{GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType},
-    receipt::ReceiptType,
+    events::{
+        receipt::ReceiptType, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+    },
     DeviceId, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, TransactionId,
     UserId,
 };

@@ -55,6 +55,7 @@ macro_rules! statestore_integration_tests {
                     device_id, event_id,
                     events::{
                         presence::PresenceEvent,
+                        receipt::ReceiptType,
                         room::{
                             member::{
                                 MembershipState, OriginalSyncRoomMemberEvent, SyncRoomMemberEvent,
@@ -69,7 +70,6 @@ macro_rules! statestore_integration_tests {
                         StateEventType, StateUnsigned,
                     },
                     mxc_uri,
-                    receipt::ReceiptType,
                     room_id,
                     serde::Raw,
                     uint, user_id, MilliSecondsSinceUnixEpoch, UserId, EventId, OwnedEventId,
@@ -641,7 +641,7 @@ macro_rules! statestore_integration_tests {
                 async fn test_room_timeline() {
                     let store = get_store().await.unwrap();
                     let mut stored_events = Vec::new();
-                    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+                    let room_id = *test_json::DEFAULT_SYNC_ROOM_ID;
 
                     // Before the first sync the timeline should be empty
                     assert!(store.room_timeline(room_id).await.expect("failed to read timeline").is_none(), "TL wasn't empty");
@@ -674,7 +674,7 @@ macro_rules! statestore_integration_tests {
                     // Add message response
                     let messages = MessageResponse::try_from_http_response(
                         Response::builder()
-                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1).expect("Parsing SYNC_ROOM_MESSAGES_BATCH_1 failed"))
+                        .body(serde_json::to_vec(&*test_json::ROOM_MESSAGES_BATCH_1).expect("Parsing ROOM_MESSAGES_BATCH_1 failed"))
                         .unwrap(),
                         )
                         .unwrap();
@@ -699,7 +699,7 @@ macro_rules! statestore_integration_tests {
                     // Add second message response
                     let messages = MessageResponse::try_from_http_response(
                         Response::builder()
-                        .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2).expect("Parsing SYNC_ROOM_MESSAGES_BATCH_2 failed"))
+                        .body(serde_json::to_vec(&*test_json::ROOM_MESSAGES_BATCH_2).expect("Parsing ROOM_MESSAGES_BATCH_2 failed"))
                         .unwrap(),
                         )
                         .unwrap();

@@ -1,22 +1,18 @@
 use std::convert::TryFrom;
 
-use ruma::{events::AnyRoomEvent, room_id, serde::Raw};
+use ruma::{events::AnyRoomEvent, serde::Raw};
 use serde_json::Value;
 
-use crate::{test_json, EventsJson};
+use crate::{event_builder::TimelineTestEvent, test_json};
 
 /// Clones the given [`Value`] and adds a `room_id` to it
 ///
 /// Adding the `room_id` conditionally with `cfg` directly to the lazy_static
 /// test_json values is blocked by "experimental attributes on expressions, see
 /// issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information"
-pub fn value_with_room_id(value: &Value) -> Value {
-    let mut val = value.clone();
-    let room_id =
-        Value::try_from(room_id!("!SVkFJHzfwvuaIEawgC:localhost").to_string()).expect("room_id");
-    val.as_object_mut().expect("mutable test_json").insert("room_id".to_owned(), room_id);
-
-    val
+pub fn value_with_room_id(value: &mut Value) {
+    let room_id = Value::try_from(test_json::DEFAULT_SYNC_ROOM_ID.to_string()).expect("room_id");
+    value.as_object_mut().expect("mutable test_json").insert("room_id".to_owned(), room_id);
 }
 
 /// The `TransactionBuilder` struct can be used to easily generate valid
@@ -34,15 +30,9 @@ impl TransactionBuilder {
     }
 
     /// Add a room event.
-    pub fn add_room_event(&mut self, json: EventsJson) -> &mut Self {
-        let val: &Value = match json {
-            EventsJson::Member => &test_json::MEMBER,
-            EventsJson::MemberNameChange => &test_json::MEMBER_NAME_CHANGE,
-            EventsJson::PowerLevels => &test_json::POWER_LEVELS,
-            _ => panic!("unknown event json {:?}", json),
-        };
-
-        let val = value_with_room_id(val);
+    pub fn add_room_event(&mut self, event: TimelineTestEvent) -> &mut Self {
+        let mut val = event.into_json_value();
+        value_with_room_id(&mut val);
 
         let event = serde_json::from_value(val).unwrap();
 

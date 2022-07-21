@@ -27,7 +27,7 @@ pub async fn handle_room_member(
         trace!("not an appservice user: {}", event.state_key);
     } else if let MembershipState::Invite = event.content.membership {
         let user_id = UserId::parse(event.state_key.as_str())?;
-        if let Err(error) = appservice.register_virtual_user(user_id.localpart()).await {
+        if let Err(error) = appservice.register_virtual_user(user_id.localpart(), None).await {
             error_if_user_not_in_use(error)?;
         }
 

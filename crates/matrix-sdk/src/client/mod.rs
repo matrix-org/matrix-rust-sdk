@@ -2206,11 +2206,11 @@ impl Client {
 pub(crate) mod tests {
     use std::time::Duration;
 
-    use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
+    use matrix_sdk_test::{async_test, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent};
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::{api::MatrixVersion, device_id, room_id, user_id, UserId};
+    use ruma::{api::MatrixVersion, device_id, user_id, UserId};
     use url::Url;
     use wiremock::{
         matchers::{header, method, path},
@@ -2316,12 +2316,15 @@ pub(crate) mod tests {
         let client = logged_in_client(Some(server.uri())).await;
 
         let response = EventBuilder::default()
-            .add_state_event(EventsJson::Member)
-            .add_state_event(EventsJson::PowerLevels)
+            .add_joined_room(
+                JoinedRoomBuilder::default()
+                    .add_state_event(StateTestEvent::Member)
+                    .add_state_event(StateTestEvent::PowerLevels),
+            )
             .build_sync_response();
 
         client.inner.base_client.receive_sync_response(response).await.unwrap();
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         assert_eq!(client.homeserver().await, Url::parse(&server.uri()).unwrap());
 

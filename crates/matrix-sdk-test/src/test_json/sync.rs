@@ -1,5 +1,12 @@
+//! Complete sync responses.
+
 use once_cell::sync::Lazy;
+use ruma::{room_id, RoomId};
 use serde_json::{json, Value as JsonValue};
+
+/// The default room ID where sync events are added.
+pub static DEFAULT_SYNC_ROOM_ID: Lazy<&RoomId> =
+    Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
 
 pub static SYNC: Lazy<JsonValue> = Lazy::new(|| {
     json!({

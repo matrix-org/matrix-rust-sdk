@@ -12,7 +12,7 @@ describe('RequestType', () => {
     });
 });
 
-for (const [request, request_type] of [
+for (const [request, requestType] of [
     [KeysUploadRequest, RequestType.KeysUpload],
     [KeysQueryRequest, RequestType.KeysQuery],
     [KeysClaimRequest, RequestType.KeysClaim],
@@ -28,7 +28,7 @@ for (const [request, request_type] of [
             expect(r).toBeInstanceOf(request);
             expect(r.id).toStrictEqual('foo');
             expect(r.body).toStrictEqual('{"bar": "baz"}');
-            expect(r.type).toStrictEqual(request_type);
+            expect(r.type).toStrictEqual(requestType);
         });
     })
 
