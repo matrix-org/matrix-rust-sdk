@@ -66,6 +66,7 @@ use crate::{
     store::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store, StoreConfig,
     },
+    StateStore,
 };
 
 /// A no IO Client implementation.
@@ -135,9 +136,20 @@ impl BaseClient {
         self.store.session()
     }
 
+    /// Get all the rooms this client knows about.
+    pub fn get_rooms(&self) -> Vec<Room> {
+        self.store.get_rooms()
+    }
+
+    /// Get all the rooms this client knows about.
+    pub fn get_stripped_rooms(&self) -> Vec<Room> {
+        self.store.get_stripped_rooms()
+    }
+
     /// Get a reference to the store.
-    pub fn store(&self) -> &Store {
-        &self.store
+    #[allow(unknown_lints, clippy::explicit_auto_deref)]
+    pub fn store(&self) -> &dyn StateStore {
+        &*self.store
     }
 
     /// Is the client logged in.
@@ -1105,7 +1117,10 @@ impl Default for BaseClient {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_test::{async_test, response_from_file, EventBuilder};
+    use matrix_sdk_test::{
+        async_test, response_from_file, EventBuilder, InvitedRoomBuilder, LeftRoomBuilder,
+        StrippedStateTestEvent, TimelineTestEvent,
+    };
     use ruma::{
         api::{client as api, IncomingResponse},
         room_id, user_id,
@@ -1133,9 +1148,8 @@ mod tests {
         let mut ev_builder = EventBuilder::new();
 
         let response = ev_builder
-            .add_custom_left_event(
-                room_id,
-                json!({
+            .add_left_room(LeftRoomBuilder::new(room_id).add_timeline_event(
+                TimelineTestEvent::Custom(json!({
                     "content": {
                         "displayname": "Alice",
                         "membership": "left",
@@ -1145,16 +1159,15 @@ mod tests {
                     "sender": user_id,
                     "state_key": user_id,
                     "type": "m.room.member",
-                }),
-            )
+                })),
+            ))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Left);
 
         let response = ev_builder
-            .add_custom_invited_event(
-                room_id,
-                json!({
+            .add_invited_room(InvitedRoomBuilder::new(room_id).add_state_event(
+                StrippedStateTestEvent::Custom(json!({
                     "content": {
                         "displayname": "Alice",
                         "membership": "invite",
@@ -1164,8 +1177,8 @@ mod tests {
                     "sender": "@example:example.org",
                     "state_key": user_id,
                     "type": "m.room.member",
-                }),
-            )
+                })),
+            ))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
         assert_eq!(client.get_room(room_id).unwrap().room_type(), RoomType::Invited);

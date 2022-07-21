@@ -44,7 +44,6 @@
 		181AA19927B52AA60005F102 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		181AA19A27B52AB40005F102 /* MatrixSDKFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MatrixSDKFFI.xcframework; path = ../../generated/MatrixSDKFFI.xcframework; sourceTree = "<group>"; };
 		189A89B927B40BBF0048B0A5 /* sdk.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = sdk.swift; path = ../../../generated/swift/sdk.swift; sourceTree = "<group>"; };
-		189A89C327B417CA0048B0A5 /* MatrixRustSDK-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "MatrixRustSDK-Bridging-Header.h"; sourceTree = "<group>"; };
 		18CE89D427B2939900CA89E1 /* MatrixRustSDK.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MatrixRustSDK.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		18CE89D727B2939900CA89E1 /* MatrixRustSDKApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixRustSDKApp.swift; sourceTree = "<group>"; };
 		18CE89D927B2939900CA89E1 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -117,7 +116,6 @@
 				18CE89D927B2939900CA89E1 /* ContentView.swift */,
 				18CE8A0127B293A900CA89E1 /* MatrixRustSDK.entitlements */,
 				18CE89DB27B2939A00CA89E1 /* Assets.xcassets */,
-				189A89C327B417CA0048B0A5 /* MatrixRustSDK-Bridging-Header.h */,
 			);
 			path = MatrixRustSDK;
 			sourceTree = "<group>";
@@ -307,7 +305,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -362,7 +361,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -397,9 +397,8 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.matrix.MatrixRustSDK;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "MatrixRustSDK/MatrixRustSDK-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -431,9 +430,8 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.matrix.MatrixRustSDK;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "MatrixRustSDK/MatrixRustSDK-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

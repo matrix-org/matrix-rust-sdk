@@ -1098,12 +1098,10 @@ impl RequestState<Ready> {
                             // before the other side tried to do the same; ignore it if we did and
                             // we're the lexicographically smaller user ID (or device ID if equal).
                             use std::cmp::Ordering;
-                            match (sender.cmp(own_user_id), device.device_id().cmp(own_device_id)) {
-                                (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
-                                    false
-                                }
-                                _ => true,
-                            }
+                            !matches!(
+                                (sender.cmp(own_user_id), device.device_id().cmp(own_device_id)),
+                                (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater)
+                            )
                         } else {
                             true
                         };

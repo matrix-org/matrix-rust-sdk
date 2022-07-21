@@ -27,11 +27,11 @@ pub async fn handle_room_member(
         trace!("not an appservice user: {}", event.state_key);
     } else if let MembershipState::Invite = event.content.membership {
         let user_id = UserId::parse(event.state_key.as_str())?;
-        if let Err(error) = appservice.register_virtual_user(user_id.localpart()).await {
+        if let Err(error) = appservice.register_virtual_user(user_id.localpart(), None).await {
             error_if_user_not_in_use(error)?;
         }
 
-        let client = appservice.virtual_user_client(user_id.localpart()).await?;
+        let client = appservice.virtual_user(Some(user_id.localpart())).await?;
         client.join_room_by_id(room.room_id()).await?;
     }
 
@@ -61,7 +61,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let appservice = AppService::new(homeserver_url, server_name, registration).await?;
     appservice.register_user_query(Box::new(|_, _| Box::pin(async { true }))).await;
     appservice
-        .register_event_handler_context(appservice.clone())?
+        .virtual_user(None)
+        .await?
+        .register_event_handler_context(appservice.clone())
         .register_event_handler(
             move |event: OriginalSyncRoomMemberEvent,
                   room: Room,
@@ -69,7 +71,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle_room_member(appservice, room, event)
             },
         )
-        .await?;
+        .await;
 
     let (host, port) = appservice.registration().get_host_and_port()?;
     appservice.run(host, port).await?;

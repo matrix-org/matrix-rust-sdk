@@ -39,12 +39,11 @@ use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
     events::{
         presence::PresenceEvent,
-        receipt::Receipt,
+        receipt::{Receipt, ReceiptType},
         room::member::{MembershipState, RoomMemberEventContent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
         GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
-    receipt::ReceiptType,
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
 };

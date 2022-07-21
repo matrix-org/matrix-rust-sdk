@@ -176,13 +176,13 @@ impl Common {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// let request = MessagesOptions::backward("t47429-4392820_219380_26003_2265");
+    /// let options = MessagesOptions::backward().from("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).await.unwrap();
     /// let room = client
     ///    .get_joined_room(room_id!("!roomid:example.com"))
     ///    .unwrap();
-    /// assert!(room.messages(request).await.is_ok());
+    /// assert!(room.messages(options).await.is_ok());
     /// # });
     /// ```
     pub async fn messages(&self, options: MessagesOptions<'_>) -> Result<Messages> {
@@ -264,7 +264,7 @@ impl Common {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
@@ -344,7 +344,7 @@ impl Common {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
@@ -403,7 +403,7 @@ impl Common {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{room::MessagesOptions, Client};
+    /// use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::filter::RoomEventFilter,
     /// #     room_id,
@@ -461,7 +461,8 @@ impl Common {
         let filter = assign!(RoomEventFilter::default(), {
             lazy_load_options: LazyLoadOptions::Enabled { include_redundant_members: false },
         });
-        let options = assign!(MessagesOptions::backward(token), {
+        let options = assign!(MessagesOptions::backward(), {
+            from: Some(token),
             limit: uint!(10),
             filter,
         });
@@ -1003,7 +1004,7 @@ impl Common {
         }
 
         let via = self.route().await?;
-        Ok(self.room_id().matrix_to_uri(via))
+        Ok(self.room_id().matrix_to_uri_via(via))
     }
 
     /// Get a `matrix:` permalink to this room.
@@ -1022,7 +1023,7 @@ impl Common {
         }
 
         let via = self.route().await?;
-        Ok(self.room_id().matrix_uri(via, join))
+        Ok(self.room_id().matrix_uri_via(via, join))
     }
 
     /// Get a `matrix.to` permalink to an event in this room.
@@ -1045,7 +1046,7 @@ impl Common {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
-        Ok(self.room_id().matrix_to_event_uri(event_id, via))
+        Ok(self.room_id().matrix_to_event_uri_via(event_id, via))
     }
 
     /// Get a `matrix:` permalink to an event in this room.
@@ -1068,13 +1069,13 @@ impl Common {
         // Don't use the alias because an event is tied to a room ID, but an
         // alias might point to another room, e.g. after a room upgrade.
         let via = self.route().await?;
-        Ok(self.room_id().matrix_event_uri(event_id, via))
+        Ok(self.room_id().matrix_event_uri_via(event_id, via))
     }
 }
 
 /// Options for [`messages`][Common::messages].
 ///
-/// See that method for details.
+/// See that method and <https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages> for details.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct MessagesOptions<'a> {
@@ -1083,7 +1084,11 @@ pub struct MessagesOptions<'a> {
     /// This token can be obtained from a `prev_batch` token returned for each
     /// room from the sync API, or from a start or end token returned by a
     /// previous `messages` call.
-    pub from: &'a str,
+    ///
+    /// If `from` isn't provided the homeserver shall return a list of messages
+    /// from the first or last (per the value of the dir parameter) visible
+    /// event in the room history for the requesting user.
+    pub from: Option<&'a str>,
 
     /// The token to stop returning events at.
     ///
@@ -1105,27 +1110,42 @@ pub struct MessagesOptions<'a> {
 }
 
 impl<'a> MessagesOptions<'a> {
-    /// Creates `MessagesOptions` with the given start token and direction.
+    /// Creates `MessagesOptions` with the given direction.
     ///
     /// All other parameters will be defaulted.
-    pub fn new(from: &'a str, dir: Direction) -> Self {
-        Self { from, to: None, dir, limit: uint!(10), filter: RoomEventFilter::default() }
+    pub fn new(dir: Direction) -> Self {
+        Self { from: None, to: None, dir, limit: uint!(10), filter: RoomEventFilter::default() }
     }
 
-    /// Creates `MessagesOptions` with the given start token, and `dir` set to
-    /// `Backward`.
-    pub fn backward(from: &'a str) -> Self {
-        Self::new(from, Direction::Backward)
+    /// Creates `MessagesOptions` with `dir` set to `Backward`.
+    ///
+    /// If no `from` token is set afterwards, pagination will start at the
+    /// end of (the accessible part of) the room timeline.
+    pub fn backward() -> Self {
+        Self::new(Direction::Backward)
     }
 
-    /// Creates `MessagesOptions` with the given start token, and `dir` set to
-    /// `Forward`.
-    pub fn forward(from: &'a str) -> Self {
-        Self::new(from, Direction::Forward)
+    /// Creates `MessagesOptions` with `dir` set to `Forward`.
+    ///
+    /// If no `from` token is set afterwards, pagination will start at the
+    /// beginning of (the accessible part of) the room timeline.
+    pub fn forward() -> Self {
+        Self::new(Direction::Forward)
+    }
+
+    /// Creates a new `MessagesOptions` from `self` with the `from` field set to
+    /// the given value.
+    ///
+    /// Since the field is public, you can also assign to it directly. This
+    /// method merely acts as a shorthand for that, because it is very
+    /// common to set this field.
+    pub fn from(self, from: impl Into<Option<&'a str>>) -> Self {
+        Self { from: from.into(), ..self }
     }
 
     fn into_request(self, room_id: &'a RoomId) -> get_message_events::v3::Request<'_> {
-        assign!(get_message_events::v3::Request::new(room_id, self.from, self.dir), {
+        assign!(get_message_events::v3::Request::new(room_id, self.dir), {
+            from: self.from,
             to: self.to,
             limit: self.limit,
             filter: self.filter,

@@ -1,6 +1,6 @@
 {
-    "name": "@matrix-org/matrix-sdk-crypto",
-    "version": "0.5.0",
+    "name": "@matrix-org/matrix-sdk-crypto-nodejs",
+    "version": "0.1.0-beta.1",
     "main": "index.js",
     "types": "index.d.ts",
     "napi": {
@@ -23,7 +23,11 @@
     "scripts": {
         "release-build": "napi build --platform --release --strip",
         "build": "napi build --platform",
+        "postinstall": "node download-lib.js",
         "test": "jest --verbose --testTimeout 10000",
         "doc": "typedoc --tsconfig ."
+    },
+    "dependencies": {
+        "node-downloader-helper": "^2.1.1"
     }
 }

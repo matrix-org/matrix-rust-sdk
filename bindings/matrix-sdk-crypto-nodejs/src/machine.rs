@@ -56,7 +56,7 @@ impl OlmMachine {
     ///   data at rest in the store. **Warning**, if no passphrase is given, the
     ///   store and all its data will remain unencrypted. This argument is
     ///   ignored if `store_path` is not set.
-    #[napi]
+    #[napi(strict)]
     pub async fn initialize(
         user_id: &identifiers::UserId,
         device_id: &identifiers::DeviceId,
@@ -144,7 +144,7 @@ impl OlmMachine {
     ///   response.
     /// * `one_time_keys_count`, the current one-time keys counts that the sync
     ///   response returned.
-    #[napi]
+    #[napi(strict)]
     pub async fn receive_sync_changes(
         &self,
         to_device_events: String,
@@ -227,7 +227,7 @@ impl OlmMachine {
     /// * `request_type`, the request type associated to the request ID.
     /// * `response`, the response that was received from the server after the
     ///   outgoing request was sent out.
-    #[napi]
+    #[napi(strict)]
     pub async fn mark_request_as_sent(
         &self,
         request_id: String,
@@ -272,7 +272,7 @@ impl OlmMachine {
     /// * `users`, the list of users that we should check if we lack a session
     ///   with one of their devices. This can be an empty array or `null` when
     ///   calling this method between sync requests.
-    #[napi]
+    #[napi(strict)]
     pub async fn get_missing_sessions(
         &self,
         users: Option<Vec<&identifiers::UserId>>,
@@ -312,7 +312,7 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `users`, an array over user IDs that should be marked for tracking.
-    #[napi]
+    #[napi(strict)]
     pub async fn update_tracked_users(&self, users: Vec<&identifiers::UserId>) {
         let users = users.into_iter().map(|user| user.inner.clone()).collect::<Vec<_>>();
 
@@ -326,7 +326,7 @@ impl OlmMachine {
     /// * `room_id`, the room ID of the room where the room key will be used.
     /// * `users`, the list of users that should receive the room key.
     /// * `encryption_settings`, the encryption settings.
-    #[napi]
+    #[napi(strict)]
     pub async fn share_room_key(
         &self,
         room_id: &identifiers::RoomId,
@@ -357,7 +357,7 @@ impl OlmMachine {
     /// * `event_type`, the plaintext type of the event.
     /// * `content`, the JSON-encoded content of the message that should be
     ///   encrypted.
-    #[napi]
+    #[napi(strict)]
     pub async fn encrypt_room_event(
         &self,
         room_id: &identifiers::RoomId,
@@ -383,7 +383,7 @@ impl OlmMachine {
     ///
     /// * `event`, the event that should be decrypted.
     /// * `room_id`, the ID of the room where the event was sent to.
-    #[napi]
+    #[napi(strict)]
     pub async fn decrypt_room_event(
         &self,
         event: String,
@@ -409,7 +409,7 @@ impl OlmMachine {
 
     /// Sign the given message using our device key and if available
     /// cross-signing master key.
-    #[napi]
+    #[napi(strict)]
     pub async fn sign(&self, message: String) -> types::Signatures {
         self.inner.sign(message.as_str()).await.into()
     }

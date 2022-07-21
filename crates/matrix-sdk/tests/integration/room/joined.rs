@@ -10,7 +10,7 @@ use matrix_sdk::{
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::client::membership::Invite3pidInit, assign, event_id,
-    events::room::message::RoomMessageEventContent, mxc_uri, room_id, thirdparty, uint, user_id,
+    events::room::message::RoomMessageEventContent, mxc_uri, thirdparty, uint, user_id,
     TransactionId,
 };
 use serde_json::json;
@@ -39,7 +39,7 @@ async fn invite_user_by_id() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let user = user_id!("@example:localhost");
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.invite_user_by_id(user).await.unwrap();
 }
@@ -61,7 +61,7 @@ async fn invite_user_by_3pid() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.invite_user_by_3pid(
         Invite3pidInit {
@@ -93,7 +93,7 @@ async fn leave_room() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.leave().await.unwrap();
 }
@@ -116,7 +116,7 @@ async fn ban_user() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let user = user_id!("@example:localhost");
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.ban_user(user, None).await.unwrap();
 }
@@ -139,7 +139,7 @@ async fn kick_user() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let user = user_id!("@example:localhost");
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.kick_user(user, None).await.unwrap();
 }
@@ -162,7 +162,7 @@ async fn read_receipt() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let event_id = event_id!("$xxxxxx:example.org");
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.read_receipt(event_id).await.unwrap();
 }
@@ -185,7 +185,7 @@ async fn read_marker() {
     let _response = client.sync_once(sync_settings).await.unwrap();
 
     let event_id = event_id!("$xxxxxx:example.org");
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.read_marker(event_id, None).await.unwrap();
 }
@@ -207,7 +207,7 @@ async fn typing_notice() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     room.typing_notice(true).await.unwrap();
 }
@@ -231,7 +231,7 @@ async fn room_state_event_send() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
     let room = client.get_joined_room(room_id).unwrap();
 
@@ -260,7 +260,7 @@ async fn room_message_send() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
@@ -301,7 +301,7 @@ async fn room_attachment_send() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let mut media = Cursor::new("Hello world");
 
@@ -347,7 +347,7 @@ async fn room_attachment_send_info() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let mut media = Cursor::new("Hello world");
 
@@ -398,7 +398,7 @@ async fn room_attachment_send_wrong_info() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let mut media = Cursor::new("Hello world");
 
@@ -457,7 +457,7 @@ async fn room_attachment_send_info_thumbnail() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let mut media = Cursor::new("Hello world");
 
@@ -502,7 +502,7 @@ async fn room_redact() {
 
     let _response = client.sync_once(sync_settings).await.unwrap();
 
-    let room = client.get_joined_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
+    let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let event_id = event_id!("$xxxxxxxx:example.com");
 

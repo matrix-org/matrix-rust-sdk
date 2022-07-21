@@ -29,7 +29,7 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
-        receipt::Receipt,
+        receipt::{Receipt, ReceiptType},
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
@@ -39,7 +39,6 @@ use ruma::{
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType, StateEventType,
     },
-    receipt::ReceiptType,
     room::RoomType as CreateRoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
     RoomVersionId, UserId,
@@ -104,16 +103,7 @@ impl Room {
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
-        let room_info = RoomInfo {
-            room_id: room_id.into(),
-            room_type,
-            notification_counts: Default::default(),
-            summary: Default::default(),
-            members_synced: false,
-            last_prev_batch: None,
-            base_info: BaseRoomInfo::new(),
-        };
-
+        let room_info = RoomInfo::new(room_id, room_type);
         Self::restore(own_user_id, store, room_info)
     }
 
@@ -656,6 +646,19 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
+    #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
+    pub fn new(room_id: &RoomId, room_type: RoomType) -> Self {
+        Self {
+            room_id: room_id.into(),
+            room_type,
+            notification_counts: Default::default(),
+            summary: Default::default(),
+            members_synced: false,
+            last_prev_batch: None,
+            base_info: BaseRoomInfo::new(),
+        }
+    }
+
     /// Mark this Room as joined
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;

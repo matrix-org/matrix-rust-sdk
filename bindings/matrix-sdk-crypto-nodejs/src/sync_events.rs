@@ -13,7 +13,7 @@ pub struct DeviceLists {
 #[napi]
 impl DeviceLists {
     /// Create an empty `DeviceLists`.
-    #[napi(constructor)]
+    #[napi(constructor, strict)]
     pub fn new(
         changed: Option<Vec<&identifiers::UserId>>,
         left: Option<Vec<&identifiers::UserId>>,
