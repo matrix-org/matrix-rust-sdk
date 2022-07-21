@@ -4,7 +4,7 @@ use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
 use matrix_sdk_base::RoomInfo;
-use matrix_sdk_sled::{SledStateStoreBuilder, StateStore};
+use matrix_sdk_sled::StateStore;
 use ruma::{events::StateEventType, OwnedRoomId, OwnedUserId, RoomId};
 use rustyline::{
     completion::{Completer, Pair},
@@ -203,7 +203,7 @@ impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
         let store = Arc::new(
-            SledStateStoreBuilder::default()
+            StateStore::builder()
                 .path(database_path.into())
                 .build()
                 .expect("Can't open sled database"),

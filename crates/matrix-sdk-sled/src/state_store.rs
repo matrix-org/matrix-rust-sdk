@@ -415,6 +415,11 @@ impl SledStore {
         })
     }
 
+    /// Generate a SledStoreBuilder with default parameters
+    pub fn builder() -> SledStoreBuilder {
+        SledStoreBuilder::default()
+    }
+
     #[deprecated(note = "Use SledStoreBuilder instead.")]
     pub fn open() -> StoreResult<Self> {
         SledStoreBuilder::default().build().map_err(StoreError::backend)

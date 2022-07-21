@@ -388,8 +388,8 @@ impl IndexeddbStoreBuilder {
             move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
                 // changing the format can only happen in the upgrade procedure
                 if recreate_stores {
-                    drop_stores(&evt.db())?;
-                    create_stores(&evt.db())?;
+                    drop_stores(evt.db())?;
+                    create_stores(evt.db())?;
                 }
                 Ok(())
             },
@@ -416,6 +416,12 @@ impl std::fmt::Debug for IndexeddbStore {
 type Result<A, E = IndexeddbStoreError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
+
+    /// Generate a IndexeddbStoreBuilder with default parameters
+    pub fn builder() -> IndexeddbStoreBuilder {
+        IndexeddbStoreBuilder::default()
+    }
+
     /// Whether this database has any migration backups
     pub async fn has_backups(&self) -> Result<bool> {
         Ok(self
@@ -435,8 +441,7 @@ impl IndexeddbStore {
             .object_store(KEYS::BACKUPS_META)?
             .open_cursor_with_direction(indexed_db_futures::prelude::IdbCursorDirection::Prev)?
             .await?
-            .map(|c| c.value().as_string())
-            .flatten())
+            .and_then(|c| c.value().as_string()))
     }
 
     #[allow(dead_code)]
