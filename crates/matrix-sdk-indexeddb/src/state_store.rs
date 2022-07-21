@@ -416,7 +416,6 @@ impl std::fmt::Debug for IndexeddbStore {
 type Result<A, E = IndexeddbStoreError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
-
     /// Generate a IndexeddbStoreBuilder with default parameters
     pub fn builder() -> IndexeddbStoreBuilder {
         IndexeddbStoreBuilder::default()
