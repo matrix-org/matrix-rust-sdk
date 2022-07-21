@@ -38,7 +38,7 @@ section aims at listing all the scopes used inside this project:
   </thead>
   <tbody>
     <tr>
-      <td rowspan="9">Crates</td>
+      <td rowspan="10">Crates</td>
       <td><code>sdk</code></td>
       <td>About the <code>matrix-sdk</code> crate.</td>
     </tr>
