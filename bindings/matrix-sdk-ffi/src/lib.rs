@@ -17,6 +17,7 @@ use matrix_sdk::Session;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub use uniffi_api::*;
 
 pub static RUNTIME: Lazy<Runtime> =
@@ -54,4 +55,11 @@ impl From<anyhow::Error> for ClientError {
     fn from(e: anyhow::Error) -> ClientError {
         ClientError::Generic { msg: e.to_string() }
     }
+}
+
+fn setup_tracing(configuration: String) {
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(configuration))
+        .with(fmt::layer().with_ansi(false))
+        .init();
 }

@@ -10,7 +10,7 @@ clap = "3.2.4"
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 matrix-sdk-base = { path = "../../crates/matrix-sdk-base", version = "0.5.0" }
 matrix-sdk-sled = { path = "../../crates/matrix-sdk-sled", version = "0.1.0" }
-ruma = { git = "https://github.com/ruma/ruma", rev = "7ec599e83d8ba6b2ace9e4fe184fc7560b0ff6ae" }
+ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b" }
 rustyline = "9.1.2"
 rustyline-derive = "0.6.0"
 serde = "1.0.136"

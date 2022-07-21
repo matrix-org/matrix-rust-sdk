@@ -1,4 +1,6 @@
 namespace sdk {
+    void setup_tracing(string configuration);
+
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
     string gen_transaction_id();
@@ -156,24 +158,23 @@ interface MediaSource {
 
 [Error]
 enum AuthenticationError {
-  "ClientMissing",
-  "Generic",
+    "ClientMissing",
+    "Generic",
+};
+
+interface HomeserverLoginDetails {
+    string url();
+    string? authentication_issuer();
+    boolean supports_password_login();
 };
 
 interface AuthenticationService {
     constructor(string base_path);
     
-    [Throws=AuthenticationError]
-    string homeserver();
+    HomeserverLoginDetails? homeserver_details();
     
     [Throws=AuthenticationError]
-    string? authentication_issuer();
-
-    [Throws=AuthenticationError]
-    boolean supports_password_login();
-    
-    [Throws=AuthenticationError]
-    void use_server(string server_name);
+    void configure_homeserver(string server_name);
     
     [Throws=AuthenticationError]
     Client login(string username, string password);

@@ -25,7 +25,7 @@ byteorder = "1.4.3"
 image = { version = "0.23.0", optional = true }
 qrcode = { version = "0.12.0", default-features = false }
 rqrr = { version = "0.4.0", optional = true }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "7ec599e83d8ba6b2ace9e4fe184fc7560b0ff6ae" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b" }
 thiserror = "1.0.30"
 
 [dependencies.vodozemac]
