@@ -6,7 +6,7 @@ use matrix_sdk::{
 
 use super::get_client_for_user;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_invitation_details() -> Result<()> {
     let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
     let sebastian = get_client_for_user("sebastian".to_owned()).await?;
