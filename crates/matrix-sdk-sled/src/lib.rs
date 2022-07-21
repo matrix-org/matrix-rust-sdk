@@ -16,7 +16,9 @@ mod state_store;
 #[cfg(feature = "crypto-store")]
 pub use cryptostore::SledStore as CryptoStore;
 #[cfg(feature = "state-store")]
-pub use state_store::{SledStore as StateStore, SledStoreBuilder as SledStateStoreBuilder};
+pub use state_store::{
+    MigrationConflictStrategy, SledStore as StateStore, SledStoreBuilder as SledStateStoreBuilder,
+};
 
 /// All the errors that can occur when opening a sled store.
 #[derive(Error, Debug)]

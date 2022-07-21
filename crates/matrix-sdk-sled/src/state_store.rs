@@ -191,11 +191,13 @@ const ALL_DB_STORES: &[&str] = &[
     ROOM_STATE,
     ROOM_USER_RECEIPT,
     ROOM,
+    SESSION,
     STRIPPED_INVITED_USER_ID,
     STRIPPED_JOINED_USER_ID,
     STRIPPED_ROOM_INFO,
     STRIPPED_ROOM_MEMBER,
     STRIPPED_ROOM_STATE,
+    CUSTOM,
     #[cfg(feature = "experimental-timeline")]
     ROOM_EVENT_ID_POSITION,
     #[cfg(feature = "experimental-timeline")]
@@ -223,7 +225,7 @@ impl SledStoreBuilder {
         let mut cfg = Config::new().temporary(is_temp);
 
         let path = if let Some(path) = &self.path {
-            let path = path.join("matrix-sdk-store");
+            let path = path.join("matrix-sdk-state");
 
             cfg = cfg.path(&path);
             Some(path)
