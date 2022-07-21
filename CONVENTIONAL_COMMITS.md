@@ -7,6 +7,22 @@ the [Full
 Specification](https://www.conventionalcommits.org/en/v1.0.0/#specification)
 to learn more.
 
+## Types
+
+Conventional Commits defines _type_ (as in `type(scope):
+message`). This section aims at listing the types used inside this
+project:
+
+| Type | Definition |
+|-|-|
+| `feat` | About a new feature. |
+| `fix` | About a bug fix. |
+| `test` | About a test (suite, case, runner…). |
+| `doc` | About a documentation modification. |
+| `refactor` | About a refactoring. |
+| `ci` | About a Continuous Integration modification. |
+| `chore` | About some cleanup, or regular tasks. |
+
 ## Scopes
 
 Conventional Commits defines _scope_ (as in `type(scope): message`). This
