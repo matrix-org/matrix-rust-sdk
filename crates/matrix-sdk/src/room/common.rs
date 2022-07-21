@@ -315,8 +315,10 @@ impl Common {
             for await item in backward_store {
                 match item {
                     Ok(event) => yield Ok(event),
-                    Err(TimelineStreamError::EndCache { fetch_more_token }) => if let Err(error) = room.request_messages(&fetch_more_token).await {
-                        yield Err(error);
+                    Err(TimelineStreamError::EndCache { fetch_more_token }) => {
+                        if let Err(error) = room.request_messages(&fetch_more_token).await {
+                            yield Err(error);
+                        }
                     },
                     Err(TimelineStreamError::Store(error)) => yield Err(error.into()),
                 }
@@ -445,8 +447,10 @@ impl Common {
             for await item in backward_store {
                 match item {
                     Ok(event) => yield Ok(event),
-                    Err(TimelineStreamError::EndCache { fetch_more_token }) => if let Err(error) = room.request_messages(&fetch_more_token).await {
-                        yield Err(error);
+                    Err(TimelineStreamError::EndCache { fetch_more_token }) => {
+                        if let Err(error) = room.request_messages(&fetch_more_token).await {
+                            yield Err(error);
+                        }
                     },
                     Err(TimelineStreamError::Store(error)) => yield Err(error.into()),
                 }
@@ -1075,7 +1079,9 @@ impl Common {
 
 /// Options for [`messages`][Common::messages].
 ///
-/// See that method and <https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages> for details.
+/// See that method and
+/// <https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages>
+/// for details.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct MessagesOptions<'a> {
