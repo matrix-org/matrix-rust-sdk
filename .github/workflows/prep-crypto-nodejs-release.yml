@@ -36,10 +36,13 @@ env:
 
 jobs:
   prepare-release:
-    name: "Package nodejs package"
+    name: "Preparing crypto-nodejs release tag"
     runs-on: ubuntu-latest
+    outputs:
+      tag: "${{ env.TAG_PREFIX }}${{ inputs.version }}"
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
 
       # Generate changelog since last tag, if given
       - name: Generate a changelog for upload
@@ -65,9 +68,8 @@ jobs:
 
       - name: Set version
         id: package_version
-        uses: KageKirin/set-node-package-version@v0
-        with:
-          version: ${{ inputs.version }}
+        working-directory: ${{ env.PKG_PATH }}
+        run: npm version ${{ inputs.version }}
 
       - uses: EndBug/add-and-commit@v9
         with:
@@ -91,18 +93,25 @@ jobs:
 
       # no changes, use the default changelog for the body
       - name: Update Github Release notes
-        if: !inputs.previous_version
+        if: ${{!inputs.previous_version}}
         uses: softprops/action-gh-release@v1
         with:
           draft: true
           tag_name: ${{ env.TAG_PREFIX }}${{ inputs.version }}
           body_path: "${{ env.PKG_PATH }}/CHANGELOG.md"
 
-      # finally, let's create a PR for all this, too
+      # let's create a PR for all this, too
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v4
         with:
-          branch: "gh-action/release-${{ env.TAG_PREFIX }}${{ inputs.version }}"
           title: "Preparing Release ${{ env.TAG_PREFIX }}${{ inputs.version }}"
           body: |
-            Automatic Pull-Request to merge release ${{ env.TAG_PREFIX }}${{ inputs.version }} back into main
+            Automatic Pull-Request to merge release ${{ env.TAG_PREFIX }}${{ inputs.version }}
+
+  trigger-release:
+    # and trigger the tagging release workflow
+    uses: matrix-org/matrix-rust-sdk/.github/workflows/release-crypto-nodejs.yml@main
+    needs: ['prepare-release']
+    name: "Trigger release Workflow"
+    with:
+      tag: ${{needs.prepare-release.outputs.tag}}
