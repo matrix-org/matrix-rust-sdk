@@ -43,7 +43,7 @@ commit_parsers = [
     { message = "^test", group = "Testing"},
     { message = "^doc", group = "Documentation"},
     { message = "^refactor", group = "Refactoring"},
-    { message = "^ci", group = "Continous Integration"},
+    { message = "^ci", group = "Continuous Integration"},
     { message = "^chore", group = "Miscellaneous Tasks"},
     { body = ".*security", group = "Security"},
 ]
