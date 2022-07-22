@@ -122,7 +122,7 @@ pub use virtual_user::VirtualUserBuilder;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 const USER_KEY: &[u8] = b"appservice.users.";
-pub const USER_MEMBER: &[u8] = b"appservice.users.membership.";
+const USER_MEMBER: &[u8] = b"appservice.users.membership.";
 
 type Localpart = String;
 
