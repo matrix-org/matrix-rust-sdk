@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use futures_util::future::join3;
+use matrix_sdk::{
+    ruma::{DeviceId, UserId},
+    Session,
+};
 use parking_lot::RwLock;
 
 use super::{client::Client, client_builder::ClientBuilder, RUNTIME};
@@ -108,6 +112,59 @@ impl AuthenticationService {
 
                 client
                     .login(username, password)
+                    .map(|_| client.clone())
+                    .map_err(AuthenticationError::from)
+            }
+            None => Err(AuthenticationError::ClientMissing),
+        }
+    }
+
+    /// Login to the current homeserver using an existing access token that was
+    /// issued by an authentication server.
+    pub fn login_access_token(&self, token: String) -> Result<Arc<Client>, AuthenticationError> {
+        match self.client.read().as_ref() {
+            Some(client) => {
+                let homeserver_url = client.homeserver();
+
+                // Create a new in-memory client to discover user info.
+                let whoami_client = Arc::new(ClientBuilder::new())
+                    .homeserver_url(homeserver_url.clone())
+                    .build()
+                    .map_err(AuthenticationError::from)?;
+
+                let discovery_user_id = UserId::parse("@unknown:unknown")
+                    .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
+
+                let discovery_session = Session {
+                    access_token: token.clone(),
+                    user_id: discovery_user_id,
+                    device_id: DeviceId::new(),
+                };
+
+                whoami_client
+                    .restore_session(discovery_session)
+                    .map_err(AuthenticationError::from)?;
+
+                let whoami = whoami_client
+                    .whoami()
+                    .map_err(|e| AuthenticationError::Generic { message: e.to_string() })?;
+
+                // Create the actual client with a store path from the username.
+                let client = Arc::new(ClientBuilder::new())
+                    .base_path(self.base_path.clone())
+                    .homeserver_url(homeserver_url)
+                    .username(whoami.user_id.to_string())
+                    .build()
+                    .map_err(AuthenticationError::from)?;
+
+                let session = Session {
+                    access_token: token,
+                    user_id: whoami.user_id,
+                    device_id: whoami.device_id.unwrap_or_else(DeviceId::new),
+                };
+
+                client
+                    .restore_session(session)
                     .map(|_| client.clone())
                     .map_err(AuthenticationError::from)
             }

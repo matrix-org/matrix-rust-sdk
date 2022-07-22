@@ -178,6 +178,9 @@ interface AuthenticationService {
     
     [Throws=AuthenticationError]
     Client login(string username, string password);
+    
+    [Throws=AuthenticationError]
+    Client login_access_token(string token);
 };
 
 interface SessionVerificationEmoji {
