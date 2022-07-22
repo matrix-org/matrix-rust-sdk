@@ -180,7 +180,7 @@ interface AuthenticationService {
     Client login(string username, string password);
     
     [Throws=AuthenticationError]
-    Client login_access_token(string token);
+    Client restore_with_access_token(string token, string device_id);
 };
 
 interface SessionVerificationEmoji {
