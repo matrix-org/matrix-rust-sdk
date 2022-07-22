@@ -23,7 +23,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
-    path::PathBuf,
     pin::Pin,
     result::Result as StdResult,
     sync::Arc,
@@ -131,9 +130,6 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait StateStore: AsyncTraitDeps {
-    /// The path used by the store, or `None` if the store is in memory.
-    fn path(&self) -> Option<PathBuf>;
-
     /// Save the given filter id under the given name.
     ///
     /// # Arguments
@@ -466,11 +462,6 @@ impl Store {
     /// token.
     pub fn session(&self) -> Option<&Session> {
         self.session.get()
-    }
-
-    /// The path used by the store, or `None` if the store is in memory.
-    pub fn path(&self) -> Option<PathBuf> {
-        self.inner.path()
     }
 
     /// Get all the rooms this store knows about.

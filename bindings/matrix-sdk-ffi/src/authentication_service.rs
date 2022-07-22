@@ -15,6 +15,8 @@ pub struct AuthenticationService {
 pub enum AuthenticationError {
     #[error("A successful call to use_server must be made first.")]
     ClientMissing,
+    #[error("Login was successful but is missing a valid Session to configure the file store.")]
+    SessionMissing,
     #[error("An error occurred: {message}")]
     Generic { message: String },
 }
@@ -94,18 +96,24 @@ impl AuthenticationService {
     ) -> Result<Arc<Client>, AuthenticationError> {
         match self.client.read().as_ref() {
             Some(client) => {
-                let homeserver_url = client.homeserver();
+                // Login and ask the server for the full user ID as this could be different from
+                // the username that was entered.
+                client.login(username, password).map_err(AuthenticationError::from)?;
+                let whoami = client.whoami()?;
 
-                // Create a new client to setup the store path for the username
+                // Create a new client to setup the store path now the user ID is known.
+                let homeserver_url = client.homeserver();
+                let session = client.session().ok_or(AuthenticationError::SessionMissing)?;
                 let client = Arc::new(ClientBuilder::new())
                     .base_path(self.base_path.clone())
                     .homeserver_url(homeserver_url)
-                    .username(username.clone())
+                    .username(whoami.user_id.to_string())
                     .build()
                     .map_err(AuthenticationError::from)?;
 
+                // Restore the client using the session from the login request.
                 client
-                    .login(username, password)
+                    .restore_session(session.clone())
                     .map(|_| client.clone())
                     .map_err(AuthenticationError::from)
             }
