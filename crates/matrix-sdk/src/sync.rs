@@ -129,8 +129,6 @@ impl Client {
             }
             Err(e) => {
                 error!("Received an invalid response: {}", e);
-                Self::sleep().await;
-
                 Err(e)
             }
         }
