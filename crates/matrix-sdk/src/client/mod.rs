@@ -391,23 +391,22 @@ impl Client {
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
-    /// client
-    ///     .register_event_handler(
+    /// client.register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
     ///             // Common usage: Room event plus room and client.
     ///         },
     ///     )
-    ///     .await
-    ///     .register_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
+    ///     .await;
+    /// client.register_event_handler(
+    ///          |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
     ///             async move {
     ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
     ///                 // unencrypted events and events that were decrypted by the SDK.
     ///             }
     ///         },
     ///     )
-    ///     .await
-    ///     .register_event_handler(|ev: SyncRoomTopicEvent| async move {
+    ///     .await;
+    /// client.register_event_handler(|ev: SyncRoomTopicEvent| async move {
     ///         // You can omit any or all arguments after the first.
     ///     })
     ///     .await;
