@@ -1838,8 +1838,6 @@ impl Client {
                 if callback(r).await == LoopCtrl::Break {
                     return;
                 }
-            } else {
-                continue;
             }
 
             Client::delay_sync(&mut last_sync_time).await
