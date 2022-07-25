@@ -717,12 +717,12 @@ mod tests {
 
         assert!(master_key
             .public_key
-            .verify_subkey(&identity.self_signing_key.lock().await.as_ref().unwrap().public_key,)
+            .verify_subkey(&identity.self_signing_key.lock().await.as_ref().unwrap().public_key)
             .is_ok());
 
         assert!(master_key
             .public_key
-            .verify_subkey(&identity.user_signing_key.lock().await.as_ref().unwrap().public_key,)
+            .verify_subkey(&identity.user_signing_key.lock().await.as_ref().unwrap().public_key)
             .is_ok());
     }
 
