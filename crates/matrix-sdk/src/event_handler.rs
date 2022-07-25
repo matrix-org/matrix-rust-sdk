@@ -99,6 +99,12 @@ pub struct EventHandlerHandle {
     pub(crate) addr: usize,
 }
 
+impl EventHandlerContext for EventHandlerHandle {
+    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+        Some(data.handle.clone())
+    }
+}
+
 /// Interface for event handlers.
 ///
 /// This trait is an abstraction for a certain kind of functions / closures,
@@ -154,6 +160,7 @@ pub struct EventHandlerData<'a> {
     pub room: Option<room::Room>,
     pub raw: &'a RawJsonValue,
     pub encryption_info: Option<&'a EncryptionInfo>,
+    pub handle: EventHandlerHandle,
 }
 
 /// Context for an event handler.
@@ -400,6 +407,7 @@ impl Client {
                         room: room.clone(),
                         raw: raw_event.json(),
                         encryption_info,
+                        handle: handler_wrapper.handle.clone(),
                     };
                     (handler_wrapper.handler_function)(data)
                 })
@@ -600,7 +608,7 @@ mod tests {
     use crate::{room, Client};
 
     #[async_test]
-    async fn event_handler() -> crate::Result<()> {
+    async fn register_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
         let client = crate::client::tests::logged_in_client(None).await;
@@ -699,6 +707,58 @@ mod tests {
         assert_eq!(typing_count.load(SeqCst), 1);
         assert_eq!(power_levels_count.load(SeqCst), 1);
         assert_eq!(invited_member_count.load(SeqCst), 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn remove_event_handler() -> crate::Result<()> {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = crate::client::tests::logged_in_client(None).await;
+
+        let member_count = Arc::new(AtomicU8::new(0));
+
+        client
+            .register_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let handle = client
+            .register_event_handler({
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    panic!("handler should have been removed");
+                    return future::ready(());
+                }
+            })
+            .await;
+
+        client
+            .register_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
+            )
+            .build_sync_response();
+
+        client.remove_event_handler(handle).await;
+
+        client.process_sync(response).await?;
+
+        assert_eq!(member_count.load(SeqCst), 2);
 
         Ok(())
     }

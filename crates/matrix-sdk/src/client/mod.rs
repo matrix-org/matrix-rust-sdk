@@ -349,9 +349,11 @@ impl Client {
     /// "context" arguments: They have to implement [`EventHandlerContext`].
     /// This trait is named that way because most of the types implementing it
     /// give additional context about an event: The room it was in, its raw form
-    /// and other similar things. As an exception to this,
-    /// [`Client`] also implements the `EventHandlerContext` trait
-    /// so you don't have to clone your client into the event handler manually.
+    /// and other similar things. As two exceptions to this,
+    /// [`Client`] and [`EventHandlerHandle`] also implement the
+    /// `EventHandlerContext` trait so you don't have to clone your client
+    /// into the event handler manually and a handler can decide to remove
+    /// itself.
     ///
     /// Some context arguments are not universally applicable. A context
     /// argument that isn't available for the given event type will result in
@@ -494,10 +496,53 @@ impl Client {
 
     /// Remove the event handler associated with the token.
     ///
+    /// Note that handlers that remove themselves will still execute
+    /// with events received in the same sync cycle.
+    ///
     ///  # Arguments
     ///
     /// `handle` - The [`EventHandlerHandle`] that was passed to
     /// [`Client::register_event_handler`] when registering the handler.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # use tokio::sync::mpsc;
+    /// # use matrix_sdk_test::{
+    /// #   EphemeralTestEvent, EventBuilder, StateTestEvent, TimelineTestEvent, JoinedRoomBuilder
+    /// # };
+    ///
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    ///
+    /// use matrix_sdk::{
+    ///     ruma::events::room::member::SyncRoomMemberEvent,
+    ///     Client, event_handler::EventHandlerHandle
+    /// };
+    ///
+    /// # block_on(async {
+    /// # let client = matrix_sdk::Client::builder()
+    /// #     .homeserver_url(homeserver)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
+    /// #     .build()
+    /// #     .await
+    /// #     .unwrap();
+    ///
+    ///
+    ///
+    /// client.register_event_handler(
+    ///         |ev: SyncRoomMemberEvent, client: Client, handle: EventHandlerHandle| async move {
+    ///             // Common usage: Check arriving Event is the expected one
+    ///             println!("Expected RoomMemberEvent received!");
+    ///             client.remove_event_handler(handle);
+    ///         },
+    ///     )
+    ///     .await;
+    ///
+    ///
+    /// # });
+    /// ```
     pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
         let event_id = handle.id;
 
@@ -558,7 +603,6 @@ impl Client {
         T: Clone + Send + Sync + 'static,
     {
         self.inner.event_handler_data.write().unwrap().insert(ctx);
-        return;
     }
 
     pub(crate) fn event_handler_context<T>(&self) -> Option<T>
