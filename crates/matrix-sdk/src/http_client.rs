@@ -160,7 +160,7 @@ impl HttpClient {
 
         let request = request.map(|body| body.freeze());
 
-        trace!("Sending request");
+        trace!("Sending request: {:?} with config {:?}", request, config);
         let response = self.inner.send_request(request, config).await?;
 
         trace!("Got response: {:?}", response);
