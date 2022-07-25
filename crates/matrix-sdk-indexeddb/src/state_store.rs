@@ -46,6 +46,8 @@ use ruma::{
     RoomVersionId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(feature = "experimental-timeline")]
+use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -642,12 +644,12 @@ impl IndexeddbStore {
 
             for (room_id, timeline) in &changes.timeline {
                 if timeline.sync {
-                    tracing::info!("Save new timeline batch from sync response for {room_id}");
+                    info!("Save new timeline batch from sync response for {room_id}");
                 } else {
-                    tracing::info!("Save new timeline batch from messages response for {room_id}");
+                    info!("Save new timeline batch from messages response for {room_id}");
                 }
                 let metadata: Option<TimelineMetadata> = if timeline.limited {
-                    tracing::info!(
+                    info!(
                         "Delete stored timeline for {room_id} because the sync response was \
                          limited",
                     );
@@ -676,7 +678,7 @@ impl IndexeddbStore {
                             // This should only happen when a developer adds a wrong timeline
                             // batch to the `StateChanges` or the server returns a wrong response
                             // to our request.
-                            tracing::warn!("Drop unexpected timeline batch for {room_id}");
+                            warn!("Drop unexpected timeline batch for {room_id}");
                             return Ok(());
                         }
 
@@ -700,7 +702,7 @@ impl IndexeddbStore {
                         }
 
                         if delete_timeline {
-                            tracing::info!(
+                            info!(
                                 "Delete stored timeline for {room_id} because of duplicated events",
                             );
 
@@ -748,7 +750,7 @@ impl IndexeddbStore {
                         .transpose()?
                         .and_then(|info| info.room_version().cloned())
                         .unwrap_or_else(|| {
-                            tracing::warn!(
+                            warn!(
                                 "Unable to find the room version for {room_id}, assume version 9",
                             );
                             RoomVersionId::V9
@@ -1252,7 +1254,7 @@ impl IndexeddbStore {
         {
             Some(tl) => tl,
             _ => {
-                tracing::info!("No timeline for {room_id} was previously stored");
+                info!("No timeline for {room_id} was previously stored");
                 return Ok(None);
             }
         };
@@ -1268,9 +1270,7 @@ impl IndexeddbStore {
 
         let stream = Box::pin(stream::iter(timeline.into_iter()));
 
-        tracing::info!(
-            "Found previously stored timeline for {room_id}, with end token {end_token:?}",
-        );
+        info!("Found previously stored timeline for {room_id}, with end token {end_token:?}");
 
         Ok(Some((stream, end_token)))
     }

@@ -43,6 +43,7 @@ use ruma::{
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
+use tracing::info;
 
 #[cfg(feature = "experimental-timeline")]
 use super::BoxStream;
@@ -343,24 +344,24 @@ impl MemoryStore {
 
         #[cfg(feature = "experimental-timeline")]
         for (room, timeline) in &changes.timeline {
+            use tracing::warn;
+
             if timeline.sync {
-                tracing::info!("Save new timeline batch from sync response for {room}");
+                info!("Save new timeline batch from sync response for {room}");
             } else {
-                tracing::info!("Save new timeline batch from messages response for {room}");
+                info!("Save new timeline batch from messages response for {room}");
             }
 
             let mut delete_timeline = false;
             if timeline.limited {
-                tracing::info!(
-                    "Delete stored timeline for {room} because the sync response was limited",
-                );
+                info!("Delete stored timeline for {room} because the sync response was limited");
                 delete_timeline = true;
             } else if let Some(mut data) = self.room_timeline.get_mut(room) {
                 if !timeline.sync && Some(&timeline.start) != data.end.as_ref() {
                     // This should only happen when a developer adds a wrong timeline
                     // batch to the `StateChanges` or the server returns a wrong response
                     // to our request.
-                    tracing::warn!("Drop unexpected timeline batch for {room}");
+                    warn!("Drop unexpected timeline batch for {room}");
                     return Ok(());
                 }
 
@@ -384,7 +385,7 @@ impl MemoryStore {
             }
 
             if delete_timeline {
-                tracing::info!("Delete stored timeline for {room} because of duplicated events");
+                info!("Delete stored timeline for {room} because of duplicated events");
                 self.room_timeline.remove(room);
             }
 
@@ -400,9 +401,7 @@ impl MemoryStore {
                     .get(room)
                     .and_then(|info| info.room_version().cloned())
                     .unwrap_or_else(|| {
-                        tracing::warn!(
-                            "Unable to find the room version for {room}, assume version 9",
-                        );
+                        warn!("Unable to find the room version for {room}, assume version 9");
                         RoomVersionId::V9
                     })
             };
@@ -453,7 +452,7 @@ impl MemoryStore {
             }
         }
 
-        tracing::info!("Saved changes in {:?}", now.elapsed());
+        info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
     }
@@ -674,7 +673,7 @@ impl MemoryStore {
         let (events, end_token) = if let Some(data) = self.room_timeline.get(room_id) {
             (data.events.clone(), data.end.clone())
         } else {
-            tracing::info!("No timeline for {room_id} was previously stored");
+            info!("No timeline for {room_id} was previously stored");
             return Ok(None);
         };
 
@@ -684,9 +683,7 @@ impl MemoryStore {
             }
         };
 
-        tracing::info!(
-            "Found previously stored timeline for {room_id}, with end token {end_token:?}",
-        );
+        info!("Found previously stored timeline for {room_id}, with end token {end_token:?}");
 
         Ok(Some((Box::pin(stream), end_token)))
     }
