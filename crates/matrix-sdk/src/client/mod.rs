@@ -20,7 +20,10 @@ use std::{
     future::Future,
     io::Read,
     pin::Pin,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering::SeqCst},
+        Arc, RwLock as StdRwLock,
+    },
 };
 
 use anymap2::any::CloneAnySendSync;
@@ -160,6 +163,10 @@ pub(crate) struct ClientInner {
     event_handlers: RwLock<EventHandlerMap>,
     /// Custom event handler context. See `register_event_handler_context`.
     event_handler_data: StdRwLock<AnyMap>,
+    /// Counter amounts to the number of event handlers. When registering a new
+    /// one, the current value is used for the handlers identification, then
+    /// the counter is incremented.
+    event_handler_counter: AtomicU64,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     /// Whether the client should operate in application service style mode.
@@ -364,6 +371,8 @@ impl Client {
     /// * [`Room`][room::Room] is only available for room-specific events, i.e.
     ///   not for events like global account data events or presence events
     ///
+    /// Returns an [`EventHandlerHandle`].
+    ///
     /// [`EventHandlerContext`]: crate::event_handler::EventHandlerContext
     ///
     /// # Examples
@@ -478,11 +487,9 @@ impl Client {
             })
         });
 
-        let handler_function_ptr: *const EventHandlerFn = &*handler_function;
+        let handle_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
 
-        let handler_function_id: usize = handler_function_ptr as *const () as usize;
-
-        let handle = EventHandlerHandle { id: key, addr: handler_function_id };
+        let handle = EventHandlerHandle { id: key, addr: handle_id };
 
         self.inner
             .event_handlers
@@ -499,15 +506,15 @@ impl Client {
         self.inner.event_handlers.read().await
     }
 
-    /// Remove the event handler associated with the token.
+    /// Remove the event handler associated with the handle.
     ///
     /// Note that handlers that remove themselves will still execute
     /// with events received in the same sync cycle.
     ///
     ///  # Arguments
     ///
-    /// `handle` - The [`EventHandlerHandle`] that was passed to
-    /// [`Client::register_event_handler`] when registering the handler.
+    /// `handle` - The [`EventHandlerHandle`] that is returned when
+    /// registering the event handler with [`Client::register_event_handler`].
     ///
     /// # Examples
     ///
@@ -515,14 +522,14 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use tokio::sync::mpsc;
-    ///
+    /// #
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    ///
+    /// #
     /// use matrix_sdk::{
     ///     ruma::events::room::member::SyncRoomMemberEvent,
     ///     Client, event_handler::EventHandlerHandle
     /// };
-    ///
+    /// #
     /// # block_on(async {
     /// # let client = matrix_sdk::Client::builder()
     /// #     .homeserver_url(homeserver)
@@ -531,7 +538,8 @@ impl Client {
     /// #     .await
     /// #     .unwrap();
     ///
-    /// client.register_event_handler(
+    /// client
+    ///     .register_event_handler(
     ///         |ev: SyncRoomMemberEvent, client: Client, handle: EventHandlerHandle| async move {
     ///             // Common usage: Check arriving Event is the expected one
     ///             println!("Expected RoomMemberEvent received!");
@@ -553,6 +561,8 @@ impl Client {
                 event_handlers.remove(&event_id);
             }
         }
+
+        self.inner.event_handler_counter.fetch_sub(1, SeqCst);
     }
 
     /// Add an arbitrary value for use as event handler context.
