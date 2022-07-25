@@ -664,6 +664,8 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
                     self.view.state.set_if(SlidingSyncState::Live, |before, _now| {
                         *before == SlidingSyncState::CatchingUp
                     });
+                    // keep listening to the entire list to learn about position updates
+                    self.view.set_ranges(vec![((0, count))]);
                     self.inner = InnerSlidingSyncViewRequestGenerator::Live
                 }
             } else {
@@ -704,7 +706,7 @@ impl SlidingSyncView {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn set_ranges(&mut self, range: Vec<(u32, u32)>) -> &mut Self {
+    pub fn set_ranges(&self, range: Vec<(u32, u32)>) -> &Self {
         *self.ranges.lock_mut() = range.into_iter().map(|(a, b)| (a.into(), b.into())).collect();
         self
     }
@@ -713,8 +715,9 @@ impl SlidingSyncView {
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
-    pub fn add_range(&mut self, start: u32, end: u32) {
+    pub fn add_range(&self, start: u32, end: u32) -> &Self {
         self.ranges.lock_mut().push((start.into(), end.into()));
+        self
     }
 
     /// Return the subset of rooms, starting at offset (default 0) returning
@@ -775,7 +778,7 @@ impl SlidingSyncView {
                     rooms_list.set_cloned(pos as usize, RoomListEntry::Empty);
                 }
                 sliding_sync_events::SlidingOp::Insert => {
-                    let pos: u32 = op
+                    let pos: usize = op
                         .index
                         .context("`index` must be present for INSERT operation")?
                         .try_into()?;
@@ -785,29 +788,31 @@ impl SlidingSyncView {
                             .clone()
                             .context("`room_id` must be present for INSERT operation")?,
                     );
-                    let mut dif = 0;
+                    let mut dif = 0usize;
                     loop {
-                        let check_prev = dif > pos;
-                        let check_after = ((dif + pos) as usize) < sliced.len();
+                        // find the next empty slot and drop it
+                        let (prev_p, prev_overflow) = pos.overflowing_sub(dif);
+                        let check_prev = !prev_overflow;
+                        let (next_p, overflown) = pos.overflowing_add(dif);
+                        let check_after = !overflown && next_p < sliced.len();
                         if !check_prev && !check_after {
                             bail!("We were asked to insert but could not find any direction to shift to");
                         }
 
-                        if check_prev && sliced[(pos - dif) as usize].empty_or_invalidated() {
+                        if check_prev && sliced[prev_p].empty_or_invalidated() {
                             // we only check for previous, if there are items left
-                            rooms_list.insert_cloned(pos as usize, room);
-                            rooms_list.remove((pos - dif) as usize);
+                            rooms_list.remove(prev_p);
                             break;
-                        } else if check_after && sliced[(pos + dif) as usize].empty_or_invalidated()
+                        } else if check_after && sliced[next_p].empty_or_invalidated()
                         {
-                            rooms_list.remove((pos + dif) as usize);
-                            rooms_list.insert_cloned(pos as usize, room);
+                            rooms_list.remove(next_p);
                             break;
                         } else {
                             // let's check the next position;
                             dif += 1;
                         }
                     }
+                    rooms_list.insert_cloned(pos, room);
                 }
                 sliding_sync_events::SlidingOp::Invalidate => {
                     let max_len = rooms_list.len();
