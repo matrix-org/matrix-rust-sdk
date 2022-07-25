@@ -104,7 +104,7 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-pub(crate) type EventHandlerFn = Box<dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync>;
+pub(crate) type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
 type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerWrapper>>;
 
 type NotificationHandlerFut = EventHandlerFut;
@@ -448,34 +448,42 @@ impl Client {
         let event_type = Ev::TYPE;
         let key = (Ev::KIND, Ev::TYPE);
 
-        let handle = EventHandlerHandle::new(H::ID);
+        let handler_function: Box<EventHandlerFn> = Box::new(move |data| {
+            let maybe_fut = serde_json::from_str(data.raw.get())
+                .map(|ev| handler.clone().handle_event(ev, data));
 
-        self.inner.event_handlers.write().await.entry(key).or_default().push(EventHandlerWrapper {
-            handler_function: Box::new(move |data| {
-                let maybe_fut = serde_json::from_str(data.raw.get())
-                    .map(|ev| handler.clone().handle_event(ev, data));
-
-                Box::pin(async move {
-                    match maybe_fut {
-                        Ok(Some(fut)) => {
-                            fut.await.print_error(event_type);
-                        }
-                        Ok(None) => {
-                            error!(
-                                "Event handler for {event_type} has an invalid context argument",
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to deserialize `{event_type}` event, skipping event
-                                     handler.\nDeserialization error: {e}",
-                            );
-                        }
+            Box::pin(async move {
+                match maybe_fut {
+                    Ok(Some(fut)) => {
+                        fut.await.print_error(event_type);
                     }
-                })
-            }),
-            handle: handle.clone(),
+                    Ok(None) => {
+                        error!("Event handler for {} has an invalid context argument", event_type);
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to deserialize `{}` event, skipping event handler.\n\
+                                Deserialization error: {}",
+                            event_type, e,
+                        );
+                    }
+                }
+            })
         });
+
+        let handler_function_ptr: *const EventHandlerFn = &*handler_function;
+
+        let handler_function_id: usize = handler_function_ptr as *const () as usize;
+
+        let handle = EventHandlerHandle { id: key, addr: handler_function_id };
+
+        self.inner
+            .event_handlers
+            .write()
+            .await
+            .entry(key)
+            .or_default()
+            .push(EventHandlerWrapper { handler_function, handle: handle.clone() });
 
         handle
     }
@@ -490,21 +498,18 @@ impl Client {
     ///
     /// `handle` - The [`EventHandlerHandle`] that was passed to
     /// [`Client::register_event_handler`] when registering the handler.
-    pub async fn remove_event_handler(&self, handle: EventHandlerHandle) -> &Self {
-        let event_id = handle.1;
-        let mut empty = false;
+    pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
+        let event_id = handle.id;
 
-        if let Some(v) = self.inner.event_handlers.write().await.get_mut(&event_id) {
-            v.retain(|e| -> bool { e.handle.0.ne(&handle.0) });
+        let mut event_handlers = self.inner.event_handlers.write().await;
 
-            empty = v.is_empty();
+        if let Some(v) = event_handlers.get_mut(&event_id) {
+            v.retain(|e| -> bool { e.handle.addr.ne(&handle.addr) });
+
+            if v.is_empty() {
+                event_handlers.remove(&event_id);
+            }
         }
-
-        if empty {
-            self.inner.event_handlers.write().await.remove(&event_id);
-        }
-
-        self
     }
 
     /// Add an arbitrary value for use as event handler context.
@@ -539,9 +544,8 @@ impl Client {
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
     ///
-    /// client
-    ///     .register_event_handler_context(my_gui_handle.clone())
-    ///     .register_event_handler(
+    /// client.register_event_handler_context(my_gui_handle.clone());
+    /// client.register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
     ///         },
@@ -549,12 +553,12 @@ impl Client {
     ///     .await;
     /// # });
     /// ```
-    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
+    pub fn register_event_handler_context<T>(&self, ctx: T)
     where
         T: Clone + Send + Sync + 'static,
     {
         self.inner.event_handler_data.write().unwrap().insert(ctx);
-        self
+        return;
     }
 
     pub(crate) fn event_handler_context<T>(&self) -> Option<T>

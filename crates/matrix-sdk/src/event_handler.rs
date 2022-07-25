@@ -39,11 +39,7 @@ use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw};
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
-<<<<<<< HEAD
 use tracing::error;
-=======
-use uuid::Uuid;
->>>>>>> 24deb588 (feat(sdk): Implement remove_event_handler)
 
 use crate::{client::EventHandlerFn, room, Client};
 
@@ -92,20 +88,15 @@ pub trait SyncEvent {
 }
 
 pub(crate) struct EventHandlerWrapper {
-    pub handler_function: EventHandlerFn,
+    pub handler_function: Box<EventHandlerFn>,
     pub handle: EventHandlerHandle,
 }
 
 #[derive(Debug, Clone)]
 /// Handle to remove a registered event handler.
-pub struct EventHandlerHandle(pub(crate) Uuid, pub(crate) (EventKind, &'static str));
-
-impl EventHandlerHandle {
-    #[must_use]
-    /// Returns a new [`EventHandlerHandle`].
-    pub(crate) fn new(event_id: (EventKind, &'static str)) -> Self {
-        EventHandlerHandle(Uuid::new_v4(), event_id)
-    }
+pub struct EventHandlerHandle {
+    pub(crate) id: (EventKind, &'static str),
+    pub(crate) addr: usize,
 }
 
 /// Interface for event handlers.
