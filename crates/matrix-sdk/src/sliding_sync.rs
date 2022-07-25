@@ -327,7 +327,6 @@ impl SlidingSync {
         resp: sliding_sync_events::Response,
         views: &[SlidingSyncView],
     ) -> anyhow::Result<UpdateSummary> {
-        tracing::debug!("Sliding sync response received: {:?}", resp);
         self.client.process_sliding_sync(resp.clone()).await?;
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
@@ -338,8 +337,10 @@ impl SlidingSync {
         for (view, updates) in views.iter().zip(resp.lists.iter()) {
             let count: u32 =
                 updates.count.try_into().expect("the list total count convertible into u32");
+            tracing::trace!("view {:?}  update: {:?}", view.name, updates.ops.is_some());
             if let Some(ops) = &updates.ops {
                 if view.handle_response(count, ops)? {
+                    tracing::trace!("view {:?}  updated", view.name);
                     updated_views.push(view.name.clone());
                 }
             }
@@ -440,7 +441,7 @@ impl SlidingSync {
                 if cancel.get() {
                     return
                 }
-                tracing::debug!("requesting: {:?}", req);
+                tracing::debug!("requesting");
                 let resp = client
                     .send(req, None)
                     .await
