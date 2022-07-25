@@ -1211,7 +1211,6 @@ impl OlmMachine {
     /// # Example
     ///
     /// ```
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
     /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
@@ -1269,7 +1268,6 @@ impl OlmMachine {
     /// # Example
     ///
     /// ```
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
     /// # use ruma::{device_id, user_id};
     /// # use futures::executor::block_on;
@@ -1554,7 +1552,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{collections::BTreeMap, convert::TryInto, iter, sync::Arc};
+    use std::{collections::BTreeMap, iter, sync::Arc};
 
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{

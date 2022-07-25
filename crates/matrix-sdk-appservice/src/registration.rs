@@ -14,7 +14,7 @@
 
 //! AppService Registration.
 
-use std::{convert::TryFrom, fs::File, ops::Deref, path::PathBuf};
+use std::{fs::File, ops::Deref, path::PathBuf};
 
 use http::Uri;
 use regex::Regex;

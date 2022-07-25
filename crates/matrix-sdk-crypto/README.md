@@ -17,7 +17,7 @@ The state machine works in a push/pull manner:
   state machine
 
 ```rust,no_run
-use std::{collections::BTreeMap, convert::TryFrom};
+use std::collections::BTreeMap;
 
 use matrix_sdk_crypto::{OlmMachine, OlmError};
 use ruma::{

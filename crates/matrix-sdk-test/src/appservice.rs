@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use ruma::{events::AnyRoomEvent, serde::Raw};
 use serde_json::Value;
 

@@ -91,7 +91,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # let alice = user_id!("@alice:example.org");
@@ -143,7 +142,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # let alice = user_id!("@alice:example.org");
@@ -195,7 +193,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
@@ -274,7 +271,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
@@ -318,7 +314,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
@@ -358,7 +353,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{

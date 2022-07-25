@@ -35,7 +35,6 @@
 //! Verifying a device is pretty straightforward:
 //!
 //! ```no_run
-//! # use std::convert::TryFrom;
 //! # use matrix_sdk::{Client, ruma::{device_id, user_id}};
 //! # use url::Url;
 //! # use futures::executor::block_on;
@@ -61,7 +60,6 @@
 //! Verifying a user identity works largely the same:
 //!
 //! ```no_run
-//! # use std::convert::TryFrom;
 //! # use matrix_sdk::{Client, ruma::user_id};
 //! # use url::Url;
 //! # use futures::executor::block_on;

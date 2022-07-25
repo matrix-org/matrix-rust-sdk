@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    convert::TryInto,
     fmt,
     ops::Deref,
     sync::{

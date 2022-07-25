@@ -25,7 +25,6 @@ some event handlers and then syncing.
 This is demonstrated in the example below.
 
 ```rust,no_run
-use std::convert::TryFrom;
 use matrix_sdk::{
     Client, config::SyncSettings,
     ruma::{user_id, events::room::message::SyncRoomMessageEvent},
