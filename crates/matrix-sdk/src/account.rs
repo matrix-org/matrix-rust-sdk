@@ -65,7 +65,7 @@ impl Account {
     /// client.login(user, "password", None, None).await?;
     ///
     /// if let Some(name) = client.account().get_display_name().await? {
-    ///     println!("Logged in as user '{}' with display name '{}'", user, name);
+    ///     println!("Logged in as user '{user}' with display name '{name}'");
     /// }
     /// # anyhow::Ok(()) });
     /// ```
@@ -113,7 +113,7 @@ impl Account {
     /// client.login(user, "password", None, None).await?;
     ///
     /// if let Some(url) = client.account().get_avatar_url().await? {
-    ///     println!("Your avatar's mxc url is {}", url);
+    ///     println!("Your avatar's mxc url is {url}");
     /// }
     /// # anyhow::Ok(()) });
     /// ```

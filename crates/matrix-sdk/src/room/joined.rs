@@ -555,7 +555,7 @@ impl Joined {
             if event_type == "m.reaction" {
                 debug!(
                     room_id = %self.room_id(),
-                    "Sending plaintext event because the event type is {}", event_type
+                    "Sending plaintext event because the event type is {event_type}",
                 );
                 (Raw::new(&content)?.cast(), event_type)
             } else {

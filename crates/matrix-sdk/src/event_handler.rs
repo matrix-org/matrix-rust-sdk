@@ -232,14 +232,14 @@ impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E
         match self {
             #[cfg(feature = "anyhow")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<anyhow::Error>() => {
-                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+                tracing::error!("Event handler for `{event_type}` failed: {e:?}");
             }
             #[cfg(feature = "eyre")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<eyre::Report>() => {
-                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+                tracing::error!("Event handler for `{event_type}` failed: {e:?}");
             }
             Err(e) => {
-                tracing::error!("Event handler for `{}` failed: {}", event_type, e);
+                tracing::error!("Event handler for `{event_type}` failed: {e}");
             }
             Ok(_) => {}
         }

@@ -147,7 +147,7 @@ impl SasVerification {
     ///         .collect::<Vec<_>>()
     ///         .join("");
     ///
-    ///     println!("Do the emojis match?\n{}\n{}", emoji_string, description);
+    ///     println!("Do the emojis match?\n{emoji_string}\n{description}");
     /// }
     /// # anyhow::Ok(()) });
     /// ```

@@ -576,9 +576,8 @@ impl ReadOnlyAccount {
             // so.
             if count != old_count {
                 debug!(
-                    "Updated uploaded one-time key count {} -> {}.",
+                    "Updated uploaded one-time key count {} -> {count}.",
                     self.uploaded_key_count(),
-                    count
                 );
             }
 

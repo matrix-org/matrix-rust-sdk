@@ -25,7 +25,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
         {
             let member = room.get_member(&sender).await.unwrap().unwrap();
             let name = member.display_name().unwrap_or_else(|| member.user_id().as_str());
-            println!("{}: {}", name, msg_body);
+            println!("{name}: {msg_body}");
         }
     }
 }

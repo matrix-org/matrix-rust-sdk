@@ -66,7 +66,7 @@ impl InspectorHelper {
     fn complete_event_types(&self, arg: Option<&&str>) -> Vec<Pair> {
         Self::EVENT_TYPES
             .iter()
-            .map(|&t| Pair { display: t.to_owned(), replacement: format!("{} ", t) })
+            .map(|&t| Pair { display: t.to_owned(), replacement: format!("{t} ") })
             .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()
     }
@@ -105,7 +105,7 @@ impl Completer for InspectorHelper {
             ("get-members", "get all the membership events in the given room"),
         ]
         .iter()
-        .map(|(r, d)| Pair { display: format!("{} ({})", r, d), replacement: format!("{} ", r) })
+        .map(|(r, d)| Pair { display: format!("{r} ({d})"), replacement: format!("{r} ") })
         .collect();
 
         if args.is_empty() {
@@ -188,13 +188,13 @@ impl Printer {
             for line in LinesWithEndings::from(&data) {
                 let ranges: Vec<(Style, &str)> = h.highlight(line, &self.ps);
                 let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                print!("{}", escaped);
+                print!("{escaped}");
             }
 
             // Clear the formatting
             println!("\x1b[0m");
         } else {
-            println!("{}", data);
+            println!("{data}");
         }
     }
 }
@@ -314,7 +314,7 @@ impl Inspector {
                 self.run(m).await;
             }
             Err(e) => {
-                println!("{}", e);
+                println!("{e}");
             }
         }
     }

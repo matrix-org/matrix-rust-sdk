@@ -22,13 +22,13 @@ async fn on_stripped_state_member(
             // retry autojoin due to synapse sending invites, before the
             // invited user can join for more information see
             // https://github.com/matrix-org/synapse/issues/4345
-            eprintln!("Failed to join room {} ({:?}), retrying in {}s", room.room_id(), err, delay);
+            eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
 
             sleep(Duration::from_secs(delay)).await;
             delay *= 2;
 
             if delay > 3600 {
-                eprintln!("Can't join room {} ({:?})", room.room_id(), err);
+                eprintln!("Can't join room {} ({err:?})", room.room_id());
                 break;
             }
         }
@@ -67,7 +67,7 @@ async fn login_and_sync(
         .send()
         .await?;
 
-    println!("logged in as {}", username);
+    println!("logged in as {username}");
 
     client.register_event_handler(on_stripped_state_member).await;
 

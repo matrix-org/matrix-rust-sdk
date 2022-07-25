@@ -431,7 +431,7 @@ impl Client {
     ///     move |ev: SyncRoomMessageEvent | {
     ///         let data = data.clone();
     ///         async move {
-    ///             println!("Calling the handler with identifier {}", data);
+    ///             println!("Calling the handler with identifier {data}");
     ///         }
     ///     }
     /// }).await;
@@ -456,15 +456,13 @@ impl Client {
                         }
                         Ok(None) => {
                             error!(
-                                "Event handler for {} has an invalid context argument",
-                                event_type
+                                "Event handler for {event_type} has an invalid context argument",
                             );
                         }
                         Err(e) => {
                             warn!(
-                                "Failed to deserialize `{}` event, skipping event handler.\n\
-                                 Deserialization error: {}",
-                                event_type, e,
+                                "Failed to deserialize `{event_type}` event, skipping event
+                                 handler.\nDeserialization error: {e}",
                             );
                         }
                     }
@@ -741,8 +739,8 @@ impl Client {
     ///     .await?;
     ///
     /// println!(
-    ///     "Logged in as {}, got device_id {} and access_token {}",
-    ///     user, response.device_id, response.access_token,
+    ///     "Logged in as {user}, got device_id {} and access_token {}",
+    ///     response.device_id, response.access_token,
     /// );
     /// # anyhow::Ok(()) });
     /// ```
@@ -1089,7 +1087,7 @@ impl Client {
         registration: impl Into<register::v3::Request<'_>>,
     ) -> HttpResult<register::v3::Response> {
         let homeserver = self.homeserver().await;
-        info!("Registering to {}", homeserver);
+        info!("Registering to {homeserver}");
 
         let config = if self.inner.appservice_mode {
             Some(RequestConfig::short_retry().force_auth())

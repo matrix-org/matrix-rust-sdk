@@ -501,10 +501,9 @@ impl IdentitiesBeingVerified {
                     }
                     Err(e) => {
                         error!(
-                            "Error signing device keys for {} {} {:?}",
+                            "Error signing device keys for {} {}: {e:?}",
                             device.user_id(),
                             device.device_id(),
-                            e
                         );
                         None
                     }
@@ -535,9 +534,8 @@ impl IdentitiesBeingVerified {
                     }
                     Err(e) => {
                         error!(
-                            "Error signing the public cross signing keys for {} {:?}",
+                            "Error signing the public cross signing keys for {} {e:?}",
                             i.user_id(),
-                            e
                         );
                         None
                     }

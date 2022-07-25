@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-    println!("helloooo {} {} {} {:#?}", homeserver_url, username, password, image_path);
+    println!("helloooo {homeserver_url} {username} {password} {image_path:#?}");
     let path = PathBuf::from(image_path);
     let image = File::open(path).expect("Can't open image file.");
 

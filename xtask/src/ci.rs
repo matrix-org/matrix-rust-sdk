@@ -286,7 +286,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     ]);
 
     let run = |(folder, arg_set): (&str, &str)| {
-        let _p = pushd(format!("crates/{}", folder));
+        let _p = pushd(format!("crates/{folder}"));
         cmd!("pwd").run()?; // print dir so we know what might have failed
         cmd!("wasm-pack test --node -- ").args(arg_set.split_whitespace()).run()?;
         cmd!("wasm-pack test --firefox --headless --").args(arg_set.split_whitespace()).run()

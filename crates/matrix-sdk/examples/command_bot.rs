@@ -61,7 +61,7 @@ async fn login_and_sync(
         .send()
         .await?;
 
-    println!("logged in as {}", username);
+    println!("logged in as {username}");
 
     // An initial sync to set up state and so our bot doesn't respond to old
     // messages. If the `StateStore` finds saved state in the location given the

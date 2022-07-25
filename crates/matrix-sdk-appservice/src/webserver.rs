@@ -145,7 +145,7 @@ mod filters {
             .and(warp::body::bytes())
             .and_then(|method, path: FullPath, query, headers, bytes| async move {
                 let uri = http::uri::Builder::new()
-                    .path_and_query(format!("{}?{}", path.as_str(), query))
+                    .path_and_query(format!("{}?{query}", path.as_str()))
                     .build()
                     .map_err(Error::from)?;
 

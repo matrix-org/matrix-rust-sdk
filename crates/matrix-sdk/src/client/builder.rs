@@ -354,12 +354,12 @@ impl ClientBuilder {
 
 fn homeserver_from_name(server_name: &ServerName) -> String {
     #[cfg(not(test))]
-    return format!("https://{}", server_name);
+    return format!("https://{server_name}");
 
     // Wiremock only knows how to test http endpoints:
     // https://github.com/LukeMathWalker/wiremock-rs/issues/58
     #[cfg(test)]
-    return format!("http://{}", server_name);
+    return format!("http://{server_name}");
 }
 
 #[derive(Clone, Debug)]

@@ -545,10 +545,8 @@ impl SasState<Started> {
             let commitment = calculate_commitment(our_public_key, content);
 
             info!(
-                "Calculated commitment for pubkey {} and content {:?} {}",
+                "Calculated commitment for pubkey {} and content {content:?} {commitment}",
                 our_public_key.to_base64(),
-                content,
-                commitment
             );
 
             if let Ok(accepted_protocols) = AcceptedProtocols::try_from(method_content) {

@@ -492,7 +492,7 @@ impl AppService {
         }
         for task in tasks {
             if let Err(e) = task.await {
-                warn!("Joining sync task failed: {}", e);
+                warn!("Joining sync task failed: {e}");
             }
         }
         Ok(())
@@ -505,7 +505,7 @@ impl AppService {
     pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
         let host = host.into();
         let port = port.into();
-        info!("Starting AppService on {}:{}", &host, &port);
+        info!("Starting AppService on {host}:{port}");
 
         webserver::run_server(self.clone(), host, port).await?;
         Ok(())

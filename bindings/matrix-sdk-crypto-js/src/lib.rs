@@ -62,8 +62,7 @@ where
         Ok(unsafe { T::ref_from_abi(pointer) })
     } else {
         Err(JsError::new(&format!(
-            "Expect an `{}` instance, received `{}` instead",
-            classname, constructor_name,
+            "Expect an `{classname}` instance, received `{constructor_name}` instead",
         )))
     }
 }

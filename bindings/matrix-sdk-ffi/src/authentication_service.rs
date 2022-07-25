@@ -67,7 +67,7 @@ impl AuthenticationService {
     /// specified address.
     pub fn configure_homeserver(&self, server_name: String) -> Result<(), AuthenticationError> {
         // Construct a username as the builder currently requires one.
-        let username = format!("@auth:{}", server_name);
+        let username = format!("@auth:{server_name}");
 
         let mut builder =
             Arc::new(ClientBuilder::new()).base_path(self.base_path.clone()).username(username);

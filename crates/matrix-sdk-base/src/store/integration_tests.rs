@@ -775,13 +775,14 @@ macro_rules! statestore_integration_tests {
                         .zip(stored_events.iter())
                         .enumerate()
                     {
-                        assert_eq!(a.expect("not a value").event_id(), b.event_id(), "pos {} not equal - expected: {:#?}, but found {:#?}", idx, expected, found);
-
+                        assert_eq!(
+                            a.expect("not a value").event_id(),
+                            b.event_id(),
+                            "pos {idx} not equal - expected: {expected:#?}, but found {found:#?}",
+                        );
                     }
                 }
-
             }
-
         )*
     }
 }
