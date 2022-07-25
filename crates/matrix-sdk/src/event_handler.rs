@@ -81,7 +81,9 @@ impl EventKind {
 /// A statically-known event kind/type that can be retrieved from an event sync.
 pub trait SyncEvent {
     #[doc(hidden)]
-    const ID: (EventKind, &'static str);
+    const KIND: EventKind;
+    #[doc(hidden)]
+    const TYPE: &'static str;
 }
 
 /// Interface for event handlers.
@@ -445,21 +447,24 @@ mod static_events {
     where
         C: StaticEventContent + GlobalAccountDataEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::GlobalAccountData, C::TYPE);
+        const KIND: EventKind = EventKind::GlobalAccountData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RoomAccountDataEvent<C>
     where
         C: StaticEventContent + RoomAccountDataEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RoomAccountData, C::TYPE);
+        const KIND: EventKind = EventKind::RoomAccountData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
     where
         C: StaticEventContent + EphemeralRoomEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::EphemeralRoomData, C::TYPE);
+        const KIND: EventKind = EventKind::EphemeralRoomData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
@@ -467,40 +472,39 @@ mod static_events {
         C: StaticEventContent + MessageLikeEventContent + RedactContent,
         C::Redacted: MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::MessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::MessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
     where
         C: StaticEventContent + MessageLikeEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::OriginalMessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::OriginalMessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
     where
         C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RedactedMessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::RedactedMessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) =
-            (EventKind::MessageLike, events::room::redaction::RoomRedactionEventContent::TYPE);
+        const KIND: EventKind = EventKind::MessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::OriginalMessageLike,
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
+        const KIND: EventKind = EventKind::OriginalMessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::RedactedMessageLike,
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
+        const KIND: EventKind = EventKind::RedactedMessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncStateEvent<C>
@@ -508,46 +512,53 @@ mod static_events {
         C: StaticEventContent + StateEventContent + RedactContent,
         C::Redacted: StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::State, C::TYPE);
+        const KIND: EventKind = EventKind::State;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::OriginalState, C::TYPE);
+        const KIND: EventKind = EventKind::OriginalState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
     where
         C: StaticEventContent + StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RedactedState, C::TYPE);
+        const KIND: EventKind = EventKind::RedactedState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::StrippedStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::StrippedState, C::TYPE);
+        const KIND: EventKind = EventKind::StrippedState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::InitialStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::InitialState, C::TYPE);
+        const KIND: EventKind = EventKind::InitialState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::ToDeviceEvent<C>
     where
         C: StaticEventContent + ToDeviceEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::ToDevice, C::TYPE);
+        const KIND: EventKind = EventKind::ToDevice;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl SyncEvent for PresenceEvent {
-        const ID: (EventKind, &'static str) = (EventKind::Presence, PresenceEventContent::TYPE);
+        const KIND: EventKind = EventKind::Presence;
+        const TYPE: &'static str = PresenceEventContent::TYPE;
     }
 }
 
