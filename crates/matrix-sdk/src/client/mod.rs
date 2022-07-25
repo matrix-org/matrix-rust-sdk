@@ -443,8 +443,8 @@ impl Client {
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        let event_type = H::ID.1;
-        self.inner.event_handlers.write().await.entry(H::ID).or_default().push(Box::new(
+        let event_type = Ev::ID.1;
+        self.inner.event_handlers.write().await.entry(Ev::ID).or_default().push(Box::new(
             move |data| {
                 let maybe_fut = serde_json::from_str(data.raw.get())
                     .map(|ev| handler.clone().handle_event(ev, data));

@@ -121,11 +121,6 @@ pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
     #[doc(hidden)]
     type Future: Future + Send + 'static;
 
-    /// The event type being handled, for example a message event of type
-    /// `m.room.message`.
-    #[doc(hidden)]
-    const ID: (EventKind, &'static str);
-
     /// Create a future for handling the given event.
     ///
     /// `data` provides additional data about the event, for example the room it
@@ -416,7 +411,6 @@ macro_rules! impl_event_handler {
             $($ty: EventHandlerContext),*
         {
             type Future = Fut;
-            const ID: (EventKind, &'static str) = Ev::ID;
 
             fn handle_event(&self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
                 Some((self)(ev, $($ty::from_data(&_d)?),*))
