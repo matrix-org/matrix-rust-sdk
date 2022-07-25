@@ -567,7 +567,13 @@ mod tests {
         EphemeralTestEvent, EventBuilder, StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
     };
     use ruma::{
-        events::room::member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
+        events::{
+            room::{
+                member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
+                power_levels::OriginalSyncRoomPowerLevelsEvent,
+            },
+            typing::SyncTypingEvent,
+        },
         room_id,
     };
     use serde_json::json;
@@ -596,7 +602,7 @@ mod tests {
             .await
             .register_event_handler({
                 let typing_count = typing_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent| {
+                move |_ev: SyncTypingEvent| {
                     typing_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
@@ -604,7 +610,7 @@ mod tests {
             .await
             .register_event_handler({
                 let power_levels_count = power_levels_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent, _client: Client, _room: room::Room| {
+                move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
                     power_levels_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
