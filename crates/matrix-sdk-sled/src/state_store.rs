@@ -1165,9 +1165,11 @@ impl SledStore {
         tracing::info!("Found previously stored timeline for {r_id}, with end token {end_token:?}");
 
         let stream = stream! {
-            while let Ok(Some(item)) = db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &r_id, position)) {
+            while let Ok(Some(item)) =
+                db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &r_id, position))
+            {
                 position += 1;
-                yield db.deserialize_value(&item).map_err(SledStoreError::from).map_err(|e| e.into());
+                yield db.deserialize_value(&item).map_err(|e| SledStoreError::from(e).into());
             }
         };
 
