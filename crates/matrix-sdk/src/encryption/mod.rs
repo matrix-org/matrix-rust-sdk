@@ -688,7 +688,7 @@ impl Encryption {
     ///
     /// # Examples
     /// ```no_run
-    /// # use std::{ collections::BTreeMap};
+    /// # use std::collections::BTreeMap;
     /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
     /// # use url::Url;
     /// # use futures::executor::block_on;
