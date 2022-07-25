@@ -14,7 +14,7 @@ mod responses;
 mod users;
 mod verification;
 
-use std::{borrow::Borrow, collections::HashMap, convert::TryFrom, str::FromStr, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, str::FromStr, sync::Arc};
 
 pub use backup_recovery_key::{
     BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,

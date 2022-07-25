@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    convert::TryInto,
     io::Cursor,
     ops::Deref,
     sync::Arc,

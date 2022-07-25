@@ -555,7 +555,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -600,7 +599,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -640,7 +638,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -691,7 +688,7 @@ impl Encryption {
     ///
     /// # Examples
     /// ```no_run
-    /// # use std::{convert::TryFrom, collections::BTreeMap};
+    /// # use std::{ collections::BTreeMap};
     /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
     /// # use url::Url;
     /// # use futures::executor::block_on;

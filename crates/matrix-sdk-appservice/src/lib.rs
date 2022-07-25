@@ -84,7 +84,7 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
-use std::{convert::TryInto, sync::Arc};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 pub use error::Error;

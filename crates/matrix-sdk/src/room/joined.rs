@@ -416,7 +416,6 @@ impl Joined {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
-    /// # use std::convert::TryFrom;
     /// # use serde::{Deserialize, Serialize};
     /// use matrix_sdk::ruma::{
     ///     events::{
@@ -513,7 +512,6 @@ impl Joined {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;

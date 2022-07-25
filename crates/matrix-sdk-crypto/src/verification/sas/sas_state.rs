@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    convert::{TryFrom, TryInto},
     matches,
     sync::{Arc, Mutex},
     time::Duration,
@@ -1224,8 +1223,6 @@ impl SasState<Cancelled> {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
-
     use matrix_sdk_test::async_test;
     use ruma::{
         device_id,

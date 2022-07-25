@@ -2,7 +2,7 @@
 name = "matrix-sdk-crypto-ffi"
 version = "0.1.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
-edition = "2018"
+edition = "2021"
 rust-version = "1.60"
 description = "Uniffi based bindings for the Rust SDK crypto crate"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"

@@ -725,7 +725,6 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -792,7 +791,6 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
@@ -1061,7 +1059,6 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::{
@@ -1224,7 +1221,6 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// use matrix_sdk::Client;
-    /// # use std::convert::TryInto;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let limit = Some(10);
@@ -1300,7 +1296,6 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use url::Url;
     /// # use matrix_sdk::Client;
     /// # use futures::executor::block_on;
@@ -1415,7 +1410,6 @@ impl Client {
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1498,7 +1492,6 @@ impl Client {
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1546,7 +1539,7 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
     /// # use url::Url;
-    /// # use std::{collections::BTreeMap, convert::TryFrom};
+    /// # use std::collections::BTreeMap;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;

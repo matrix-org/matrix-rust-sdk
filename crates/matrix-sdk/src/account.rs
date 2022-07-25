@@ -258,7 +258,6 @@ impl Account {
     ///
     /// # Example
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::{
@@ -307,7 +306,6 @@ impl Account {
     ///
     /// # Example
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::{

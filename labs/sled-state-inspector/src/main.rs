@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
