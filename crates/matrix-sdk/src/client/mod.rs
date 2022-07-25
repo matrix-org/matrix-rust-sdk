@@ -1,5 +1,6 @@
 // Copyright 2020 Damir Jelić
 // Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2022 Famedly GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -393,13 +394,16 @@ impl Client {
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
-    /// client.register_event_handler(
+    ///
+    /// client
+    ///     .register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
     ///             // Common usage: Room event plus room and client.
     ///         },
     ///     )
     ///     .await;
-    /// client.register_event_handler(
+    /// client
+    ///     .register_event_handler(
     ///          |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
     ///             async move {
     ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
@@ -408,7 +412,8 @@ impl Client {
     ///         },
     ///     )
     ///     .await;
-    /// client.register_event_handler(|ev: SyncRoomTopicEvent| async move {
+    /// client
+    ///     .register_event_handler(|ev: SyncRoomTopicEvent| async move {
     ///         // You can omit any or all arguments after the first.
     ///     })
     ///     .await;
@@ -510,9 +515,6 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use tokio::sync::mpsc;
-    /// # use matrix_sdk_test::{
-    /// #   EphemeralTestEvent, EventBuilder, StateTestEvent, TimelineTestEvent, JoinedRoomBuilder
-    /// # };
     ///
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     ///
@@ -529,8 +531,6 @@ impl Client {
     /// #     .await
     /// #     .unwrap();
     ///
-    ///
-    ///
     /// client.register_event_handler(
     ///         |ev: SyncRoomMemberEvent, client: Client, handle: EventHandlerHandle| async move {
     ///             // Common usage: Check arriving Event is the expected one
@@ -539,8 +539,6 @@ impl Client {
     ///         },
     ///     )
     ///     .await;
-    ///
-    ///
     /// # });
     /// ```
     pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {

@@ -733,7 +733,8 @@ mod tests {
             .register_event_handler({
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     panic!("handler should have been removed");
-                    return future::ready(());
+                    #[allow(unreachable_code)]
+                    future::ready(())
                 }
             })
             .await;
