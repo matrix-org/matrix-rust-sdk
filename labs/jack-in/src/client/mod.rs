@@ -15,13 +15,6 @@ pub async fn run_client(
     sliding_sync_proxy: String,
     tx: mpsc::Sender<state::SlidingSyncState>,
 ) -> Result<()> {
-    let username = match client.account().get_display_name().await? {
-        Some(u) => u,
-        None => client.user_id().ok_or_else(|| eyre!("Looks like you didn't login"))?.to_string(),
-    };
-
-    let homeserver = client.homeserver().await;
-
     warn!("Starting sliding sync now");
     let mut builder = client.sliding_sync().await;
     let full_sync_view =
@@ -30,14 +23,14 @@ pub async fn run_client(
         .homeserver(sliding_sync_proxy.parse().wrap_err("can't parse sync proxy")?)
         .add_view(full_sync_view)
         .build()?;
-    let (cancel, stream) = syncer.stream().await.expect("we can build the stream");
+    let (_cancel, stream) = syncer.stream().await.expect("we can build the stream");
     let view = syncer.views.lock_ref().first().expect("we have the full syncer there").clone();
     let state = view.state.clone();
     let mut ssync_state = state::SlidingSyncState::new(view);
     tx.send(ssync_state.clone()).await;
 
     pin_mut!(stream);
-    let first_poll = stream.next().await;
+    let _first_poll = stream.next().await;
     let view_state = state.read_only().get_cloned();
     if view_state != SlidingSyncState::CatchingUp {
         warn!("Sliding Query failed: {:#?}", view_state);
@@ -97,8 +90,8 @@ pub async fn run_client(
             }
         }
         match update {
-            Ok(u) => {
-                warn!("Live update received");
+            Ok(update) => {
+                warn!("Live update received: {:?}", update);
                 tx.send(ssync_state.clone()).await;
                 err_counter = 0;
             }

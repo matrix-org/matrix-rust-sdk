@@ -84,9 +84,36 @@ async fn main() -> Result<()> {
     // Configure log
 
     //tracing_subscriber::fmt::init();
-    tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
-    tui_logger::set_default_level(log::LevelFilter::Warn);
-    tui_logger::set_level_for_target("matrix_sdk::client", log::LevelFilter::Warn);
+    #[cfg(feature = "file-logging")]
+    {
+        use log::LevelFilter;
+        use log4rs::append::file::FileAppender;
+        use log4rs::encode::pattern::PatternEncoder;
+        use log4rs::config::{Appender, Config, Logger, Root};
+
+
+        let file = FileAppender::builder()
+            .encoder(Box::new(PatternEncoder::default()))
+            .build("jack-in.log")
+            .unwrap();
+
+        let config = Config::builder()
+            .appender(Appender::builder().build("file", Box::new(file)))
+            .logger(Logger::builder().appender("file").build("matrix_sdk::sliding_sync", LevelFilter::Trace))
+            .logger(Logger::builder().appender("file").build("matrix_sdk::http_client", LevelFilter::Trace))
+            .logger(Logger::builder().appender("file").build("reqwest", LevelFilter::Trace))
+            .logger(Logger::builder().appender("file").build("matrix_sdk", LevelFilter::Warn))
+            .build(Root::builder().build(LevelFilter::Error))
+            .unwrap();
+
+        let handle = log4rs::init_config(config).unwrap();
+    }
+    #[cfg(not(feature = "file-logging"))]
+    {
+        tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
+        tui_logger::set_default_level(log::LevelFilter::Warn);
+        tui_logger::set_level_for_target("matrix_sdk", log::LevelFilter::Warn);
+    }
 
     let title = format!("{} via {}", user_id, opt.sliding_sync_proxy);
 

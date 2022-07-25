@@ -125,7 +125,7 @@ impl Model {
                 Vec::default(),
             )
             .is_ok());
-        /// mount logger
+        // mount logger
         assert!(app.remount(Id::Logger, Box::new(Logger::default()), Vec::default()).is_ok());
 
         assert!(app
