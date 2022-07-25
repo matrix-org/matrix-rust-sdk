@@ -1466,7 +1466,7 @@ mod tests {
     use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
-        let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated().to_string());
+        let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated());
         Ok(IndexeddbStore::open_helper(db_name, None).await?)
     }
 
@@ -1486,8 +1486,7 @@ mod encrypted_tests {
     use super::{IndexeddbStore, Result, StoreCipher};
 
     async fn get_store() -> Result<IndexeddbStore> {
-        let db_name =
-            format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated().to_string());
+        let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated());
         let key = StoreCipher::new()?;
         Ok(IndexeddbStore::open_helper(db_name, Some(Arc::new(key))).await?)
     }
