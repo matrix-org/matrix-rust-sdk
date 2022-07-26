@@ -159,6 +159,7 @@ interface MediaSource {
 [Error]
 enum AuthenticationError {
     "ClientMissing",
+    "SessionMissing",
     "Generic",
 };
 

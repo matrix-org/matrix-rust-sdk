@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest},
     ruma::{
         api::client::{
+            account::whoami,
             filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
             session::get_login_types,
             sync::sync_events::v3::Filter,
@@ -12,7 +14,7 @@ use matrix_sdk::{
         events::room::MediaSource,
         TransactionId,
     },
-    Client as MatrixClient, LoopCtrl,
+    Client as MatrixClient, LoopCtrl, Session,
 };
 use parking_lot::RwLock;
 
@@ -58,10 +60,16 @@ impl Client {
         })
     }
 
+    /// Restores the client from a `RestoreToken`.
     pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
         let RestoreToken { session, homeurl: _, is_guest: _ } =
             serde_json::from_str(&restore_token)?;
 
+        self.restore_session(session)
+    }
+
+    /// Restores the client from a `Session`.
+    pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
             self.client.restore_login(session).await?;
             Ok(())
@@ -95,6 +103,12 @@ impl Client {
             .iter()
             .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
         Ok(supports_password)
+    }
+
+    /// Gets information about the owner of a given access token.
+    pub fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
+        RUNTIME
+            .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 
     pub fn start_sync(&self) {

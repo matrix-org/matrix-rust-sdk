@@ -1,9 +1,10 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
-use anyhow::Context;
+use anyhow::anyhow;
 use matrix_sdk::{
-    ruma::UserId, store::make_store_config, Client as MatrixClient,
-    ClientBuilder as MatrixClientBuilder,
+    ruma::{ServerName, UserId},
+    store::make_store_config,
+    Client as MatrixClient, ClientBuilder as MatrixClientBuilder,
 };
 use sanitize_filename_reader_friendly::sanitize;
 
@@ -13,6 +14,7 @@ use super::{client::Client, ClientState, RUNTIME};
 pub struct ClientBuilder {
     base_path: Option<String>,
     username: Option<String>,
+    server_name: Option<String>,
     homeserver_url: Option<String>,
     inner: MatrixClientBuilder,
 }
@@ -22,6 +24,7 @@ impl ClientBuilder {
         Self {
             base_path: None,
             username: None,
+            server_name: None,
             homeserver_url: None,
             inner: MatrixClient::builder().user_agent("rust-sdk-ios"),
         }
@@ -39,6 +42,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.server_name = Some(server_name);
+        Arc::new(builder)
+    }
+
     pub fn homeserver_url(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_url = Some(url);
@@ -47,25 +56,30 @@ impl ClientBuilder {
 
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<Client>> {
         let builder = unwrap_or_clone_arc(self);
+        let mut inner_builder = builder.inner;
 
-        let base_path = builder.base_path.context("Base path was not set")?;
-        let username = builder
-            .username
-            .context("Username to determine homeserver and home path was not set")?;
+        if let (Some(base_path), Some(username)) = (builder.base_path, &builder.username) {
+            // Determine store path
+            let data_path = PathBuf::from(base_path).join(sanitize(username));
+            fs::create_dir_all(&data_path)?;
+            let store_config = make_store_config(&data_path, None)?;
 
-        // Determine store path
-        let data_path = PathBuf::from(base_path).join(sanitize(&username));
-        fs::create_dir_all(&data_path)?;
-        let store_config = make_store_config(&data_path, None)?;
+            inner_builder = inner_builder.store_config(store_config);
+        }
 
-        let mut inner_builder = builder.inner.store_config(store_config);
-
-        // Determine server either from explicitly set homeserver or from userId
+        // Determine server either from URL, server name or user ID.
         if let Some(homeserver_url) = builder.homeserver_url {
             inner_builder = inner_builder.homeserver_url(homeserver_url);
-        } else {
+        } else if let Some(server_name) = builder.server_name {
+            let server_name = ServerName::parse(server_name)?;
+            inner_builder = inner_builder.server_name(&server_name);
+        } else if let Some(username) = builder.username {
             let user = UserId::parse(username)?;
             inner_builder = inner_builder.server_name(user.server_name());
+        } else {
+            return Err(anyhow!(
+                "Failed to build: One of homeserver_url, server_name or username must be called."
+            ));
         }
 
         RUNTIME.block_on(async move {
