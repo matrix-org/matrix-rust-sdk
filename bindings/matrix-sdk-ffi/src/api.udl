@@ -156,8 +156,7 @@ interface SlidingSyncRoom {
     boolean? is_dm();
     boolean? is_initial();
 
-    //boolean has_unread_notifications();
- 
+    boolean has_unread_notifications();
     UnreadNotificationsCount unread_notifications();
 
     // aliveness
