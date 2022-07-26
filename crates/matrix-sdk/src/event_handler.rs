@@ -94,7 +94,7 @@ pub(crate) struct EventHandlerWrapper {
 
 /// Handle to remove a registered event handler by passing it to
 /// [`Client::remove_event_handler`].
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct EventHandlerHandle {
     pub(crate) ev_id: (EventKind, &'static str),
     pub(crate) handler_id: u64,

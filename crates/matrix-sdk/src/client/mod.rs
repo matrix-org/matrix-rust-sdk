@@ -550,7 +550,7 @@ impl Client {
         let mut event_handlers = self.inner.event_handlers.write().await;
 
         if let Some(v) = event_handlers.get_mut(&handle.ev_id) {
-            v.retain(|e| -> bool { e.handle.handler_id.ne(&handle.handler_id) });
+            v.retain(|e| e.handle.handler_id != handle.handler_id);
 
             if v.is_empty() {
                 event_handlers.remove(&handle.ev_id);
