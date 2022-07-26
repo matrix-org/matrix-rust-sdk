@@ -299,6 +299,27 @@ impl SlidingSyncView {
         outer_stopper
     }
 
+    /// Reset the ranges to a particular set
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn set_range(&self, start: u32, end: u32) {
+        self.inner.set_range(start, end);
+    }
+
+    /// Set the ranges to fetch
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn add_range(&self, start: u32, end: u32) {
+        self.inner.add_range(start, end);
+    }
+
+    pub fn reset_ranges(&self,) {
+        self.inner.reset_ranges();
+    }
+
+
     pub fn current_room_count(&self) -> Option<u32> {
         self.inner.rooms_count.get_cloned()
     }

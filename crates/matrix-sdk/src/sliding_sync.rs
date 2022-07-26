@@ -547,7 +547,7 @@ impl SlidingSyncViewBuilder {
 
     /// Set the Syncing mode
     pub fn sync_mode(&mut self, sync_mode: SlidingSyncMode) -> &mut Self {
-        self.sync_mode = Some(SyncMode::new(SlidingSyncMode::FullSync));
+        self.sync_mode = Some(SyncMode::new(sync_mode));
         self
     }
 
@@ -665,7 +665,7 @@ impl<'a> Iterator for SlidingSyncViewRequestGenerator<'a> {
                         *before == SlidingSyncState::CatchingUp
                     });
                     // keep listening to the entire list to learn about position updates
-                    self.view.set_ranges(vec![((0, count))]);
+                    self.view.set_range(0, count);
                     self.inner = InnerSlidingSyncViewRequestGenerator::Live
                 }
             } else {
@@ -711,12 +711,35 @@ impl SlidingSyncView {
         self
     }
 
+    /// Reset the ranges to a particular set
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn set_range(&self, start: u32, end: u32) -> &Self {
+        *self.ranges.lock_mut() = vec![(start.into(), end.into())];
+        self
+    }
+
     /// Set the ranges to fetch
     ///
     /// Remember to cancel the existing stream and fetch a new one as this will
     /// only be applied on the next request.
     pub fn add_range(&self, start: u32, end: u32) -> &Self {
         self.ranges.lock_mut().push((start.into(), end.into()));
+        self
+    }
+
+    /// Set the ranges to fetch
+    ///
+    /// Note: sending an emtpy list of ranges is, according to the spec, to be
+    /// understood that the consumer doesn't care about changes of the room order
+    /// but you will only receive updates when for rooms entering or leaving the
+    /// set.
+    ///
+    /// Remember to cancel the existing stream and fetch a new one as this will
+    /// only be applied on the next request.
+    pub fn reset_ranges(&self) -> &Self {
+        self.ranges.lock_mut().clear();
         self
     }
 

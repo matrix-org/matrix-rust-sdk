@@ -135,6 +135,10 @@ interface SlidingSyncView {
     u32? current_room_count();
     sequence<RoomListEntry> current_rooms_list();
 
+    void add_range(u32 from, u32 to);
+    void reset_ranges();
+    void set_range(u32 from, u32 to);
+
 };
 
 interface SlidingSync {
