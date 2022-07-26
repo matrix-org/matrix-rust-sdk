@@ -163,9 +163,8 @@ pub(crate) struct ClientInner {
     event_handlers: RwLock<EventHandlerMap>,
     /// Custom event handler context. See `register_event_handler_context`.
     event_handler_data: StdRwLock<AnyMap>,
-    /// Counter amounts to the number of event handlers. When registering a new
-    /// one, the current value is used for the handlers identification, then
-    /// the counter is incremented.
+    /// When registering a event handler, the current value is used for the
+    /// handlers identification, then the counter is incremented.
     event_handler_counter: AtomicU64,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
@@ -371,8 +370,6 @@ impl Client {
     /// * [`Room`][room::Room] is only available for room-specific events, i.e.
     ///   not for events like global account data events or presence events
     ///
-    /// Returns an [`EventHandlerHandle`].
-    ///
     /// [`EventHandlerContext`]: crate::event_handler::EventHandlerContext
     ///
     /// # Examples
@@ -413,7 +410,7 @@ impl Client {
     ///     .await;
     /// client
     ///     .register_event_handler(
-    ///          |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
+    ///         |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
     ///             async move {
     ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
     ///                 // unencrypted events and events that were decrypted by the SDK.
@@ -464,7 +461,7 @@ impl Client {
         let event_type = Ev::TYPE;
         let key = (Ev::KIND, Ev::TYPE);
 
-        let handler_function: Box<EventHandlerFn> = Box::new(move |data| {
+        let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
             let maybe_fut = serde_json::from_str(data.raw.get())
                 .map(|ev| handler.clone().handle_event(ev, data));
 
@@ -487,9 +484,9 @@ impl Client {
             })
         });
 
-        let handle_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
+        let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
 
-        let handle = EventHandlerHandle { id: key, addr: handle_id };
+        let handle = EventHandlerHandle { handler_id, ev_id: key };
 
         self.inner
             .event_handlers
@@ -497,7 +494,7 @@ impl Client {
             .await
             .entry(key)
             .or_default()
-            .push(EventHandlerWrapper { handler_function, handle: handle.clone() });
+            .push(EventHandlerWrapper { handler_fn, handle: handle.clone() });
 
         handle
     }
@@ -550,19 +547,15 @@ impl Client {
     /// # });
     /// ```
     pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
-        let event_id = handle.id;
-
         let mut event_handlers = self.inner.event_handlers.write().await;
 
-        if let Some(v) = event_handlers.get_mut(&event_id) {
-            v.retain(|e| -> bool { e.handle.addr.ne(&handle.addr) });
+        if let Some(v) = event_handlers.get_mut(&handle.ev_id) {
+            v.retain(|e| -> bool { e.handle.handler_id.ne(&handle.handler_id) });
 
             if v.is_empty() {
-                event_handlers.remove(&event_id);
+                event_handlers.remove(&handle.ev_id);
             }
         }
-
-        self.inner.event_handler_counter.fetch_sub(1, SeqCst);
     }
 
     /// Add an arbitrary value for use as event handler context.
@@ -598,7 +591,8 @@ impl Client {
     /// let my_gui_handle: SomeType = obtain_gui_handle();
     ///
     /// client.register_event_handler_context(my_gui_handle.clone());
-    /// client.register_event_handler(
+    /// client
+    ///     .register_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
     ///         },

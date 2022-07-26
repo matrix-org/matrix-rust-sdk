@@ -88,16 +88,16 @@ pub trait SyncEvent {
 }
 
 pub(crate) struct EventHandlerWrapper {
-    pub handler_function: Box<EventHandlerFn>,
+    pub handler_fn: Box<EventHandlerFn>,
     pub handle: EventHandlerHandle,
 }
 
-#[derive(Debug, Clone)]
 /// Handle to remove a registered event handler by passing it to
 /// [`Client::remove_event_handler`].
+#[derive(Debug, Clone)]
 pub struct EventHandlerHandle {
-    pub(crate) id: (EventKind, &'static str),
-    pub(crate) addr: u64,
+    pub(crate) ev_id: (EventKind, &'static str),
+    pub(crate) handler_id: u64,
 }
 
 impl EventHandlerContext for EventHandlerHandle {
@@ -410,7 +410,7 @@ impl Client {
                         encryption_info,
                         handle: handler_wrapper.handle.clone(),
                     };
-                    (handler_wrapper.handler_function)(data)
+                    (handler_wrapper.handler_fn)(data)
                 })
                 .collect();
 
