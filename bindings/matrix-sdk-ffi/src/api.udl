@@ -141,6 +141,10 @@ interface SlidingSyncView {
 
 };
 
+interface SlidingSyncRoom {
+
+};
+
 interface SlidingSync {
 
     void on_update(SlidingSyncDelegate? update);
@@ -153,6 +157,10 @@ interface SlidingSync {
     void unsubscribe(string room_id);
 
     SlidingSyncView? get_view(string name);
+    [Throws=ClientError]
+    SlidingSyncRoom? get_room(string room_id);
+    [Throws=ClientError]
+    sequence<SlidingSyncRoom?> get_rooms(sequence<string> room_ids);
 };
 
 interface ClientBuilder {

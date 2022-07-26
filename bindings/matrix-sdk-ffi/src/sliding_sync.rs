@@ -11,11 +11,11 @@ use futures_signals::{
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::ruma::{
     api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription,
-    events::RoomEventType,
+    events::RoomEventType, OwnedRoomId, IdParseError
 };
 pub use matrix_sdk::{
     RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
-    SlidingSyncMode, SlidingSyncState,
+    SlidingSyncMode, SlidingSyncState, SlidingSyncRoom,
 };
 use parking_lot::RwLock;
 
@@ -344,6 +344,7 @@ impl From<matrix_sdk::SlidingSync> for SlidingSync {
     }
 }
 
+
 impl SlidingSync {
     pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
         *self.delegate.write() = delegate;
@@ -372,6 +373,15 @@ impl SlidingSync {
             }
         }
         None
+    }
+
+    pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
+        Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(Arc::new))
+    }
+
+    pub fn get_rooms(&self, room_ids: Vec<String>) -> anyhow::Result<Vec<Option<Arc<SlidingSyncRoom>>>> {
+        let actual_ids  = room_ids.into_iter().map(OwnedRoomId::try_from).collect::<Result<Vec<OwnedRoomId>, IdParseError>>()?;
+        Ok(self.inner.get_rooms(actual_ids.into_iter()).into_iter().map(|o| o.map(Arc::new)).collect())
     }
 
     pub fn start_sync(&self) {

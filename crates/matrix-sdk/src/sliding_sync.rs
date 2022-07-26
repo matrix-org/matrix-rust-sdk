@@ -322,6 +322,17 @@ impl SlidingSync {
         }
     }
 
+    /// Lookup a specific room
+    pub fn get_room(&self, room_id: OwnedRoomId) -> Option<SlidingSyncRoom> {
+        self.rooms.lock_ref().get(&room_id).cloned()
+    }
+
+    /// Lookup a set of rooms
+    pub fn get_rooms<I : Iterator<Item = OwnedRoomId>>(&self, room_ids: I) -> Vec<Option<SlidingSyncRoom>> {
+        let rooms = self.rooms.lock_ref();
+        room_ids.map(|room_id| rooms.get(&room_id).cloned()).collect()
+    }
+
     async fn handle_response(
         &self,
         resp: sliding_sync_events::Response,
