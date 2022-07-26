@@ -53,6 +53,7 @@ impl Client {
         }
     }
 
+    /// Login using a username and password.
     pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
             self.client.login_username(&username, &password).send().await?;
