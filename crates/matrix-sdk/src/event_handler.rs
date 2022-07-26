@@ -102,7 +102,7 @@ pub struct EventHandlerHandle {
 
 impl EventHandlerContext for EventHandlerHandle {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.handle.clone())
+        Some(data.handle)
     }
 }
 
@@ -408,7 +408,7 @@ impl Client {
                         room: room.clone(),
                         raw: raw_event.json(),
                         encryption_info,
-                        handle: handler_wrapper.handle.clone(),
+                        handle: handler_wrapper.handle,
                     };
                     (handler_wrapper.handler_fn)(data)
                 })

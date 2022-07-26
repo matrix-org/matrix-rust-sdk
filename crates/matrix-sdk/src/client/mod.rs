@@ -494,7 +494,7 @@ impl Client {
             .await
             .entry(key)
             .or_default()
-            .push(EventHandlerWrapper { handler_fn, handle: handle.clone() });
+            .push(EventHandlerWrapper { handler_fn, handle });
 
         handle
     }
