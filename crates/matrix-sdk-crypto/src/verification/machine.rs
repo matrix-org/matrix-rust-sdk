@@ -132,8 +132,12 @@ impl VerificationMachine {
                 RoomMessageRequest { room_id: r, txn_id: TransactionId::new(), content: c }.into()
             }
             OutgoingContent::ToDevice(c) => {
-                let request =
-                    ToDeviceRequest::new(device.user_id(), device.device_id().to_owned(), c);
+                let request = ToDeviceRequest::with_id(
+                    device.user_id(),
+                    device.device_id().to_owned(),
+                    c,
+                    TransactionId::new(),
+                );
 
                 self.verifications.insert_sas(sas.clone());
 

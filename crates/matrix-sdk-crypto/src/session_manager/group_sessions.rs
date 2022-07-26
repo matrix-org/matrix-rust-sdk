@@ -252,8 +252,7 @@ impl GroupSessionManager {
                         .or_insert_with(BTreeMap::new)
                         .insert(
                             DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                            Raw::new(&AnyToDeviceEventContent::RoomEncrypted(encrypted))
-                                .expect("Failed to serialize encrypted event"),
+                            encrypted.cast(),
                         );
                     share_info
                         .entry(device.user_id().to_owned())

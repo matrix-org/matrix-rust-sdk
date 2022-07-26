@@ -291,10 +291,11 @@ impl QrVerification {
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
-            OutgoingContent::ToDevice(c) => ToDeviceRequest::new(
+            OutgoingContent::ToDevice(c) => ToDeviceRequest::with_id(
                 self.identities.other_user_id(),
                 self.identities.other_device_id().to_owned(),
                 c,
+                TransactionId::new(),
             )
             .into(),
         }

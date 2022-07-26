@@ -37,7 +37,7 @@ use ruma::{
     events::{
         room::encrypted::{
             EncryptedEventScheme, MegolmV1AesSha2Content, OriginalSyncRoomEncryptedEvent,
-            RoomEncryptedEventContent, ToDeviceRoomEncryptedEvent,
+            RoomEncryptedEventContent,
         },
         secret::request::SecretName,
         AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEventContent,
@@ -69,6 +69,7 @@ use crate::{
     },
     types::{
         events::{
+            room::encrypted::EncryptedToDeviceEvent,
             room_key::{RoomKeyContent, RoomKeyEvent},
             ToDeviceEvents,
         },
@@ -538,7 +539,7 @@ impl OlmMachine {
     /// * `event` - The to-device event that should be decrypted.
     async fn decrypt_to_device_event(
         &self,
-        event: &ToDeviceRoomEncryptedEvent,
+        event: &EncryptedToDeviceEvent,
     ) -> OlmResult<OlmDecryptionInfo> {
         let mut decrypted = self.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
@@ -1569,13 +1570,10 @@ pub(crate) mod tests {
         events::{
             dummy::ToDeviceDummyEventContent,
             key::verification::VerificationMethod,
-            room::{
-                encrypted::ToDeviceRoomEncryptedEventContent,
-                message::{MessageType, RoomMessageEventContent},
-            },
+            room::message::{MessageType, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
             AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned,
-            OriginalMessageLikeEvent, OriginalSyncMessageLikeEvent, ToDeviceEvent,
+            OriginalMessageLikeEvent, OriginalSyncMessageLikeEvent,
         },
         room_id,
         serde::Raw,
@@ -1589,7 +1587,10 @@ pub(crate) mod tests {
     use crate::{
         machine::OlmMachine,
         olm::VerifyJson,
-        types::{DeviceKeys, SignedKey},
+        types::{
+            events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
+            DeviceKeys, SignedKey,
+        },
         verification::tests::{outgoing_request_to_event, request_to_event},
         EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
@@ -1623,7 +1624,7 @@ pub(crate) mod tests {
 
     fn to_device_requests_to_content(
         requests: Vec<Arc<ToDeviceRequest>>,
-    ) -> ToDeviceRoomEncryptedEventContent {
+    ) -> ToDeviceEncryptedEventContent {
         let to_device_request = &requests[0];
 
         to_device_request
@@ -1704,7 +1705,11 @@ pub(crate) mod tests {
             .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
 
-        let event = ToDeviceEvent { sender: alice.user_id().to_owned(), content };
+        let event = ToDeviceEvent {
+            sender: alice.user_id().to_owned(),
+            content: content.deserialize_as().unwrap(),
+            other: Default::default(),
+        };
 
         let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
         bob.store.save_sessions(&[decrypted.session.session()]).await.unwrap();
@@ -1926,7 +1931,10 @@ pub(crate) mod tests {
                 .encrypt(AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
                 .await
                 .unwrap()
-                .1,
+                .1
+                .deserialize_as()
+                .unwrap(),
+            other: Default::default(),
         };
 
         let event = bob.decrypt_to_device_event(&event).await.unwrap().event.deserialize().unwrap();
@@ -1952,6 +1960,7 @@ pub(crate) mod tests {
         let event = ToDeviceEvent {
             sender: alice.user_id().to_owned(),
             content: to_device_requests_to_content(to_device_requests),
+            other: Default::default(),
         };
         let event = Raw::from_json(to_raw_value(&event).unwrap());
 
@@ -2000,6 +2009,7 @@ pub(crate) mod tests {
         let event = ToDeviceEvent {
             sender: alice.user_id().to_owned(),
             content: to_device_requests_to_content(to_device_requests),
+            other: Default::default(),
         };
 
         let group_session =

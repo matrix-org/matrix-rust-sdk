@@ -136,10 +136,8 @@ pub(crate) mod tests {
         };
 
         let bob_keys = bob.identity_keys();
-        let result = alice
-            .create_inbound_session(&bob_keys.curve25519.to_base64(), &prekey_message)
-            .await
-            .unwrap();
+        let result =
+            alice.create_inbound_session(bob_keys.curve25519, &prekey_message).await.unwrap();
 
         assert_eq!(bob_session.session_id(), result.session.session_id());
 

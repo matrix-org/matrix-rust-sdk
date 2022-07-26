@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    events::{
-        room::encrypted::{
-            CiphertextInfo, EncryptedEventScheme, OlmV1Curve25519AesSha2Content,
-            ToDeviceRoomEncryptedEventContent,
-        },
-        AnyToDeviceEventContent, EventContent,
-    },
+    events::{AnyToDeviceEventContent, EventContent},
+    serde::Raw,
     DeviceId, SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -35,6 +30,9 @@ use vodozemac::{
 use super::IdentityKeys;
 use crate::{
     error::{EventError, OlmResult},
+    types::events::room::encrypted::{
+        OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent,
+    },
     ReadOnlyDevice,
 };
 
@@ -120,7 +118,7 @@ impl Session {
         &mut self,
         recipient_device: &ReadOnlyDevice,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<ToDeviceRoomEncryptedEventContent> {
+    ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let recipient_signing_key =
             recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
@@ -141,19 +139,18 @@ impl Session {
         });
 
         let plaintext = serde_json::to_string(&payload)?;
-        let ciphertext = self.encrypt_helper(&plaintext).await.to_parts();
+        let ciphertext = self.encrypt_helper(&plaintext).await;
 
-        let message_type = ciphertext.0;
-        let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
+        let content = OlmV1Curve25519AesSha2Content {
+            ciphertext,
+            recipient_key: self.sender_key,
+            sender_key: self.our_identity_keys.curve25519,
+        }
+        .into();
 
-        let mut content = BTreeMap::new();
-        content.insert(self.sender_key.to_base64(), ciphertext);
+        let content = Raw::new(&content).expect("A encrypted can always be serialized");
 
-        Ok(EncryptedEventScheme::OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content::new(
-            content,
-            self.our_identity_keys.curve25519.to_base64(),
-        ))
-        .into())
+        Ok(content)
     }
 
     /// Returns the unique identifier for this session.

@@ -37,6 +37,7 @@ use crate::{
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
+    types::events::EventType,
     ReadOnlyDevice,
 };
 
@@ -145,7 +146,8 @@ impl SessionManager {
                 let request = ToDeviceRequest::new(
                     device.user_id(),
                     device.device_id().to_owned(),
-                    AnyToDeviceEventContent::RoomEncrypted(content),
+                    content.event_type(),
+                    content.cast(),
                 );
 
                 let request = OutgoingRequest {
