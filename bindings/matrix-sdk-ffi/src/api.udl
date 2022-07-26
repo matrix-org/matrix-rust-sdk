@@ -169,7 +169,7 @@ interface SlidingSync {
 
     void on_update(SlidingSyncDelegate? update);
 
-    void start_sync();
+    StoppableSpawn sync();
 
     [Throws=ClientError]
     void subscribe(string room_id, RoomSubscription? settings);

@@ -21,21 +21,30 @@ pub use matrix_sdk::{
     SlidingSyncMode, SlidingSyncState,
 };
 use parking_lot::RwLock;
+use tokio::task::JoinHandle;
 
 use super::{Client, RUNTIME};
 use crate::helpers::unwrap_or_clone_arc;
 
 pub struct StoppableSpawn {
     cancelled: AtomicBool,
+    handle: RwLock<Option<JoinHandle<()>>>,
 }
 
 impl StoppableSpawn {
     fn new() -> StoppableSpawn {
-        StoppableSpawn { cancelled: AtomicBool::new(false) }
+        StoppableSpawn { cancelled: AtomicBool::new(false), handle: RwLock::new(None) }
+    }
+    fn with_handle(handle: JoinHandle<()>) -> StoppableSpawn {
+        StoppableSpawn { cancelled: AtomicBool::new(false), handle: RwLock::new(Some(handle)) }
+
     }
 
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed)
+        self.cancelled.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.handle.write().take() {
+            handle.abort();
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -399,6 +408,7 @@ pub trait SlidingSyncDelegate: Sync + Send {
     fn did_receive_sync_update(&self, summary: UpdateSummary);
 }
 
+
 pub struct SlidingSync {
     inner: matrix_sdk::SlidingSync,
     delegate: Arc<RwLock<Option<Box<dyn SlidingSyncDelegate>>>>,
@@ -450,11 +460,11 @@ impl SlidingSync {
         Ok(self.inner.get_rooms(actual_ids.into_iter()).into_iter().map(|o| o.map(|a| Arc::new(a.into()))).collect())
     }
 
-    pub fn start_sync(&self) {
+    pub fn sync(&self) -> Arc<StoppableSpawn> {
         let inner = self.inner.clone();
         let delegate = self.delegate.clone();
 
-        RUNTIME.spawn(async move {
+        let handle = RUNTIME.spawn(async move {
             let (cancel, stream) = inner.stream().await.expect("Doesn't fail.");
             pin_mut!(stream);
             loop {
@@ -480,6 +490,8 @@ impl SlidingSync {
                 }
             }
         });
+
+        Arc::new(StoppableSpawn::with_handle(handle))
     }
 }
 
