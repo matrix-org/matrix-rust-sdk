@@ -160,8 +160,8 @@ impl SlidingSyncRoom {
     }
 
     /// This rooms name as calculated by the server, if any
-    pub fn name(&self) -> &Option<String> {
-        &self.inner.name
+    pub fn name(&self) -> Option<String> {
+        self.inner.name.clone()
     }
 
     /// add newer timeline events to the `AliveRoomTimeline` received over

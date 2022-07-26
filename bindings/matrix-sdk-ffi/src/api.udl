@@ -143,6 +143,9 @@ interface SlidingSyncView {
 
 interface SlidingSyncRoom {
 
+    boolean is_loading_more();
+    string? name();
+
 };
 
 interface SlidingSync {
