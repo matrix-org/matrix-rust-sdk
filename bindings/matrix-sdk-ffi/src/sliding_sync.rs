@@ -10,12 +10,15 @@ use futures_signals::{
 };
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::ruma::{
-    api::client::sync::sliding_sync_events::RoomSubscription as RumaRoomSubscription,
-    events::RoomEventType, OwnedRoomId, IdParseError
+    api::client::sync::{
+        sliding_sync_events::RoomSubscription as RumaRoomSubscription,
+        sync_events::v3::UnreadNotificationsCount as RumaUnreadNotificationsCount
+    },
+    events::RoomEventType, OwnedRoomId, IdParseError,
 };
 pub use matrix_sdk::{
     RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
-    SlidingSyncMode, SlidingSyncState, SlidingSyncRoom,
+    SlidingSyncMode, SlidingSyncState,
 };
 use parking_lot::RwLock;
 
@@ -38,6 +41,69 @@ impl StoppableSpawn {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
+}
+
+pub struct UnreadNotificationsCount {
+    inner: RumaUnreadNotificationsCount
+}
+
+impl UnreadNotificationsCount {
+    pub fn highlight_count(&self) -> u32 {
+        self.inner.highlight_count.and_then(|x|x.try_into().ok()).unwrap_or_default()
+    }
+    pub fn notification_count(&self) -> u32 {
+        self.inner.notification_count.and_then(|x|x.try_into().ok()).unwrap_or_default()
+    }
+    pub fn has_notifications(&self) -> bool {
+        !self.inner.is_empty()
+    }
+}
+
+impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
+    fn from(inner: RumaUnreadNotificationsCount) -> Self {
+        UnreadNotificationsCount { inner}
+    }
+}
+
+
+pub struct SlidingSyncRoom {
+    inner: matrix_sdk::SlidingSyncRoom,
+}
+
+impl From<matrix_sdk::SlidingSyncRoom> for SlidingSyncRoom {
+    fn from(inner: matrix_sdk::SlidingSyncRoom) -> Self {
+        SlidingSyncRoom { inner}
+    }
+}
+
+impl SlidingSyncRoom {
+    pub fn name(&self) -> Option<String> {
+        self.inner.name()
+    }
+
+    pub fn room_id(&self) -> String {
+        self.inner.room_id().to_string()
+    }
+
+    pub fn is_dm(&self) -> Option<bool> {
+        self.inner.is_dm.clone()
+    }
+
+    pub fn is_initial(&self) -> Option<bool> {
+        self.inner.initial.clone()
+    }
+    pub fn is_loading_more(&self) -> bool {
+        self.inner.is_loading_more()
+    }
+
+    pub fn has_unread_notifications(&self) -> bool {
+        !self.inner.unread_notifications.is_empty()
+    }
+
+    pub fn unread_notifications(&self) -> Arc<UnreadNotificationsCount> {
+        Arc::new(self.inner.unread_notifications.clone().into())
+    }
+
 }
 
 pub struct UpdateSummary {
@@ -376,12 +442,12 @@ impl SlidingSync {
     }
 
     pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
-        Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(Arc::new))
+        Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(|a| Arc::new(a.into())))
     }
 
     pub fn get_rooms(&self, room_ids: Vec<String>) -> anyhow::Result<Vec<Option<Arc<SlidingSyncRoom>>>> {
         let actual_ids  = room_ids.into_iter().map(OwnedRoomId::try_from).collect::<Result<Vec<OwnedRoomId>, IdParseError>>()?;
-        Ok(self.inner.get_rooms(actual_ids.into_iter()).into_iter().map(|o| o.map(Arc::new)).collect())
+        Ok(self.inner.get_rooms(actual_ids.into_iter()).into_iter().map(|o| o.map(|a| Arc::new(a.into()))).collect())
     }
 
     pub fn start_sync(&self) {

@@ -141,10 +141,27 @@ interface SlidingSyncView {
 
 };
 
+interface UnreadNotificationsCount {
+    boolean has_notifications();
+
+    u32 highlight_count();
+    u32 notification_count();
+};
+
 interface SlidingSyncRoom {
 
-    boolean is_loading_more();
     string? name();
+    string room_id();
+    
+    boolean? is_dm();
+    boolean? is_initial();
+
+    //boolean has_unread_notifications();
+ 
+    UnreadNotificationsCount unread_notifications();
+
+    // aliveness
+    boolean is_loading_more();
 
 };
 
