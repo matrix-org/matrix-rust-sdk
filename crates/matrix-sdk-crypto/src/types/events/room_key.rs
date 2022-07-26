@@ -27,9 +27,7 @@ use super::{EventType, ToDeviceEvent};
 pub type RoomKeyEvent = ToDeviceEvent<RoomKeyContent>;
 
 impl EventType for RoomKeyContent {
-    fn event_type(&self) -> &str {
-        "m.room_key"
-    }
+    const EVENT_TYPE: &'static str = "m.room_key";
 }
 
 /// The `m.room_key` event content.
