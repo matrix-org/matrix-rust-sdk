@@ -599,7 +599,11 @@ impl Room {
                 if !forward.is_closed() {
                     if let Err(error) = forward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            warn!("Drop timeline slice because the limit of the buffer for the forward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 forward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(forward);
@@ -614,7 +618,11 @@ impl Room {
                 if !backward.is_closed() {
                     if let Err(error) = backward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            warn!("Drop timeline slice because the limit of the buffer for the backward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 backward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(backward);

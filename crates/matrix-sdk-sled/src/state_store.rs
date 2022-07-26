@@ -1142,7 +1142,6 @@ impl SledStore {
     ) -> Result<Option<(BoxStream<StoreResult<SyncRoomEvent>>, Option<String>)>> {
         let db = self.clone();
         let key = self.encode_key(TIMELINE_METADATA, room_id);
-        let r_id = room_id.to_owned();
         let metadata: Option<TimelineMetadata> = db
             .room_timeline_metadata
             .get(key.as_slice())?
@@ -1151,7 +1150,7 @@ impl SledStore {
         let metadata = match metadata {
             Some(m) => m,
             None => {
-                info!("No timeline for {r_id} was previously stored");
+                info!(%room_id, "Couldn't find a previously stored timeline");
                 return Ok(None);
             }
         };
@@ -1159,11 +1158,12 @@ impl SledStore {
         let mut position = metadata.start_position;
         let end_token = metadata.end;
 
-        info!("Found previously stored timeline for {r_id}, with end token {end_token:?}");
+        info!(%room_id, ?end_token, "Found previously stored timeline");
 
+        let room_id = room_id.to_owned();
         let stream = stream! {
             while let Ok(Some(item)) =
-                db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &r_id, position))
+                db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &room_id, position))
             {
                 position += 1;
                 yield db.deserialize_value(&item).map_err(|e| SledStoreError::from(e).into());
@@ -1175,7 +1175,7 @@ impl SledStore {
 
     #[cfg(feature = "experimental-timeline")]
     async fn remove_room_timeline(&self, room_id: &RoomId) -> Result<()> {
-        info!("Remove stored timeline for {room_id}");
+        info!(%room_id, "Removing stored timeline");
 
         let mut timeline_batch = sled::Batch::default();
         for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, &room_id)).keys() {
@@ -1220,13 +1220,13 @@ impl SledStore {
 
         for (room_id, timeline) in &changes.timeline {
             if timeline.sync {
-                info!("Save new timeline batch from sync response for {room_id}");
+                info!(%room_id, "Saving new timeline batch from sync response");
             } else {
-                info!("Save new timeline batch from messages response for {room_id}");
+                info!(%room_id, "Saving new timeline batch from messages response");
             }
 
             let metadata: Option<TimelineMetadata> = if timeline.limited {
-                info!("Delete stored timeline for {room_id} because the sync response was limited");
+                info!(%room_id, "Deleting stored timeline because the sync response was limited");
                 self.remove_room_timeline(room_id).await?;
                 None
             } else {
@@ -1240,7 +1240,7 @@ impl SledStore {
                         // This should only happen when a developer adds a wrong timeline
                         // batch to the `StateChanges` or the server returns a wrong response
                         // to our request.
-                        warn!("Drop unexpected timeline batch for {room_id}");
+                        warn!(%room_id, "Dropping unexpected timeline batch");
                         return Ok(());
                     }
 
@@ -1258,7 +1258,7 @@ impl SledStore {
                     }
 
                     if delete_timeline {
-                        info!("Delete stored timeline for {room_id} because of duplicated events");
+                        info!(%room_id, "Deleting stored timeline because of duplicated events");
                         self.remove_room_timeline(room_id).await?;
                         None
                     } else if timeline.sync {
@@ -1290,7 +1290,7 @@ impl SledStore {
                 .transpose()?
                 .and_then(|info| info.room_version().cloned())
                 .unwrap_or_else(|| {
-                    warn!("Unable to find the room version for {room_id}, assume version 9");
+                    warn!(%room_id, "Unable to find the room version, assume version 9");
                     RoomVersionId::V9
                 });
 

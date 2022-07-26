@@ -644,14 +644,14 @@ impl IndexeddbStore {
 
             for (room_id, timeline) in &changes.timeline {
                 if timeline.sync {
-                    info!("Save new timeline batch from sync response for {room_id}");
+                    info!(%room_id, "Saving new timeline batch from sync response");
                 } else {
-                    info!("Save new timeline batch from messages response for {room_id}");
+                    info!(%room_id, "Saving new timeline batch from messages response");
                 }
                 let metadata: Option<TimelineMetadata> = if timeline.limited {
                     info!(
-                        "Delete stored timeline for {room_id} because the sync response was \
-                         limited",
+                        %room_id,
+                        "Deleting stored timeline because the sync response was limited",
                     );
 
                     let stores = &[
@@ -678,7 +678,7 @@ impl IndexeddbStore {
                             // This should only happen when a developer adds a wrong timeline
                             // batch to the `StateChanges` or the server returns a wrong response
                             // to our request.
-                            warn!("Drop unexpected timeline batch for {room_id}");
+                            warn!(%room_id, "Dropping unexpected timeline batch");
                             return Ok(());
                         }
 
@@ -703,7 +703,8 @@ impl IndexeddbStore {
 
                         if delete_timeline {
                             info!(
-                                "Delete stored timeline for {room_id} because of duplicated events",
+                                %room_id,
+                                "Deleting stored timeline because of duplicated events",
                             );
 
                             let stores = &[
@@ -1254,7 +1255,7 @@ impl IndexeddbStore {
         {
             Some(tl) => tl,
             _ => {
-                info!("No timeline for {room_id} was previously stored");
+                info!(%room_id, "Couldn't find a previously stored timeline");
                 return Ok(None);
             }
         };
@@ -1270,7 +1271,7 @@ impl IndexeddbStore {
 
         let stream = Box::pin(stream::iter(timeline.into_iter()));
 
-        info!("Found previously stored timeline for {room_id}, with end token {end_token:?}");
+        info!(%room_id, ?end_token, "Found previously stored timeline");
 
         Ok(Some((stream, end_token)))
     }

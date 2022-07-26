@@ -505,7 +505,7 @@ impl AppService {
     pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
         let host = host.into();
         let port = port.into();
-        info!("Starting AppService on {host}:{port}");
+        info!(host, port, "Starting AppService");
 
         webserver::run_server(self.clone(), host, port).await?;
         Ok(())

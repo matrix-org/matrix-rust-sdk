@@ -343,25 +343,25 @@ impl MemoryStore {
         }
 
         #[cfg(feature = "experimental-timeline")]
-        for (room, timeline) in &changes.timeline {
+        for (room_id, timeline) in &changes.timeline {
             use tracing::warn;
 
             if timeline.sync {
-                info!("Save new timeline batch from sync response for {room}");
+                info!(%room_id, "Saving new timeline batch from sync response");
             } else {
-                info!("Save new timeline batch from messages response for {room}");
+                info!(%room_id, "Saving new timeline batch from messages response");
             }
 
             let mut delete_timeline = false;
             if timeline.limited {
-                info!("Delete stored timeline for {room} because the sync response was limited");
+                info!(%room_id, "Deleting stored timeline because the sync response was limited");
                 delete_timeline = true;
-            } else if let Some(mut data) = self.room_timeline.get_mut(room) {
+            } else if let Some(mut data) = self.room_timeline.get_mut(room_id) {
                 if !timeline.sync && Some(&timeline.start) != data.end.as_ref() {
                     // This should only happen when a developer adds a wrong timeline
                     // batch to the `StateChanges` or the server returns a wrong response
                     // to our request.
-                    warn!("Drop unexpected timeline batch for {room}");
+                    warn!(%room_id, "Dropping unexpected timeline batch");
                     return Ok(());
                 }
 
@@ -385,12 +385,12 @@ impl MemoryStore {
             }
 
             if delete_timeline {
-                info!("Delete stored timeline for {room} because of duplicated events");
-                self.room_timeline.remove(room);
+                info!(%room_id, "Deleting stored timeline because of duplicated events");
+                self.room_timeline.remove(room_id);
             }
 
             let mut data =
-                self.room_timeline.entry(room.to_owned()).or_insert_with(|| TimelineData {
+                self.room_timeline.entry(room_id.to_owned()).or_insert_with(|| TimelineData {
                     start: timeline.start.clone(),
                     end: timeline.end.clone(),
                     ..Default::default()
@@ -398,10 +398,10 @@ impl MemoryStore {
 
             let make_room_version = || {
                 self.room_info
-                    .get(room)
+                    .get(room_id)
                     .and_then(|info| info.room_version().cloned())
                     .unwrap_or_else(|| {
-                        warn!("Unable to find the room version for {room}, assume version 9");
+                        warn!(%room_id, "Unable to find the room version, assuming version 9");
                         RoomVersionId::V9
                     })
             };
@@ -673,7 +673,7 @@ impl MemoryStore {
         let (events, end_token) = if let Some(data) = self.room_timeline.get(room_id) {
             (data.events.clone(), data.end.clone())
         } else {
-            info!("No timeline for {room_id} was previously stored");
+            info!(%room_id, "Couldn't find a previously stored timeline");
             return Ok(None);
         };
 
@@ -683,7 +683,7 @@ impl MemoryStore {
             }
         };
 
-        info!("Found previously stored timeline for {room_id}, with end token {end_token:?}");
+        info!(%room_id, ?end_token, "Found previously stored timeline");
 
         Ok(Some((Box::pin(stream), end_token)))
     }

@@ -338,7 +338,7 @@ impl SessionManager {
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
                 if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
-                    error!("Error while treating an unwedged device {user_id} {device_id} {e:?}");
+                    error!(%user_id, %device_id, "Error while treating an unwedged device: {e:?}");
                 }
 
                 changes.sessions.push(session);

@@ -458,7 +458,6 @@ impl Client {
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        let event_type = Ev::TYPE;
         let key = (Ev::KIND, Ev::TYPE);
 
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
@@ -468,16 +467,19 @@ impl Client {
             Box::pin(async move {
                 match maybe_fut {
                     Ok(Some(fut)) => {
-                        fut.await.print_error(event_type);
+                        fut.await.print_error(Ev::TYPE);
                     }
                     Ok(None) => {
-                        error!("Event handler for {} has an invalid context argument", event_type);
+                        error!(
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Event handler has an invalid context argument",
+                        );
                     }
                     Err(e) => {
                         warn!(
-                            "Failed to deserialize `{}` event, skipping event handler.\n\
-                                Deserialization error: {}",
-                            event_type, e,
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Failed to deserialize event, skipping event handler.\n
+                             Deserialization error: {e}",
                         );
                     }
                 }

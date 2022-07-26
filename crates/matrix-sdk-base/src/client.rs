@@ -400,8 +400,8 @@ impl BaseClient {
                 }
                 Err(err) => {
                     warn!(
-                        "Couldn't deserialize stripped state event for room {}: {err:?}",
-                        room_info.room_id,
+                        room_id = %room_info.room_id,
+                        "Couldn't deserialize stripped state event: {err:?}",
                     );
                 }
             }
@@ -429,10 +429,7 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(
-                        "Couldn't deserialize state event for room {room_id}: \
-                         {e:?} {raw_event:#?}",
-                    );
+                    warn!(%room_id, "Couldn't deserialize state event: {e:?}");
                     continue;
                 }
             };

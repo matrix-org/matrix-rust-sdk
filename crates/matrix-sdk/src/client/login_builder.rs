@@ -224,7 +224,7 @@ where
         const SSO_SERVER_BIND_TRIES: u8 = 10;
 
         let homeserver = self.client.homeserver().await;
-        info!("Logging in to {homeserver}");
+        info!(%homeserver, "Logging in");
 
         let (signal_tx, signal_rx) = oneshot::channel();
         let (data_tx, data_rx) = oneshot::channel();

@@ -196,7 +196,11 @@ pub fn receive_mac_event(
 
     let info = extra_mac_info_receive(ids, flow_id);
 
-    trace!("Received a key.verification.mac event from {sender} {}", ids.other_device.device_id());
+    trace!(
+        %sender,
+        device_id = %ids.other_device.device_id(),
+        "Received a key.verification.mac event"
+    );
 
     let mut keys = content.mac().keys().map(|k| k.as_str()).collect::<Vec<_>>();
     keys.sort_unstable();
@@ -211,8 +215,10 @@ pub fn receive_mac_event(
 
     for (key_id, key_mac) in content.mac() {
         trace!(
-            "Checking MAC for the key id {key_id} from {sender} {}",
-            ids.other_device.device_id()
+            %sender,
+            device_id = %ids.other_device.device_id(),
+            key_id,
+            "Checking a SAS MAC",
         );
 
         let key_id: OwnedDeviceKeyId = match key_id.as_str().try_into() {
@@ -227,7 +233,7 @@ pub fn receive_mac_event(
             .expect("Can't base64-decode SAS MAC");
 
             if *key_mac == calculated_mac {
-                trace!("Successfully verified the device key {key_id} from {sender}");
+                trace!(%sender, %key_id, "Successfully verified a device key");
                 verified_devices.push(ids.other_device.clone());
             } else {
                 return Err(CancelCode::KeyMismatch);
@@ -242,7 +248,7 @@ pub fn receive_mac_event(
                 .expect("Can't base64-decode SAS MAC");
 
                 if *key_mac == calculated_mac {
-                    trace!("Successfully verified the master key {key_id} from {sender}");
+                    trace!(%sender, %key_id, "Successfully verified a master key");
                     verified_identities.push(identity.clone())
                 } else {
                     return Err(CancelCode::KeyMismatch);
