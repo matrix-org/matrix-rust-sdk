@@ -379,15 +379,19 @@ impl SlidingSync {
         let delegate = self.delegate.clone();
 
         RUNTIME.spawn(async move {
-            let (_cancel, stream) = inner.stream().await.expect("Doesn't fail.");
+            let (cancel, stream) = inner.stream().await.expect("Doesn't fail.");
             pin_mut!(stream);
-            for update in stream.next().await {
-                let update = match update {
-                    Ok(u) => u,
-                    Err(e) => {
+            loop {
+                let update = match stream.next().await {
+                    Some(Ok(u)) => u,
+                    Some(Err(e)) => {
                         // FIXME: send this over the FFI
-                        println!("Sliding Sync failure: {:?}", e);
+                        tracing::warn!("Sliding Sync failure: {:?}", e);
                         continue;
+                    },
+                    None => {
+                        tracing::debug!("No update from loop, cancelled");
+                        break
                     }
                 };
                 if let Some(ref delegate) = *delegate.read() {
@@ -395,6 +399,7 @@ impl SlidingSync {
                 } else {
                     // when the delegate has been removed
                     // we cancel the loop
+                    *cancel.lock_mut() = true;
                     break;
                 }
             }
