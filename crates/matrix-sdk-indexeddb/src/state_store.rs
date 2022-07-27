@@ -1764,8 +1764,7 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store =
-            IndexeddbStore::builder().name(name).passphrase(passphrase).build().await?;
+        let store = IndexeddbStore::builder().name(name).passphrase(passphrase).build().await?;
         // this creates a backup by default
         assert_eq!(store.has_backups().await?, true);
         assert!(store.latest_backup().await?.is_some(), "No backup_found");
