@@ -1672,7 +1672,7 @@ mod tests {
     use matrix_sdk_base::statestore_integration_tests;
     use uuid::Uuid;
 
-    use super::{IndexeddbStore, IndexeddbStoreBuilder, Result};
+    use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
         let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated());
@@ -1690,7 +1690,7 @@ mod encrypted_tests {
     use matrix_sdk_base::statestore_integration_tests;
     use uuid::Uuid;
 
-    use super::{IndexeddbStore, IndexeddbStoreBuilder, Result};
+    use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
         let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated());
@@ -1711,7 +1711,7 @@ mod migration_tests {
     use wasm_bindgen::JsValue;
 
     use super::{
-        IndexeddbStoreBuilder, IndexeddbStoreError, MigrationConflictStrategy, Result, ALL_STORES,
+        IndexeddbStore, IndexeddbStoreError, MigrationConflictStrategy, Result, ALL_STORES,
     };
 
     pub async fn create_fake_db(name: &str, version: f64) -> Result<()> {
