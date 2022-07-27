@@ -1,4 +1,5 @@
 // Copyright 2021 Jonas Platte
+// Copyright 2022 Famedly GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,7 +41,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
-use crate::{room, Client};
+use crate::{client::EventHandlerFn, room, Client};
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -84,6 +85,25 @@ pub trait SyncEvent {
     const KIND: EventKind;
     #[doc(hidden)]
     const TYPE: &'static str;
+}
+
+pub(crate) struct EventHandlerWrapper {
+    pub handler_fn: Box<EventHandlerFn>,
+    pub handle: EventHandlerHandle,
+}
+
+/// Handle to remove a registered event handler by passing it to
+/// [`Client::remove_event_handler`].
+#[derive(Clone, Copy, Debug)]
+pub struct EventHandlerHandle {
+    pub(crate) ev_id: (EventKind, &'static str),
+    pub(crate) handler_id: u64,
+}
+
+impl EventHandlerContext for EventHandlerHandle {
+    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+        Some(data.handle)
+    }
 }
 
 /// Interface for event handlers.
@@ -141,6 +161,7 @@ pub struct EventHandlerData<'a> {
     pub room: Option<room::Room>,
     pub raw: &'a RawJsonValue,
     pub encryption_info: Option<&'a EncryptionInfo>,
+    pub handle: EventHandlerHandle,
 }
 
 /// Context for an event handler.
@@ -381,14 +402,15 @@ impl Client {
                 .get(&event_handler_id)
                 .into_iter()
                 .flatten()
-                .map(|handler| {
+                .map(|handler_wrapper| {
                     let data = EventHandlerData {
                         client: self.clone(),
                         room: room.clone(),
                         raw: raw_event.json(),
                         encryption_info,
+                        handle: handler_wrapper.handle,
                     };
-                    (handler)(data)
+                    (handler_wrapper.handler_fn)(data)
                 })
                 .collect();
 
@@ -587,7 +609,7 @@ mod tests {
     use crate::{room, Client};
 
     #[async_test]
-    async fn event_handler() -> crate::Result<()> {
+    async fn register_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
         let client = crate::client::tests::logged_in_client(None).await;
@@ -605,7 +627,8 @@ mod tests {
                     future::ready(())
                 }
             })
-            .await
+            .await;
+        client
             .register_event_handler({
                 let typing_count = typing_count.clone();
                 move |_ev: SyncTypingEvent| {
@@ -613,7 +636,8 @@ mod tests {
                     future::ready(())
                 }
             })
-            .await
+            .await;
+        client
             .register_event_handler({
                 let power_levels_count = power_levels_count.clone();
                 move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
@@ -621,7 +645,8 @@ mod tests {
                     future::ready(())
                 }
             })
-            .await
+            .await;
+        client
             .register_event_handler({
                 let invited_member_count = invited_member_count.clone();
                 move |_ev: StrippedRoomMemberEvent| {
@@ -683,6 +708,59 @@ mod tests {
         assert_eq!(typing_count.load(SeqCst), 1);
         assert_eq!(power_levels_count.load(SeqCst), 1);
         assert_eq!(invited_member_count.load(SeqCst), 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn remove_event_handler() -> crate::Result<()> {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = crate::client::tests::logged_in_client(None).await;
+
+        let member_count = Arc::new(AtomicU8::new(0));
+
+        client
+            .register_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let handle = client
+            .register_event_handler({
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    panic!("handler should have been removed");
+                    #[allow(unreachable_code)]
+                    future::ready(())
+                }
+            })
+            .await;
+
+        client
+            .register_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
+            )
+            .build_sync_response();
+
+        client.remove_event_handler(handle).await;
+
+        client.process_sync(response).await?;
+
+        assert_eq!(member_count.load(SeqCst), 2);
 
         Ok(())
     }
