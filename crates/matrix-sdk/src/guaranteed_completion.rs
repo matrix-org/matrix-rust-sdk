@@ -56,26 +56,27 @@ impl Client {
     ) -> HttpResult<join_room_by_id::v3::Response> {
         let (tx, mut rx) = mpsc::unbounded_channel::<StateEvent<RoomMemberEventContent>>();
 
-        let handle = self.register_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+        let handle = self
+            .register_event_handler({
+                move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+                    let tx = tx.clone();
 
-                let tx = tx.clone();
+                    async move {
+                        let full_event = event.into_full_event(room.room_id().to_owned());
 
-                async move {
-
-                    let full_event = event.into_full_event(room.room_id().to_owned());
-
-                    if full_event.membership() == &MembershipState::Join
-                        {
-                            if let Err(e) = tx.send(full_event){
-                                debug!("Sending event from event_handler failed, receiver already dropped: {}", e);
+                        if full_event.membership() == &MembershipState::Join {
+                            if let Err(e) = tx.send(full_event) {
+                                debug!(
+                                    "Sending event from event_handler failed, \
+                                     receiver already dropped: {}",
+                                    e
+                                );
                             }
                         }
                     }
-
-            }
-        })
-        .await;
+                }
+            })
+            .await;
 
         let response = self.join_room_by_id(room_id).await?;
 
@@ -92,7 +93,10 @@ impl Client {
                 self.remove_event_handler(handle).await;
                 return Ok(response);
             } else {
-                debug!("received RoomMemberEvent not related to requested join, continue waiting");
+                debug!(
+                    "received RoomMemberEvent not related to \
+                     requested join, continue waiting"
+                );
             }
         }
     }
@@ -114,26 +118,27 @@ impl Client {
     ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
         let (tx, mut rx) = mpsc::unbounded_channel::<StateEvent<RoomMemberEventContent>>();
 
-        let handle = self.register_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+        let handle = self
+            .register_event_handler({
+                move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+                    let tx = tx.clone();
 
-                let tx = tx.clone();
+                    async move {
+                        let full_event = event.into_full_event(room.room_id().to_owned());
 
-                async move {
-
-                    let full_event = event.into_full_event(room.room_id().to_owned());
-
-                    if full_event.membership() == &MembershipState::Join
-                        {
-                            if let Err(e) = tx.send(full_event){
-                                debug!("Sending event from event_handler failed, receiver already dropped: {}", e);
+                        if full_event.membership() == &MembershipState::Join {
+                            if let Err(e) = tx.send(full_event) {
+                                debug!(
+                                    "Sending event from event_handler failed, \
+                                     receiver already dropped: {}",
+                                    e
+                                );
                             }
                         }
                     }
-
-            }
-        })
-        .await;
+                }
+            })
+            .await;
 
         let response = self.join_room_by_id_or_alias(alias, server_names).await?;
 
@@ -150,7 +155,10 @@ impl Client {
                 self.remove_event_handler(handle).await;
                 return Ok(response);
             } else {
-                debug!("received RoomMemberEvent not related to requested join, continue waiting");
+                debug!(
+                    "received RoomMemberEvent not related \
+                     to requested join, continue waiting"
+                );
             }
         }
     }
@@ -164,26 +172,28 @@ impl Common {
     pub async fn leave_completed(&self) -> Result<()> {
         let (tx, mut rx) = mpsc::unbounded_channel::<StateEvent<RoomMemberEventContent>>();
 
-        let handle = self.client.register_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+        let handle = self
+            .client
+            .register_event_handler({
+                move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+                    let tx = tx.clone();
 
-                let tx = tx.clone();
+                    async move {
+                        let full_event = event.into_full_event(room.room_id().to_owned());
 
-                async move {
-
-                    let full_event = event.into_full_event(room.room_id().to_owned());
-
-                    if full_event.membership() == &MembershipState::Leave
-                        {
-                            if let Err(e) = tx.send(full_event){
-                                debug!("Sending event from event_handler failed, receiver already dropped: {}", e);
+                        if full_event.membership() == &MembershipState::Leave {
+                            if let Err(e) = tx.send(full_event) {
+                                debug!(
+                                    "Sending event from event_handler failed, \
+                                     receiver already dropped: {}",
+                                    e
+                                );
                             }
                         }
                     }
-
-            }
-        })
-        .await;
+                }
+            })
+            .await;
 
         self.leave().await?;
 
@@ -200,7 +210,10 @@ impl Common {
                 self.client.remove_event_handler(handle).await;
                 return Ok(());
             } else {
-                debug!("received RoomMemberEvent not related to requested leave, continue waiting");
+                debug!(
+                    "received RoomMemberEvent not related \
+                     to requested leave, continue waiting"
+                );
             }
         }
     }
@@ -212,25 +225,28 @@ impl Common {
     pub async fn join_completed(&self) -> Result<()> {
         let (tx, mut rx) = mpsc::unbounded_channel::<StateEvent<RoomMemberEventContent>>();
 
-        let handle = self.client.register_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+        let handle = self
+            .client
+            .register_event_handler({
+                move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+                    let tx = tx.clone();
 
-                let tx = tx.clone();
+                    async move {
+                        let full_event = event.into_full_event(room.room_id().to_owned());
 
-                async move {
-
-                    let full_event = event.into_full_event(room.room_id().to_owned());
-
-                    if full_event.membership() == &MembershipState::Join
-                        {
-                            if let Err(e) = tx.send(full_event){
-                                debug!("Sending event from event_handler failed, receiver already dropped: {}", e);
+                        if full_event.membership() == &MembershipState::Join {
+                            if let Err(e) = tx.send(full_event) {
+                                debug!(
+                                    "Sending event from event_handler failed, \
+                                    receiver already dropped: {}",
+                                    e
+                                );
                             }
                         }
                     }
-            }
-        })
-        .await;
+                }
+            })
+            .await;
 
         self.join().await?;
 
@@ -247,7 +263,10 @@ impl Common {
                 self.client.remove_event_handler(handle).await;
                 return Ok(());
             } else {
-                debug!("received RoomMemberEvent not related to requested join, continue waiting");
+                debug!(
+                    "received RoomMemberEvent not related \
+                     to requested join, continue waiting"
+                );
             }
         }
     }
