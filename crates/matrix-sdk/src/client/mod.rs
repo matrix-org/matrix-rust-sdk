@@ -19,7 +19,6 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     io::Read,
-    pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering::SeqCst},
         Arc, RwLock as StdRwLock,
@@ -85,7 +84,7 @@ use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
-        EventHandler, EventHandlerData, EventHandlerHandle, EventHandlerResult,
+        EventHandler, EventHandlerFn, EventHandlerFut, EventHandlerHandle, EventHandlerResult,
         EventHandlerWrapper, EventKind, SyncEvent,
     },
     http_client::HttpClient,
@@ -107,8 +106,6 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
-type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-pub(crate) type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
 type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerWrapper>>;
 
 type NotificationHandlerFut = EventHandlerFut;

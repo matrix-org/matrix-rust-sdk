@@ -33,7 +33,7 @@
 
 #[cfg(any(feature = "anyhow", feature = "eyre"))]
 use std::any::TypeId;
-use std::{borrow::Cow, fmt, future::Future, ops::Deref};
+use std::{borrow::Cow, fmt, future::Future, ops::Deref, pin::Pin};
 
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw};
@@ -41,7 +41,10 @@ use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
-use crate::{client::EventHandlerFn, room, Client};
+use crate::{room, Client};
+
+pub(crate) type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+pub(crate) type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
