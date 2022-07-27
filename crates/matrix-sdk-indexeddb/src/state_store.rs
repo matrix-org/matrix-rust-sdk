@@ -272,8 +272,11 @@ async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
 #[derive(Builder, Debug, PartialEq)]
 #[builder(name = "IndexeddbStoreBuilder", build_fn(skip))]
 pub struct IndexeddbStoreBuilderConfig {
+    /// The name for the indexeddb store to use, `state` is none given
     name: String,
+    /// The password the indexeddb should be encrypted with. If not given, the DB is not encrypted
     passphrase: String,
+    /// The strategy to use when a merge conflict is found, see [`MigrationConflictStrategy`] for details
     #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
     migration_conflict_strategy: MigrationConflictStrategy,
 }
