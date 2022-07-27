@@ -424,12 +424,12 @@ impl SledStore {
 
     #[deprecated(note = "Use SledStoreBuilder instead.")]
     pub fn open() -> StoreResult<Self> {
-        SledStoreBuilder::default().build().map_err(StoreError::backend)
+        SledStore::builder().build().map_err(StoreError::backend)
     }
 
     #[deprecated(note = "Use SledStoreBuilder instead.")]
     pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> StoreResult<Self> {
-        SledStoreBuilder::default()
+        SledStore::builder()
             .path(path.as_ref().into())
             .passphrase(passphrase.to_owned())
             .build()
@@ -438,7 +438,7 @@ impl SledStore {
 
     #[deprecated(note = "Use SledStoreBuilder instead.")]
     pub fn open_with_path(path: impl AsRef<Path>) -> StoreResult<Self> {
-        SledStoreBuilder::default().path(path.as_ref().into()).build().map_err(StoreError::backend)
+        SledStore::builder().path(path.as_ref().into()).build().map_err(StoreError::backend)
     }
 
     fn drop_tables(self) -> StoreResult<()> {
@@ -1725,10 +1725,10 @@ struct TimelineMetadata {
 mod tests {
     use matrix_sdk_base::statestore_integration_tests;
 
-    use super::{SledStoreBuilder, StateStore, StoreResult};
+    use super::{SledStore, StateStore, StoreResult};
 
     async fn get_store() -> StoreResult<impl StateStore> {
-        SledStoreBuilder::default().build().map_err(Into::into)
+        SledStore::builder().build().map_err(Into::into)
     }
 
     statestore_integration_tests! { integration }
@@ -1752,19 +1752,19 @@ mod migration {
     use matrix_sdk_test::async_test;
     use tempfile::TempDir;
 
-    use super::{MigrationConflictStrategy, Result, SledStoreBuilder, SledStoreError};
+    use super::{MigrationConflictStrategy, Result, SledStore, SledStoreError};
 
     #[async_test]
     pub async fn migrating_v1_to_2_plain() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStoreBuilder::default().path(folder.path().to_path_buf()).build()?;
+        let store = SledStore::builder().path(folder.path().to_path_buf()).build()?;
 
         store.set_db_version(1u8)?;
         drop(store);
 
         // this transparently migrates to the latest version
-        let _store = SledStoreBuilder::default().path(folder.path().to_path_buf()).build()?;
+        let _store = SledStore::builder().path(folder.path().to_path_buf()).build()?;
         Ok(())
     }
 
@@ -1772,7 +1772,7 @@ mod migration {
     pub async fn migrating_v1_to_2_with_pw_backed_up() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStoreBuilder::default()
+        let store = SledStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("something".to_owned())
             .build()?;
@@ -1781,7 +1781,7 @@ mod migration {
         drop(store);
 
         // this transparently creates a backup and a fresh db
-        let _store = SledStoreBuilder::default()
+        let _store = SledStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("something".to_owned())
             .build()?;
@@ -1793,7 +1793,7 @@ mod migration {
     pub async fn migrating_v1_to_2_with_pw_drop() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStoreBuilder::default()
+        let store = SledStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("other thing".to_owned())
             .build()?;
@@ -1802,7 +1802,7 @@ mod migration {
         drop(store);
 
         // this transparently creates a backup and a fresh db
-        let _store = SledStoreBuilder::default()
+        let _store = SledStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("other thing".to_owned())
             .migration_conflict_strategy(MigrationConflictStrategy::Drop)
@@ -1815,7 +1815,7 @@ mod migration {
     pub async fn migrating_v1_to_2_with_pw_raises() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStoreBuilder::default()
+        let store = SledStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("secret".to_owned())
             .build()?;
@@ -1824,7 +1824,7 @@ mod migration {
         drop(store);
 
         // this transparently creates a backup and a fresh db
-        let res = SledStoreBuilder::default()
+        let res = SledStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("secret".to_owned())
             .migration_conflict_strategy(MigrationConflictStrategy::Raise)

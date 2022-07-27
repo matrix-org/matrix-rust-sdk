@@ -451,7 +451,7 @@ impl IndexeddbStore {
     #[allow(dead_code)]
     #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
     pub async fn open() -> StoreResult<Self> {
-        IndexeddbStoreBuilder::default()
+        IndexeddbStore::builder()
             .name("state".to_owned())
             .build()
             .await
@@ -460,7 +460,7 @@ impl IndexeddbStore {
 
     #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
     pub async fn open_with_passphrase(name: String, passphrase: &str) -> StoreResult<Self> {
-        IndexeddbStoreBuilder::default()
+        IndexeddbStore::builder()
             .name(name)
             .passphrase(passphrase.to_owned())
             .build()
@@ -470,7 +470,7 @@ impl IndexeddbStore {
 
     #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
     pub async fn open_with_name(name: String) -> StoreResult<Self> {
-        IndexeddbStoreBuilder::default().name(name).build().await.map_err(StoreError::backend)
+        IndexeddbStore::builder().name(name).build().await.map_err(StoreError::backend)
     }
 
     fn serialize_event(
@@ -1676,7 +1676,7 @@ mod tests {
 
     async fn get_store() -> Result<IndexeddbStore> {
         let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated());
-        Ok(IndexeddbStoreBuilder::default().name(db_name).build().await?)
+        Ok(IndexeddbStore::builder().name(db_name).build().await?)
     }
 
     statestore_integration_tests! { integration }
@@ -1695,7 +1695,7 @@ mod encrypted_tests {
     async fn get_store() -> Result<IndexeddbStore> {
         let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated());
         let passphrase = format!("some_passphrase-{}", Uuid::new_v4().as_hyphenated());
-        Ok(IndexeddbStoreBuilder::default().name(db_name).passphrase(passphrase).build().await?)
+        Ok(IndexeddbStore::builder().name(db_name).passphrase(passphrase).build().await?)
     }
 
     statestore_integration_tests! { integration }
@@ -1734,7 +1734,7 @@ mod migration_tests {
         let name = format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
 
         // this transparently migrates to the latest version
-        let store = IndexeddbStoreBuilder::default().name(name).build().await?;
+        let store = IndexeddbStore::builder().name(name).build().await?;
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
         // simple check that the layout exists.
@@ -1749,7 +1749,7 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store = IndexeddbStoreBuilder::default().name(name).build().await?;
+        let store = IndexeddbStore::builder().name(name).build().await?;
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
         assert_eq!(store.get_sync_token().await?, None);
@@ -1765,7 +1765,7 @@ mod migration_tests {
 
         // this transparently migrates to the latest version
         let store =
-            IndexeddbStoreBuilder::default().name(name).passphrase(passphrase).build().await?;
+            IndexeddbStore::builder().name(name).passphrase(passphrase).build().await?;
         // this creates a backup by default
         assert_eq!(store.has_backups().await?, true);
         assert!(store.latest_backup().await?.is_some(), "No backup_found");
@@ -1783,7 +1783,7 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store = IndexeddbStoreBuilder::default()
+        let store = IndexeddbStore::builder()
             .name(name)
             .passphrase(passphrase)
             .migration_conflict_strategy(MigrationConflictStrategy::Drop)
@@ -1805,7 +1805,7 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store_res = IndexeddbStoreBuilder::default()
+        let store_res = IndexeddbStore::builder()
             .name(name)
             .passphrase(passphrase)
             .migration_conflict_strategy(MigrationConflictStrategy::Raise)
