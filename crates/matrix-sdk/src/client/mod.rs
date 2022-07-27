@@ -15,7 +15,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     io::Read,
@@ -562,11 +562,12 @@ impl Client {
     pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
         let mut event_handlers = self.inner.event_handlers.write().await;
 
-        if let Some(v) = event_handlers.get_mut(&handle.ev_id) {
+        if let btree_map::Entry::Occupied(mut entry) = event_handlers.entry(handle.ev_id) {
+            let v = entry.get_mut();
             v.retain(|e| e.handle.handler_id != handle.handler_id);
 
             if v.is_empty() {
-                event_handlers.remove(&handle.ev_id);
+                entry.remove();
             }
         }
     }
