@@ -7,7 +7,6 @@ on:
         description: 'The branch, tag or SHA to build the kotlin sdk from'     
         required: true
         default: 'main'
-  pull_request:
 
 jobs:
   build_native:
@@ -195,6 +194,7 @@ jobs:
         name: crypto-release
         path: bindings/kotlin/crypto/crypto-android/build/outputs/aar/crypto-android-release.aar
   
-    - name: Publish to MavenCentral
-      working-directory: bindings/kotlin
-      run: ./gradlew publishReleasePublicationToSonatypeRepository
+    # disabled until we've gotten the clearance for the secrets
+    # - name: Publish to MavenCentral
+    #   working-directory: bindings/kotlin
+    #   run: ./gradlew publishReleasePublicationToSonatypeRepository
