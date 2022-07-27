@@ -24,7 +24,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use derive_builder::Builder;
 #[cfg(feature = "experimental-timeline")]
-use futures::stream;
+use futures_util::stream;
 use indexed_db_futures::prelude::*;
 use js_sys::Date as JsDate;
 use matrix_sdk_base::{
