@@ -262,6 +262,7 @@ impl Client {
     }
 }
 
-pub fn gen_transaction_id() -> String {
+#[uniffi::export]
+fn gen_transaction_id() -> String {
     TransactionId::new().to_string()
 }
