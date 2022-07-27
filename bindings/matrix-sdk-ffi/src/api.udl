@@ -42,7 +42,7 @@ interface Client {
 
     string homeserver();
 
-    void start_sync(u64? limit);
+    void start_sync(u16? timeline_limit);
 
     [Throws=ClientError]
     string restore_token();

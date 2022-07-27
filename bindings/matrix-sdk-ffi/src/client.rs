@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use js_int::UInt;
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest},
@@ -113,7 +112,7 @@ impl Client {
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 
-    pub fn start_sync(&self, limit: Option<u64>) {
+    pub fn start_sync(&self, timeline_limit: Option<u16>) {
         let client = self.client.clone();
         let state = self.state.clone();
         let delegate = self.delegate.clone();
@@ -129,7 +128,7 @@ impl Client {
             room_filter.state = event_filter;
             filter.room = room_filter;
 
-            timeline_filter.limit = limit.and_then(UInt::new);
+            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
             filter.room.timeline = timeline_filter;
 
             let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
