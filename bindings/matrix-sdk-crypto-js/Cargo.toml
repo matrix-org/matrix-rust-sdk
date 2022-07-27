@@ -1,15 +1,15 @@
 [package]
-authors = ["Ivan Enderlin <ivane@element.io>"]
+name = "matrix-sdk-crypto-js"
 description = "Matrix encryption library, for JavaScript"
+authors = ["Ivan Enderlin <ivane@element.io>"]
 edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
-name = "matrix-sdk-crypto-js"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = "1.60"
-version = "0.5.0"
+version = "0.1.0-alpha.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]

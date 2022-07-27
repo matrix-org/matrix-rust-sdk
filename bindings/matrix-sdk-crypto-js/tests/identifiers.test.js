@@ -1,4 +1,4 @@
-const { UserId, DeviceId, RoomId, ServerName } = require('../pkg/matrix_sdk_crypto');
+const { UserId, DeviceId, RoomId, ServerName } = require('../pkg/matrix_sdk_crypto_js');
 
 describe(UserId.name, () => {
     test('cannot be invalid', () => {
