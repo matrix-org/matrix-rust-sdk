@@ -575,11 +575,8 @@ impl Joined {
 
                 let encrypted_content =
                     olm.encrypt_room_event_raw(self.inner.room_id(), content, event_type).await?;
-                let raw_content = Raw::new(&encrypted_content)
-                    .expect("Failed to serialize encrypted event")
-                    .cast();
 
-                (raw_content, "m.room.encrypted")
+                (encrypted_content.cast(), "m.room.encrypted")
             }
         } else {
             debug!(

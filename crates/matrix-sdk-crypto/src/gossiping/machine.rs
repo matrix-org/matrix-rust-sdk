@@ -591,9 +591,10 @@ impl GossipMachine {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
+        algorithm: &EventEncryptionAlgorithm,
     ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
-            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            algorithm.to_owned(),
             room_id.to_owned(),
             sender_key.to_owned(),
             session_id.to_owned(),
@@ -668,9 +669,10 @@ impl GossipMachine {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
+        algorithm: &EventEncryptionAlgorithm,
     ) -> Result<bool, CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
-            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            algorithm.to_owned(),
             room_id.to_owned(),
             sender_key.to_owned(),
             session_id.to_owned(),
@@ -1067,7 +1069,12 @@ mod tests {
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         let (cancel, request) = machine
-            .request_key(session.room_id(), &session.sender_key, session.session_id())
+            .request_key(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+                session.algorithm(),
+            )
             .await
             .unwrap();
 
@@ -1076,7 +1083,12 @@ mod tests {
         machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         let (cancel, _) = machine
-            .request_key(session.room_id(), &session.sender_key, session.session_id())
+            .request_key(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+                session.algorithm(),
+            )
             .await
             .unwrap();
 
@@ -1102,6 +1114,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1113,6 +1126,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1144,6 +1158,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1192,6 +1207,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1378,6 +1394,7 @@ mod tests {
                 room_id(),
                 &bob_account.identity_keys.curve25519.to_base64(),
                 group_session.session_id(),
+                &group_session.settings().algorithm,
             )
             .await
             .unwrap();
@@ -1582,6 +1599,7 @@ mod tests {
                 room_id(),
                 &bob_account.identity_keys.curve25519.to_base64(),
                 group_session.session_id(),
+                &group_session.settings().algorithm,
             )
             .await
             .unwrap();

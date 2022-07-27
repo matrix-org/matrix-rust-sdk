@@ -31,10 +31,8 @@ use ruma::{
         },
         IncomingResponse,
     },
-    events::{
-        key::verification::VerificationMethod, room::encrypted::OriginalSyncRoomEncryptedEvent,
-        AnySyncMessageLikeEvent,
-    },
+    events::{key::verification::VerificationMethod, AnySyncMessageLikeEvent},
+    serde::Raw,
     DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -601,7 +599,7 @@ impl OlmMachine {
             content: &'a RawValue,
         }
 
-        let event: OriginalSyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let event: Raw<_> = serde_json::from_str(event)?;
         let room_id = RoomId::parse(room_id)?;
 
         let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(&event, &room_id))?;
@@ -639,7 +637,7 @@ impl OlmMachine {
         event: &str,
         room_id: &str,
     ) -> Result<KeyRequestPair, DecryptionError> {
-        let event: OriginalSyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let event: Raw<_> = serde_json::from_str(event)?;
         let room_id = RoomId::parse(room_id)?;
 
         let (cancel, request) =

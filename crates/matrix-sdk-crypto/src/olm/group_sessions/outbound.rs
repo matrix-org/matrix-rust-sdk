@@ -27,16 +27,11 @@ use dashmap::DashMap;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     events::{
-        room::{
-            encrypted::{
-                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
-            },
-            encryption::RoomEncryptionEventContent,
-            history_visibility::HistoryVisibility,
-        },
+        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
         room_key::ToDeviceRoomKeyEventContent,
         AnyToDeviceEventContent,
     },
+    serde::Raw,
     DeviceId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UserId,
 };
@@ -50,7 +45,12 @@ pub use vodozemac::{
     PickleError,
 };
 
-use crate::{Device, ToDeviceRequest};
+use crate::{
+    types::events::room::encrypted::{
+        MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
+    },
+    Device, ToDeviceRequest,
+};
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
 const ROTATION_MESSAGES: u64 = 100;
@@ -272,7 +272,11 @@ impl OutboundGroupSession {
     /// # Panics
     ///
     /// Panics if the content can't be serialized.
-    pub async fn encrypt(&self, content: Value, event_type: &str) -> RoomEncryptedEventContent {
+    pub async fn encrypt(
+        &self,
+        content: Value,
+        event_type: &str,
+    ) -> Raw<RoomEncryptedEventContent> {
         let json_content = json!({
             "content": content,
             "room_id": &*self.room_id,
@@ -280,22 +284,21 @@ impl OutboundGroupSession {
         });
 
         let plaintext = json_content.to_string();
-        let relation = serde_json::from_value(content).ok();
+        let relates_to = content.get("relates_to").cloned();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
-        let encrypted_content = MegolmV1AesSha2ContentInit {
-            ciphertext: ciphertext.to_base64(),
-            sender_key: self.account_identity_keys.curve25519.to_base64(),
+        let scheme: RoomEventEncryptionScheme = MegolmV1AesSha2Content {
+            ciphertext,
+            sender_key: self.account_identity_keys.curve25519,
             session_id: self.session_id().to_owned(),
             device_id: (*self.device_id).to_owned(),
         }
         .into();
 
-        RoomEncryptedEventContent::new(
-            EncryptedEventScheme::MegolmV1AesSha2(encrypted_content),
-            relation,
-        )
+        let content = RoomEncryptedEventContent { scheme, relates_to };
+
+        Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
     }
 
     fn elapsed(&self) -> bool {

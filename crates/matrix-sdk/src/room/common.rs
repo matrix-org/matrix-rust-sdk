@@ -208,12 +208,10 @@ impl Common {
         if let Some(machine) = self.client.olm_machine() {
             for event in http_response.chunk {
                 let decrypted_event = if let Ok(AnySyncRoomEvent::MessageLike(
-                    AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(
-                        encrypted_event,
-                    )),
+                    AnySyncMessageLikeEvent::RoomEncrypted(SyncMessageLikeEvent::Original(_)),
                 )) = event.deserialize_as::<AnySyncRoomEvent>()
                 {
-                    if let Ok(event) = machine.decrypt_room_event(&encrypted_event, room_id).await {
+                    if let Ok(event) = machine.decrypt_room_event(event.cast_ref(), room_id).await {
                         event
                     } else {
                         RoomEvent { event, encryption_info: None }
@@ -489,10 +487,10 @@ impl Common {
         #[cfg(feature = "e2e-encryption")]
         {
             if let Ok(AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-                SyncMessageLikeEvent::Original(encrypted_event),
+                SyncMessageLikeEvent::Original(_),
             ))) = event.deserialize_as::<AnySyncRoomEvent>()
             {
-                if let Ok(event) = self.decrypt_event(&encrypted_event).await {
+                if let Ok(event) = self.decrypt_event(event.cast_ref()).await {
                     return Ok(event);
                 }
             }
@@ -928,9 +926,12 @@ impl Common {
     ///
     /// Returns the decrypted event.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn decrypt_event(&self, event: &OriginalSyncRoomEncryptedEvent) -> Result<RoomEvent> {
+    pub async fn decrypt_event(
+        &self,
+        event: &Raw<OriginalSyncRoomEncryptedEvent>,
+    ) -> Result<RoomEvent> {
         if let Some(machine) = self.client.olm_machine() {
-            Ok(machine.decrypt_room_event(event, self.inner.room_id()).await?)
+            Ok(machine.decrypt_room_event(event.cast_ref(), self.inner.room_id()).await?)
         } else {
             Err(Error::NoOlmMachine)
         }

@@ -262,6 +262,7 @@ pub fn migrate(
             imported: session.imported,
             backed_up: session.backed_up,
             history_visibility: None,
+            algorithm: ruma::EventEncryptionAlgorithm::MegolmV1AesSha2,
         };
 
         let session = matrix_sdk_crypto::olm::InboundGroupSession::from_pickle(pickle)?;

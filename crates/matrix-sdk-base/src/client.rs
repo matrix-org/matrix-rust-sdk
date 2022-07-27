@@ -305,11 +305,12 @@ impl BaseClient {
                         #[cfg(feature = "e2e-encryption")]
                         AnySyncRoomEvent::MessageLike(e) => match e {
                             AnySyncMessageLikeEvent::RoomEncrypted(
-                                SyncMessageLikeEvent::Original(encrypted),
+                                SyncMessageLikeEvent::Original(_),
                             ) => {
                                 if let Some(olm) = self.olm_machine() {
-                                    if let Ok(decrypted) =
-                                        olm.decrypt_room_event(encrypted, room_id).await
+                                    if let Ok(decrypted) = olm
+                                        .decrypt_room_event(event.event.cast_ref(), room_id)
+                                        .await
                                     {
                                         event = decrypted.into();
                                     }
