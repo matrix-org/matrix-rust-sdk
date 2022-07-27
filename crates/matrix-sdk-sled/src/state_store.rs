@@ -59,6 +59,7 @@ use sled::{
     Config, Db, Transactional, Tree,
 };
 use tokio::task::spawn_blocking;
+use tracing::{debug, info};
 
 #[cfg(feature = "crypto-store")]
 use super::OpenStoreError;
@@ -126,12 +127,10 @@ impl Into<StoreError> for SledStoreError {
                 KeyEncryptionError::Serialization(e) => StoreError::Json(e),
                 KeyEncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
                 KeyEncryptionError::Version(found, expected) => StoreError::Encryption(format!(
-                    "Bad Database Encryption Version: expected {} found {}",
-                    expected, found
+                    "Bad Database Encryption Version: expected {expected}, found {found}",
                 )),
                 KeyEncryptionError::Length(found, expected) => StoreError::Encryption(format!(
-                    "The database key an invalid length: expected {} found {}",
-                    expected, found
+                    "The database key an invalid length: expected {expected}, found {found}",
                 )),
             },
             SledStoreError::StoreError(e) => e,
@@ -215,7 +214,8 @@ pub struct SledStoreBuilderConfig {
     path: PathBuf,
     /// Set the password the sled store is encrypted with (if any)
     passphrase: String,
-    /// The strategy to use when a merge conflict is found, see [`MigrationConflictStrategy`] for details
+    /// The strategy to use when a merge conflict is found, see
+    /// [`MigrationConflictStrategy`] for details
     #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
     migration_conflict_strategy: MigrationConflictStrategy,
 }
@@ -476,11 +476,7 @@ impl SledStore {
             Some(version) => version,
         };
 
-        tracing::debug!(
-            old_version,
-            new_version = DATABASE_VERSION,
-            "Upgrading the Sled state store"
-        );
+        debug!(old_version, new_version = DATABASE_VERSION, "Upgrading the Sled state store");
 
         if old_version == 1 {
             if self.store_cipher.is_some() {
@@ -839,7 +835,7 @@ impl SledStore {
 
         self.inner.flush_async().await?;
 
-        tracing::info!("Saved changes in {:?}", now.elapsed());
+        info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
     }
@@ -1308,7 +1304,7 @@ impl SledStore {
         let metadata = match metadata {
             Some(m) => m,
             None => {
-                tracing::info!("No timeline for {} was previously stored", r_id);
+                info!("No timeline for {r_id} was previously stored");
                 return Ok(None);
             }
         };
@@ -1316,16 +1312,14 @@ impl SledStore {
         let mut position = metadata.start_position;
         let end_token = metadata.end;
 
-        tracing::info!(
-            "Found previously stored timeline for {}, with end token {:?}",
-            r_id,
-            end_token
-        );
+        info!("Found previously stored timeline for {r_id}, with end token {end_token:?}");
 
         let stream = stream! {
-            while let Ok(Some(item)) = db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &r_id, position)) {
+            while let Ok(Some(item)) =
+                db.room_timeline.get(&db.encode_key_with_counter(TIMELINE, &r_id, position))
+            {
                 position += 1;
-                yield db.deserialize_value(&item).map_err(SledStoreError::from).map_err(|e| e.into());
+                yield db.deserialize_value(&item).map_err(|e| SledStoreError::from(e).into());
             }
         };
 
@@ -1334,7 +1328,7 @@ impl SledStore {
 
     #[cfg(feature = "experimental-timeline")]
     async fn remove_room_timeline(&self, room_id: &RoomId) -> Result<()> {
-        tracing::info!("Remove stored timeline for {}", room_id);
+        info!("Remove stored timeline for {room_id}");
 
         let mut timeline_batch = sled::Batch::default();
         for key in self.room_timeline.scan_prefix(self.encode_key(TIMELINE, &room_id)).keys() {
@@ -1371,22 +1365,21 @@ impl SledStore {
 
     #[cfg(feature = "experimental-timeline")]
     async fn save_room_timeline(&self, changes: &StateChanges) -> Result<()> {
+        use tracing::warn;
+
         let mut timeline_batch = sled::Batch::default();
         let mut event_id_to_position_batch = sled::Batch::default();
         let mut timeline_metadata_batch = sled::Batch::default();
 
         for (room_id, timeline) in &changes.timeline {
             if timeline.sync {
-                tracing::info!("Save new timeline batch from sync response for {}", room_id);
+                info!("Save new timeline batch from sync response for {room_id}");
             } else {
-                tracing::info!("Save new timeline batch from messages response for {}", room_id);
+                info!("Save new timeline batch from messages response for {room_id}");
             }
 
             let metadata: Option<TimelineMetadata> = if timeline.limited {
-                tracing::info!(
-                    "Delete stored timeline for {} because the sync response was limited",
-                    room_id
-                );
+                info!("Delete stored timeline for {room_id} because the sync response was limited");
                 self.remove_room_timeline(room_id).await?;
                 None
             } else {
@@ -1400,7 +1393,7 @@ impl SledStore {
                         // This should only happen when a developer adds a wrong timeline
                         // batch to the `StateChanges` or the server returns a wrong response
                         // to our request.
-                        tracing::warn!("Drop unexpected timeline batch for {}", room_id);
+                        warn!("Drop unexpected timeline batch for {room_id}");
                         return Ok(());
                     }
 
@@ -1418,10 +1411,7 @@ impl SledStore {
                     }
 
                     if delete_timeline {
-                        tracing::info!(
-                            "Delete stored timeline for {} because of duplicated events",
-                            room_id
-                        );
+                        info!("Delete stored timeline for {room_id} because of duplicated events");
                         self.remove_room_timeline(room_id).await?;
                         None
                     } else if timeline.sync {
@@ -1453,10 +1443,7 @@ impl SledStore {
                 .transpose()?
                 .and_then(|info| info.room_version().cloned())
                 .unwrap_or_else(|| {
-                    tracing::warn!(
-                        "Unable to find the room version for {}, assume version 9",
-                        room_id
-                    );
+                    warn!("Unable to find the room version for {room_id}, assume version 9");
                     RoomVersionId::V9
                 });
 

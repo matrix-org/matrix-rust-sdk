@@ -342,6 +342,7 @@ impl ClientBuilder {
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             event_handler_data: Default::default(),
+            event_handler_counter: Default::default(),
             notification_handlers: Default::default(),
             appservice_mode: self.appservice_mode,
             respect_login_well_known: self.respect_login_well_known,
@@ -354,12 +355,12 @@ impl ClientBuilder {
 
 fn homeserver_from_name(server_name: &ServerName) -> String {
     #[cfg(not(test))]
-    return format!("https://{}", server_name);
+    return format!("https://{server_name}");
 
     // Wiremock only knows how to test http endpoints:
     // https://github.com/LukeMathWalker/wiremock-rs/issues/58
     #[cfg(test)]
-    return format!("http://{}", server_name);
+    return format!("http://{server_name}");
 }
 
 #[derive(Clone, Debug)]

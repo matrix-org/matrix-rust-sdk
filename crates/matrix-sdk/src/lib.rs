@@ -17,10 +17,10 @@
 #![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
-#[cfg(not(any(feature = "native-tls", feature = "rustls-tls",)))]
+#[cfg(not(any(feature = "native-tls", feature = "rustls-tls")))]
 compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
 
-#[cfg(all(feature = "native-tls", feature = "rustls-tls",))]
+#[cfg(all(feature = "native-tls", feature = "rustls-tls"))]
 compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled");
 
 #[cfg(all(feature = "sso-login", target_arch = "wasm32"))]

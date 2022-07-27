@@ -84,7 +84,7 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
-use std::{convert::TryInto, sync::Arc};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 pub use error::Error;
@@ -122,7 +122,7 @@ pub use virtual_user::VirtualUserBuilder;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 const USER_KEY: &[u8] = b"appservice.users.";
-pub const USER_MEMBER: &[u8] = b"appservice.users.membership.";
+const USER_MEMBER: &[u8] = b"appservice.users.membership.";
 
 type Localpart = String;
 
@@ -492,7 +492,7 @@ impl AppService {
         }
         for task in tasks {
             if let Err(e) = task.await {
-                warn!("Joining sync task failed: {}", e);
+                warn!("Joining sync task failed: {e}");
             }
         }
         Ok(())
@@ -505,7 +505,7 @@ impl AppService {
     pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
         let host = host.into();
         let port = port.into();
-        info!("Starting AppService on {}:{}", &host, &port);
+        info!("Starting AppService on {host}:{port}");
 
         webserver::run_server(self.clone(), host, port).await?;
         Ok(())

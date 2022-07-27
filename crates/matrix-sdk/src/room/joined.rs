@@ -416,7 +416,6 @@ impl Joined {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
-    /// # use std::convert::TryFrom;
     /// # use serde::{Deserialize, Serialize};
     /// use matrix_sdk::ruma::{
     ///     events::{
@@ -513,7 +512,6 @@ impl Joined {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -557,7 +555,7 @@ impl Joined {
             if event_type == "m.reaction" {
                 debug!(
                     room_id = %self.room_id(),
-                    "Sending plaintext event because the event type is {}", event_type
+                    "Sending plaintext event because the event type is {event_type}",
                 );
                 (Raw::new(&content)?.cast(), event_type)
             } else {

@@ -400,8 +400,8 @@ impl BaseClient {
                 }
                 Err(err) => {
                     warn!(
-                        "Couldn't deserialize stripped state event for room {}: {:?}",
-                        room_info.room_id, err
+                        "Couldn't deserialize stripped state event for room {}: {err:?}",
+                        room_info.room_id,
                     );
                 }
             }
@@ -430,8 +430,8 @@ impl BaseClient {
                 Ok(e) => e,
                 Err(e) => {
                     warn!(
-                        "Couldn't deserialize state event for room {}: {:?} {:#?}",
-                        room_id, e, raw_event
+                        "Couldn't deserialize state event for room {room_id}: \
+                         {e:?} {raw_event:#?}",
                     );
                     continue;
                 }
@@ -831,7 +831,7 @@ impl BaseClient {
             .filter_map(|event| match event.deserialize() {
                 Ok(ev) => Some(ev),
                 Err(e) => {
-                    debug!(?event, "Failed to deserialize m.room.member event: {}", e);
+                    debug!(?event, "Failed to deserialize m.room.member event: {e}");
                     None
                 }
             })

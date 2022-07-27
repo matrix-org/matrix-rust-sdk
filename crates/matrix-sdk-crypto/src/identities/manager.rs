@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    convert::TryFrom,
     ops::Deref,
     sync::Arc,
     time::Duration,
@@ -623,7 +622,7 @@ impl IdentityManager {
             }
 
             if let Err(e) = self.store.update_tracked_user(user, true).await {
-                warn!("Error storing users for tracking {}", e);
+                warn!("Error storing users for tracking: {e}");
             }
         }
     }

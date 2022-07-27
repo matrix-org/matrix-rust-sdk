@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = [
     "e2e-encryption",
     "sled",
-    "native-tls"
+    "native-tls",
 ]
 
 e2e-encryption = [

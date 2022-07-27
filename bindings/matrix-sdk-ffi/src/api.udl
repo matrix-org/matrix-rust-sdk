@@ -159,6 +159,7 @@ interface MediaSource {
 [Error]
 enum AuthenticationError {
     "ClientMissing",
+    "SessionMissing",
     "Generic",
 };
 
@@ -178,6 +179,9 @@ interface AuthenticationService {
     
     [Throws=AuthenticationError]
     Client login(string username, string password);
+    
+    [Throws=AuthenticationError]
+    Client restore_with_access_token(string token, string device_id);
 };
 
 interface SessionVerificationEmoji {

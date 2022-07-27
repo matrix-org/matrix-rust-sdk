@@ -54,6 +54,8 @@ use ruma::{
     RoomVersionId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(feature = "experimental-timeline")]
+use tracing::{info, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
@@ -111,12 +113,10 @@ impl From<IndexeddbStoreError> for StoreError {
                 EncryptionError::Serialization(e) => StoreError::Json(e),
                 EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
                 EncryptionError::Version(found, expected) => StoreError::Encryption(format!(
-                    "Bad Database Encryption Version: expected {} found {}",
-                    expected, found
+                    "Bad Database Encryption Version: expected {expected}, found {found}",
                 )),
                 EncryptionError::Length(found, expected) => StoreError::Encryption(format!(
-                    "The database key an invalid length: expected {} found {}",
-                    expected, found
+                    "The database key an invalid length: expected {expected}, found {found}",
                 )),
             },
             _ => StoreError::backend(e),
@@ -274,9 +274,11 @@ async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
 pub struct IndexeddbStoreBuilderConfig {
     /// The name for the indexeddb store to use, `state` is none given
     name: String,
-    /// The password the indexeddb should be encrypted with. If not given, the DB is not encrypted
+    /// The password the indexeddb should be encrypted with. If not given, the
+    /// DB is not encrypted
     passphrase: String,
-    /// The strategy to use when a merge conflict is found, see [`MigrationConflictStrategy`] for details
+    /// The strategy to use when a merge conflict is found, see
+    /// [`MigrationConflictStrategy`] for details
     #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
     migration_conflict_strategy: MigrationConflictStrategy,
 }
@@ -851,17 +853,14 @@ impl IndexeddbStore {
 
             for (room_id, timeline) in &changes.timeline {
                 if timeline.sync {
-                    tracing::info!("Save new timeline batch from sync response for {}", room_id);
+                    info!("Save new timeline batch from sync response for {room_id}");
                 } else {
-                    tracing::info!(
-                        "Save new timeline batch from messages response for {}",
-                        room_id
-                    );
+                    info!("Save new timeline batch from messages response for {room_id}");
                 }
                 let metadata: Option<TimelineMetadata> = if timeline.limited {
-                    tracing::info!(
-                        "Delete stored timeline for {} because the sync response was limited",
-                        room_id
+                    info!(
+                        "Delete stored timeline for {room_id} because the sync response was \
+                         limited",
                     );
 
                     let stores = &[
@@ -888,7 +887,7 @@ impl IndexeddbStore {
                             // This should only happen when a developer adds a wrong timeline
                             // batch to the `StateChanges` or the server returns a wrong response
                             // to our request.
-                            tracing::warn!("Drop unexpected timeline batch for {}", room_id);
+                            warn!("Drop unexpected timeline batch for {room_id}");
                             return Ok(());
                         }
 
@@ -912,9 +911,8 @@ impl IndexeddbStore {
                         }
 
                         if delete_timeline {
-                            tracing::info!(
-                                "Delete stored timeline for {} because of duplicated events",
-                                room_id
+                            info!(
+                                "Delete stored timeline for {room_id} because of duplicated events",
                             );
 
                             let stores = &[
@@ -961,9 +959,8 @@ impl IndexeddbStore {
                         .transpose()?
                         .and_then(|info| info.room_version().cloned())
                         .unwrap_or_else(|| {
-                            tracing::warn!(
-                                "Unable to find the room version for {}, assume version 9",
-                                room_id
+                            warn!(
+                                "Unable to find the room version for {room_id}, assume version 9",
                             );
                             RoomVersionId::V9
                         });
@@ -1466,7 +1463,7 @@ impl IndexeddbStore {
         {
             Some(tl) => tl,
             _ => {
-                tracing::info!("No timeline for {} was previously stored", room_id);
+                info!("No timeline for {room_id} was previously stored");
                 return Ok(None);
             }
         };
@@ -1482,11 +1479,7 @@ impl IndexeddbStore {
 
         let stream = Box::pin(stream::iter(timeline.into_iter()));
 
-        tracing::info!(
-            "Found previously stored timeline for {}, with end token {:?}",
-            room_id,
-            end_token
-        );
+        info!("Found previously stored timeline for {room_id}, with end token {end_token:?}");
 
         Ok(Some((stream, end_token)))
     }
@@ -1682,7 +1675,7 @@ mod tests {
     use super::{IndexeddbStore, IndexeddbStoreBuilder, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
-        let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated().to_string());
+        let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated());
         Ok(IndexeddbStoreBuilder::default().name(db_name).build().await?)
     }
 
@@ -1700,9 +1693,8 @@ mod encrypted_tests {
     use super::{IndexeddbStore, IndexeddbStoreBuilder, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
-        let db_name =
-            format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated().to_string());
-        let passphrase = format!("some_passphrase-{}", Uuid::new_v4().as_hyphenated().to_string());
+        let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated());
+        let passphrase = format!("some_passphrase-{}", Uuid::new_v4().as_hyphenated());
         Ok(IndexeddbStoreBuilder::default().name(db_name).passphrase(passphrase).build().await?)
     }
 

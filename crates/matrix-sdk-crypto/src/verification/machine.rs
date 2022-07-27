@@ -506,7 +506,7 @@ impl VerificationMachine {
 
 #[cfg(test)]
 mod tests {
-    use std::{convert::TryFrom, sync::Arc, time::Duration};
+    use std::{sync::Arc, time::Duration};
 
     use matrix_sdk_common::{instant::Instant, locks::Mutex};
     use matrix_sdk_test::async_test;
