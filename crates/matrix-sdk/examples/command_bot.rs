@@ -44,7 +44,7 @@ async fn login_and_sync(
         // The location to save files to
         let mut home = dirs::home_dir().expect("no home directory found");
         home.push("party_bot");
-        let state_store = matrix_sdk_sled::SledStateStoreBuilder::default().path(home).build()?;
+        let state_store = matrix_sdk_sled::StateStoreBuilder::default().path(home).build()?;
         client_builder = client_builder.state_store(state_store);
     }
 
