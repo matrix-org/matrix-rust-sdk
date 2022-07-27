@@ -112,7 +112,7 @@ impl Client {
             .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
     }
 
-    pub fn start_sync(&self) {
+    pub fn start_sync(&self, timeline_limit: Option<u16>) {
         let client = self.client.clone();
         let state = self.state.clone();
         let delegate = self.delegate.clone();
@@ -121,11 +121,15 @@ impl Client {
             let mut filter = FilterDefinition::default();
             let mut room_filter = RoomFilter::default();
             let mut event_filter = RoomEventFilter::default();
+            let mut timeline_filter = RoomEventFilter::default();
 
             event_filter.lazy_load_options =
                 LazyLoadOptions::Enabled { include_redundant_members: false };
             room_filter.state = event_filter;
             filter.room = room_filter;
+
+            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
+            filter.room.timeline = timeline_filter;
 
             let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
 
