@@ -92,7 +92,6 @@ pub enum SledStoreError {
 
 /// Sometimes Migrations can't proceed without having to drop existing
 /// data. This allows you to configure, how these cases should be handled.
-#[allow(dead_code)]
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum MigrationConflictStrategy {
     /// Just drop the data, we don't care that we have to sync again
@@ -212,8 +211,11 @@ type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 #[derive(Builder, Debug, PartialEq, Eq)]
 #[builder(name = "SledStoreBuilder", build_fn(skip))]
 pub struct SledStoreBuilderConfig {
+    /// Path to the sled store files, created if not yet existing
     path: PathBuf,
+    /// Set the password the sled store is encrypted with (if any)
     passphrase: String,
+    /// The strategy to use when a merge conflict is found, see [`MigrationConflictStrategy`] for details
     #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
     migration_conflict_strategy: MigrationConflictStrategy,
 }
@@ -482,7 +484,7 @@ impl SledStore {
 
         if old_version == 1 {
             if self.store_cipher.is_some() {
-                // we stored some fields un-encrypted. Drop them to enforce re-creation
+                // we stored some fields un-encrypted. Drop them to force re-creation
                 return Err(SledStoreError::MigrationConflict {
                     path: self.path.take().expect("Path must exist for a migration to fail"),
                     old_version: old_version.into(),

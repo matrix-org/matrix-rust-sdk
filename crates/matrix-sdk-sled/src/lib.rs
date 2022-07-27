@@ -17,7 +17,7 @@ mod state_store;
 pub use cryptostore::SledStore as CryptoStore;
 #[cfg(feature = "state-store")]
 pub use state_store::{
-    MigrationConflictStrategy, SledStore as StateStore, SledStoreBuilder as SledStateStoreBuilder,
+    MigrationConflictStrategy, SledStore as StateStore, SledStoreBuilder as StateStoreBuilder,
 };
 
 /// All the errors that can occur when opening a sled store.
@@ -63,7 +63,7 @@ pub fn make_store_config(
 
     #[cfg(not(feature = "crypto-store"))]
     {
-        let mut store_builder = SledStateStoreBuilder::default();
+        let mut store_builder = StateStore::builder();
         store_builder.path(path.as_ref().to_path_buf());
 
         if let Some(passphrase) = passphrase {
@@ -82,7 +82,7 @@ fn open_stores_with_path(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
 ) -> Result<(StateStore, CryptoStore), OpenStoreError> {
-    let mut store_builder = SledStateStoreBuilder::default();
+    let mut store_builder = StateStore::builder();
     store_builder.path(path.as_ref().to_path_buf());
 
     if let Some(passphrase) = passphrase {

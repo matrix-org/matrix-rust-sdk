@@ -30,7 +30,7 @@ async fn open_stores_with_name(
     passphrase: Option<&str>,
 ) -> Result<(StateStore, CryptoStore), OpenStoreError> {
     let name = name.into();
-    let mut builder = StateStoreBuilder::default();
+    let mut builder = StateStore::builder();
     builder.name(name.clone());
 
     if let Some(passphrase) = passphrase {
@@ -62,7 +62,7 @@ pub async fn make_store_config(
 
     #[cfg(not(feature = "e2e-encryption"))]
     {
-        let mut builder = StateStoreBuilder::default();
+        let mut builder = StateStore::builder();
         builder.name(name.clone());
 
         if let Some(passphrase) = passphrase {
