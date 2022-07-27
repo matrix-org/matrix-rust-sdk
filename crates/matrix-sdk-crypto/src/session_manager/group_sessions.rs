@@ -499,6 +499,10 @@ impl GroupSessionManager {
                 acc
             });
 
+            // If there are new recipients we need to persist the outbound group
+            // session as the to-device requests are persisted with the session.
+            changes.outbound_group_sessions = vec![outbound.clone()];
+
             info!(
                 index = message_index,
                 ?recipients,
@@ -583,19 +587,22 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
+    use std::{collections::HashSet, ops::Deref};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
-            client::keys::{claim_keys, get_keys},
+            client::{
+                keys::{claim_keys, get_keys},
+                to_device::send_event_to_device::v3::Response as ToDeviceResponse,
+            },
             IncomingResponse,
         },
         device_id,
         events::room::history_visibility::HistoryVisibility,
         room_id, user_id, DeviceId, TransactionId, UserId,
     };
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
     use crate::{EncryptionSettings, OlmMachine};
 
@@ -615,6 +622,61 @@ mod tests {
             .expect("Can't parse the keys upload response")
     }
 
+    fn bob_keys_query_response() -> get_keys::v3::Response {
+        let data = json!({
+            "device_keys": {
+                "@bob:localhost": {
+                    "BOBDEVICE": {
+                        "user_id": "@bob:localhost",
+                        "device_id": "BOBDEVICE",
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2",
+                            "m.megolm.v2.aes-sha2"
+                        ],
+                        "keys": {
+                            "curve25519:BOBDEVICE": "QzXDFZj0Pt5xG4r11XGSrqE4mnFOTgRM5pz7n3tzohU",
+                            "ed25519:BOBDEVICE": "T7QMEXcEo/NfiC/8doVHT+2XnMm0pDpRa27bmE8PlPI"
+                        },
+                        "signatures": {
+                            "@bob:localhost": {
+                                "ed25519:BOBDEVICE": "1Ee9J02KoVf4DKhT+LkurpZJEygiznqpgkT4lqvMTLtZyzShsVTnwmoMPttuGcJkLp9lMK1egveNYCEaYP80Cw"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let data = response_from_file(&data);
+
+        get_keys::v3::Response::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
+    }
+
+    fn bob_one_time_key() -> claim_keys::v3::Response {
+        let data = json!({
+            "failures": {},
+            "one_time_keys":{
+                "@bob:localhost":{
+                    "BOBDEVICE":{
+                      "signed_curve25519:AAAAAAAAAAA": {
+                          "key":"bm1olfbksjC5SwKxCLLK4XaINCA0FwR/155J85gIpCk",
+                          "signatures":{
+                              "@bob:localhost":{
+                                  "ed25519:BOBDEVICE":"BKyS/+EV76zdZkWgny2D0svZ0ycS3etfyHCrsDgm7MYe166HqQmSoX29HsjGLvE/5F+Sg2zW7RJileUvquPwDA"
+                              }
+                          }
+                      }
+                    }
+                }
+            }
+        });
+        let data = response_from_file(&data);
+
+        claim_keys::v3::Response::try_from_http_response(data)
+            .expect("Can't parse the keys claim response")
+    }
+
     fn keys_claim_response() -> claim_keys::v3::Response {
         let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
@@ -632,12 +694,39 @@ mod tests {
 
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
         machine.mark_request_as_sent(&txn_id, &keys_claim).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &bob_keys_query_response()).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &bob_one_time_key()).await.unwrap();
 
         machine
     }
 
     async fn machine() -> OlmMachine {
         machine_with_user(alice_id(), alice_device_id()).await
+    }
+
+    async fn machine_with_shared_room_key() -> OlmMachine {
+        let machine = machine().await;
+        let room_id = room_id!("!test:localhost");
+        let keys_claim = keys_claim_response();
+
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let requests =
+            machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
+
+        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+        assert!(!outbound.pending_requests().is_empty());
+        assert!(!outbound.shared());
+
+        let response = ToDeviceResponse::new();
+        for request in requests {
+            machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
+        }
+
+        assert!(outbound.shared());
+        assert!(outbound.pending_requests().is_empty());
+
+        machine
     }
 
     #[async_test]
@@ -657,6 +746,29 @@ mod tests {
         // signatures, thus only 148 sessions are actually created, we check
         // that all 148 valid sessions get an room key.
         assert_eq!(event_count, 148);
+    }
+
+    #[async_test]
+    async fn ratcheted_sharing() {
+        let machine = machine_with_shared_room_key().await;
+
+        let room_id = room_id!("!test:localhost");
+        let late_joiner = user_id!("@bob:localhost");
+        let keys_claim = keys_claim_response();
+
+        let mut users: HashSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
+        users.insert(late_joiner);
+
+        let requests = machine
+            .share_room_key(room_id, users.into_iter(), EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
+        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+        assert_eq!(event_count, 1);
+        assert!(!outbound.pending_requests().is_empty());
     }
 
     #[async_test]
