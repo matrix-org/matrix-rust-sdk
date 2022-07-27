@@ -113,6 +113,16 @@ impl SlidingSyncRoom {
         Arc::new(self.inner.unread_notifications.clone().into())
     }
 
+    pub fn latest_room_message(&self) -> Option<Arc<crate::messages::AnyMessage>> {
+        let messages = self.inner.timeline();
+        for m in messages.lock_ref().iter() {
+            if let Some(e) = crate::messages::sync_event_to_message(m.clone().into()) {
+                return Some(e)
+            }
+        }
+        None
+    }
+
 }
 
 pub struct UpdateSummary {
