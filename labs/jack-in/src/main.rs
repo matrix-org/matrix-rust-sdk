@@ -2,13 +2,22 @@
 //!
 //! `Demo` shows how to use tui-realm in a real case
 
+use std::{
+    fs::File,
+    io::BufWriter,
+    path::{Path, PathBuf},
+};
+
 use eyre::{eyre, Result};
 use log::{warn, LevelFilter};
 use matrix_sdk::{
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
     Client, Session,
 };
+use tracing_flame::FlameLayer;
+use tracing_subscriber::{fmt, prelude::*, registry::Registry};
 use tuirealm::{application::PollStrategy, AttrValue, Attribute, Event, Update};
+
 // -- internal
 mod app;
 mod client;
@@ -62,6 +71,10 @@ struct Opt {
     /// Your access token to connect via the
     #[structopt(short, long, env = "JACKIN_TOKEN")]
     token: String,
+
+    #[structopt(long)]
+    /// Activate tracing and write the flamegraph to the specified file
+    flames: Option<PathBuf>,
 }
 
 pub(crate) struct MatrixPoller(mpsc::Receiver<client::state::SlidingSyncState>);
@@ -76,6 +89,13 @@ impl tuirealm::listener::Poll<JackInEvent> for MatrixPoller {
     }
 }
 
+fn setup_flames(path: &Path) -> impl Drop {
+    let (flame_layer, _guard) = FlameLayer::with_file(path).expect("Couldn't write flamegraph");
+
+    tracing_subscriber::registry().with(flame_layer).init();
+    _guard
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let opt = Opt::from_args();
@@ -83,47 +103,57 @@ async fn main() -> Result<()> {
     let user_id: OwnedUserId = opt.user.clone().parse()?;
     let device_id: OwnedDeviceId = "XdftAsd".into();
 
-    // Configure log
+    if let Some(ref p) = opt.flames {
+        setup_flames(p.as_path());
+    } else {
+        // Configure log
 
-    //tracing_subscriber::fmt::init();
-    #[cfg(feature = "file-logging")]
-    {
-        use log::LevelFilter;
-        use log4rs::{
-            append::file::FileAppender,
-            config::{Appender, Config, Logger, Root},
-            encode::pattern::PatternEncoder,
-        };
+        //tracing_subscriber::fmt::init();
+        #[cfg(feature = "file-logging")]
+        {
+            use log::LevelFilter;
+            use log4rs::{
+                append::file::FileAppender,
+                config::{Appender, Config, Logger, Root},
+                encode::pattern::PatternEncoder,
+            };
 
-        let file = FileAppender::builder()
-            .encoder(Box::new(PatternEncoder::default()))
-            .build("jack-in.log")
-            .unwrap();
+            let file = FileAppender::builder()
+                .encoder(Box::new(PatternEncoder::default()))
+                .build("jack-in.log")
+                .unwrap();
 
-        let config = Config::builder()
-            .appender(Appender::builder().build("file", Box::new(file)))
-            .logger(
-                Logger::builder()
-                    .appender("file")
-                    .build("matrix_sdk::sliding_sync", LevelFilter::Trace),
-            )
-            .logger(
-                Logger::builder()
-                    .appender("file")
-                    .build("matrix_sdk::http_client", LevelFilter::Trace),
-            )
-            .logger(Logger::builder().appender("file").build("reqwest", LevelFilter::Trace))
-            .logger(Logger::builder().appender("file").build("matrix_sdk", LevelFilter::Warn))
-            .build(Root::builder().build(LevelFilter::Error))
-            .unwrap();
+            let config = Config::builder()
+                .appender(Appender::builder().build("file", Box::new(file)))
+                .logger(
+                    Logger::builder()
+                        .appender("file")
+                        .build("matrix_sdk::sliding_sync", LevelFilter::Trace),
+                )
+                .logger(
+                    Logger::builder()
+                        .appender("file")
+                        .build("matrix_sdk::http_client", LevelFilter::Debug),
+                )
+                .logger(
+                    Logger::builder()
+                        .appender("file")
+                        .build("matrix_sdk_base::sliding_sync", LevelFilter::Debug),
+                )
+                .logger(Logger::builder().appender("file").build("reqwest", LevelFilter::Trace))
+                .logger(Logger::builder().appender("file").build("matrix_sdk", LevelFilter::Warn))
+                .build(Root::builder().build(LevelFilter::Error))
+                .unwrap();
 
-        let handle = log4rs::init_config(config).unwrap();
-    }
-    #[cfg(not(feature = "file-logging"))]
-    {
-        tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
-        tui_logger::set_default_level(log::LevelFilter::Warn);
-        tui_logger::set_level_for_target("matrix_sdk", log::LevelFilter::Warn);
+            let handle =
+                log4rs::init_config(config).expect("Logging with log4rs failed to initialize");
+        }
+        #[cfg(not(feature = "file-logging"))]
+        {
+            tui_logger::init_logger(LevelFilter::Trace).expect("Could not set up logging");
+            tui_logger::set_default_level(log::LevelFilter::Warn);
+            tui_logger::set_level_for_target("matrix_sdk", log::LevelFilter::Warn);
+        }
     }
 
     let title = format!("{} via {}", user_id, opt.sliding_sync_proxy);

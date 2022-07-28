@@ -700,6 +700,7 @@ impl RoomInfo {
     /// Handle the given state event.
     ///
     /// Returns true if the event modified the info, false otherwise.
+    #[tracing::instrument(skip(self, event))]
     pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
         self.base_info.handle_state_event(event)
     }

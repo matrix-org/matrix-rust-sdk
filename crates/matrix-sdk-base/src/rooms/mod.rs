@@ -109,6 +109,7 @@ impl BaseRoomInfo {
     /// Handle a state event for this room and update our info accordingly.
     ///
     /// Returns true if the event modified the info, false otherwise.
+    #[tracing::instrument(skip(self, ev))]
     pub fn handle_state_event(&mut self, ev: &AnySyncStateEvent) -> bool {
         match ev {
             // No redacted branch - enabling encryption cannot be undone.

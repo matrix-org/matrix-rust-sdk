@@ -470,6 +470,7 @@ impl Store {
     }
 
     /// Get the room with the given room id.
+    #[tracing::instrument(skip(self))]
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
         self.rooms
             .get(room_id)
@@ -493,6 +494,7 @@ impl Store {
 
     /// Lookup the stripped Room for the given RoomId, or create one, if it
     /// didn't exist yet in the store
+    #[tracing::instrument(skip(self))]
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let user_id = &self.session.get().expect("Creating room while not being logged in").user_id;
 
@@ -504,6 +506,7 @@ impl Store {
 
     /// Lookup the Room for the given RoomId, or create one, if it didn't exist
     /// yet in the store
+    #[tracing::instrument(skip(self))]
     pub async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
         if room_type == RoomType::Invited {
             return self.get_or_create_stripped_room(room_id).await;

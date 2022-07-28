@@ -220,7 +220,6 @@ pub trait SlidingSyncViewUpdatedDelegate: Sync + Send {
     fn did_receive_update(&self);
 }
 
-
 pub trait SlidingSyncViewRoomsListDelegate: Sync + Send {
     fn did_receive_update(&self, diff: SlidingSyncViewRoomsListDiff);
 }

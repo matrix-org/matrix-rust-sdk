@@ -74,6 +74,7 @@ impl AmbiguityCache {
         Self { store, cache: BTreeMap::new(), changes: BTreeMap::new() }
     }
 
+    #[tracing::instrument(skip(self, changes, member_event))]
     pub async fn handle_event(
         &mut self,
         changes: &StateChanges,
@@ -130,6 +131,7 @@ impl AmbiguityCache {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, old_map, new_map))]
     fn update(
         &mut self,
         room_id: &RoomId,
@@ -147,10 +149,12 @@ impl AmbiguityCache {
         }
     }
 
+    #[tracing::instrument(skip(self, change))]
     fn add_change(&mut self, room_id: &RoomId, event_id: OwnedEventId, change: AmbiguityChange) {
         self.changes.entry(room_id.to_owned()).or_default().insert(event_id, change);
     }
 
+    #[tracing::instrument(skip(self, changes, room_id, member_event))]
     async fn get(
         &mut self,
         changes: &StateChanges,

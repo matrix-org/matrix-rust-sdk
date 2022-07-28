@@ -17,6 +17,7 @@ impl BaseClient {
     ///
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
+    #[tracing::instrument(skip(self, response))]
     pub async fn process_sliding_sync(&self, response: v4::Response) -> Result<SyncResponse> {
         #[allow(unused_variables)]
         let v4::Response {
@@ -199,8 +200,11 @@ impl BaseClient {
 
         changes.ambiguity_maps = ambiguity_cache.cache;
 
+        tracing::debug!("ready to submit changes to store");
+
         store.save_changes(&changes).await?;
         self.apply_changes(&changes).await;
+        tracing::debug!("applied changes");
 
         Ok(SyncResponse {
             next_batch: "test".into(),

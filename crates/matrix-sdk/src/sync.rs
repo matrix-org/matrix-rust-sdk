@@ -20,6 +20,7 @@ impl Client {
         self.handle_sync_response(response).await
     }
 
+    #[tracing::instrument(skip(self, response))]
     pub(crate) async fn handle_sync_response(
         &self,
         response: SyncResponse,

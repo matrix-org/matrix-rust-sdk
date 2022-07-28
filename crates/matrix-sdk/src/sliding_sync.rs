@@ -337,6 +337,7 @@ impl SlidingSync {
         views: &[SlidingSyncView],
     ) -> anyhow::Result<UpdateSummary> {
         self.client.process_sliding_sync(resp.clone()).await?;
+        tracing::info!("main client processed.");
         self.pos.replace(Some(resp.pos));
         let mut updated_views = Vec::new();
         if resp.lists.len() != views.len() {
@@ -349,7 +350,6 @@ impl SlidingSync {
             tracing::trace!("view {:?}  update: {:?}", view.name, updates.ops.is_some());
             if let Some(ops) = &updates.ops {
                 if view.handle_response(count, ops)? {
-                    tracing::trace!("view {:?}  updated", view.name);
                     updated_views.push(view.name.clone());
                 }
             }
@@ -790,6 +790,7 @@ impl SlidingSyncView {
         self.rooms_list.lock_ref().get(index).map(|e| e.room_id()).flatten()
     }
 
+    #[tracing::instrument(skip(self, ops))]
     fn room_ops(&self, ops: &Vec<v4::SyncOp>) -> anyhow::Result<()> {
         let mut rooms_list = self.rooms_list.lock_mut();
         let _rooms_map = self.rooms.lock_mut();
@@ -897,6 +898,7 @@ impl SlidingSyncView {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, ops))]
     fn handle_response(&self, rooms_count: u32, ops: &Vec<v4::SyncOp>) -> anyhow::Result<bool> {
         let mut missing =
             rooms_count.checked_sub(self.rooms_list.lock_ref().len() as u32).unwrap_or_default();
@@ -942,11 +944,14 @@ impl Client {
         let _ = self.server_versions().await;
         SlidingSyncBuilder::default().client(self.clone()).to_owned()
     }
+
+    #[tracing::instrument(skip(self, response))]
     pub(crate) async fn process_sliding_sync(
         &self,
         response: v4::Response,
     ) -> Result<SyncResponse> {
         let response = self.base_client().process_sliding_sync(response).await?;
+        tracing::info!("done processing on base_client");
         self.handle_sync_response(response).await
     }
 }
