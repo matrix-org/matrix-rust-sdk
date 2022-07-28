@@ -1,7 +1,7 @@
 use matrix_sdk_common::deserialized_responses::{
     AmbiguityChanges, JoinedRoom, Rooms, SyncResponse,
 };
-use ruma::api::client::sync::{sliding_sync_events, sync_events::v3};
+use ruma::api::client::sync::sync_events::{v3, v4};
 
 use super::BaseClient;
 use crate::{
@@ -17,12 +17,9 @@ impl BaseClient {
     ///
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
-    pub async fn process_sliding_sync(
-        &self,
-        response: sliding_sync_events::Response,
-    ) -> Result<SyncResponse> {
+    pub async fn process_sliding_sync(&self, response: v4::Response) -> Result<SyncResponse> {
         #[allow(unused_variables)]
-        let sliding_sync_events::Response {
+        let v4::Response {
             // not applicable.
             // next_batch,
             rooms,
@@ -57,9 +54,7 @@ impl BaseClient {
         //     }
         // };
 
-        let rooms = if let Some(rooms) = rooms {
-            rooms
-        } else {
+        if rooms.is_empty() {
             // nothing for us to handle here
             return Ok(SyncResponse::default());
         };

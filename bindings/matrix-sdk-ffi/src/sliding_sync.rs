@@ -10,11 +10,12 @@ use futures_signals::{
 };
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::ruma::{
-    api::client::sync::{
-        sliding_sync_events::RoomSubscription as RumaRoomSubscription,
-        sync_events::v3::UnreadNotificationsCount as RumaUnreadNotificationsCount
+    api::client::sync::sync_events::{
+        v4::RoomSubscription as RumaRoomSubscription,
+        UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
-    events::RoomEventType, OwnedRoomId, IdParseError,
+    events::RoomEventType,
+    IdParseError, OwnedRoomId,
 };
 pub use matrix_sdk::{
     RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
@@ -37,7 +38,6 @@ impl StoppableSpawn {
     }
     fn with_handle(handle: JoinHandle<()>) -> StoppableSpawn {
         StoppableSpawn { cancelled: AtomicBool::new(false), handle: RwLock::new(Some(handle)) }
-
     }
 
     pub fn cancel(&self) {
@@ -53,15 +53,15 @@ impl StoppableSpawn {
 }
 
 pub struct UnreadNotificationsCount {
-    inner: RumaUnreadNotificationsCount
+    inner: RumaUnreadNotificationsCount,
 }
 
 impl UnreadNotificationsCount {
     pub fn highlight_count(&self) -> u32 {
-        self.inner.highlight_count.and_then(|x|x.try_into().ok()).unwrap_or_default()
+        self.inner.highlight_count.and_then(|x| x.try_into().ok()).unwrap_or_default()
     }
     pub fn notification_count(&self) -> u32 {
-        self.inner.notification_count.and_then(|x|x.try_into().ok()).unwrap_or_default()
+        self.inner.notification_count.and_then(|x| x.try_into().ok()).unwrap_or_default()
     }
     pub fn has_notifications(&self) -> bool {
         !self.inner.is_empty()
@@ -70,10 +70,9 @@ impl UnreadNotificationsCount {
 
 impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     fn from(inner: RumaUnreadNotificationsCount) -> Self {
-        UnreadNotificationsCount { inner}
+        UnreadNotificationsCount { inner }
     }
 }
-
 
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
@@ -81,7 +80,7 @@ pub struct SlidingSyncRoom {
 
 impl From<matrix_sdk::SlidingSyncRoom> for SlidingSyncRoom {
     fn from(inner: matrix_sdk::SlidingSyncRoom) -> Self {
-        SlidingSyncRoom { inner}
+        SlidingSyncRoom { inner }
     }
 }
 
@@ -117,12 +116,11 @@ impl SlidingSyncRoom {
         let messages = self.inner.timeline();
         for m in messages.lock_ref().iter() {
             if let Some(e) = crate::messages::sync_event_to_message(m.clone().into()) {
-                return Some(e)
+                return Some(e);
             }
         }
         None
     }
-
 }
 
 pub struct UpdateSummary {
@@ -400,10 +398,9 @@ impl SlidingSyncView {
         self.inner.add_range(start, end);
     }
 
-    pub fn reset_ranges(&self,) {
+    pub fn reset_ranges(&self) {
         self.inner.reset_ranges();
     }
-
 
     pub fn current_room_count(&self) -> Option<u32> {
         self.inner.rooms_count.get_cloned()
@@ -418,7 +415,6 @@ pub trait SlidingSyncDelegate: Sync + Send {
     fn did_receive_sync_update(&self, summary: UpdateSummary);
 }
 
-
 pub struct SlidingSync {
     inner: matrix_sdk::SlidingSync,
     delegate: Arc<RwLock<Option<Box<dyn SlidingSyncDelegate>>>>,
@@ -429,7 +425,6 @@ impl From<matrix_sdk::SlidingSync> for SlidingSync {
         SlidingSync { inner: other, delegate: Arc::new(RwLock::new(None)) }
     }
 }
-
 
 impl SlidingSync {
     pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
@@ -465,9 +460,20 @@ impl SlidingSync {
         Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(|a| Arc::new(a.into())))
     }
 
-    pub fn get_rooms(&self, room_ids: Vec<String>) -> anyhow::Result<Vec<Option<Arc<SlidingSyncRoom>>>> {
-        let actual_ids  = room_ids.into_iter().map(OwnedRoomId::try_from).collect::<Result<Vec<OwnedRoomId>, IdParseError>>()?;
-        Ok(self.inner.get_rooms(actual_ids.into_iter()).into_iter().map(|o| o.map(|a| Arc::new(a.into()))).collect())
+    pub fn get_rooms(
+        &self,
+        room_ids: Vec<String>,
+    ) -> anyhow::Result<Vec<Option<Arc<SlidingSyncRoom>>>> {
+        let actual_ids = room_ids
+            .into_iter()
+            .map(OwnedRoomId::try_from)
+            .collect::<Result<Vec<OwnedRoomId>, IdParseError>>()?;
+        Ok(self
+            .inner
+            .get_rooms(actual_ids.into_iter())
+            .into_iter()
+            .map(|o| o.map(|a| Arc::new(a.into())))
+            .collect())
     }
 
     pub fn sync(&self) -> Arc<StoppableSpawn> {
@@ -484,10 +490,10 @@ impl SlidingSync {
                         // FIXME: send this over the FFI
                         tracing::warn!("Sliding Sync failure: {:?}", e);
                         continue;
-                    },
+                    }
                     None => {
                         tracing::debug!("No update from loop, cancelled");
-                        break
+                        break;
                     }
                 };
                 if let Some(ref delegate) = *delegate.read() {

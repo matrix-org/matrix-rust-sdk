@@ -4,8 +4,10 @@
 
 use eyre::{eyre, Result};
 use log::{warn, LevelFilter};
-use matrix_sdk::{Client, Session};
-use matrix_sdk::ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use matrix_sdk::{
+    ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
+    Client, Session,
+};
 use tuirealm::{application::PollStrategy, AttrValue, Attribute, Event, Update};
 // -- internal
 mod app;
@@ -87,10 +89,11 @@ async fn main() -> Result<()> {
     #[cfg(feature = "file-logging")]
     {
         use log::LevelFilter;
-        use log4rs::append::file::FileAppender;
-        use log4rs::encode::pattern::PatternEncoder;
-        use log4rs::config::{Appender, Config, Logger, Root};
-
+        use log4rs::{
+            append::file::FileAppender,
+            config::{Appender, Config, Logger, Root},
+            encode::pattern::PatternEncoder,
+        };
 
         let file = FileAppender::builder()
             .encoder(Box::new(PatternEncoder::default()))
@@ -99,8 +102,16 @@ async fn main() -> Result<()> {
 
         let config = Config::builder()
             .appender(Appender::builder().build("file", Box::new(file)))
-            .logger(Logger::builder().appender("file").build("matrix_sdk::sliding_sync", LevelFilter::Trace))
-            .logger(Logger::builder().appender("file").build("matrix_sdk::http_client", LevelFilter::Trace))
+            .logger(
+                Logger::builder()
+                    .appender("file")
+                    .build("matrix_sdk::sliding_sync", LevelFilter::Trace),
+            )
+            .logger(
+                Logger::builder()
+                    .appender("file")
+                    .build("matrix_sdk::http_client", LevelFilter::Trace),
+            )
             .logger(Logger::builder().appender("file").build("reqwest", LevelFilter::Trace))
             .logger(Logger::builder().appender("file").build("matrix_sdk", LevelFilter::Warn))
             .build(Root::builder().build(LevelFilter::Error))
