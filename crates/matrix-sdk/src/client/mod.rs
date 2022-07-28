@@ -501,6 +501,18 @@ impl Client {
         handle
     }
 
+    #[allow(missing_docs)]
+    #[deprecated = "Use [`Client::add_event_handler`](#method.add_event_handler) instead"]
+    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        self.add_event_handler(handler).await;
+        self
+    }
+
     pub(crate) async fn event_handlers(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
         self.inner.event_handlers.read().await
     }
@@ -610,6 +622,16 @@ impl Client {
         T: Clone + Send + Sync + 'static,
     {
         self.inner.event_handler_data.write().unwrap().insert(ctx);
+    }
+
+    #[allow(missing_docs)]
+    #[deprecated = "Use [`Client::add_event_handler_context`](#method.add_event_handler_context) instead"]
+    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.add_event_handler_context(ctx);
+        self
     }
 
     pub(crate) fn event_handler_context<T>(&self) -> Option<T>
