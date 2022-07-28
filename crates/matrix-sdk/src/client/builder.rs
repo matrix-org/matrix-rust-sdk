@@ -306,7 +306,7 @@ impl ClientBuilder {
                 let well_known = http_client
                     .send(
                         discover_homeserver::Request::new(),
-                        None,
+                        Some(RequestConfig::short_retry()),
                         homeserver,
                         None,
                         &[MatrixVersion::V1_0],
