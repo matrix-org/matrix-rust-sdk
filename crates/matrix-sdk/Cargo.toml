@@ -55,8 +55,6 @@ docsrs = [
     "image-proc",
 ]
 
-guaranteed_completion = []
-
 [dependencies]
 anyhow = { version = "1.0.57", optional = true }
 anymap2 = "0.13.0"

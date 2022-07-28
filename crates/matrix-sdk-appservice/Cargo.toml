@@ -28,8 +28,6 @@ sso-login = ["matrix-sdk/sso-login"]
 
 docs = []
 
-guaranteed_completion = ["matrix-sdk/guaranteed_completion"]
-
 [dependencies]
 dashmap = "5.2.0"
 http = "0.2.6"

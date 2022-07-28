@@ -2,7 +2,10 @@ use std::ops::Deref;
 
 use ruma::api::client::membership::forget_room;
 
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
+use crate::{
+    room::{Common, Joined},
+    BaseRoom, Client, Result, RoomType,
+};
 
 /// A room in the left state.
 ///
@@ -32,7 +35,7 @@ impl Left {
     }
 
     /// Join this room.
-    pub async fn join(&self) -> Result<()> {
+    pub async fn join(&self) -> Result<Joined> {
         self.inner.join().await
     }
 

@@ -35,8 +35,9 @@ use matrix_sdk_base::{
     BaseClient, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
-    instant::{Duration, Instant},
+    instant::Instant,
     locks::{Mutex, RwLock, RwLockReadGuard},
+    timeout::timeout,
 };
 use mime::{self, Mime};
 #[cfg(feature = "appservice")]
@@ -66,12 +67,19 @@ use ruma::{
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign,
-    events::room::MediaSource,
+    events::{
+        room::{
+            member::{MembershipState, RoomMemberEventContent},
+            MediaSource,
+        },
+        StateEvent, SyncStateEvent,
+    },
     presence::PresenceState,
     DeviceId, MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
     RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tokio::sync::mpsc;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
 #[cfg(feature = "e2e-encryption")]
@@ -1594,12 +1602,68 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(
-        &self,
-        room_id: &RoomId,
-    ) -> HttpResult<join_room_by_id::v3::Response> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
         let request = join_room_by_id::v3::Request::new(room_id);
-        self.send(request, None).await
+
+        let (tx, mut rx) =
+            mpsc::unbounded_channel::<(StateEvent<RoomMemberEventContent>, room::Room)>();
+
+        let handle = self
+            .add_event_handler({
+                move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
+                    let tx = tx.clone();
+
+                    async move {
+                        let full_event = event.into_full_event(room.room_id().to_owned());
+
+                        if full_event.membership() == &MembershipState::Join {
+                            if let Err(e) = tx.send((full_event, room)) {
+                                debug!(
+                                    "Sending event from event_handler failed, \
+                                     receiver already dropped: {}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            })
+            .await;
+
+        self.send(request, None).await?;
+
+        debug!("waiting for RoomMemberEvent corresponding to requested join");
+
+        let receive_event_future = timeout(
+            async move {
+                loop {
+                    let (event, room): (StateEvent<RoomMemberEventContent>, room::Room) =
+                        rx.recv().await.expect("receive event and room from event handler");
+
+                    if event.state_key().as_str() == self.user_id().expect("user_id").as_str()
+                        && event.room_id() == room_id
+                    {
+                        debug!("received RoomMemberEvent corresponding to requested join");
+                        self.remove_event_handler(handle).await;
+
+                        if let room::Room::Joined(joined_room) = room {
+                            return Ok(joined_room);
+                        } else {
+                            warn!("Corresponding Room not in state: joined");
+                            return Err(Error::InconsistentState);
+                        }
+                    } else {
+                        debug!(
+                            "received RoomMemberEvent not related to \
+                         requested join, continue waiting"
+                        );
+                    }
+                }
+            },
+            Duration::from_secs(1),
+        );
+
+        return receive_event_future.await?;
     }
 
     /// Join a room by `RoomId`.
@@ -1615,11 +1679,70 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
+    ) -> Result<room::Joined> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
         });
-        self.send(request, None).await
+
+        let (tx, mut rx) =
+            mpsc::unbounded_channel::<(StateEvent<RoomMemberEventContent>, room::Room)>();
+
+        let handle = self
+            .add_event_handler({
+                move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
+                    let tx = tx.clone();
+
+                    async move {
+                        let full_event = event.into_full_event(room.room_id().to_owned());
+
+                        if full_event.membership() == &MembershipState::Join {
+                            if let Err(e) = tx.send((full_event, room)) {
+                                debug!(
+                                    "Sending event from event_handler failed, \
+                                     receiver already dropped: {}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            })
+            .await;
+
+        let response = self.send(request, None).await?;
+
+        debug!("waiting for RoomMemberEvent corresponding to requested join");
+
+        let receive_event_future = timeout(
+            async move {
+                loop {
+                    let (event, room): (StateEvent<RoomMemberEventContent>, room::Room) =
+                        rx.recv().await.expect("receive event and room from event handler");
+
+                    if event.state_key().as_str() == self.user_id().expect("user_id").as_str()
+                        && event.room_id() == response.room_id
+                    {
+                        debug!("received RoomMemberEvent corresponding to requested join");
+                        self.remove_event_handler(handle).await;
+
+                        if let room::Room::Joined(joined_room) = room {
+                            return Ok(joined_room);
+                        } else {
+                            warn!("Corresponding Room not in state: joined");
+                            return Err(Error::InconsistentState);
+                        }
+                    } else {
+                        debug!(
+                            "received RoomMemberEvent not related to \
+                         requested join, continue waiting"
+                        );
+                    }
+                }
+            },
+            Duration::from_secs(1),
+        );
+
+        return receive_event_future.await?;
     }
 
     /// Search the homeserver's directory of public rooms.
