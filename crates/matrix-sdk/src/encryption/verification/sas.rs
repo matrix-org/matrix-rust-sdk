@@ -44,7 +44,7 @@ impl SasVerification {
     /// # use url::Url;
     /// # use ruma::user_id;
     /// use matrix_sdk::{
-    ///     encryption::verification::{SasVerification, AcceptSettings},
+    ///     encryption::verification::{AcceptSettings, SasVerification},
     ///     ruma::events::key::verification::ShortAuthenticationString,
     /// };
     ///
@@ -60,9 +60,9 @@ impl SasVerification {
     ///     .and_then(|v| v.sas());
     ///
     /// if let Some(sas) = sas {
-    ///     let only_decimal = AcceptSettings::with_allowed_methods(
-    ///         vec![ShortAuthenticationString::Decimal]
-    ///     );
+    ///     let only_decimal = AcceptSettings::with_allowed_methods(vec![
+    ///         ShortAuthenticationString::Decimal,
+    ///     ]);
     ///
     ///     sas.accept_with_settings(only_decimal).await?;
     /// }
@@ -119,7 +119,7 @@ impl SasVerification {
     /// # use url::Url;
     /// # use ruma::user_id;
     /// use matrix_sdk::{
-    ///     encryption::verification::{SasVerification, AcceptSettings},
+    ///     encryption::verification::{AcceptSettings, SasVerification},
     ///     ruma::events::key::verification::ShortAuthenticationString,
     /// };
     ///

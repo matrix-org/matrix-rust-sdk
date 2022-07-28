@@ -161,7 +161,8 @@ impl Account {
     /// let client = Client::new(homeserver).await?;
     /// client.login(user, "password", None, None).await?;
     ///
-    /// if let Some(avatar) = client.account().get_avatar(MediaFormat::File).await? {
+    /// if let Some(avatar) = client.account().get_avatar(MediaFormat::File).await?
+    /// {
     ///     std::fs::write("avatar.png", avatar);
     /// }
     /// # anyhow::Ok(()) });
@@ -226,8 +227,7 @@ impl Account {
     /// if let profile = client.account().get_profile().await? {
     ///     println!(
     ///         "You are '{:?}' with avatar '{:?}'",
-    ///         profile.displayname,
-    ///         profile.avatar_url
+    ///         profile.displayname, profile.avatar_url
     ///     );
     /// }
     /// # anyhow::Ok(()) });
@@ -358,7 +358,10 @@ impl Account {
     /// let threepids = client.account().get_3pids().await?.threepids;
     ///
     /// for threepid in threepids {
-    ///     println!("Found 3PID '{}' of type '{}'", threepid.address, threepid.medium);
+    ///     println!(
+    ///         "Found 3PID '{}' of type '{}'",
+    ///         threepid.address, threepid.medium
+    ///     );
     /// }
     /// # anyhow::Ok(()) });
     /// ```
@@ -410,20 +413,15 @@ impl Account {
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
     /// # let secret = ClientSecret::parse("secret")?;
-    /// let token_response = account.request_3pid_email_token(
-    ///     &secret,
-    ///     "john@matrix.org",
-    ///     uint!(0),
-    /// ).await?;
+    /// let token_response = account
+    ///     .request_3pid_email_token(&secret, "john@matrix.org", uint!(0))
+    ///     .await?;
     ///
     /// // Wait for the user to confirm that the token was submitted or prompt
     /// // the user for the token and send it to submit_url.
     ///
-    /// let uiaa_response = account.add_3pid(
-    ///     &secret,
-    ///     &token_response.sid,
-    ///     None
-    /// ).await;
+    /// let uiaa_response =
+    ///     account.add_3pid(&secret, &token_response.sid, None).await;
     ///
     /// // Proceed with UIAA.
     ///
@@ -491,21 +489,15 @@ impl Account {
     /// # let client = Client::new(homeserver).await?;
     /// # let account = client.account();
     /// # let secret = ClientSecret::parse("secret")?;
-    /// let token_response = account.request_3pid_msisdn_token(
-    ///     &secret,
-    ///     "FR",
-    ///     "0123456789",
-    ///     uint!(0),
-    /// ).await?;
+    /// let token_response = account
+    ///     .request_3pid_msisdn_token(&secret, "FR", "0123456789", uint!(0))
+    ///     .await?;
     ///
     /// // Wait for the user to confirm that the token was submitted or prompt
     /// // the user for the token and send it to submit_url.
     ///
-    /// let uiaa_response = account.add_3pid(
-    ///     &secret,
-    ///     &token_response.sid,
-    ///     None
-    /// ).await;
+    /// let uiaa_response =
+    ///     account.add_3pid(&secret, &token_response.sid, None).await;
     ///
     /// // Proceed with UIAA.
     ///

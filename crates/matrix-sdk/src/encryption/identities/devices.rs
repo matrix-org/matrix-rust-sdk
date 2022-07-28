@@ -88,7 +88,8 @@ impl Device {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    /// let device =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.request_verification().await?;
@@ -135,14 +136,16 @@ impl Device {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    /// let device =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
     /// // verification
     /// let methods = vec![VerificationMethod::SasV1];
     ///
     /// if let Some(device) = device {
-    ///     let verification = device.request_verification_with_methods(methods).await?;
+    ///     let verification =
+    ///         device.request_verification_with_methods(methods).await?;
     /// }
     /// # anyhow::Ok(()) });
     /// ```
@@ -176,7 +179,8 @@ impl Device {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    /// let device =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.start_verification().await?;
@@ -239,7 +243,8 @@ impl Device {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    /// let device =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     device.verify().await?;
@@ -353,18 +358,21 @@ impl Device {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    /// let device =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     if device.verified() {
     ///         println!(
     ///             "Device {} of user {} is verified",
-    ///             device.device_id().as_str(), device.user_id().as_str()
+    ///             device.device_id().as_str(),
+    ///             device.user_id().as_str()
     ///         );
     ///     } else {
     ///         println!(
     ///             "Device {} of user {} is not verified",
-    ///             device.device_id().as_str(), device.user_id().as_str()
+    ///             device.device_id().as_str(),
+    ///             device.user_id().as_str()
     ///         );
     ///     }
     /// }

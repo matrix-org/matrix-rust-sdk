@@ -525,8 +525,8 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// #
     /// use matrix_sdk::{
-    ///     ruma::events::room::member::SyncRoomMemberEvent,
-    ///     Client, event_handler::EventHandlerHandle
+    ///     event_handler::EventHandlerHandle,
+    ///     ruma::events::room::member::SyncRoomMemberEvent, Client,
     /// };
     /// #
     /// # block_on(async {
@@ -539,7 +539,9 @@ impl Client {
     ///
     /// client
     ///     .register_event_handler(
-    ///         |ev: SyncRoomMemberEvent, client: Client, handle: EventHandlerHandle| async move {
+    ///         |ev: SyncRoomMemberEvent,
+    ///          client: Client,
+    ///          handle: EventHandlerHandle| async move {
     ///             // Common usage: Check arriving Event is the expected one
     ///             println!("Expected RoomMemberEvent received!");
     ///             client.remove_event_handler(handle);
@@ -573,8 +575,7 @@ impl Client {
     /// ```
     /// # use futures::executor::block_on;
     /// use matrix_sdk::{
-    ///     event_handler::Ctx,
-    ///     room::Room,
+    ///     event_handler::Ctx, room::Room,
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     /// # #[derive(Clone)]
@@ -595,7 +596,9 @@ impl Client {
     /// client.register_event_handler_context(my_gui_handle.clone());
     /// client
     ///     .register_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| async move {
+    ///         |ev: SyncRoomMessageEvent,
+    ///          room: Room,
+    ///          gui_handle: Ctx<SomeType>| async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
     ///         },
     ///     )
@@ -953,8 +956,10 @@ impl Client {
     ///     .await
     ///     .unwrap();
     ///
-    /// println!("Logged in as {}, got device_id {} and access_token {}",
-    ///          response.user_id, response.device_id, response.access_token);
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     response.user_id, response.device_id, response.access_token
+    /// );
     /// # })
     /// ```
     ///
@@ -1084,7 +1089,10 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::{Client, Session, ruma::{device_id, user_id}};
+    /// use matrix_sdk::{
+    ///     ruma::{device_id, user_id},
+    ///     Client, Session,
+    /// };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -1114,10 +1122,8 @@ impl Client {
     /// let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
-    /// let session: Session = client
-    ///     .login("example", "my-password", None, None)
-    ///     .await?
-    ///     .into();
+    /// let session: Session =
+    ///     client.login("example", "my-password", None, None).await?.into();
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
@@ -1382,8 +1388,7 @@ impl Client {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// use matrix_sdk::ruma::{
-    ///     api::client::directory::get_public_rooms_filtered,
-    ///     directory::Filter,
+    ///     api::client::directory::get_public_rooms_filtered, directory::Filter,
     /// };
     /// # let mut client = Client::new(homeserver).await?;
     ///
@@ -1431,9 +1436,7 @@ impl Client {
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
     /// let mut image = File::open(path)?;
     ///
-    /// let response = client
-    ///     .upload(&mime::IMAGE_JPEG, &mut image)
-    ///     .await?;
+    /// let response = client.upload(&mime::IMAGE_JPEG, &mut image).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) });
@@ -1708,8 +1711,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
+    ///     config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1720,9 +1723,11 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
-    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
-    /// }).await;
+    /// client
+    ///     .register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
+    ///     })
+    ///     .await;
     ///
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
@@ -1813,8 +1818,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
+    ///     config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1822,9 +1827,11 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
-    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
-    /// }).await;
+    /// client
+    ///     .register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
+    ///     })
+    ///     .await;
     ///
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
@@ -1939,12 +1946,13 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use futures::StreamExt;
-    /// use matrix_sdk::{Client, config::SyncSettings};
+    /// use matrix_sdk::{config::SyncSettings, Client};
     ///
     /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
-    /// let mut sync_stream = Box::pin(client.sync_stream(SyncSettings::default()).await);
+    /// let mut sync_stream =
+    ///     Box::pin(client.sync_stream(SyncSettings::default()).await);
     ///
     /// while let Some(Ok(response)) = sync_stream.next().await {
     ///     for room in response.rooms.join.values() {

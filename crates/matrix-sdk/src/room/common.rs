@@ -138,9 +138,7 @@ impl Common {
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
-    /// let room = client
-    ///     .get_joined_room(&room_id)
-    ///     .unwrap();
+    /// let room = client.get_joined_room(&room_id).unwrap();
     /// if let Some(avatar) = room.avatar(MediaFormat::File).await.unwrap() {
     ///     std::fs::write("avatar.png", avatar);
     /// }
@@ -175,12 +173,11 @@ impl Common {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// let options = MessagesOptions::backward().from("t47429-4392820_219380_26003_2265");
+    /// let options =
+    ///     MessagesOptions::backward().from("t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).await.unwrap();
-    /// let room = client
-    ///    .get_joined_room(room_id!("!roomid:example.com"))
-    ///    .unwrap();
+    /// let room = client.get_joined_room(room_id!("!roomid:example.com")).unwrap();
     /// assert!(room.messages(options).await.is_ok());
     /// # });
     /// ```
@@ -275,25 +272,26 @@ impl Common {
     ///
     /// let mut client = Client::new(homeserver).await?;
     ///
-    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com")) {
-    ///   let (forward_stream, backward_stream) = room.timeline().await?;
+    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com"))
+    /// {
+    ///     let (forward_stream, backward_stream) = room.timeline().await?;
     ///
-    ///   tokio::spawn(async move {
-    ///       pin_mut!(backward_stream);
+    ///     tokio::spawn(async move {
+    ///         pin_mut!(backward_stream);
     ///
-    ///       while let Some(item) = backward_stream.next().await {
-    ///           match item {
-    ///               Ok(event) => println!("{:?}", event),
-    ///               Err(_) => println!("Some error occurred!"),
-    ///           }
-    ///       }
-    ///   });
+    ///         while let Some(item) = backward_stream.next().await {
+    ///             match item {
+    ///                 Ok(event) => println!("{:?}", event),
+    ///                 Err(_) => println!("Some error occurred!"),
+    ///             }
+    ///         }
+    ///     });
     ///
-    ///   pin_mut!(forward_stream);
+    ///     pin_mut!(forward_stream);
     ///
-    ///   while let Some(event) = forward_stream.next().await {
-    ///       println!("{:?}", event);
-    ///   }
+    ///     while let Some(event) = forward_stream.next().await {
+    ///         println!("{:?}", event);
+    ///     }
     /// }
     ///
     /// # anyhow::Ok(())
@@ -356,14 +354,15 @@ impl Common {
     ///
     /// let mut client = Client::new(homeserver).await?;
     ///
-    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com")) {
-    ///   let forward_stream = room.timeline_forward().await?;
+    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com"))
+    /// {
+    ///     let forward_stream = room.timeline_forward().await?;
     ///
-    ///   pin_mut!(forward_stream);
+    ///     pin_mut!(forward_stream);
     ///
-    ///   while let Some(event) = forward_stream.next().await {
-    ///       println!("{:?}", event);
-    ///   }
+    ///     while let Some(event) = forward_stream.next().await {
+    ///         println!("{:?}", event);
+    ///     }
     /// }
     ///
     /// # anyhow::Ok(())
@@ -414,19 +413,20 @@ impl Common {
     ///
     /// let mut client = Client::new(homeserver).await?;
     ///
-    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com")) {
-    ///   let backward_stream = room.timeline_backward().await?;
+    /// if let Some(room) = client.get_joined_room(room_id!("!roomid:example.com"))
+    /// {
+    ///     let backward_stream = room.timeline_backward().await?;
     ///
-    ///   tokio::spawn(async move {
-    ///       pin_mut!(backward_stream);
+    ///     tokio::spawn(async move {
+    ///         pin_mut!(backward_stream);
     ///
-    ///       while let Some(item) = backward_stream.next().await {
-    ///           match item {
-    ///               Ok(event) => println!("{:?}", event),
-    ///               Err(_) => println!("Some error occurred!"),
-    ///           }
-    ///       }
-    ///   });
+    ///         while let Some(item) = backward_stream.next().await {
+    ///             match item {
+    ///                 Ok(event) => println!("{:?}", event),
+    ///                 Err(_) => println!("Some error occurred!"),
+    ///             }
+    ///         }
+    ///     });
     /// }
     ///
     /// # anyhow::Ok(())
@@ -709,9 +709,12 @@ impl Common {
     /// ```no_run
     /// # async {
     /// # let room: matrix_sdk::room::Common = todo!();
-    /// use matrix_sdk::ruma::{events::room::member::SyncRoomMemberEvent, serde::Raw};
+    /// use matrix_sdk::ruma::{
+    ///     events::room::member::SyncRoomMemberEvent, serde::Raw,
+    /// };
     ///
-    /// let room_members: Vec<Raw<SyncRoomMemberEvent>> = room.get_state_events_static().await?;
+    /// let room_members: Vec<Raw<SyncRoomMemberEvent>> =
+    ///     room.get_state_events_static().await?;
     /// # anyhow::Ok(())
     /// # };
     /// ```
@@ -747,7 +750,8 @@ impl Common {
     /// use matrix_sdk::ruma::events::room::power_levels::SyncRoomPowerLevelsEvent;
     ///
     /// let power_levels: SyncRoomPowerLevelsEvent = room
-    ///     .get_state_event_static("").await?
+    ///     .get_state_event_static("")
+    ///     .await?
     ///     .expect("every room has a power_levels event")
     ///     .deserialize()?;
     /// # anyhow::Ok(())
@@ -786,7 +790,9 @@ impl Common {
     /// use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
     ///
     /// match room.account_data_static::<FullyReadEventContent>().await? {
-    ///     Some(fully_read) => println!("Found read marker: {:?}", fully_read.deserialize()?),
+    ///     Some(fully_read) => {
+    ///         println!("Found read marker: {:?}", fully_read.deserialize()?)
+    ///     }
     ///     None => println!("No read marker for this room"),
     /// }
     /// # anyhow::Ok(())
@@ -845,7 +851,7 @@ impl Common {
     ///     tag_info.order = Some(0.9);
     ///     let user_tag = UserTagName::from_str("u.work")?;
     ///
-    ///     room.set_tag(TagName::User(user_tag), tag_info ).await?;
+    ///     room.set_tag(TagName::User(user_tag), tag_info).await?;
     /// }
     /// # anyhow::Ok(()) });
     /// ```
