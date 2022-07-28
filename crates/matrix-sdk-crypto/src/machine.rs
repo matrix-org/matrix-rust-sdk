@@ -1596,7 +1596,6 @@ pub(crate) mod tests {
         uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
         OwnedDeviceKeyId, UserId,
     };
-    use serde_json::value::to_raw_value;
     use vodozemac::Ed25519PublicKey;
 
     use super::testing::response_from_file;
@@ -1604,12 +1603,10 @@ pub(crate) mod tests {
         machine::OlmMachine,
         olm::VerifyJson,
         types::{
-            events::{
-                room::encrypted::{EncryptedEvent, ToDeviceEncryptedEventContent},
-                ToDeviceEvent,
-            },
+            events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
             DeviceKeys, SignedKey,
         },
+        utilities::json_convert,
         verification::tests::{outgoing_request_to_event, request_to_event},
         EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
@@ -1981,7 +1978,7 @@ pub(crate) mod tests {
             content: to_device_requests_to_content(to_device_requests),
             other: Default::default(),
         };
-        let event = Raw::from_json(to_raw_value(&event).unwrap());
+        let event = json_convert(&event).unwrap();
 
         let alice_session =
             alice.group_session_manager.get_outbound_group_session(room_id).unwrap();
@@ -2052,7 +2049,7 @@ pub(crate) mod tests {
             unsigned: MessageLikeUnsigned::default(),
         };
 
-        let event: Raw<EncryptedEvent> = Raw::new(&event).unwrap().cast();
+        let event = json_convert(&event).unwrap();
 
         let decrypted_event =
             bob.decrypt_room_event(&event, room_id).await.unwrap().event.deserialize().unwrap();

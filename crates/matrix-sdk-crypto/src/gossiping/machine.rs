@@ -959,7 +959,6 @@ mod tests {
             AnyToDeviceEvent, ToDeviceEvent as RumaToDeviceEvent,
         },
         room_id,
-        serde::Raw,
         to_device::DeviceIdOrAllDevices,
         user_id, DeviceId, RoomId, UserId,
     };
@@ -971,6 +970,7 @@ mod tests {
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStore, MemoryStore, Store},
         types::events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
+        utilities::json_convert,
         verification::VerificationMachine,
         OutgoingRequests,
     };
@@ -1457,7 +1457,7 @@ mod tests {
 
         let event =
             ToDeviceEvent { sender: bob_id().to_owned(), content, other: Default::default() };
-        let event = Raw::new(&event).unwrap().deserialize_as().unwrap();
+        let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
         assert!(alice_machine
@@ -1682,7 +1682,7 @@ mod tests {
 
         let event =
             ToDeviceEvent { sender: bob_id().to_owned(), content, other: Default::default() };
-        let event = Raw::new(&event).unwrap().deserialize_as().unwrap();
+        let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
         assert!(alice_machine

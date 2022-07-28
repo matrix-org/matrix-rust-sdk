@@ -47,14 +47,15 @@ pub(crate) mod tests {
             room::message::{Relation, Replacement, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEvent,
         },
-        room_id,
-        serde::Raw,
-        user_id, DeviceId, UserId,
+        room_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
     use vodozemac::olm::OlmMessage;
 
-    use crate::olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session};
+    use crate::{
+        olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
+        utilities::json_convert,
+    };
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -224,7 +225,7 @@ pub(crate) mod tests {
             "content": encrypted_content,
         });
 
-        let event = Raw::new(&event).unwrap().deserialize_as().unwrap();
+        let event = json_convert(&event).unwrap();
         let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
         if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
