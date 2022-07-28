@@ -208,14 +208,17 @@ pub struct UpdateSummary {
 /// The sliding sync instance
 #[derive(Clone, Debug, Builder)]
 pub struct SlidingSync {
+    /// Customize the homeserver for sliding sync onlye
     #[builder(setter(strip_option))]
     homeserver: Option<Url>,
 
     #[builder(private)]
     client: Client,
+
     // ------ Inernal state
     #[builder(private, default)]
     pos: PosState,
+
     /// The views of this sliding sync instance
     #[builder(private, default)]
     pub views: ViewsList,
@@ -482,22 +485,27 @@ impl SlidingSync {
 /// ```
 #[derive(Clone, Debug, Builder)]
 pub struct SlidingSyncView {
-    #[allow(dead_code)]
+    /// Which SyncMode to start this view under
     #[builder(setter(name = "sync_mode_raw"), default)]
     sync_mode: SyncMode,
 
+    /// Sort the rooms list by this
     #[builder(default = "self.default_sort()")]
     sort: Vec<String>,
 
+    /// Required states to return per room
     #[builder(default = "self.default_required_state()")]
     required_state: Vec<(RoomEventType, String)>,
 
+    /// How many rooms request at a time when doing a full-sync catch up
     #[builder(default = "20")]
     batch_size: u32,
 
+    /// Any filters to apply to the query
     #[builder(default)]
     filters: Option<Raw<v4::SyncRequestListFilters>>,
 
+    /// The macimum number of timeline events to query for
     #[builder(setter(name = "timeline_limit_raw"), default)]
     timeline_limit: Option<UInt>,
 
@@ -519,6 +527,7 @@ pub struct SlidingSyncView {
     #[builder(private, default)]
     pub rooms: RoomsMap,
 
+    /// The ranges windows of the view
     #[builder(setter(name = "ranges_raw"), default)]
     ranges: RangeState,
 }
