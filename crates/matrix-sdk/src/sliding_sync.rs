@@ -568,8 +568,6 @@ impl SlidingSyncViewBuilder {
 
     fn default_required_state(&self) -> Vec<(RoomEventType, String)> {
         vec![
-            (RoomEventType::RoomAvatar, "".to_string()),
-            (RoomEventType::RoomMember, "*".to_string()),
             (RoomEventType::RoomEncryption, "".to_string()),
             (RoomEventType::RoomTombstone, "".to_string()),
         ]
