@@ -484,6 +484,7 @@ impl SlidingSync {
 /// # }
 /// ```
 #[derive(Clone, Debug, Builder)]
+#[builder(build_fn(name = "finish_build"))]
 pub struct SlidingSyncView {
     /// Which SyncMode to start this view under
     #[builder(setter(name = "sync_mode_raw"), default)]
@@ -530,6 +531,17 @@ pub struct SlidingSyncView {
     /// The ranges windows of the view
     #[builder(setter(name = "ranges_raw"), default)]
     ranges: RangeState,
+
+    /// Signaling updates on the roomlist after processing
+    #[builder(private)]
+    rooms_updated_signal: futures_signals::signal::Sender<()>,
+
+    /// Get informed if anything in the room changed
+    ///
+    /// If you only care to know about changes once all of them hav applied (including the total)
+    /// listen to a clone of this signal.
+    #[builder(private)]
+    pub rooms_updated_broadcaster: futures_signals::signal::Broadcaster<futures_signals::signal::Receiver<()>>,
 }
 
 /// the default name for the full sync view
@@ -539,6 +551,14 @@ impl SlidingSyncViewBuilder {
     /// Create a Builder set up for full sync
     pub fn default_with_fullsync() -> Self {
         Self::default().name(FULL_SYNC_VIEW_NAME).sync_mode(SlidingSyncMode::FullSync).to_owned()
+    }
+
+    /// Build the view
+    pub fn build(mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
+        let (sender, receiver) = futures_signals::signal::channel(());
+        self.rooms_updated_signal = Some(sender);
+        self.rooms_updated_broadcaster = Some(futures_signals::signal::Broadcaster::new(receiver));
+        self.finish_build()
     }
 
     // defaults
@@ -897,6 +917,12 @@ impl SlidingSyncView {
         if !ops.is_empty() {
             self.room_ops(ops)?;
             changed = true;
+        }
+
+        if changed {
+            if let Err(e) = self.rooms_updated_signal.send(()) {
+                tracing::warn!("Could not inform about rooms updated: {:?}", e);
+            }
         }
 
         Ok(changed)
