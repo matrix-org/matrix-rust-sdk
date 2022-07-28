@@ -17,16 +17,22 @@ REL_TYPE_DIR="release"
 # Build static libs for all the different architectures
 
 # iOS
+echo -e "Building for iOS [1/5]"
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios"
 
 # MacOS
+echo -e "\nBuilding for macOS (Apple Silicon) [2/5]"
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-darwin"
+echo -e "\nBuilding for macOS (Intel) [3/5]"
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-darwin"
 
 # iOS Simulator
+echo -e "\nBuilding for iOS Simulator (Apple Silicon) [4/5]"
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "aarch64-apple-ios-sim"
+echo -e "\nBuilding for iOS Simulator (Intel) [5/5]"
 cargo build -p matrix-sdk-ffi ${REL_FLAG} --target "x86_64-apple-ios"
 
+echo -e "\nCreating XCFramework"
 # Lipo together the libraries for the same platform
 
 # MacOS
