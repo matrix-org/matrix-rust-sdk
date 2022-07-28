@@ -19,7 +19,7 @@ pub use cryptostore::IndexeddbStore as CryptoStore;
 #[cfg(feature = "e2e-encryption")]
 use cryptostore::IndexeddbStoreError;
 #[cfg(target_arch = "wasm32")]
-pub use state_store::IndexeddbStore as StateStore;
+pub use state_store::{IndexeddbStore as StateStore, IndexeddbStoreBuilder as StateStoreBuilder};
 
 #[cfg(target_arch = "wasm32")]
 #[cfg(feature = "e2e-encryption")]
@@ -30,17 +30,18 @@ async fn open_stores_with_name(
     passphrase: Option<&str>,
 ) -> Result<(StateStore, CryptoStore), OpenStoreError> {
     let name = name.into();
+    let mut builder = StateStore::builder();
+    builder.name(name.clone());
 
     if let Some(passphrase) = passphrase {
-        let state_store = StateStore::open_with_passphrase(name.clone(), passphrase).await?;
-        let crypto_store =
-            CryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone()).await?;
-        Ok((state_store, crypto_store))
-    } else {
-        let state_store = StateStore::open_with_name(name.clone()).await?;
-        let crypto_store = CryptoStore::open_with_name(name).await?;
-        Ok((state_store, crypto_store))
+        builder.passphrase(passphrase.to_owned());
     }
+
+    let state_store = builder.build().await.map_err(StoreError::from)?;
+    let crypto_store =
+        CryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone()).await?;
+
+    Ok((state_store, crypto_store))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -61,11 +62,14 @@ pub async fn make_store_config(
 
     #[cfg(not(feature = "e2e-encryption"))]
     {
-        let state_store = if let Some(passphrase) = passphrase {
-            StateStore::open_with_passphrase(name, passphrase).await?
-        } else {
-            StateStore::open_with_name(name).await?
-        };
+        let mut builder = StateStore::builder();
+        builder.name(name.clone());
+
+        if let Some(passphrase) = passphrase {
+            builder.passphrase(passphrase.to_owned());
+        }
+
+        let state_store = builder.build().await.map_err(StoreError::from)?;
 
         Ok(StoreConfig::new().state_store(state_store))
     }

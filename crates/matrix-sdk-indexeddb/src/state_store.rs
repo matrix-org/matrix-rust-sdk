@@ -12,13 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+use derive_builder::Builder;
 #[cfg(feature = "experimental-timeline")]
 use futures_util::stream;
 use indexed_db_futures::prelude::*;
+use js_sys::Date as JsDate;
 use matrix_sdk_base::{
     deserialized_responses::MemberEvent,
     media::{MediaRequest, UniqueKey},
@@ -57,7 +65,7 @@ use crate::safe_encode::SafeEncode;
 struct StoreKeyWrapper(Vec<u8>);
 
 #[derive(Debug, thiserror::Error)]
-pub enum SerializationError {
+pub enum IndexeddbStoreError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
@@ -66,11 +74,28 @@ pub enum SerializationError {
     DomException { name: String, message: String, code: u16 },
     #[error(transparent)]
     StoreError(#[from] StoreError),
+    #[error("Can't migrate {name} from {old_version} to {new_version} without deleting data. See MigrationConflictStrategy for ways to configure.")]
+    MigrationConflict { name: String, old_version: f64, new_version: f64 },
 }
 
-impl From<indexed_db_futures::web_sys::DomException> for SerializationError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> SerializationError {
-        SerializationError::DomException {
+/// Sometimes Migrations can't proceed without having to drop existing
+/// data. This allows you to configure, how these cases should be handled.
+#[allow(dead_code)]
+#[derive(PartialEq, Clone, Debug)]
+pub enum MigrationConflictStrategy {
+    /// Just drop the data, we don't care that we have to sync again
+    Drop,
+    /// Raise a `IndexedDBStore::MigrationConflict` error with the path to the
+    /// DB in question. The caller then has to take care about what they want
+    /// to do and try again after.
+    Raise,
+    /// Default.
+    BackupAndDrop,
+}
+
+impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStoreError {
+        IndexeddbStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
             code: frm.code(),
@@ -78,12 +103,12 @@ impl From<indexed_db_futures::web_sys::DomException> for SerializationError {
     }
 }
 
-impl From<SerializationError> for StoreError {
-    fn from(e: SerializationError) -> Self {
+impl From<IndexeddbStoreError> for StoreError {
+    fn from(e: IndexeddbStoreError) -> Self {
         match e {
-            SerializationError::Json(e) => StoreError::Json(e),
-            SerializationError::StoreError(e) => e,
-            SerializationError::Encryption(e) => match e {
+            IndexeddbStoreError::Json(e) => StoreError::Json(e),
+            IndexeddbStoreError::StoreError(e) => e,
+            IndexeddbStoreError::Encryption(e) => match e {
                 EncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
                 EncryptionError::Serialization(e) => StoreError::Json(e),
                 EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
@@ -102,6 +127,12 @@ impl From<SerializationError> for StoreError {
 #[allow(non_snake_case)]
 mod KEYS {
     // STORES
+
+    pub const CURRENT_DB_VERSION: f64 = 1.1;
+    pub const CURRENT_META_DB_VERSION: f64 = 2.0;
+
+    pub const INTERNAL_STATE: &str = "matrix-sdk-state";
+    pub const BACKUPS_META: &str = "backups";
 
     pub const SESSION: &str = "session";
     pub const ACCOUNT_DATA: &str = "account_data";
@@ -137,16 +168,247 @@ mod KEYS {
 
     pub const CUSTOM: &str = "custom";
 
+    pub const SYNC_TOKEN: &str = "sync_token";
+
+    /// All names of the state stores for convenience.
+    pub const ALL_STORES: &[&str] = &[
+        SESSION,
+        ACCOUNT_DATA,
+        MEMBERS,
+        PROFILES,
+        DISPLAY_NAMES,
+        JOINED_USER_IDS,
+        INVITED_USER_IDS,
+        ROOM_STATE,
+        ROOM_INFOS,
+        PRESENCE,
+        ROOM_ACCOUNT_DATA,
+        STRIPPED_ROOM_INFOS,
+        STRIPPED_MEMBERS,
+        STRIPPED_ROOM_STATE,
+        STRIPPED_JOINED_USER_IDS,
+        STRIPPED_INVITED_USER_IDS,
+        ROOM_USER_RECEIPTS,
+        ROOM_EVENT_RECEIPTS,
+        MEDIA,
+        CUSTOM,
+        SYNC_TOKEN,
+        #[cfg(feature = "experimental-timeline")]
+        ROOM_TIMELINE,
+        #[cfg(feature = "experimental-timeline")]
+        ROOM_TIMELINE_METADATA,
+        #[cfg(feature = "experimental-timeline")]
+        ROOM_EVENT_ID_TO_POSITION,
+    ];
+
     // static keys
 
     pub const STORE_KEY: &str = "store_key";
     pub const FILTER: &str = "filter";
-    pub const SYNC_TOKEN: &str = "sync_token";
+}
+
+pub use KEYS::ALL_STORES;
+
+fn drop_stores(db: &IdbDatabase) -> Result<(), JsValue> {
+    for name in ALL_STORES {
+        db.delete_object_store(name)?;
+    }
+    Ok(())
+}
+
+fn create_stores(db: &IdbDatabase) -> Result<(), JsValue> {
+    for name in ALL_STORES {
+        db.create_object_store(name)?;
+    }
+    Ok(())
+}
+
+async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
+    let now = JsDate::now();
+    let backup_name = format!("backup-{}-{}", source.name(), now);
+
+    let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&backup_name, source.version())?;
+    db_req.set_on_upgrade_needed(Some(move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+        // migrating to version 1
+        let db = evt.db();
+        for name in ALL_STORES {
+            db.create_object_store(name)?;
+        }
+        Ok(())
+    }));
+    let target = db_req.into_future().await?;
+
+    for name in ALL_STORES {
+        let tx = target.transaction_on_one_with_mode(name, IdbTransactionMode::Readwrite)?;
+
+        let obj = tx.object_store(name)?;
+
+        if let Some(curs) = source
+            .transaction_on_one_with_mode(name, IdbTransactionMode::Readonly)?
+            .object_store(name)?
+            .open_cursor()?
+            .await?
+        {
+            while let Some(key) = curs.key() {
+                obj.put_key_val(&key, &curs.value())?;
+
+                curs.continue_cursor()?.await?;
+            }
+        }
+
+        tx.await.into_result()?;
+    }
+
+    let tx =
+        meta.transaction_on_one_with_mode(KEYS::BACKUPS_META, IdbTransactionMode::Readwrite)?;
+    let backup_store = tx.object_store(KEYS::BACKUPS_META)?;
+    backup_store.put_key_val(&JsValue::from_f64(now), &JsValue::from_str(&backup_name))?;
+
+    tx.await;
+
+    Ok(())
+}
+
+#[derive(Builder, Debug, PartialEq)]
+#[builder(name = "IndexeddbStoreBuilder", build_fn(skip))]
+pub struct IndexeddbStoreBuilderConfig {
+    /// The name for the indexeddb store to use, `state` is none given
+    name: String,
+    /// The password the indexeddb should be encrypted with. If not given, the
+    /// DB is not encrypted
+    passphrase: String,
+    /// The strategy to use when a merge conflict is found, see
+    /// [`MigrationConflictStrategy`] for details
+    #[builder(default = "MigrationConflictStrategy::BackupAndDrop")]
+    migration_conflict_strategy: MigrationConflictStrategy,
+}
+
+impl IndexeddbStoreBuilder {
+    pub async fn build(&mut self) -> Result<IndexeddbStore> {
+        let migration_strategy = self
+            .migration_conflict_strategy
+            .clone()
+            .unwrap_or(MigrationConflictStrategy::BackupAndDrop);
+        let name = self.name.clone().unwrap_or_else(|| "state".to_owned());
+
+        let meta_name = format!("{}::{}", name, KEYS::INTERNAL_STATE);
+
+        let mut db_req: OpenDbRequest =
+            IdbDatabase::open_f64(&meta_name, KEYS::CURRENT_META_DB_VERSION)?;
+        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+            let db = evt.db();
+            if evt.old_version() < 1.0 {
+                // migrating to version 1
+
+                db.create_object_store(KEYS::INTERNAL_STATE)?;
+                db.create_object_store(KEYS::BACKUPS_META)?;
+            } else if evt.old_version() < 2.0 {
+                db.create_object_store(KEYS::BACKUPS_META)?;
+            }
+            Ok(())
+        }));
+
+        let meta_db: IdbDatabase = db_req.into_future().await?;
+
+        let store_cipher = if let Some(passphrase) = &self.passphrase {
+            let tx: IdbTransaction<'_> = meta_db.transaction_on_one_with_mode(
+                KEYS::INTERNAL_STATE,
+                IdbTransactionMode::Readwrite,
+            )?;
+            let ob = tx.object_store(KEYS::INTERNAL_STATE)?;
+
+            let cipher = if let Some(StoreKeyWrapper(inner)) = ob
+                .get(&JsValue::from_str(KEYS::STORE_KEY))?
+                .await?
+                .map(|v| v.into_serde())
+                .transpose()?
+            {
+                StoreCipher::import(passphrase, &inner)?
+            } else {
+                let cipher = StoreCipher::new()?;
+                ob.put_key_val(
+                    &JsValue::from_str(KEYS::STORE_KEY),
+                    &JsValue::from_serde(&StoreKeyWrapper(cipher.export(passphrase)?))?,
+                )?;
+                cipher
+            };
+
+            tx.await.into_result()?;
+            Some(Arc::new(cipher))
+        } else {
+            None
+        };
+
+        let recreate_stores = {
+            // checkup up in a separate call, whether we have to backup or do anything else
+            // to the db. Unfortunately the set_on_upgrade_needed doesn't allow async fn
+            // which we need to execute the backup.
+            let has_store_cipher = store_cipher.is_some();
+            let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
+            let created = Arc::new(AtomicBool::new(false));
+            let created_inner = created.clone();
+
+            db_req.set_on_upgrade_needed(Some(
+                move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+                    // in case this is a fresh db, we dont't want to trigger
+                    // further migrations other than just creating the full
+                    // schema.
+                    if evt.old_version() < 1.0 {
+                        create_stores(evt.db())?;
+                        created_inner.store(true, Ordering::Relaxed);
+                    }
+                    Ok(())
+                },
+            ));
+
+            let pre_db = db_req.into_future().await?;
+            let old_version = pre_db.version();
+
+            if created.load(Ordering::Relaxed) {
+                // this is a fresh DB, return
+                false
+            } else if old_version == 1.0 && has_store_cipher {
+                match migration_strategy {
+                    MigrationConflictStrategy::BackupAndDrop => {
+                        backup(&pre_db, &meta_db).await?;
+                        true
+                    }
+                    MigrationConflictStrategy::Drop => true,
+                    MigrationConflictStrategy::Raise => {
+                        return Err(IndexeddbStoreError::MigrationConflict {
+                            name,
+                            old_version,
+                            new_version: KEYS::CURRENT_DB_VERSION,
+                        })
+                    }
+                }
+            } else {
+                // Nothing to be done
+                false
+            }
+        };
+
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, KEYS::CURRENT_DB_VERSION)?;
+        db_req.set_on_upgrade_needed(Some(
+            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+                // changing the format can only happen in the upgrade procedure
+                if recreate_stores {
+                    drop_stores(evt.db())?;
+                    create_stores(evt.db())?;
+                }
+                Ok(())
+            },
+        ));
+
+        let db = db_req.into_future().await?;
+        Ok(IndexeddbStore { name, inner: db, meta: meta_db, store_cipher })
+    }
 }
 
 pub struct IndexeddbStore {
     name: String,
     pub(crate) inner: IdbDatabase,
+    pub(crate) meta: IdbDatabase,
     pub(crate) store_cipher: Option<Arc<StoreCipher>>,
 }
 
@@ -156,118 +418,65 @@ impl std::fmt::Debug for IndexeddbStore {
     }
 }
 
-type Result<A, E = SerializationError> = std::result::Result<A, E>;
+type Result<A, E = IndexeddbStoreError> = std::result::Result<A, E>;
 
 impl IndexeddbStore {
-    async fn open_helper(name: String, store_cipher: Option<Arc<StoreCipher>>) -> Result<Self> {
-        // Open my_db v1
-        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
-        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            if evt.old_version() < 1.0 {
-                // migrating to version 1
-                let db = evt.db();
+    /// Generate a IndexeddbStoreBuilder with default parameters
+    pub fn builder() -> IndexeddbStoreBuilder {
+        IndexeddbStoreBuilder::default()
+    }
 
-                db.create_object_store(KEYS::SESSION)?;
-                db.create_object_store(KEYS::SYNC_TOKEN)?;
-                db.create_object_store(KEYS::ACCOUNT_DATA)?;
+    /// Whether this database has any migration backups
+    pub async fn has_backups(&self) -> Result<bool> {
+        Ok(self
+            .meta
+            .transaction_on_one_with_mode(KEYS::BACKUPS_META, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::BACKUPS_META)?
+            .count()?
+            .await?
+            > 0)
+    }
 
-                db.create_object_store(KEYS::MEMBERS)?;
-                db.create_object_store(KEYS::PROFILES)?;
-                db.create_object_store(KEYS::DISPLAY_NAMES)?;
-                db.create_object_store(KEYS::JOINED_USER_IDS)?;
-                db.create_object_store(KEYS::INVITED_USER_IDS)?;
-
-                db.create_object_store(KEYS::ROOM_STATE)?;
-                db.create_object_store(KEYS::ROOM_INFOS)?;
-                db.create_object_store(KEYS::PRESENCE)?;
-                db.create_object_store(KEYS::ROOM_ACCOUNT_DATA)?;
-
-                db.create_object_store(KEYS::STRIPPED_ROOM_INFOS)?;
-                db.create_object_store(KEYS::STRIPPED_MEMBERS)?;
-                db.create_object_store(KEYS::STRIPPED_ROOM_STATE)?;
-                db.create_object_store(KEYS::STRIPPED_JOINED_USER_IDS)?;
-                db.create_object_store(KEYS::STRIPPED_INVITED_USER_IDS)?;
-
-                db.create_object_store(KEYS::ROOM_USER_RECEIPTS)?;
-                db.create_object_store(KEYS::ROOM_EVENT_RECEIPTS)?;
-
-                #[cfg(feature = "experimental-timeline")]
-                {
-                    db.create_object_store(KEYS::ROOM_TIMELINE)?;
-                    db.create_object_store(KEYS::ROOM_TIMELINE_METADATA)?;
-                    db.create_object_store(KEYS::ROOM_EVENT_ID_TO_POSITION)?;
-                }
-
-                db.create_object_store(KEYS::MEDIA)?;
-
-                db.create_object_store(KEYS::CUSTOM)?;
-            }
-            Ok(())
-        }));
-
-        let db: IdbDatabase = db_req.into_future().await?;
-
-        Ok(Self { name, inner: db, store_cipher })
+    /// What's the database name of the latest backup<
+    pub async fn latest_backup(&self) -> Result<Option<String>> {
+        Ok(self
+            .meta
+            .transaction_on_one_with_mode(KEYS::BACKUPS_META, IdbTransactionMode::Readonly)?
+            .object_store(KEYS::BACKUPS_META)?
+            .open_cursor_with_direction(indexed_db_futures::prelude::IdbCursorDirection::Prev)?
+            .await?
+            .and_then(|c| c.value().as_string()))
     }
 
     #[allow(dead_code)]
+    #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
     pub async fn open() -> StoreResult<Self> {
-        Ok(IndexeddbStore::open_helper("state".to_owned(), None).await?)
+        IndexeddbStore::builder()
+            .name("state".to_owned())
+            .build()
+            .await
+            .map_err(StoreError::backend)
     }
 
+    #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
     pub async fn open_with_passphrase(name: String, passphrase: &str) -> StoreResult<Self> {
-        Ok(Self::inner_open_with_passphrase(name, passphrase).await?)
+        IndexeddbStore::builder()
+            .name(name)
+            .passphrase(passphrase.to_owned())
+            .build()
+            .await
+            .map_err(StoreError::backend)
     }
 
-    pub(crate) async fn inner_open_with_passphrase(name: String, passphrase: &str) -> Result<Self> {
-        let name = format!("{:0}::matrix-sdk-state", name);
-
-        let mut db_req: OpenDbRequest = IdbDatabase::open_u32(&name, 1)?;
-        db_req.set_on_upgrade_needed(Some(|evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-            if evt.old_version() < 1.0 {
-                // migrating to version 1
-                let db = evt.db();
-
-                db.create_object_store("matrix-sdk-state")?;
-            }
-            Ok(())
-        }));
-
-        let db: IdbDatabase = db_req.into_future().await?;
-
-        let tx: IdbTransaction<'_> =
-            db.transaction_on_one_with_mode("matrix-sdk-state", IdbTransactionMode::Readwrite)?;
-        let ob = tx.object_store("matrix-sdk-state")?;
-
-        let cipher = if let Some(StoreKeyWrapper(inner)) = ob
-            .get(&JsValue::from_str(KEYS::STORE_KEY))?
-            .await?
-            .map(|v| v.into_serde())
-            .transpose()?
-        {
-            StoreCipher::import(passphrase, &inner)?
-        } else {
-            let cipher = StoreCipher::new()?;
-            ob.put_key_val(
-                &JsValue::from_str(KEYS::STORE_KEY),
-                &JsValue::from_serde(&StoreKeyWrapper(cipher.export(passphrase)?))?,
-            )?;
-            cipher
-        };
-
-        tx.await.into_result()?;
-
-        IndexeddbStore::open_helper(name, Some(cipher.into())).await
-    }
-
+    #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
     pub async fn open_with_name(name: String) -> StoreResult<Self> {
-        Ok(IndexeddbStore::open_helper(name, None).await?)
+        IndexeddbStore::builder().name(name).build().await.map_err(StoreError::backend)
     }
 
     fn serialize_event(
         &self,
         event: &impl Serialize,
-    ) -> std::result::Result<JsValue, SerializationError> {
+    ) -> std::result::Result<JsValue, IndexeddbStoreError> {
         Ok(match &self.store_cipher {
             Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
             None => JsValue::from_serde(event)?,
@@ -277,7 +486,7 @@ impl IndexeddbStore {
     fn deserialize_event<T: DeserializeOwned>(
         &self,
         event: JsValue,
-    ) -> std::result::Result<T, SerializationError> {
+    ) -> std::result::Result<T, IndexeddbStoreError> {
         match &self.store_cipher {
             Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
             None => Ok(event.into_serde()?),
@@ -298,7 +507,7 @@ impl IndexeddbStore {
         &self,
         table_name: &str,
         key: T,
-    ) -> Result<IdbKeyRange, SerializationError>
+    ) -> Result<IdbKeyRange, IndexeddbStoreError>
     where
         T: SafeEncode,
     {
@@ -306,7 +515,7 @@ impl IndexeddbStore {
             Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| SerializationError::StoreError(StoreError::Backend(anyhow!(e).into())))
+        .map_err(|e| IndexeddbStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
     }
 
     #[cfg(feature = "experimental-timeline")]
@@ -834,7 +1043,7 @@ impl IndexeddbStore {
             }
         }
 
-        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())
+        tx.await.into_result().map_err::<IndexeddbStoreError, _>(|e| e.into())
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
@@ -1159,7 +1368,7 @@ impl IndexeddbStore {
 
         tx.object_store(KEYS::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
 
-        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())?;
+        tx.await.into_result().map_err::<IndexeddbStoreError, _>(|e| e.into())?;
         Ok(prev)
     }
 
@@ -1232,7 +1441,7 @@ impl IndexeddbStore {
                 store.delete(&key)?;
             }
         }
-        tx.await.into_result().map_err::<SerializationError, _>(|e| e.into())
+        tx.await.into_result().map_err::<IndexeddbStoreError, _>(|e| e.into())
     }
 
     #[cfg(feature = "experimental-timeline")]
@@ -1468,7 +1677,7 @@ mod tests {
 
     async fn get_store() -> Result<IndexeddbStore> {
         let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated());
-        Ok(IndexeddbStore::open_helper(db_name, None).await?)
+        Ok(IndexeddbStore::builder().name(db_name).build().await?)
     }
 
     statestore_integration_tests! { integration }
@@ -1479,18 +1688,135 @@ mod encrypted_tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use std::sync::Arc;
-
     use matrix_sdk_base::statestore_integration_tests;
     use uuid::Uuid;
 
-    use super::{IndexeddbStore, Result, StoreCipher};
+    use super::{IndexeddbStore, Result};
 
     async fn get_store() -> Result<IndexeddbStore> {
         let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated());
-        let key = StoreCipher::new()?;
-        Ok(IndexeddbStore::open_helper(db_name, Some(Arc::new(key))).await?)
+        let passphrase = format!("some_passphrase-{}", Uuid::new_v4().as_hyphenated());
+        Ok(IndexeddbStore::builder().name(db_name).passphrase(passphrase).build().await?)
     }
 
     statestore_integration_tests! { integration }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+    use indexed_db_futures::prelude::*;
+    use matrix_sdk_test::async_test;
+    use uuid::Uuid;
+    use wasm_bindgen::JsValue;
+
+    use super::{
+        IndexeddbStore, IndexeddbStoreError, MigrationConflictStrategy, Result, ALL_STORES,
+    };
+
+    pub async fn create_fake_db(name: &str, version: f64) -> Result<()> {
+        let mut db_req: OpenDbRequest = IdbDatabase::open_f64(name, version)?;
+        db_req.set_on_upgrade_needed(Some(
+            move |evt: &IdbVersionChangeEvent| -> Result<(), JsValue> {
+                // migrating to version 1
+                let db = evt.db();
+                for name in ALL_STORES {
+                    db.create_object_store(name)?;
+                }
+                Ok(())
+            },
+        ));
+        db_req.into_future().await?;
+        Ok(())
+    }
+    #[async_test]
+    pub async fn test_no_upgrade() -> Result<()> {
+        let name = format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStore::builder().name(name).build().await?;
+        // this didn't create any backup
+        assert_eq!(store.has_backups().await?, false);
+        // simple check that the layout exists.
+        assert_eq!(store.get_sync_token().await?, None);
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v1_to_1_1_plain() -> Result<()> {
+        let name =
+            format!("migrating-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+        create_fake_db(&name, 1.0).await?;
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStore::builder().name(name).build().await?;
+        // this didn't create any backup
+        assert_eq!(store.has_backups().await?, false);
+        assert_eq!(store.get_sync_token().await?, None);
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v1_to_1_1_with_pw() -> Result<()> {
+        let name =
+            format!("migrating-1.1-with-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
+        let passphrase = "somepassphrase".to_owned();
+        create_fake_db(&name, 1.0).await?;
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStore::builder().name(name).passphrase(passphrase).build().await?;
+        // this creates a backup by default
+        assert_eq!(store.has_backups().await?, true);
+        assert!(store.latest_backup().await?.is_some(), "No backup_found");
+        assert_eq!(store.get_sync_token().await?, None);
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v1_to_1_1_with_pw_drops() -> Result<()> {
+        let name = format!(
+            "migrating-1.1-with-cipher-drops-{}",
+            Uuid::new_v4().as_hyphenated().to_string()
+        );
+        let passphrase = "some-other-passphrase".to_owned();
+        create_fake_db(&name, 1.0).await?;
+
+        // this transparently migrates to the latest version
+        let store = IndexeddbStore::builder()
+            .name(name)
+            .passphrase(passphrase)
+            .migration_conflict_strategy(MigrationConflictStrategy::Drop)
+            .build()
+            .await?;
+        // this creates a backup by default
+        assert_eq!(store.has_backups().await?, false);
+        assert_eq!(store.get_sync_token().await?, None);
+        Ok(())
+    }
+
+    #[async_test]
+    pub async fn test_migrating_v1_to_1_1_with_pw_raise() -> Result<()> {
+        let name = format!(
+            "migrating-1.1-with-cipher-raises-{}",
+            Uuid::new_v4().as_hyphenated().to_string()
+        );
+        let passphrase = "some-other-passphrase".to_owned();
+        create_fake_db(&name, 1.0).await?;
+
+        // this transparently migrates to the latest version
+        let store_res = IndexeddbStore::builder()
+            .name(name)
+            .passphrase(passphrase)
+            .migration_conflict_strategy(MigrationConflictStrategy::Raise)
+            .build()
+            .await;
+
+        if let Err(IndexeddbStoreError::MigrationConflict { .. }) = store_res {
+            // all fine!
+        } else {
+            assert!(false, "Conflict didn't raise: {:?}", store_res)
+        }
+        Ok(())
+    }
 }

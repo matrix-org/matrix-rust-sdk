@@ -202,8 +202,12 @@ impl Printer {
 impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
-        let store =
-            Arc::new(StateStore::open_with_path(database_path).expect("Can't open sled database"));
+        let store = Arc::new(
+            StateStore::builder()
+                .path(database_path.into())
+                .build()
+                .expect("Can't open sled database"),
+        );
 
         Self { store, printer }
     }
