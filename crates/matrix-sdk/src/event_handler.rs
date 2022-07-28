@@ -14,11 +14,11 @@
 // limitations under the License.
 
 //! Types and traits related for event handlers. For usage, see
-//! [`Client::register_event_handler`].
+//! [`Client::add_event_handler`].
 //!
 //! ### How it works
 //!
-//! The `register_event_handler` method registers event handlers of different
+//! The `add_event_handler` method registers event handlers of different
 //! signatures by actually storing boxed closures that all have the same
 //! signature of `async (EventHandlerData) -> ()` where `EventHandlerData` is a
 //! private type that contains all of the data an event handler *might* need.
@@ -130,7 +130,7 @@ impl EventHandlerContext for EventHandlerHandle {
 /// `Ev` and `Ctx` are generic parameters rather than associated types because
 /// the argument list is a generic parameter for the `Fn` traits too, so a
 /// single type could implement `Fn` multiple times with different argument
-/// lists¹. Luckily, when calling [`Client::register_event_handler`] with a
+/// lists¹. Luckily, when calling [`Client::add_event_handler`] with a
 /// closure argument the trait solver takes into account that only a single one
 /// of the implementations applies (even though this could theoretically change
 /// through a dependency upgrade) and uses that rather than raising an ambiguity
@@ -194,7 +194,7 @@ impl EventHandlerContext for room::Room {
 /// The raw JSON form of an event.
 ///
 /// Used as a context argument for event handlers (see
-/// [`Client::register_event_handler`]).
+/// [`Client::add_event_handler`]).
 // FIXME: This could be made to not own the raw JSON value with some changes to
 //        the traits above, but only with GATs.
 #[derive(Clone, Debug)]
@@ -221,7 +221,7 @@ impl EventHandlerContext for Option<EncryptionInfo> {
 }
 
 /// A custom value registered with
-/// [`.register_event_handler_context`][Client::register_event_handler_context].
+/// [`.add_event_handler_context`][Client::add_event_handler_context].
 #[derive(Debug)]
 pub struct Ctx<T>(pub T);
 
@@ -609,7 +609,7 @@ mod tests {
     use crate::{room, Client};
 
     #[async_test]
-    async fn register_event_handler() -> crate::Result<()> {
+    async fn add_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
         let client = crate::client::tests::logged_in_client(None).await;
@@ -620,7 +620,7 @@ mod tests {
         let invited_member_count = Arc::new(AtomicU8::new(0));
 
         client
-            .register_event_handler({
+            .add_event_handler({
                 let member_count = member_count.clone();
                 move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
                     member_count.fetch_add(1, SeqCst);
@@ -629,7 +629,7 @@ mod tests {
             })
             .await;
         client
-            .register_event_handler({
+            .add_event_handler({
                 let typing_count = typing_count.clone();
                 move |_ev: SyncTypingEvent| {
                     typing_count.fetch_add(1, SeqCst);
@@ -638,7 +638,7 @@ mod tests {
             })
             .await;
         client
-            .register_event_handler({
+            .add_event_handler({
                 let power_levels_count = power_levels_count.clone();
                 move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
                     power_levels_count.fetch_add(1, SeqCst);
@@ -647,7 +647,7 @@ mod tests {
             })
             .await;
         client
-            .register_event_handler({
+            .add_event_handler({
                 let invited_member_count = invited_member_count.clone();
                 move |_ev: StrippedRoomMemberEvent| {
                     invited_member_count.fetch_add(1, SeqCst);
@@ -721,7 +721,7 @@ mod tests {
         let member_count = Arc::new(AtomicU8::new(0));
 
         client
-            .register_event_handler({
+            .add_event_handler({
                 let member_count = member_count.clone();
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     member_count.fetch_add(1, SeqCst);
@@ -731,7 +731,7 @@ mod tests {
             .await;
 
         let handle = client
-            .register_event_handler({
+            .add_event_handler({
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     panic!("handler should have been removed");
                     #[allow(unreachable_code)]
@@ -741,7 +741,7 @@ mod tests {
             .await;
 
         client
-            .register_event_handler({
+            .add_event_handler({
                 let member_count = member_count.clone();
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     member_count.fetch_add(1, SeqCst);

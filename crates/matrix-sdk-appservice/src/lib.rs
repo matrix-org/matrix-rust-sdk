@@ -68,7 +68,7 @@
 //! appservice
 //!     .virtual_user(None)
 //!     .await?
-//!     .register_event_handler(|_ev: SyncRoomMemberEvent| async {
+//!     .add_event_handler(|_ev: SyncRoomMemberEvent| async {
 //!         // do stuff
 //!     })
 //!     .await;
@@ -646,7 +646,7 @@ mod tests {
         appservice
             .virtual_user(None)
             .await?
-            .register_event_handler({
+            .add_event_handler({
                 let on_state_member = on_state_member.clone();
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     *on_state_member.lock().unwrap() = true;
@@ -802,7 +802,7 @@ mod tests {
         appservice
             .virtual_user(None)
             .await?
-            .register_event_handler({
+            .add_event_handler({
                 let on_state_member = on_state_member.clone();
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     *on_state_member.lock().unwrap() = true;

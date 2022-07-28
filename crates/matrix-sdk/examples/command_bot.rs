@@ -69,7 +69,7 @@ async fn login_and_sync(
     client.sync_once(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the
     // initial sync to avoid responding to messages before the bot was running.
-    client.register_event_handler(on_room_message).await;
+    client.add_event_handler(on_room_message).await;
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`

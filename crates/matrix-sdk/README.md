@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     client.login_username(alice, "password").send().await?;
 
     client
-        .register_event_handler(|ev: SyncRoomMessageEvent| async move {
+        .add_event_handler(|ev: SyncRoomMessageEvent| async move {
             println!("Received a message {:?}", ev);
         })
         .await;

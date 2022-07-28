@@ -63,9 +63,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let virtual_user = appservice.virtual_user(None).await?;
 
-    virtual_user.register_event_handler_context(appservice.clone());
+    virtual_user.add_event_handler_context(appservice.clone());
     virtual_user
-        .register_event_handler(
+        .add_event_handler(
             move |event: OriginalSyncRoomMemberEvent,
                   room: Room,
                   Ctx(appservice): Ctx<AppService>| {
