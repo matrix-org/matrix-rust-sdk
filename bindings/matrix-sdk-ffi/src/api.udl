@@ -99,6 +99,11 @@ callback interface SlidingSyncViewRoomsCountDelegate {
     void did_receive_update(u32 count);
 };
 
+callback interface SlidingSyncViewUpdatedDelegate {
+    void did_receive_update();
+};
+
+
 interface SlidingSyncViewBuilder {
     constructor();
 
@@ -131,6 +136,7 @@ interface SlidingSyncView {
     StoppableSpawn on_rooms_update(SlidingSyncViewRoomsListDelegate update);
     StoppableSpawn on_rooms_count_update(SlidingSyncViewRoomsCountDelegate update);
     StoppableSpawn on_state_update(SlidingSyncViewStateDelegate update);
+    StoppableSpawn on_rooms_updated(SlidingSyncViewUpdatedDelegate update);
 
     u32? current_room_count();
     sequence<RoomListEntry> current_rooms_list();
