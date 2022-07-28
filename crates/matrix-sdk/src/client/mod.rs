@@ -1378,7 +1378,7 @@ impl Client {
             content_type: Some(content_type.essence_str()),
         });
 
-        let request_config = self.inner.http_client.request_config.timeout(timeout);
+        let request_config = self.inner.http_client.request_config.clone().timeout(timeout);
         Ok(self
             .inner
             .http_client
@@ -1441,15 +1441,14 @@ impl Client {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
+        let homeserver = if let Some(h) = config.as_ref().and_then(|c| c.homeserver.clone()) {
+            h
+        } else {
+            self.homeserver().await.to_string()
+        };
         self.inner
             .http_client
-            .send(
-                request,
-                config,
-                self.homeserver().await.to_string(),
-                self.session(),
-                self.server_versions().await?,
-            )
+            .send(request, config, homeserver, self.session(), self.server_versions().await?)
             .await
     }
 
@@ -1690,7 +1689,7 @@ impl Client {
             timeout: sync_settings.timeout,
         });
 
-        let request_config = self.inner.http_client.request_config.timeout(
+        let request_config = self.inner.http_client.request_config.clone().timeout(
             sync_settings.timeout.unwrap_or_else(|| Duration::from_secs(0))
                 + self.inner.http_client.request_config.timeout,
         );

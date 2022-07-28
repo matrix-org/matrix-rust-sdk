@@ -156,26 +156,33 @@ async fn main() -> Result<()> {
         }
     }
 
-    let title = format!("{} via {}", user_id, opt.sliding_sync_proxy);
-
     let client = Client::builder().user_id(&user_id).build().await?;
-    let session = Session { access_token: opt.token.clone(), user_id, device_id };
+    let session = Session { access_token: opt.token.clone(), user_id: user_id.clone(), device_id };
     client.restore_login(session).await?;
+    let sliding_client = client.clone();
+    let proxy = opt.sliding_sync_proxy.clone();
 
     let (tx, mut rx) = mpsc::channel(100);
     let model_tx = tx.clone();
 
     tokio::spawn(async move {
-        if let Err(e) = client::run_client(client, opt.sliding_sync_proxy.clone(), tx).await {
+        if let Err(e) = client::run_client(sliding_client, proxy, tx).await {
             warn!("Running the client failed: {:#?}", e);
         }
     });
 
     let start_sync =
         rx.recv().await.ok_or_else(|| eyre!("failure getting the sliding sync state"))?;
+    // ensure client still works as normal: fetch user info:
+    let display_name = client
+        .account()
+        .get_display_name()
+        .await?
+        .map(|s| format!("{} ({})", s, user_id))
+        .unwrap_or_else(|| format!("{}", user_id));
     let poller = MatrixPoller(rx);
     let mut model = Model::new(start_sync, model_tx, poller);
-    model.set_title(title);
+    model.set_title(format!("{} via {}", display_name, opt.sliding_sync_proxy));
     run_ui(model).await;
 
     Ok(())

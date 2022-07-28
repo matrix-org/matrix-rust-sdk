@@ -37,13 +37,14 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 ///     .disable_retry()
 ///     .timeout(Duration::from_secs(30));
 /// ```
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct RequestConfig {
     pub(crate) timeout: Duration,
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
     pub(crate) assert_identity: bool,
+    pub(crate) homeserver: Option<String>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -54,6 +55,7 @@ impl Debug for RequestConfig {
         res.field("timeout", &self.timeout)
             .field("retry_limit", &self.retry_limit)
             .field("retry_timeout", &self.retry_timeout)
+            .field("homeserver", &self.homeserver)
             .finish()
     }
 }
@@ -66,6 +68,7 @@ impl Default for RequestConfig {
             retry_timeout: Default::default(),
             force_auth: false,
             assert_identity: false,
+            homeserver: None,
         }
     }
 }
@@ -119,6 +122,13 @@ impl RequestConfig {
     #[must_use]
     pub fn force_auth(mut self) -> Self {
         self.force_auth = true;
+        self
+    }
+
+    /// Configure to use a custom homeserver for this request
+    #[must_use]
+    pub fn homeserver(mut self, homeserver: String) -> Self {
+        self.homeserver = Some(homeserver);
         self
     }
 }

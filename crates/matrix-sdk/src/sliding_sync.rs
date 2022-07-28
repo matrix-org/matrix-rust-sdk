@@ -27,7 +27,7 @@ use ruma::{
 };
 use url::Url;
 
-use crate::{Client, Result};
+use crate::{config::RequestConfig, Client, Result};
 
 /// Define the state the SlidingSync View is in
 ///
@@ -389,10 +389,8 @@ impl SlidingSync {
 
         // FIXME: hack for while the sliding sync server is on a proxy
         let client = self.client.clone();
-        if let Some(hs) = &self.homeserver {
-            // poll the server version once before, our proxy doesnt' support it
-            client.set_homeserver(hs.clone()).await;
-        }
+        let req_config =
+            self.homeserver.as_ref().map(|hs| RequestConfig::default().homeserver(hs.to_string()));
 
         let final_stream = async_stream::try_stream! {
             let mut remaining_views = views.clone();
@@ -447,7 +445,7 @@ impl SlidingSync {
                 }
                 tracing::debug!("requesting");
                 let resp = client
-                    .send(req, None)
+                    .send(req, req_config.clone())
                     .await
                     ?;
                 tracing::debug!("received");
