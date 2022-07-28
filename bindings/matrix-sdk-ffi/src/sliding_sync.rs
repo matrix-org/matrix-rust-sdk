@@ -305,7 +305,7 @@ impl SlidingSyncViewBuilder {
     }
 
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSyncView>> {
-        let builder = unwrap_or_clone_arc(self);
+        let mut builder = unwrap_or_clone_arc(self);
         Ok(Arc::new(builder.inner.build()?.into()))
     }
 }
