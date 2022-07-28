@@ -554,7 +554,7 @@ impl SlidingSyncViewBuilder {
     }
 
     /// Build the view
-    pub fn build(mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
+    pub fn build(&mut self) -> Result<SlidingSyncView, SlidingSyncViewBuilderError> {
         let (sender, receiver) = futures_signals::signal::channel(());
         self.rooms_updated_signal = Some(sender);
         self.rooms_updated_broadcaster = Some(futures_signals::signal::Broadcaster::new(receiver));
