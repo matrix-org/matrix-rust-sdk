@@ -159,6 +159,7 @@ impl Joined {
     ///
     /// ```no_run
     /// use std::time::Duration;
+    ///
     /// use matrix_sdk::ruma::api::client::typing::create_typing_event::v3::Typing;
     ///
     /// # use matrix_sdk::{

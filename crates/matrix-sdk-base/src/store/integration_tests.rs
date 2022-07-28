@@ -17,13 +17,13 @@
 /// #[cfg(test)]
 /// mod tests {
 ///
-///    use super::{MyStore, StoreResult, StateStore};
+///     use super::{MyStore, StateStore, StoreResult};
 ///
-///    async fn get_store() -> StoreResult<impl StateStore> {
-///        Ok(MyStore::new())
-///    }
+///     async fn get_store() -> StoreResult<impl StateStore> {
+///         Ok(MyStore::new())
+///     }
 ///
-///    statestore_integration_tests! { integration }
+///     statestore_integration_tests! { integration }
 /// }
 /// ```
 #[allow(unused_macros, unused_extern_crates)]

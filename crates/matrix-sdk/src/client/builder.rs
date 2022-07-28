@@ -44,8 +44,9 @@ use crate::{
 /// them.
 ///
 /// ```
-/// use matrix_sdk::Client;
 /// use std::sync::Arc;
+///
+/// use matrix_sdk::Client;
 ///
 /// // setting up a custom http client
 /// let reqwest_builder = reqwest::ClientBuilder::new()
@@ -53,8 +54,8 @@ use crate::{
 ///     .no_proxy()
 ///     .user_agent("MyApp/v3.0");
 ///
-/// let client_builder = Client::builder()
-///     .http_client(Arc::new(reqwest_builder.build()?));
+/// let client_builder =
+///     Client::builder().http_client(Arc::new(reqwest_builder.build()?));
 /// # anyhow::Ok(())
 /// ```
 #[must_use]
@@ -128,7 +129,7 @@ impl ClientBuilder {
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
     /// # let custom_state_store = MemoryStore::new();
-    /// use matrix_sdk::{Client, config::StoreConfig};
+    /// use matrix_sdk::{config::StoreConfig, Client};
     ///
     /// let store_config = StoreConfig::new().state_store(custom_state_store);
     /// let client_builder = Client::builder().store_config(store_config);
@@ -187,8 +188,7 @@ impl ClientBuilder {
     /// # futures::executor::block_on(async {
     /// use matrix_sdk::Client;
     ///
-    /// let client_config = Client::builder()
-    ///     .proxy("http://localhost:8080");
+    /// let client_config = Client::builder().proxy("http://localhost:8080");
     ///
     /// # anyhow::Ok(())
     /// # });

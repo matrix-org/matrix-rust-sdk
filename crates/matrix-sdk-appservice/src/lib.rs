@@ -43,8 +43,8 @@
 //! # async {
 //! #
 //! use matrix_sdk_appservice::{
-//!     ruma::events::room::member::SyncRoomMemberEvent,
-//!     AppService, AppServiceRegistration
+//!     ruma::events::room::member::SyncRoomMemberEvent, AppService,
+//!     AppServiceRegistration,
 //! };
 //!
 //! let homeserver_url = "http://127.0.0.1:8008";
@@ -60,9 +60,11 @@
 //!           users:
 //!           - exclusive: true
 //!             regex: '@_appservice_.*'
-//!     ")?;
+//!     ",
+//! )?;
 //!
-//! let mut appservice = AppService::new(homeserver_url, server_name, registration).await?;
+//! let mut appservice =
+//!     AppService::new(homeserver_url, server_name, registration).await?;
 //! appservice
 //!     .virtual_user(None)
 //!     .await?
@@ -256,10 +258,12 @@ impl AppService {
     /// ```no_run
     /// # use matrix_sdk_appservice::AppService;
     /// # fn run(appservice: AppService) {
-    /// appservice.register_user_query(Box::new(|appservice, req| Box::pin(async move {
-    ///     println!("Got request for {}", req.user_id);
-    ///     true
-    /// })));
+    /// appservice.register_user_query(Box::new(|appservice, req| {
+    ///     Box::pin(async move {
+    ///         println!("Got request for {}", req.user_id);
+    ///         true
+    ///     })
+    /// }));
     /// # }
     /// ```
     pub async fn register_user_query(
@@ -278,10 +282,12 @@ impl AppService {
     /// ```no_run
     /// # use matrix_sdk_appservice::AppService;
     /// # fn run(appservice: AppService) {
-    /// appservice.register_room_query(Box::new(|appservice, req| Box::pin(async move {
-    ///     println!("Got request for {}", req.room_alias);
-    ///     true
-    /// })));
+    /// appservice.register_room_query(Box::new(|appservice, req| {
+    ///     Box::pin(async move {
+    ///         println!("Got request for {}", req.room_alias);
+    ///         true
+    ///     })
+    /// }));
     /// # }
     /// ```
     pub async fn register_room_query(

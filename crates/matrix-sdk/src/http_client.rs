@@ -50,7 +50,9 @@ pub trait HttpSend: AsyncTraitDeps {
     /// # Examples
     ///
     /// ```
-    /// use matrix_sdk::{HttpSend, async_trait, HttpError, config::RequestConfig, bytes::Bytes};
+    /// use matrix_sdk::{
+    ///     async_trait, bytes::Bytes, config::RequestConfig, HttpError, HttpSend,
+    /// };
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
