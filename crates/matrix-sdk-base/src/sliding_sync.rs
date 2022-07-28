@@ -1,7 +1,12 @@
+#[cfg(feature = "e2e-encryption")]
+use std::ops::Deref;
+
 use matrix_sdk_common::deserialized_responses::{
     AmbiguityChanges, JoinedRoom, Rooms, SyncResponse,
 };
 use ruma::api::client::sync::sync_events::{v3, v4};
+#[cfg(feature = "e2e-encryption")]
+use ruma::UserId;
 
 use super::BaseClient;
 use crate::{
@@ -98,14 +103,19 @@ impl BaseClient {
 
                 room_info.set_prev_batch(room_data.prev_batch.as_deref());
 
-                let _user_ids = self
-                    .handle_state(
-                        &room_data.required_state,
-                        &mut room_info,
-                        &mut changes,
-                        &mut ambiguity_cache,
+                let user_ids = if room_data.required_state.is_empty() {
+                    None
+                } else {
+                    Some(
+                        self.handle_state(
+                            &room_data.required_state,
+                            &mut room_info,
+                            &mut changes,
+                            &mut ambiguity_cache,
+                        )
+                        .await?,
                     )
-                    .await?;
+                };
 
                 // FIXME not yet supported by sliding sync.
                 // if let Some(event) =
@@ -148,9 +158,9 @@ impl BaseClient {
 
                 // changes.add_timeline(&room_id, timeline_slice);
 
-                #[cfg(feature = "encryption")]
+                #[cfg(feature = "e2e-encryption")]
                 if room_info.is_encrypted() {
-                    if let Some(o) = self.olm_machine().await {
+                    if let Some(o) = self.olm_machine() {
                         if !room.is_encrypted() {
                             // The room turned on encryption in this sync, we need
                             // to also get all the existing users and mark them for
@@ -163,10 +173,11 @@ impl BaseClient {
                             o.update_tracked_users(user_ids).await
                         }
 
-                        o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
+                        if let Some(user_ids) = user_ids {
+                            o.update_tracked_users(user_ids.iter().map(Deref::deref)).await;
+                        }
                     }
                 }
-
                 let notification_count = room_data.unread_notifications.clone().into();
                 room_info.update_notification_count(notification_count);
 

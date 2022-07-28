@@ -538,10 +538,11 @@ pub struct SlidingSyncView {
 
     /// Get informed if anything in the room changed
     ///
-    /// If you only care to know about changes once all of them hav applied (including the total)
-    /// listen to a clone of this signal.
+    /// If you only care to know about changes once all of them hav applied
+    /// (including the total) listen to a clone of this signal.
     #[builder(private)]
-    pub rooms_updated_broadcaster: futures_signals::signal::Broadcaster<futures_signals::signal::Receiver<()>>,
+    pub rooms_updated_broadcaster:
+        futures_signals::signal::Broadcaster<futures_signals::signal::Receiver<()>>,
 }
 
 /// the default name for the full sync view
