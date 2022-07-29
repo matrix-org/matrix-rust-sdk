@@ -40,8 +40,10 @@ pub enum OpenStoreError {
 }
 
 /// Create a [`StoreConfig`] with an opened sled [`StateStore`] that uses the
-/// given path and passphrase. If `encryption` is enabled, a [`CryptoStore`]
-/// with the same parameters is also opened.
+/// given path and passphrase.
+///
+/// If the `e2e-encryption` Cargo feature is enabled, a [`CryptoStore`] with the
+/// same parameters is also opened.
 ///
 /// [`StoreConfig`]: #StoreConfig
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
