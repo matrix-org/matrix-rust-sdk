@@ -172,6 +172,11 @@ impl ClientBuilder {
     /// Set a custom implementation of a `StateStore`.
     ///
     /// The state store should be opened before being set.
+    #[deprecated = "\
+        Use [`store_config`](#method.store_config), \
+        [`sled_store`](#method.sled_store) or \
+        [`indexeddb_store`](#method.indexeddb_store) instead
+    "]
     pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
         self.store_config = self.store_config.state_store(store);
         self
@@ -180,6 +185,11 @@ impl ClientBuilder {
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store should be opened before being set.
+    #[deprecated = "\
+        Use [`store_config`](#method.store_config), \
+        [`sled_store`](#method.sled_store) or \
+        [`indexeddb_store`](#method.indexeddb_store) instead
+    "]
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(
         mut self,
