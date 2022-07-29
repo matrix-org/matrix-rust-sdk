@@ -114,6 +114,20 @@ impl ClientBuilder {
         self
     }
 
+    /// Set up the store configuration for a sled store.
+    ///
+    /// This is a shorthand for
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_sled]::[make_store_config](matrix_sdk_sled::make_store_config)(path, passphrase)?)</code>.
+    #[cfg(feature = "sled")]
+    pub fn sled_store(
+        self,
+        path: impl AsRef<std::path::Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, matrix_sdk_sled::OpenStoreError> {
+        let config = matrix_sdk_sled::make_store_config(path, passphrase)?;
+        Ok(self.store_config(config))
+    }
+
     /// Set up the store configuration.
     ///
     /// The easiest way to get a [`StoreConfig`] is to use the
