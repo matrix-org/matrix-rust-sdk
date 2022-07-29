@@ -108,14 +108,7 @@ impl KeysQueryListener {
     /// If the given timeout has elapsed the method will stop waiting and return
     /// an error.
     pub async fn wait(&self, timeout: Duration) -> Result<(), ElapsedError> {
-        wait(
-            async {
-                self.inner.listen().await;
-                Ok(())
-            },
-            timeout,
-        )
-        .await?
+        wait(async { self.inner.listen().await }, timeout).await
     }
 }
 

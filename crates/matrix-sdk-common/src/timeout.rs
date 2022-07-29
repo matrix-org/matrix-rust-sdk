@@ -1,6 +1,6 @@
-use std::{fmt, time::Duration};
+use std::{error::Error, fmt, time::Duration};
 
-use futures_core::TryFuture;
+use futures_core::Future;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::timeout;
 #[cfg(target_arch = "wasm32")]
@@ -16,17 +16,36 @@ impl fmt::Display for ElapsedError {
     }
 }
 
-/// Wait for `future` to be completed.
+impl Error for ElapsedError {}
+
+impl From<std::io::Error> for ElapsedError {
+    fn from(io_error: std::io::Error) -> Self {
+        io_error.into()
+    }
+}
+
+/// Wait for `future` to be completed. `future` needs to return
+/// a `Result`.
 ///
 /// If the given timeout has elapsed the method will stop waiting and return
 /// an error.
-pub async fn wait<T, F: TryFuture<Output = T>>(
-    future: F,
-    duration: Duration,
-) -> Result<T, ElapsedError> {
+pub async fn wait<F, T>(future: F, duration: Duration) -> Result<T, ElapsedError>
+where
+    F: Future<Output = T>,
+{
     #[cfg(not(target_arch = "wasm32"))]
     return timeout(duration, future).await.map_err(|_| ElapsedError(()));
 
     #[cfg(target_arch = "wasm32")]
-    return future.timeout(duration).await.map_err(|_| ElapsedError(()));
+    {
+        let try_future = async {
+            let output = future.await;
+
+            // Contrary to clippy's note, the qualification of the Result is necessary
+            #[allow(unused_qualifications)]
+            Result::<T, ElapsedError>::Ok(output)
+        };
+
+        return try_future.timeout(duration).await.map_err(|_| ElapsedError(()));
+    }
 }
