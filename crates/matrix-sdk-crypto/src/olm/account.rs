@@ -47,7 +47,7 @@ use vodozemac::{
 
 use super::{
     utility::SignJson, EncryptionSettings, InboundGroupSession, OutboundGroupSession,
-    PrivateCrossSigningIdentity, Session,
+    PrivateCrossSigningIdentity, Session, SessionCreationError as MegolmSessionCreationError,
 };
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
@@ -1114,19 +1114,19 @@ impl ReadOnlyAccount {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
-    ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
-        if settings.algorithm != EventEncryptionAlgorithm::MegolmV1AesSha2 {
-            return Err(());
-        }
+    ) -> Result<(OutboundGroupSession, InboundGroupSession), MegolmSessionCreationError> {
+        trace!(?room_id, algorithm = settings.algorithm.as_str(), "Creating a new room key");
 
         let visibility = settings.history_visibility.clone();
+        let algorithm = settings.algorithm.to_owned();
 
         let outbound = OutboundGroupSession::new(
             self.device_id.clone(),
             self.identity_keys.clone(),
             room_id,
             settings,
-        );
+        )?;
+
         let identity_keys = self.identity_keys();
 
         let sender_key = identity_keys.curve25519;
@@ -1137,9 +1137,9 @@ impl ReadOnlyAccount {
             signing_key,
             room_id,
             &outbound.session_key().await,
-            outbound.settings().algorithm.to_owned(),
+            algorithm,
             Some(visibility),
-        );
+        )?;
 
         Ok((outbound, inbound))
     }

@@ -83,6 +83,10 @@ pub enum EventEncryptionAlgorithm {
     #[ruma_enum(rename = "m.megolm.v1.aes-sha2")]
     MegolmV1AesSha2,
 
+    /// Megolm version 2 using AES-256 and SHA-256.
+    #[ruma_enum(rename = "m.megolm.v2.aes-sha2")]
+    MegolmV2AesSha2,
+
     #[doc(hidden)]
     _Custom(PrivOwnedStr),
 }

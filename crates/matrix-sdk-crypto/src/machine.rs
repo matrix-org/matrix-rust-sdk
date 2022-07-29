@@ -574,7 +574,21 @@ impl OlmMachine {
                     None,
                 );
 
-                Ok(Some(session))
+                if let Ok(session) = session {
+                    info!(
+                        sender = %event.sender,
+                        sender_key = sender_key.to_base64(),
+                        room_id = %content.room_id,
+                        session_id = session.session_id(),
+                        algorithm = %event.algorithm(),
+                        "Received a new megolm room key",
+                    );
+
+                    Ok(Some(session))
+                } else {
+                    unsupported_warning();
+                    Ok(None)
+                }
             }
             RoomKeyContent::Unknown(_) => {
                 unsupported_warning();
@@ -987,6 +1001,7 @@ impl OlmMachine {
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
 
@@ -1165,6 +1180,7 @@ impl OlmMachine {
 
         let content = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
             RoomEventEncryptionScheme::Unknown(c) => {
                 warn!(
                     sender = event.sender.as_str(),
