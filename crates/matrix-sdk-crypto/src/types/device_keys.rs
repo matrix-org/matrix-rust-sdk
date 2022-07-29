@@ -20,15 +20,12 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{
-    serde::Raw, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
-    OwnedUserId,
-};
+use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
-use super::Signatures;
+use super::{events::EventEncryptionAlgorithm, Signatures};
 
 /// Identity keys for a device.
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -30,8 +30,8 @@ use ruma::{
     },
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
+    RoomId, SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
@@ -59,8 +59,9 @@ use crate::{
             olm_v1::AnyDecryptedOlmEvent,
             room::encrypted::{
                 EncryptedToDeviceEvent, OlmV1Curve25519AesSha2Content,
-                ToDeviceEncryptedEventContent,
+                OlmV2Curve25519AesSha2Content, ToDeviceEncryptedEventContent,
             },
+            EventEncryptionAlgorithm,
         },
         CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey,
     },
@@ -188,6 +189,14 @@ impl Account {
         }
     }
 
+    async fn decrypt_olm_v2(
+        &self,
+        sender: &UserId,
+        content: &OlmV2Curve25519AesSha2Content,
+    ) -> OlmResult<OlmDecryptionInfo> {
+        self.decrypt_olm_helper(sender, content.sender_key, &content.ciphertext).await
+    }
+
     async fn decrypt_olm_v1(
         &self,
         sender: &UserId,
@@ -219,6 +228,9 @@ impl Account {
         match &event.content {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
                 self.decrypt_olm_v1(&event.sender, c).await
+            }
+            ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) => {
+                self.decrypt_olm_v2(&event.sender, c).await
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(
@@ -943,21 +955,23 @@ impl ReadOnlyAccount {
     /// session failed.
     ///
     /// # Arguments
-    /// * `their_identity_key` - The other account's identity/curve25519 key.
+    /// * `config` - The session config that should be used when creating the
+    /// Session.
+    /// * `identity_key` - The other account's identity/curve25519 key.
     ///
-    /// * `their_one_time_key` - A signed one-time key that the other account
+    /// * `one_time_key` - A signed one-time key that the other account
     /// created and shared with us.
+    ///
+    /// * `fallback_used` - Was the one-time key a fallback key.
     pub async fn create_outbound_session_helper(
         &self,
+        config: SessionConfig,
         identity_key: Curve25519PublicKey,
         one_time_key: Curve25519PublicKey,
         fallback_used: bool,
     ) -> Session {
-        let session = self.inner.lock().await.create_outbound_session(
-            SessionConfig::version_1(),
-            identity_key,
-            one_time_key,
-        );
+        let session =
+            self.inner.lock().await.create_outbound_session(config, identity_key, one_time_key);
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = session.session_id();
@@ -1032,8 +1046,11 @@ impl ReadOnlyAccount {
 
         let is_fallback = one_time_key.fallback();
         let one_time_key = one_time_key.key();
+        let config = device.olm_session_config();
 
-        Ok(self.create_outbound_session_helper(identity_key, one_time_key, is_fallback).await)
+        Ok(self
+            .create_outbound_session_helper(config, identity_key, one_time_key, is_fallback)
+            .await)
     }
 
     /// Create a new session with another account given a pre-key Olm message.

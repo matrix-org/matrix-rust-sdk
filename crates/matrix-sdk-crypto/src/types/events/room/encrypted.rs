@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{DeviceId, EventEncryptionAlgorithm, OwnedDeviceId};
+use ruma::{DeviceId, OwnedDeviceId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
@@ -24,7 +24,7 @@ use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
 use super::Event;
 use crate::types::{
     deserialize_curve_key,
-    events::{EventType, ToDeviceEvent},
+    events::{EventEncryptionAlgorithm, EventType, ToDeviceEvent},
     serialize_curve_key,
 };
 
@@ -48,6 +48,9 @@ pub enum ToDeviceEncryptedEventContent {
     /// The event content for events encrypted with the m.megolm.v1.aes-sha2
     /// algorithm.
     OlmV1Curve25519AesSha2(Box<OlmV1Curve25519AesSha2Content>),
+    /// The event content for events encrypted with the m.olm.v2.aes-sha2
+    /// algorithm.
+    OlmV2Curve25519AesSha2(Box<OlmV2Curve25519AesSha2Content>),
     /// An event content that was encrypted with an unknown encryption
     /// algorithm.
     Unknown(UnknownEncryptedContent),
@@ -63,6 +66,9 @@ impl ToDeviceEncryptedEventContent {
         match self {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(_) => {
                 EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
+            }
+            ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(_) => {
+                EventEncryptionAlgorithm::OlmV2Curve25519AesSha2
             }
             ToDeviceEncryptedEventContent::Unknown(c) => c.algorithm.to_owned(),
         }
@@ -81,6 +87,18 @@ pub struct OlmV1Curve25519AesSha2Content {
     pub recipient_key: Curve25519PublicKey,
 
     /// The Curve25519 key of the sender.
+    pub sender_key: Curve25519PublicKey,
+}
+
+/// The event content for events encrypted with the m.olm.v2.curve25519-aes-sha2
+/// algorithm.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct OlmV2Curve25519AesSha2Content {
+    /// The encrypted content of the event.
+    pub ciphertext: OlmMessage,
+
+    /// The Curve25519 key of the sender.
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     pub sender_key: Curve25519PublicKey,
 }
 
@@ -309,6 +327,7 @@ scheme_serialization!(
 scheme_serialization!(
     ToDeviceEncryptedEventContent,
     OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content,
+    OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content,
 );
 
 #[cfg(test)]

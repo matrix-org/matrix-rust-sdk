@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId};
+use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 
 mod inbound;
@@ -29,7 +29,10 @@ use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
 
 use crate::types::{
     deserialize_curve_key,
-    events::forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
+    events::{
+        forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
+        EventEncryptionAlgorithm,
+    },
     serialize_curve_key, SigningKey, SigningKeys,
 };
 

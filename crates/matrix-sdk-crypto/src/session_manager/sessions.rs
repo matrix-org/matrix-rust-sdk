@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     sync::Arc,
     time::Duration,
 };
@@ -25,8 +25,8 @@ use ruma::{
     },
     assign,
     events::dummy::ToDeviceDummyEventContent,
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
-    OwnedUserId, SecondsSinceUnixEpoch, TransactionId, UserId,
+    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId,
+    SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use tracing::{debug, error, info, warn};
 use vodozemac::Curve25519PublicKey;
@@ -38,7 +38,7 @@ use crate::{
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
-    types::events::EventType,
+    types::events::{EventEncryptionAlgorithm, EventType},
     ReadOnlyDevice,
 };
 
@@ -230,8 +230,7 @@ impl SessionManager {
             let user_devices = self.get_user_devices(user_id).await?;
 
             for (device_id, device) in user_devices {
-                if !device.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
-                {
+                if !(device.supports_olm()) {
                     warn!(
                         user_id = device.user_id().as_str(),
                         device_id = device.device_id().as_str(),
@@ -299,10 +298,22 @@ impl SessionManager {
     ///
     /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
-        debug!(failures = ?response.failures, "Received a /keys/claim response");
+        debug!(failures = ?response.failures, "Received a `/keys/claim` response");
+
+        #[allow(dead_code)]
+        struct SessionInfo {
+            session_id: String,
+            algorithm: EventEncryptionAlgorithm,
+        }
+
+        impl std::fmt::Debug for SessionInfo {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "session_id: {}, algorithm: {}", self.session_id, self.algorithm.as_str())
+            }
+        }
 
         let mut changes = Changes::default();
-        let mut new_sessions: BTreeMap<&UserId, BTreeSet<&DeviceId>> = BTreeMap::new();
+        let mut new_sessions: BTreeMap<&UserId, BTreeMap<&DeviceId, SessionInfo>> = BTreeMap::new();
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
@@ -348,8 +359,13 @@ impl SessionManager {
                     error!(%user_id, %device_id, "Error while treating an unwedged device: {e:?}");
                 }
 
+                let session_info = SessionInfo {
+                    session_id: session.session_id().to_owned(),
+                    algorithm: session.algorithm().await,
+                };
+
                 changes.sessions.push(session);
-                new_sessions.entry(user_id).or_default().insert(device_id);
+                new_sessions.entry(user_id).or_default().insert(device_id, session_info);
             }
         }
 

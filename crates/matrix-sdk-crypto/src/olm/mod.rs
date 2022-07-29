@@ -49,7 +49,10 @@ pub(crate) mod tests {
         room_id, user_id, DeviceId, UserId,
     };
     use serde_json::{json, Value};
-    use vodozemac::{olm::OlmMessage, Curve25519PublicKey, Ed25519PublicKey};
+    use vodozemac::{
+        olm::{OlmMessage, SessionConfig},
+        Curve25519PublicKey, Ed25519PublicKey,
+    };
 
     use crate::{
         olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
@@ -82,7 +85,14 @@ pub(crate) mod tests {
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
-        let session = alice.create_outbound_session_helper(sender_key, one_time_key, false).await;
+        let session = alice
+            .create_outbound_session_helper(
+                SessionConfig::default(),
+                sender_key,
+                one_time_key,
+                false,
+            )
+            .await;
 
         (alice, session)
     }
@@ -128,8 +138,14 @@ pub(crate) mod tests {
 
         let one_time_key = *one_time_keys.values().next().unwrap();
 
-        let mut bob_session =
-            bob.create_outbound_session_helper(alice_keys.curve25519, one_time_key, false).await;
+        let mut bob_session = bob
+            .create_outbound_session_helper(
+                SessionConfig::default(),
+                alice_keys.curve25519,
+                one_time_key,
+                false,
+            )
+            .await;
 
         let plaintext = "Hello world";
 
