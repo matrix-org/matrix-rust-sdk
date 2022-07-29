@@ -128,6 +128,20 @@ impl ClientBuilder {
         Ok(self.store_config(config))
     }
 
+    /// Set up the store configuration for a IndexedDB store.
+    ///
+    /// This is a shorthand for
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_indexeddb]::[make_store_config](matrix_sdk_indexeddb::make_store_config)(path, passphrase).await?)</code>.
+    #[cfg(feature = "indexeddb")]
+    pub async fn indexeddb_store(
+        self,
+        name: impl Into<String>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, matrix_sdk_indexeddb::OpenStoreError> {
+        let config = matrix_sdk_indexeddb::make_store_config(name, passphrase).await?;
+        Ok(self.store_config(config))
+    }
+
     /// Set up the store configuration.
     ///
     /// The easiest way to get a [`StoreConfig`] is to use the
