@@ -520,7 +520,9 @@ impl fmt::Debug for ReadOnlyAccount {
 impl ReadOnlyAccount {
     const ALGORITHMS: &'static [&'static EventEncryptionAlgorithm] = &[
         &EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+        &EventEncryptionAlgorithm::OlmV2Curve25519AesSha2,
         &EventEncryptionAlgorithm::MegolmV1AesSha2,
+        &EventEncryptionAlgorithm::MegolmV2AesSha2,
     ];
 
     /// Create a fresh new account, this will generate the identity key-pair.
@@ -1183,7 +1185,7 @@ impl ReadOnlyAccount {
             .unwrap()
             .deserialize()
             .unwrap();
-        let content = if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
+        let content = if let ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) = message {
             c
         } else {
             panic!("Invalid encrypted event algorithm {}", message.algorithm());
