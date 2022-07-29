@@ -564,7 +564,7 @@ impl OlmMachine {
         };
 
         match &event.content {
-            RoomKeyContent::MegolmV1AesSha2(content) => {
+            RoomKeyContent::MegolmV1AesSha2(content) | RoomKeyContent::MegolmV2AesSha2(content) => {
                 let session = InboundGroupSession::new(
                     sender_key,
                     event.keys.ed25519,

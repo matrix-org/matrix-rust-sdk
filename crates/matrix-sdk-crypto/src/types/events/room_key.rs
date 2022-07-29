@@ -49,6 +49,8 @@ impl EventType for RoomKeyContent {
 pub enum RoomKeyContent {
     /// The `m.megolm.v1.aes-sha2` variant of the `m.room_key` content.
     MegolmV1AesSha2(Box<MegolmV1AesSha2Content>),
+    /// The `m.megolm.v2.aes-sha2` variant of the `m.room_key` content.
+    MegolmV2AesSha2(Box<MegolmV1AesSha2Content>),
     /// An unknown and unsupported variant of the `m.room_key` content.
     Unknown(UnknownRoomKey),
 }
@@ -58,6 +60,7 @@ impl RoomKeyContent {
     pub fn algorithm(&self) -> EventEncryptionAlgorithm {
         match &self {
             RoomKeyContent::MegolmV1AesSha2(_) => EventEncryptionAlgorithm::MegolmV1AesSha2,
+            RoomKeyContent::MegolmV2AesSha2(_) => EventEncryptionAlgorithm::MegolmV2AesSha2,
             RoomKeyContent::Unknown(c) => c.algorithm.to_owned(),
         }
     }
@@ -73,7 +76,7 @@ impl RoomKeyContent {
         }
 
         match self {
-            RoomKeyContent::MegolmV1AesSha2(c) => {
+            RoomKeyContent::MegolmV1AesSha2(c) | RoomKeyContent::MegolmV2AesSha2(c) => {
                 let helper = Helper {
                     room_id: &c.room_id,
                     session_id: &c.session_id,
@@ -126,6 +129,9 @@ impl std::fmt::Debug for MegolmV1AesSha2Content {
     }
 }
 
+/// The `m.megolm.v2.aes-sha2` variant of the `m.room_key` content.
+pub type MegolmV2AesSha2Content = MegolmV1AesSha2Content;
+
 /// An unknown and unsupported `m.room_key` algorithm.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UnknownRoomKey {
@@ -152,6 +158,10 @@ impl TryFrom<RoomKeyHelper> for RoomKeyContent {
                 let content: MegolmV1AesSha2Content = serde_json::from_value(value.other)?;
                 Self::MegolmV1AesSha2(content.into())
             }
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
+                let content: MegolmV2AesSha2Content = serde_json::from_value(value.other)?;
+                Self::MegolmV2AesSha2(content.into())
+            }
             _ => Self::Unknown(UnknownRoomKey {
                 algorithm: value.algorithm,
                 other: serde_json::from_value(value.other)?,
@@ -168,6 +178,10 @@ impl Serialize for RoomKeyContent {
         let helper = match self {
             Self::MegolmV1AesSha2(r) => RoomKeyHelper {
                 algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                other: serde_json::to_value(r).map_err(serde::ser::Error::custom)?,
+            },
+            Self::MegolmV2AesSha2(r) => RoomKeyHelper {
+                algorithm: EventEncryptionAlgorithm::MegolmV2AesSha2,
                 other: serde_json::to_value(r).map_err(serde::ser::Error::custom)?,
             },
             Self::Unknown(r) => RoomKeyHelper {
