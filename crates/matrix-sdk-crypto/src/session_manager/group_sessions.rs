@@ -455,14 +455,14 @@ impl GroupSessionManager {
             self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
 
         // Having an inbound group session here means that we created a new
-        // group session pair, we need to store the pair.
+        // group session pair, which we then need to store.
         if let Some(inbound) = inbound {
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
         }
 
         // Collect the recipient devices and check if either the settings
-        // changed or if the recipient list changed in a way that requires the
+        // or the recipient list changed in a way that requires the
         // session to be rotated.
         let (should_rotate, devices) =
             self.collect_session_recipients(users, &encryption_settings, &outbound).await?;
