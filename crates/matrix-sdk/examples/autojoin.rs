@@ -47,16 +47,13 @@ async fn login_and_sync(
     #[cfg(feature = "sled")]
     {
         // The location to save files to
-        let mut home = dirs::home_dir().expect("no home directory found");
-        home.push("autojoin_bot");
-        let state_store = matrix_sdk_sled::StateStore::builder().path(home).build()?;
-        client_builder = client_builder.state_store(state_store);
+        let home = dirs::home_dir().expect("no home directory found").join("autojoin_bot");
+        client_builder = client_builder.sled_store(home, None)?;
     }
 
     #[cfg(feature = "indexeddb")]
     {
-        let state_store = matrix_sdk_indexeddb::StateStore::builder().build()?;
-        client_builder = client_builder.state_store(state_store);
+        client_builder = client_builder.indexeddb_store("autojoin_bot", None).await?;
     }
 
     let client = client_builder.build().await?;
