@@ -60,7 +60,7 @@ macro_rules! cryptostore_integration_tests {
                 let one_time_key = *bob.one_time_keys().await.values().next().unwrap();
                 let sender_key = bob.identity_keys().curve25519;
                 let session =
-                    alice.create_outbound_session_helper(sender_key, one_time_key, false).await;
+                    alice.create_outbound_session_helper(Default::default(), sender_key, one_time_key, false).await;
 
                 (alice, session)
             }
