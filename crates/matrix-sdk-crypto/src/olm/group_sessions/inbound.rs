@@ -36,7 +36,9 @@ use vodozemac::{
     Curve25519PublicKey, Ed25519PublicKey, PickleError,
 };
 
-use super::{BackedUpRoomKey, ExportedRoomKey, SessionCreationError, SessionKey};
+use super::{
+    BackedUpRoomKey, ExportedRoomKey, OutboundGroupSession, SessionCreationError, SessionKey,
+};
 use crate::{
     error::{EventError, MegolmResult},
     types::{
@@ -101,15 +103,17 @@ impl InboundGroupSession {
         session_key: &SessionKey,
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
-    ) -> Self {
-        let session = InnerSession::new(session_key, SessionConfig::version_1());
+    ) -> Result<Self, SessionCreationError> {
+        let config = OutboundGroupSession::session_config(&encryption_algorithm)?;
+
+        let session = InnerSession::new(session_key, config);
         let session_id = session.session_id();
         let first_known_index = session.first_known_index();
 
         let mut keys = SigningKeys::new();
         keys.insert(DeviceKeyAlgorithm::Ed25519, signing_key.into());
 
-        InboundGroupSession {
+        Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             history_visibility: history_visibility.into(),
             session_id: session_id.into(),
@@ -121,7 +125,7 @@ impl InboundGroupSession {
             imported: false,
             algorithm: encryption_algorithm.into(),
             backed_up: AtomicBool::new(false).into(),
-        }
+        })
     }
 
     /// Create a InboundGroupSession from an exported version of the group
@@ -140,7 +144,9 @@ impl InboundGroupSession {
         room_id: &RoomId,
         backup: BackedUpRoomKey,
     ) -> Result<Self, SessionCreationError> {
-        let session = InnerSession::import(&backup.session_key, SessionConfig::version_1());
+        // We're using this session only to get the session id, the session
+        // config doesn't matter here.
+        let session = InnerSession::import(&backup.session_key, SessionConfig::default());
         let session_id = session.session_id();
 
         Self::from_export(&ExportedRoomKey {
@@ -168,8 +174,9 @@ impl InboundGroupSession {
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Self, SessionCreationError> {
         let algorithm = EventEncryptionAlgorithm::MegolmV1AesSha2;
+        let config = OutboundGroupSession::session_config(&algorithm)?;
 
-        let session = InnerSession::import(&content.session_key, SessionConfig::version_1());
+        let session = InnerSession::import(&content.session_key, config);
 
         let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
@@ -376,6 +383,9 @@ impl InboundGroupSession {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
                 self.decrypt_helper(&c.ciphertext).await?
             }
+            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => {
+                self.decrypt_helper(&c.ciphertext).await?
+            }
             RoomEventEncryptionScheme::Unknown(_) => {
                 return Err(EventError::UnsupportedAlgorithm.into());
             }
@@ -478,7 +488,8 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
     type Error = SessionCreationError;
 
     fn try_from(key: &ExportedRoomKey) -> Result<Self, Self::Error> {
-        let session = InnerSession::import(&key.session_key, SessionConfig::version_1());
+        let config = OutboundGroupSession::session_config(&key.algorithm)?;
+        let session = InnerSession::import(&key.session_key, config);
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {

@@ -244,7 +244,8 @@ mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
-        );
+        )
+        .unwrap();
 
         let store = GroupSessionStore::new();
         store.add(inbound.clone());
