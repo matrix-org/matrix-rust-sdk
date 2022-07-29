@@ -75,6 +75,10 @@ pub enum EventEncryptionAlgorithm {
     #[ruma_enum(rename = "m.olm.v1.curve25519-aes-sha2")]
     OlmV1Curve25519AesSha2,
 
+    /// Olm version 2 using Curve25519, AES-256, and SHA-256.
+    #[ruma_enum(rename = "m.olm.v2.curve25519-aes-sha2")]
+    OlmV2Curve25519AesSha2,
+
     /// Megolm version 1 using AES-256 and SHA-256.
     #[ruma_enum(rename = "m.megolm.v1.aes-sha2")]
     MegolmV1AesSha2,

@@ -27,12 +27,12 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::key::verification::VerificationMethod, serde::Raw, DeviceId, DeviceKeyAlgorithm,
-    DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, UserId,
+    DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use tracing::warn;
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
+use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(any(test, feature = "testing"))]
@@ -45,7 +45,7 @@ use crate::{
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
-            room::encrypted::ToDeviceEncryptedEventContent, EventType,
+            room::encrypted::ToDeviceEncryptedEventContent, EventEncryptionAlgorithm, EventType,
         },
         DeviceKey, DeviceKeys, Signatures, SignedKey, SigningKey,
     },
@@ -488,6 +488,27 @@ impl ReadOnlyDevice {
     /// Get the list of algorithms this device supports.
     pub fn algorithms(&self) -> &[EventEncryptionAlgorithm] {
         &self.inner.algorithms
+    }
+
+    /// Does this device support any of our known Olm encryption algorithms.
+    pub fn supports_olm(&self) -> bool {
+        self.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
+            || self.algorithms().contains(&EventEncryptionAlgorithm::OlmV2Curve25519AesSha2)
+    }
+
+    /// Does this device support the olm.v2.curve25519-aes-sha2 encryption
+    /// algorithm.
+    pub fn supports_olm_v2(&self) -> bool {
+        self.algorithms().contains(&EventEncryptionAlgorithm::OlmV2Curve25519AesSha2)
+    }
+
+    /// Get the optimal `SessionConfig` for this device.
+    pub fn olm_session_config(&self) -> SessionConfig {
+        if self.supports_olm_v2() {
+            SessionConfig::version_2()
+        } else {
+            SessionConfig::version_1()
+        }
     }
 
     /// Is the device deleted.

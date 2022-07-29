@@ -16,12 +16,12 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{serde::Raw, EventEncryptionAlgorithm, OwnedRoomId, RoomId};
+use ruma::{serde::Raw, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::megolm::SessionKey;
 
-use super::{EventType, ToDeviceEvent};
+use super::{EventEncryptionAlgorithm, EventType, ToDeviceEvent};
 
 /// The `m.room_key` to-device event.
 pub type RoomKeyEvent = ToDeviceEvent<RoomKeyContent>;

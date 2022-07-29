@@ -31,8 +31,8 @@ use ruma::{
             RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
         },
     },
-    DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
-    OwnedUserId, RoomId, TransactionId, UserId,
+    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
+    TransactionId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
@@ -48,7 +48,7 @@ use crate::{
         forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
         olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
         secret_send::SecretSendContent,
-        EventType,
+        EventEncryptionAlgorithm, EventType,
     },
     Device,
 };
@@ -608,7 +608,7 @@ impl GossipMachine {
         algorithm: &EventEncryptionAlgorithm,
     ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
-            algorithm.to_owned(),
+            ruma::EventEncryptionAlgorithm::from(algorithm.as_str()),
             room_id.to_owned(),
             sender_key.to_base64(),
             session_id.to_owned(),
@@ -686,7 +686,7 @@ impl GossipMachine {
         algorithm: &EventEncryptionAlgorithm,
     ) -> Result<bool, CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
-            algorithm.to_owned(),
+            ruma::EventEncryptionAlgorithm::from(algorithm.as_str()),
             room_id.to_owned(),
             sender_key.to_base64(),
             session_id.to_owned(),
@@ -716,7 +716,7 @@ impl GossipMachine {
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Option<GossipRequest>, CryptoStoreError> {
         let info = RequestedKeyInfo::new(
-            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            ruma::EventEncryptionAlgorithm::MegolmV1AesSha2,
             content.room_id.clone(),
             content.claimed_sender_key.to_base64(),
             content.session_id.clone(),

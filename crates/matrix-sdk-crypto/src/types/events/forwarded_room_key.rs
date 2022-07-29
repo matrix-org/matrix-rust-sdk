@@ -16,12 +16,12 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{EventEncryptionAlgorithm, OwnedRoomId};
+use ruma::OwnedRoomId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey, Ed25519PublicKey};
 
-use super::{EventType, ToDeviceEvent};
+use super::{EventEncryptionAlgorithm, EventType, ToDeviceEvent};
 use crate::types::{
     deserialize_curve_key, deserialize_curve_key_vec, deserialize_ed25519_key, serialize_curve_key,
     serialize_curve_key_vec, serialize_ed25519_key,

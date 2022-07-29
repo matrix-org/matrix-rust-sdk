@@ -28,8 +28,8 @@ use matrix_sdk_common::locks::RwLock;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
-    DeviceId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, SecondsSinceUnixEpoch,
+    TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -47,6 +47,7 @@ use crate::{
             MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
         },
         room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
+        EventEncryptionAlgorithm,
     },
     Device, ToDeviceRequest,
 };
@@ -107,7 +108,7 @@ impl EncryptionSettings {
             content.rotation_period_msgs.map_or(ROTATION_MESSAGES, Into::into);
 
         Self {
-            algorithm: content.algorithm,
+            algorithm: EventEncryptionAlgorithm::from(content.algorithm.as_str()),
             rotation_period,
             rotation_period_msgs,
             history_visibility,
