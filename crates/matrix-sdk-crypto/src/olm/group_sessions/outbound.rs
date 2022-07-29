@@ -41,10 +41,12 @@ pub use vodozemac::{
     PickleError,
 };
 
+use super::SessionCreationError;
 use crate::{
     types::events::{
         room::encrypted::{
-            MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
+            MegolmV1AesSha2Content, MegolmV2AesSha2Content, RoomEncryptedEventContent,
+            RoomEventEncryptionScheme,
         },
         room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
         EventEncryptionAlgorithm,
@@ -154,6 +156,16 @@ pub struct ShareInfo {
 }
 
 impl OutboundGroupSession {
+    pub(super) fn session_config(
+        algorithm: &EventEncryptionAlgorithm,
+    ) -> Result<SessionConfig, SessionCreationError> {
+        match algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => Ok(SessionConfig::version_1()),
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => Ok(SessionConfig::version_2()),
+            _ => Err(SessionCreationError::Algorithm(algorithm.to_owned())),
+        }
+    }
+
     /// Create a new outbound group session for the given room.
     ///
     /// Outbound group sessions are used to encrypt room messages.
@@ -174,11 +186,13 @@ impl OutboundGroupSession {
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
-    ) -> Self {
-        let session = GroupSession::new(SessionConfig::version_1());
+    ) -> Result<Self, SessionCreationError> {
+        let config = Self::session_config(&settings.algorithm)?;
+
+        let session = GroupSession::new(config);
         let session_id = session.session_id();
 
-        OutboundGroupSession {
+        Ok(OutboundGroupSession {
             inner: RwLock::new(session).into(),
             room_id: room_id.into(),
             device_id,
@@ -191,7 +205,7 @@ impl OutboundGroupSession {
             settings: Arc::new(settings),
             shared_with_set: Arc::new(DashMap::new()),
             to_share_with_set: Arc::new(DashMap::new()),
-        }
+        })
     }
 
     pub(crate) fn add_request(
@@ -298,14 +312,25 @@ impl OutboundGroupSession {
         let relates_to = content.get("m.relates_to").cloned();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
-
-        let scheme: RoomEventEncryptionScheme = MegolmV1AesSha2Content {
-            ciphertext,
-            sender_key: self.account_identity_keys.curve25519,
-            session_id: self.session_id().to_owned(),
-            device_id: (*self.device_id).to_owned(),
-        }
-        .into();
+        let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
+                ciphertext,
+                sender_key: self.account_identity_keys.curve25519,
+                session_id: self.session_id().to_owned(),
+                device_id: (*self.device_id).to_owned(),
+            }
+            .into(),
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => MegolmV2AesSha2Content {
+                ciphertext,
+                session_id: self.session_id().to_owned(),
+                sender_key: self.account_identity_keys.curve25519,
+                device_id: (*self.device_id).to_owned(),
+            }
+            .into(),
+            _ => unreachable!(
+                "An outbound group session is always using one of the supported algorithms"
+            ),
+        };
 
         let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
 

@@ -185,7 +185,8 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
-        );
+        )
+        .expect("We can always create an inbound group session from an outbound one");
 
         assert_eq!(0, inbound.first_known_index());
 
@@ -227,7 +228,8 @@ pub(crate) mod tests {
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),
             None,
-        );
+        )
+        .unwrap();
 
         assert_eq!(0, inbound.first_known_index());
 
