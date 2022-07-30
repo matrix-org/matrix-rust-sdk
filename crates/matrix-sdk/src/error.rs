@@ -101,6 +101,14 @@ pub enum HttpError {
     /// Tried to send a request without `user_id` in the `Session`
     #[error("missing user_id in session")]
     UserIdRequired,
+
+    /// Tried to send a refresh token request without a refresh token.
+    #[error("missing refresh token")]
+    RefreshTokenRequired,
+
+    /// There was an ongoing refresh token call that failed.
+    #[error("the access token could not be refreshed")]
+    UnableToRefreshToken,
 }
 
 /// Internal representation of errors.

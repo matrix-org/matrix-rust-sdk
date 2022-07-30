@@ -117,7 +117,7 @@ impl AuthenticationService {
 
                 // Restore the client using the session from the login request.
                 client
-                    .restore_session(session.clone())
+                    .restore_session(session)
                     .map(|_| client.clone())
                     .map_err(AuthenticationError::from)
             }
@@ -147,6 +147,7 @@ impl AuthenticationService {
 
                 let discovery_session = Session {
                     access_token: token.clone(),
+                    refresh_token: None,
                     user_id: discovery_user_id,
                     device_id: device_id.clone(),
                 };
@@ -156,8 +157,12 @@ impl AuthenticationService {
 
                 // Create the actual client with a store path from the user ID.
                 let homeserver_url = client.homeserver();
-                let session =
-                    Session { access_token: token, user_id: whoami.user_id.clone(), device_id };
+                let session = Session {
+                    access_token: token,
+                    refresh_token: None,
+                    user_id: whoami.user_id.clone(),
+                    device_id,
+                };
                 let client = Arc::new(ClientBuilder::new())
                     .base_path(self.base_path.clone())
                     .homeserver_url(homeserver_url)
