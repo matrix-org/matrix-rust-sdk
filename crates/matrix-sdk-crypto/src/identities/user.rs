@@ -1014,8 +1014,8 @@ pub(crate) mod tests {
         let identity = get_own_identity();
         let (first, second) = device(&response);
 
-        assert!(identity.is_device_signed(&first).is_err());
-        assert!(identity.is_device_signed(&second).is_ok());
+        identity.is_device_signed(&first).unwrap_err();
+        identity.is_device_signed(&second).unwrap();
 
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));

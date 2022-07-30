@@ -374,6 +374,6 @@ mod tests {
         let mut decryptor = AttachmentDecryptor::new(&mut cursor, key).unwrap();
         let mut decrypted_data = Vec::new();
 
-        assert!(decryptor.read_to_end(&mut decrypted_data).is_err())
+        decryptor.read_to_end(&mut decrypted_data).unwrap_err();
     }
 }

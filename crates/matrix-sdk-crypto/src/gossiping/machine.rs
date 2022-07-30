@@ -1257,7 +1257,7 @@ mod tests {
         );
         own_device.set_trust_state(LocalTrust::Verified);
         // Now we do want to share the keys.
-        assert!(machine.should_share_key(&own_device, &inbound).await.is_ok());
+        machine.should_share_key(&own_device, &inbound).await.unwrap();
 
         let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
         machine.store.save_devices(&[bob_device]).await.unwrap();
@@ -1303,7 +1303,7 @@ mod tests {
                 bob_device.curve25519_key().unwrap(),
             )
             .await;
-        assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
+        machine.should_share_key(&bob_device, &inbound).await.unwrap();
 
         let (other_outbound, other_inbound) =
             account.create_group_session_pair_with_defaults(room_id()).await;

@@ -412,7 +412,7 @@ async fn room_attachment_send_wrong_info() {
 
     let response = room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await;
 
-    assert!(response.is_err())
+    response.unwrap_err();
 }
 
 #[async_test]

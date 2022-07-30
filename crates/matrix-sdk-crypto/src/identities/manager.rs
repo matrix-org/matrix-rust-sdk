@@ -860,7 +860,7 @@ pub(crate) mod tests {
 
         manager.receive_keys_query_response(&other_key_query()).await.unwrap();
 
-        assert!(task.await.unwrap().is_ok());
+        task.await.unwrap().unwrap();
 
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
@@ -874,7 +874,7 @@ pub(crate) mod tests {
         let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
-        assert!(identity.is_device_signed(&device).is_ok())
+        identity.is_device_signed(&device).unwrap();
     }
 
     #[async_test]
@@ -898,7 +898,7 @@ pub(crate) mod tests {
         let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
-        assert!(identity.is_device_signed(&device).is_ok())
+        identity.is_device_signed(&device).unwrap();
     }
 
     #[async_test]

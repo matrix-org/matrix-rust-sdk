@@ -135,7 +135,7 @@ pub enum EventError {
 
     #[error(
         "the room id of the room key doesn't match the room id of the \
-        decrypted event: expected {0}, got {:1}"
+        decrypted event: expected {0}, got {1:?}"
     )]
     MismatchedRoom(OwnedRoomId, Option<OwnedRoomId>),
 }

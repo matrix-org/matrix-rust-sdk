@@ -1768,7 +1768,7 @@ pub(crate) mod tests {
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             &device_keys,
         );
-        assert!(ret.is_ok());
+        ret.unwrap();
     }
 
     #[async_test]
@@ -1801,7 +1801,7 @@ pub(crate) mod tests {
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             &device_keys,
         );
-        assert!(ret.is_err());
+        ret.unwrap_err();
     }
 
     #[async_test]
@@ -1851,7 +1851,7 @@ pub(crate) mod tests {
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             &one_time_key,
         );
-        assert!(ret.is_ok());
+        ret.unwrap();
 
         let device_keys: DeviceKeys = request.device_keys.unwrap().deserialize_as().unwrap();
 
@@ -1860,7 +1860,7 @@ pub(crate) mod tests {
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             &device_keys,
         );
-        assert!(ret.is_ok());
+        ret.unwrap();
 
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
