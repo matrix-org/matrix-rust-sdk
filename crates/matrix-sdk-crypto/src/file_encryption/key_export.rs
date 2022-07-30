@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn test_decode() {
         let export = export_without_headers();
-        assert!(decode(export).is_ok());
+        decode(export).unwrap();
     }
 
     #[test]
