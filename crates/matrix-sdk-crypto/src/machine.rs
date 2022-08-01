@@ -750,7 +750,9 @@ impl OlmMachine {
                 decrypted.inbound_group_session = session;
             }
             ToDeviceEvents::SecretSend(mut e) => {
-                self.key_request_machine.receive_secret(&decrypted.sender_key, &mut e).await?;
+                self.key_request_machine
+                    .receive_secret_event(&decrypted.sender_key, &mut e)
+                    .await?;
                 decrypted.event = Raw::from_json(to_raw_value(&e)?)
             }
             _ => {

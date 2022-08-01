@@ -743,7 +743,7 @@ impl GossipMachine {
     /// Mark the given outgoing key info as done.
     ///
     /// This will queue up a request cancellation.
-    async fn mark_as_done(&self, key_info: GossipRequest) -> Result<(), CryptoStoreError> {
+    async fn mark_as_done(&self, key_info: &GossipRequest) -> Result<(), CryptoStoreError> {
         trace!(
             recipient = key_info.request_recipient.as_str(),
             request_type = key_info.request_type(),
@@ -754,7 +754,7 @@ impl GossipMachine {
         self.outgoing_requests.remove(&key_info.request_id);
         // TODO return the key info instead of deleting it so the sync handler
         // can delete it in one transaction.
-        self.delete_key_info(&key_info).await?;
+        self.delete_key_info(key_info).await?;
 
         let request = key_info.to_cancellation(self.device_id());
         self.outgoing_requests.insert(request.request_id.clone(), request);
@@ -762,7 +762,88 @@ impl GossipMachine {
         Ok(())
     }
 
-    pub async fn receive_secret(
+    async fn accept_secret(
+        &self,
+        event: &mut SecretSendEvent,
+        request: &GossipRequest,
+        secret_name: &SecretName,
+    ) -> Result<(), CryptoStoreError> {
+        if secret_name != &SecretName::RecoveryKey {
+            match self.store.import_secret(secret_name, &event.content.secret).await {
+                Ok(_) => self.mark_as_done(request).await?,
+                Err(e) => {
+                    // If this is a store error propagate it up
+                    // the call stack.
+                    if let SecretImportError::Store(e) = e {
+                        return Err(e);
+                    } else {
+                        // Otherwise warn that there was
+                        // something wrong with the secret.
+                        warn!(
+                            secret_name = secret_name.as_ref(),
+                            error = ?e,
+                            "Error while importing a secret"
+                        )
+                    }
+                }
+            }
+        } else {
+            // Skip importing the recovery key here since
+            // we'll want to check if the public key matches
+            // to the latest version on the server. The key
+            // will not be zeroized and
+            // instead leave the key in the event and let
+            // the user import it later.
+        }
+
+        Ok(())
+    }
+
+    async fn receive_secret(
+        &self,
+        sender_key: &str,
+        event: &mut SecretSendEvent,
+        request: &GossipRequest,
+        secret_name: &SecretName,
+    ) -> Result<(), CryptoStoreError> {
+        // Set the secret name so other consumers of the event know
+        // what this event is about.
+        event.content.secret_name = Some(secret_name.to_owned());
+
+        debug!(
+            sender = event.sender.as_str(),
+            request_id = event.content.request_id.as_str(),
+            secret_name = secret_name.as_ref(),
+            "Received a m.secret.send event with a matching request"
+        );
+
+        if let Some(device) =
+            self.store.get_device_from_curve_key(&event.sender, sender_key).await?
+        {
+            if device.verified() {
+                self.accept_secret(event, request, secret_name).await?;
+            } else {
+                warn!(
+                    sender = event.sender.as_str(),
+                    request_id = event.content.request_id.as_str(),
+                    secret_name = secret_name.as_ref(),
+                    "Received a m.secret.send event from an unverified device"
+                );
+            }
+        } else {
+            warn!(
+                sender = event.sender.as_str(),
+                request_id = event.content.request_id.as_str(),
+                secret_name = secret_name.as_ref(),
+                "Received a m.secret.send event from an unknown device"
+            );
+            self.store.update_tracked_user(&event.sender, true).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn receive_secret_event(
         &self,
         sender_key: &str,
         event: &mut SecretSendEvent,
@@ -785,69 +866,7 @@ impl GossipMachine {
                     );
                 }
                 SecretInfo::SecretRequest(secret_name) => {
-                    // Set the secret name so other consumers of the event know
-                    // what this event is about.
-                    event.content.secret_name = Some(secret_name.to_owned());
-
-                    debug!(
-                        sender = event.sender.as_str(),
-                        request_id = event.content.request_id.as_str(),
-                        secret_name = secret_name.as_ref(),
-                        "Received a m.secret.send event with a matching request"
-                    );
-
-                    if let Some(device) =
-                        self.store.get_device_from_curve_key(&event.sender, sender_key).await?
-                    {
-                        if device.verified() {
-                            if secret_name != &SecretName::RecoveryKey {
-                                match self
-                                    .store
-                                    .import_secret(secret_name, &event.content.secret)
-                                    .await
-                                {
-                                    Ok(_) => self.mark_as_done(request).await?,
-                                    Err(e) => {
-                                        // If this is a store error propagate it up
-                                        // the call stack.
-                                        if let SecretImportError::Store(e) = e {
-                                            return Err(e);
-                                        } else {
-                                            // Otherwise warn that there was
-                                            // something wrong with the secret.
-                                            warn!(
-                                                secret_name = secret_name.as_ref(),
-                                                error = ?e,
-                                                "Error while importing a secret"
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Skip importing the recovery key here since
-                                // we'll want to check if the public key matches
-                                // to the latest version on the server. The key
-                                // will not be zeroized and
-                                // instead leave the key in the event and let
-                                // the user import it later.
-                            }
-                        } else {
-                            warn!(
-                                sender = event.sender.as_str(),
-                                request_id = event.content.request_id.as_str(),
-                                secret_name = secret_name.as_ref(),
-                                "Received a m.secret.send event from an unverified device"
-                            );
-                        }
-                    } else {
-                        warn!(
-                            sender = event.sender.as_str(),
-                            request_id = event.content.request_id.as_str(),
-                            secret_name = secret_name.as_ref(),
-                            "Received a m.secret.send event from an unknown device"
-                        );
-                        self.store.update_tracked_user(&event.sender, true).await?;
-                    }
+                    self.receive_secret(sender_key, event, &request, secret_name).await?;
                 }
             }
         }
@@ -884,14 +903,14 @@ impl GossipMachine {
                         let first_index = session.first_known_index();
 
                         if first_old_index > first_index {
-                            self.mark_as_done(info).await?;
+                            self.mark_as_done(&info).await?;
                             Some(session)
                         } else {
                             None
                         }
                     // If we didn't have a previous session, store it.
                     } else {
-                        self.mark_as_done(info).await?;
+                        self.mark_as_done(&info).await?;
                         Some(session)
                     };
 
