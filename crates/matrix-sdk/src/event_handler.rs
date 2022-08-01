@@ -306,13 +306,12 @@ impl Client {
             event_type: Cow<'a, str>,
         }
 
-        self.handle_sync_events_wrapped_with(
-            room,
-            events,
-            |ev| (ev, None),
-            |raw| Ok((kind, raw.deserialize_as::<ExtractType<'_>>()?.event_type)),
-        )
-        .await
+        for raw_event in events {
+            let event_type = raw_event.deserialize_as::<ExtractType<'_>>()?.event_type;
+            self.call_event_handlers(room, raw_event.json(), kind, &event_type, None).await;
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn handle_sync_state_events(
@@ -331,17 +330,13 @@ impl Client {
         self.handle_sync_events(EventKind::State, room, state_events).await?;
 
         // Event handlers specifically for redacted OR unredacted state events
-        self.handle_sync_events_wrapped_with(
-            room,
-            state_events,
-            |ev| (ev, None),
-            |raw| {
-                let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
-                let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-                Ok((EventKind::state_redacted(redacted), event_type))
-            },
-        )
-        .await?;
+        for raw_event in state_events {
+            let StateEventDetails { event_type, unsigned } = raw_event.deserialize_as()?;
+            let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
+            let event_kind = EventKind::state_redacted(redacted);
+
+            self.call_event_handlers(room, raw_event.json(), event_kind, &event_type, None).await;
+        }
 
         Ok(())
     }
@@ -360,59 +355,36 @@ impl Client {
         }
 
         // Event handlers for possibly-redacted timeline events
-        self.handle_sync_events_wrapped_with(
-            room,
-            timeline_events,
-            |e| (&e.event, e.encryption_info.as_ref()),
-            |raw| {
-                let TimelineEventDetails { event_type, state_key, .. } = raw.deserialize_as()?;
+        for item in timeline_events {
+            let TimelineEventDetails { event_type, state_key, .. } = item.event.deserialize_as()?;
 
-                let kind = match state_key {
-                    Some(_) => EventKind::State,
-                    None => EventKind::MessageLike,
-                };
+            let event_kind = match state_key {
+                Some(_) => EventKind::State,
+                None => EventKind::MessageLike,
+            };
 
-                Ok((kind, event_type))
-            },
-        )
-        .await?;
+            let raw_event = &item.event.json();
+            let encryption_info = item.encryption_info.as_ref();
+
+            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
+                .await;
+        }
 
         // Event handlers specifically for redacted OR unredacted timeline events
-        self.handle_sync_events_wrapped_with(
-            room,
-            timeline_events,
-            |e| (&e.event, e.encryption_info.as_ref()),
-            |raw| {
-                let TimelineEventDetails { event_type, state_key, unsigned } =
-                    raw.deserialize_as()?;
+        for item in timeline_events {
+            let TimelineEventDetails { event_type, state_key, unsigned } =
+                item.event.deserialize_as()?;
 
-                let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-                let kind = match state_key {
-                    Some(_) => EventKind::state_redacted(redacted),
-                    None => EventKind::message_like_redacted(redacted),
-                };
+            let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
+            let event_kind = match state_key {
+                Some(_) => EventKind::state_redacted(redacted),
+                None => EventKind::message_like_redacted(redacted),
+            };
 
-                Ok((kind, event_type))
-            },
-        )
-        .await?;
+            let raw_event = &item.event.json();
+            let encryption_info = item.encryption_info.as_ref();
 
-        Ok(())
-    }
-
-    async fn handle_sync_events_wrapped_with<'a, T: 'a, U: 'a>(
-        &self,
-        room: &Option<room::Room>,
-        list: &'a [U],
-        get_event_details: impl Fn(&'a U) -> (&'a Raw<T>, Option<&'a EncryptionInfo>),
-        get_id: impl Fn(&Raw<T>) -> serde_json::Result<(EventKind, Cow<'_, str>)>,
-    ) -> serde_json::Result<()> {
-        for x in list {
-            let (raw_event, encryption_info) = get_event_details(x);
-            let (ev_kind, ev_type) = get_id(raw_event)?;
-            let ev_type: &str = ev_type.as_ref();
-
-            self.call_event_handlers(room, raw_event.json(), ev_kind, ev_type, encryption_info)
+            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
                 .await;
         }
 
