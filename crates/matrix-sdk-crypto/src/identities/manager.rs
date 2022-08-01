@@ -22,7 +22,7 @@ use std::{
 use futures_util::future::join_all;
 use matrix_sdk_common::{
     executor::spawn,
-    timeout::{wait, ElapsedError},
+    timeout::{timeout, ElapsedError},
 };
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
@@ -107,8 +107,8 @@ impl KeysQueryListener {
     ///
     /// If the given timeout has elapsed the method will stop waiting and return
     /// an error.
-    pub async fn wait(&self, timeout: Duration) -> Result<(), ElapsedError> {
-        wait(async { self.inner.listen().await }, timeout).await
+    pub async fn wait(&self, duration: Duration) -> Result<(), ElapsedError> {
+        timeout(self.inner.listen(), duration).await
     }
 }
 

@@ -2,7 +2,7 @@ use std::{error::Error, fmt, time::Duration};
 
 use futures_core::Future;
 #[cfg(not(target_arch = "wasm32"))]
-use tokio::time::timeout;
+use tokio::time::timeout as tokio_timeout;
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::ext::TryFutureExt;
 
@@ -29,12 +29,12 @@ impl From<std::io::Error> for ElapsedError {
 ///
 /// If the given timeout has elapsed the method will stop waiting and return
 /// an error.
-pub async fn wait<F, T>(future: F, duration: Duration) -> Result<T, ElapsedError>
+pub async fn timeout<F, T>(future: F, duration: Duration) -> Result<T, ElapsedError>
 where
     F: Future<Output = T>,
 {
     #[cfg(not(target_arch = "wasm32"))]
-    return timeout(duration, future).await.map_err(|_| ElapsedError(()));
+    return tokio_timeout(duration, future).await.map_err(|_| ElapsedError(()));
 
     #[cfg(target_arch = "wasm32")]
     {
