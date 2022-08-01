@@ -136,7 +136,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: nextest
-          args: run --workspace
+          args: run --workspace --exclude matrix-sdk-integration-testing
 
       - name: Test documentation
         uses: actions-rs/cargo@v1
@@ -237,6 +237,9 @@ jobs:
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - uses: actions/setup-python@v4
         with:
           python-version: 3.8
@@ -248,5 +251,8 @@ jobs:
           disableRateLimiting: true
           serverName: "matrix-sdk.rs"
 
-      - name: Run matrix sdk integration tests
-        run: cargo test -p matrix-sdk-integration-testing
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: nextest
+          args: run -p matrix-sdk-integration-testing
