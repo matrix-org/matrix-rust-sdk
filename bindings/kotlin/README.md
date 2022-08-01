@@ -1,6 +1,6 @@
 # Matrix Rust SDK components for kotlin
 
-For now, his project only builds the matrix-sdk-crypto-ffi crate, generate the android bindings and wraps that as a aar lib distributed on maven.
+For now, this project only builds the matrix-sdk-crypto-ffi crate, generate the android bindings and wraps that as a aar lib distributed on maven.
 
 ## License
 
