@@ -46,7 +46,7 @@ where
             Result::<T, ElapsedError>::Ok(output)
         };
 
-        return try_future.timeout(duration).await.map_err(|_| ElapsedError(()));
+        return try_future.timeout(duration).await;
     }
 }
 
@@ -77,7 +77,7 @@ pub(crate) mod tests {
 
         let res = timeout(fut, duration_timeout).await;
 
-        assert!(res.is_ok());
+        res.expect("future should have completed without ElapsedError");
     }
 
     #[async_test]
@@ -92,6 +92,6 @@ pub(crate) mod tests {
 
         let res = timeout(fut, duration_timeout).await;
 
-        assert!(res.is_err());
+        res.expect_err("future should throw an ElapsedError");
     }
 }
