@@ -22,11 +22,16 @@ jobs:
           toolchain: nightly
           override: true
 
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
       - name: Load cache
         uses: Swatinem/rust-cache@v1
 
       # Keep in sync with xtask docs
-      - name: Build documentation
+      - name: Build rust documentation
         uses: actions-rs/cargo@v1
         env:
           # Work around https://github.com/rust-lang/cargo/issues/10744
@@ -35,6 +40,26 @@ jobs:
         with:
           command: doc
           args: --no-deps --workspace --features docsrs
+
+      - name: Build `matrix-sdk-crypto-nodejs` doc
+        run: |
+          cd bindings/matrix-sdk-crypto-nodejs
+          npm install
+          npm run build && npm run doc
+
+      - name: Build `matrix-sdk-crypto-js` doc
+        run: |
+          cd bindings/matrix-sdk-crypto-js
+          npm install
+          npm run build && npm run doc
+
+      - name: Prepare the doc hierarchy
+        shell: bash
+        run: |
+          mkdir -p target/docs/bindings/matrix-sdk-crypto-nodejs/
+          mkdir -p target/docs/bindings/matrix-sdk-crypto-js/
+          mv bindings/matrix-sdk-crypto-nodejs/docs/* target/docs/bindings/matrix-sdk-crypto-nodejs/
+          mv bindings/matrix-sdk-crypto-js/docs/* target/docs/bindings/matrix-sdk-crypto-js/
 
       - name: Deploy documentation
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
