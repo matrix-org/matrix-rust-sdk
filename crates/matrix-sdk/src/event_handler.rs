@@ -412,46 +412,56 @@ impl Client {
             let (ev_kind, ev_type) = get_id(raw_event)?;
             let ev_type: &str = ev_type.as_ref();
 
-            // Construct event handler futures
-            let futures: Vec<_> = {
-                let handlers_lock = self.event_handlers().await;
-
-                let non_room_event_handlers = handlers_lock
-                    .get(&EventHandlerKey { ev_kind, ev_type, room_id: None })
-                    .into_iter()
-                    .flatten();
-
-                let room_event_handlers = room.iter().flat_map(|r| {
-                    let room_id = Some(r.room_id().to_owned());
-                    handlers_lock
-                        .get(&EventHandlerKey { ev_kind, ev_type, room_id })
-                        .into_iter()
-                        .flatten()
-                });
-
-                non_room_event_handlers
-                    .chain(room_event_handlers)
-                    .map(|handler_wrapper| {
-                        let data = EventHandlerData {
-                            client: self.clone(),
-                            room: room.clone(),
-                            raw: raw_event.json(),
-                            encryption_info,
-                            handle: handler_wrapper.handle,
-                        };
-                        (handler_wrapper.handler_fn)(data)
-                    })
-                    .collect()
-            };
-
-            // Run the event handler futures with the `self.event_handlers` lock
-            // no longer being held, in order.
-            for fut in futures {
-                fut.await;
-            }
+            self.call_event_handlers(room, raw_event.json(), ev_kind, ev_type, encryption_info)
+                .await;
         }
 
         Ok(())
+    }
+
+    async fn call_event_handlers(
+        &self,
+        room: &Option<room::Room>,
+        raw: &RawJsonValue,
+        ev_kind: EventKind,
+        ev_type: &str,
+        encryption_info: Option<&EncryptionInfo>,
+    ) {
+        // Construct event handler futures
+        let futures: Vec<_> = {
+            let handlers_lock = self.event_handlers().await;
+
+            let non_room_event_handlers = handlers_lock
+                .get(&EventHandlerKey { ev_kind, ev_type, room_id: None })
+                .into_iter()
+                .flatten();
+
+            let room_event_handlers = room.iter().flat_map(|r| {
+                let room_id = Some(r.room_id().to_owned());
+                handlers_lock
+                    .get(&EventHandlerKey { ev_kind, ev_type, room_id })
+                    .into_iter()
+                    .flatten()
+            });
+
+            non_room_event_handlers
+                .chain(room_event_handlers)
+                .map(|handler_wrapper| {
+                    let client = self.clone();
+                    let room = room.clone();
+                    let handle = handler_wrapper.handle;
+                    let data = EventHandlerData { client, room, raw, encryption_info, handle };
+
+                    (handler_wrapper.handler_fn)(data)
+                })
+                .collect()
+        };
+
+        // Run the event handler futures with the `self.event_handlers` lock
+        // no longer being held, in order.
+        for fut in futures {
+            fut.await;
+        }
     }
 }
 
