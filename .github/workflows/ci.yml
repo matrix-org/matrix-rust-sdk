@@ -247,12 +247,6 @@ jobs:
           httpPort: 8228
           disableRateLimiting: true
           serverName: "matrix-sdk.rs"
-          public_baseurl: "http://10.0.2.2:8228/"
-          customConfig: |
-            {
-              "enable_registration_without_verification": true,
-              "enable_registration": true
-            }
 
       - name: Run matrix sdk integration tests
         run: cargo test -p matrix-sdk-integration-testing
