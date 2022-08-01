@@ -2,8 +2,9 @@
 use base64::{encode_config as base64_encode, STANDARD_NO_PAD};
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::{GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType},
-    receipt::ReceiptType,
+    events::{
+        receipt::ReceiptType, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+    },
     DeviceId, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, TransactionId,
     UserId,
 };
@@ -71,8 +72,7 @@ pub trait SafeEncode {
         store_cipher: &StoreCipher,
         i: usize,
     ) -> JsValue {
-        format!("{}{}{:016x}", self.as_secure_string(table_name, store_cipher), KEY_SEPARATOR, i,)
-            .into()
+        format!("{}{KEY_SEPARATOR}{i:016x}", self.as_secure_string(table_name, store_cipher)).into()
     }
 
     /// Encode self into a IdbKeyRange for searching all keys that are

@@ -16,6 +16,12 @@ resolver = "2"
 [profile.release]
 lto = true
 
+[profile.dev]
+# Copied from rust-analyzer. Saves a lot of disk space and hopefully
+# compilation time / mem usage too, at the expense of potentially having to
+# change this setting here when you want to use a debugger.
+debug = 0
+
 [profile.dev.package]
 # Optimize quote even in debug mode. Speeds up proc-macros enough to account
 # for the extra time of optimizing it for a clean build of matrix-sdk-ffi.

@@ -33,7 +33,7 @@ pub use types::{
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "decode_image")]
-    use std::{convert::TryFrom, io::Cursor};
+    use std::io::Cursor;
 
     #[cfg(feature = "decode_image")]
     use image::{ImageFormat, Luma};

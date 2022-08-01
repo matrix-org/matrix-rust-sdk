@@ -172,7 +172,7 @@ async fn login_with_sso_token() {
     assert!(can_sso);
 
     let sso_url = client.get_sso_login_url("http://127.0.0.1:3030", None).await;
-    assert!(sso_url.is_ok());
+    sso_url.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -280,7 +280,7 @@ async fn devices() {
         .mount(&server)
         .await;
 
-    assert!(client.devices().await.is_ok());
+    client.devices().await.unwrap();
 }
 
 #[async_test]
@@ -360,12 +360,12 @@ async fn resolve_room_alias() {
         .await;
 
     let alias = ruma::room_alias_id!("#alias:example.org");
-    assert!(client.resolve_room_alias(alias).await.is_ok());
+    client.resolve_room_alias(alias).await.unwrap();
 }
 
 #[async_test]
 async fn join_leave_room() {
-    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
     let (client, server) = logged_in_client().await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
@@ -501,7 +501,7 @@ async fn left_rooms() {
     assert!(!client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
 
-    assert!(client.get_left_room(room_id!("!SVkFJHzfwvuaIEawgC:localhost")).is_some())
+    assert!(client.get_left_room(&test_json::DEFAULT_SYNC_ROOM_ID).is_some())
 }
 
 #[async_test]
@@ -520,9 +520,9 @@ async fn get_media_content() {
         .mount(&server)
         .await;
 
-    assert!(client.get_media_content(&request, true).await.is_ok());
-    assert!(client.get_media_content(&request, true).await.is_ok());
-    assert!(client.get_media_content(&request, false).await.is_ok());
+    client.get_media_content(&request, true).await.unwrap();
+    client.get_media_content(&request, true).await.unwrap();
+    client.get_media_content(&request, false).await.unwrap();
 }
 
 #[async_test]
@@ -548,8 +548,8 @@ async fn get_media_file() {
         .mount(&server)
         .await;
 
-    assert!(client.get_file(event_content.clone(), true).await.is_ok());
-    assert!(client.get_file(event_content.clone(), true).await.is_ok());
+    client.get_file(event_content.clone(), true).await.unwrap();
+    client.get_file(event_content.clone(), true).await.unwrap();
 
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/thumbnail/example%2Eorg/image"))
@@ -561,14 +561,14 @@ async fn get_media_file() {
         .mount(&server)
         .await;
 
-    assert!(client
+    client
         .get_thumbnail(
             event_content,
             MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-            true
+            true,
         )
         .await
-        .is_ok());
+        .unwrap();
 }
 
 #[async_test]

@@ -14,7 +14,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryInto,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };

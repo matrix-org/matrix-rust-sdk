@@ -25,7 +25,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
         {
             let member = room.get_member(&sender).await.unwrap().unwrap();
             let name = member.display_name().unwrap_or_else(|| member.user_id().as_str());
-            println!("{}: {}", name, msg_body);
+            println!("{name}: {msg_body}");
         }
     }
 }
@@ -34,7 +34,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).await.unwrap();
 
-    client.register_event_handler(on_room_message).await;
+    client.add_event_handler(on_room_message).await;
 
     client
         .login_username(username, password)

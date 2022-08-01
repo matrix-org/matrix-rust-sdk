@@ -39,7 +39,7 @@ pub enum OlmError {
 
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
-    SessionCreation(#[from] vodozemac::megolm::SessionKeyDecodeError),
+    SessionCreation(#[from] SessionCreationError),
 
     /// The storage layer returned an error.
     #[error("failed to read or write to the crypto store {0}")]
@@ -135,7 +135,7 @@ pub enum EventError {
 
     #[error(
         "the room id of the room key doesn't match the room id of the \
-        decrypted event: expected {0}, got {:1}"
+        decrypted event: expected {0}, got {1:?}"
     )]
     MismatchedRoom(OwnedRoomId, Option<OwnedRoomId>),
 }

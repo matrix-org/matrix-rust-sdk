@@ -43,12 +43,11 @@ use ruma::{
     api::client::push::get_notifications::v3::Notification,
     events::{
         presence::PresenceEvent,
-        receipt::{Receipt, ReceiptEventContent},
+        receipt::{Receipt, ReceiptEventContent, ReceiptType},
         room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
-    receipt::ReceiptType,
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
@@ -408,7 +407,7 @@ where
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
 #[derive(Debug, Clone)]
-pub struct Store {
+pub(crate) struct Store {
     pub(super) inner: Arc<dyn StateStore>,
     session: Arc<OnceCell<Session>>,
     /// The current sync token that should be used for the next sync call.

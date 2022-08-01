@@ -69,7 +69,7 @@ async fn login_and_sync(
     client.sync_once(SyncSettings::default()).await.unwrap();
 
     let image = Arc::new(Mutex::new(image));
-    client.register_event_handler(move |ev, room| on_room_message(ev, room, image.clone())).await;
+    client.add_event_handler(move |ev, room| on_room_message(ev, room, image.clone())).await;
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     client.sync(settings).await;
@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-    println!("helloooo {} {} {} {:#?}", homeserver_url, username, password, image_path);
+    println!("helloooo {homeserver_url} {username} {password} {image_path:#?}");
     let path = PathBuf::from(image_path);
     let image = File::open(path).expect("Can't open image file.");
 

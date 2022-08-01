@@ -1,6 +1,6 @@
 [package]
 authors = ["Johannes Becker <j.becker@famedly.com>"]
-edition = "2018"
+edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Appservice SDK based on the matrix-sdk"
@@ -34,7 +34,7 @@ http = "0.2.6"
 matrix-sdk = { version = "0.5.0", path = "../matrix-sdk", default-features = false, features = ["appservice"] }
 percent-encoding = "2.1.0"
 regex = "1.5.5"
-ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f", features = ["client-api-c", "appservice-api-s"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b", features = ["client-api-c", "appservice-api-s"] }
 serde = "1.0.136"
 serde_json = "1.0.79"
 serde_yaml = "0.8.23"

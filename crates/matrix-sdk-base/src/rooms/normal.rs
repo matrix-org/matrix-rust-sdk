@@ -29,7 +29,7 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
-        receipt::Receipt,
+        receipt::{Receipt, ReceiptType},
         room::{
             create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
@@ -39,12 +39,12 @@ use ruma::{
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
         RoomAccountDataEventType, StateEventType,
     },
-    receipt::ReceiptType,
     room::RoomType as CreateRoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
     RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
@@ -104,16 +104,7 @@ impl Room {
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
-        let room_info = RoomInfo {
-            room_id: room_id.into(),
-            room_type,
-            notification_counts: Default::default(),
-            summary: Default::default(),
-            members_synced: false,
-            last_prev_batch: None,
-            base_info: BaseRoomInfo::new(),
-        };
-
+        let room_info = RoomInfo::new(room_id, room_type);
         Self::restore(own_user_id, store, room_info)
     }
 
@@ -406,7 +397,7 @@ impl Room {
             _ => (summary.joined_member_count, summary.invited_member_count),
         };
 
-        tracing::debug!(
+        debug!(
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
             joined, invited,
@@ -599,6 +590,8 @@ impl Room {
     /// Add a new timeline slice to the timeline streams.
     #[cfg(feature = "experimental-timeline")]
     pub async fn add_timeline_slice(&self, timeline: &TimelineSlice) {
+        use tracing::warn;
+
         if timeline.sync {
             let mut streams = self.forward_timeline_streams.lock().await;
             let mut remaining_streams = Vec::with_capacity(streams.len());
@@ -606,7 +599,11 @@ impl Room {
                 if !forward.is_closed() {
                     if let Err(error) = forward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            tracing::warn!("Drop timeline slice because the limit of the buffer for the forward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 forward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(forward);
@@ -621,7 +618,11 @@ impl Room {
                 if !backward.is_closed() {
                     if let Err(error) = backward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            tracing::warn!("Drop timeline slice because the limit of the buffer for the backward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 backward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(backward);
@@ -656,6 +657,19 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
+    #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
+    pub fn new(room_id: &RoomId, room_type: RoomType) -> Self {
+        Self {
+            room_id: room_id.into(),
+            room_type,
+            notification_counts: Default::default(),
+            summary: Default::default(),
+            members_synced: false,
+            last_prev_batch: None,
+            base_info: BaseRoomInfo::new(),
+        }
+    }
+
     /// Mark this Room as joined
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;

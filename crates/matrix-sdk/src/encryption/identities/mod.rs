@@ -35,7 +35,6 @@
 //! Verifying a device is pretty straightforward:
 //!
 //! ```no_run
-//! # use std::convert::TryFrom;
 //! # use matrix_sdk::{Client, ruma::{device_id, user_id}};
 //! # use url::Url;
 //! # use futures::executor::block_on;
@@ -43,7 +42,8 @@
 //! # let homeserver = Url::parse("http://example.com").unwrap();
 //! # block_on(async {
 //! # let client = Client::new(homeserver).await.unwrap();
-//! let device = client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+//! let device =
+//!     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
 //!
 //! if let Some(device) = device {
 //!     // Let's request the device to be verified.
@@ -61,7 +61,6 @@
 //! Verifying a user identity works largely the same:
 //!
 //! ```no_run
-//! # use std::convert::TryFrom;
 //! # use matrix_sdk::{Client, ruma::user_id};
 //! # use url::Url;
 //! # use futures::executor::block_on;

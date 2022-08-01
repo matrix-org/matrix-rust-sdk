@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, convert::TryInto};
+use std::collections::BTreeMap;
 
 use ruma::{
     events::forwarded_room_key::{
@@ -30,9 +30,21 @@ pub(crate) use outbound::ShareState;
 pub use outbound::{
     EncryptionSettings, GroupSession, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
+use thiserror::Error;
 use vodozemac::megolm::SessionKeyDecodeError;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use zeroize::Zeroize;
+
+/// An error type for the creation of group sessions.
+#[derive(Debug, Error)]
+pub enum SessionCreationError {
+    /// The provided algorithm is not supported.
+    #[error("The provided algorithm is not supported: {0}")]
+    Algorithm(EventEncryptionAlgorithm),
+    /// The room key key couldn't be decoded.
+    #[error(transparent)]
+    Decode(#[from] SessionKeyDecodeError),
+}
 
 /// An exported version of an `InboundGroupSession`
 ///

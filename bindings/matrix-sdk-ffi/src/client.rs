@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest},
     ruma::{
         api::client::{
+            account::whoami,
             filter::{FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter},
             session::get_login_types,
             sync::sync_events::v3::Filter,
@@ -12,7 +14,7 @@ use matrix_sdk::{
         events::room::MediaSource,
         TransactionId,
     },
-    Client as MatrixClient, LoopCtrl,
+    Client as MatrixClient, LoopCtrl, Session,
 };
 use parking_lot::RwLock;
 
@@ -51,6 +53,7 @@ impl Client {
         }
     }
 
+    /// Login using a username and password.
     pub fn login(&self, username: String, password: String) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
             self.client.login_username(&username, &password).send().await?;
@@ -58,10 +61,16 @@ impl Client {
         })
     }
 
+    /// Restores the client from a `RestoreToken`.
     pub fn restore_login(&self, restore_token: String) -> anyhow::Result<()> {
         let RestoreToken { session, homeurl: _, is_guest: _ } =
             serde_json::from_str(&restore_token)?;
 
+        self.restore_session(session)
+    }
+
+    /// Restores the client from a `Session`.
+    pub fn restore_session(&self, session: Session) -> anyhow::Result<()> {
         RUNTIME.block_on(async move {
             self.client.restore_login(session).await?;
             Ok(())
@@ -74,29 +83,36 @@ impl Client {
 
     /// The homeserver this client is configured to use.
     pub fn homeserver(&self) -> String {
-        RUNTIME.block_on(async move { self.client.homeserver().await.to_string() })
+        RUNTIME.block_on(async move { self.async_homeserver().await })
+    }
+
+    pub async fn async_homeserver(&self) -> String {
+        self.client.homeserver().await.to_string()
     }
 
     /// The OIDC Provider that is trusted by the homeserver. `None` when
     /// not configured.
-    pub fn authentication_issuer(&self) -> Option<String> {
-        RUNTIME.block_on(async move {
-            self.client.authentication_issuer().await.map(|server| server.to_string())
-        })
+    pub async fn authentication_issuer(&self) -> Option<String> {
+        self.client.authentication_issuer().await.map(|server| server.to_string())
     }
 
     /// Whether or not the client's homeserver supports the password login flow.
-    pub fn supports_password_login(&self) -> anyhow::Result<bool> {
-        RUNTIME.block_on(async move {
-            let login_types = self.client.get_login_types().await?;
-            let supports_password = login_types.flows.iter().any(|login_type| {
-                matches!(login_type, get_login_types::v3::LoginType::Password(_))
-            });
-            Ok(supports_password)
-        })
+    pub async fn supports_password_login(&self) -> anyhow::Result<bool> {
+        let login_types = self.client.get_login_types().await?;
+        let supports_password = login_types
+            .flows
+            .iter()
+            .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
+        Ok(supports_password)
     }
 
-    pub fn start_sync(&self) {
+    /// Gets information about the owner of a given access token.
+    pub fn whoami(&self) -> anyhow::Result<whoami::v3::Response> {
+        RUNTIME
+            .block_on(async move { self.client.whoami().await.map_err(|e| anyhow!(e.to_string())) })
+    }
+
+    pub fn start_sync(&self, timeline_limit: Option<u16>) {
         let client = self.client.clone();
         let state = self.state.clone();
         let delegate = self.delegate.clone();
@@ -105,11 +121,15 @@ impl Client {
             let mut filter = FilterDefinition::default();
             let mut room_filter = RoomFilter::default();
             let mut event_filter = RoomEventFilter::default();
+            let mut timeline_filter = RoomEventFilter::default();
 
             event_filter.lazy_load_options =
                 LazyLoadOptions::Enabled { include_redundant_members: false };
             room_filter.state = event_filter;
             filter.room = room_filter;
+
+            timeline_filter.limit = timeline_limit.map(|limit| limit.into());
+            filter.room.timeline = timeline_filter;
 
             let filter_id = client.get_or_upload_filter("sync", filter).await.unwrap();
 

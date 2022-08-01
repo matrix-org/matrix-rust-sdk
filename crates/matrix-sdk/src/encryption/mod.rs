@@ -555,7 +555,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -563,15 +562,14 @@ impl Encryption {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// if let Some(device) = client
-    ///     .encryption()
-    ///     .get_device(alice, device_id!("DEVICEID"))
-    ///     .await? {
-    ///         println!("{:?}", device.verified());
+    /// if let Some(device) =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?
+    /// {
+    ///     println!("{:?}", device.verified());
     ///
-    ///         if !device.verified() {
-    ///             let verification = device.request_verification().await?;
-    ///         }
+    ///     if !device.verified() {
+    ///         let verification = device.request_verification().await?;
+    ///     }
     /// }
     /// # anyhow::Ok(()) });
     /// ```
@@ -600,7 +598,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -640,7 +637,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -691,7 +687,7 @@ impl Encryption {
     ///
     /// # Examples
     /// ```no_run
-    /// # use std::{convert::TryFrom, collections::BTreeMap};
+    /// # use std::collections::BTreeMap;
     /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -841,7 +837,8 @@ impl Encryption {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
-    /// let result = client.encryption().import_keys(path, "secret-passphrase").await?;
+    /// let result =
+    ///     client.encryption().import_keys(path, "secret-passphrase").await?;
     ///
     /// println!(
     ///     "Imported {} room keys out of {}",
@@ -872,11 +869,10 @@ impl Encryption {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
+    use matrix_sdk_test::{async_test, test_json, EventBuilder, JoinedRoomBuilder, StateTestEvent};
     use ruma::{
         event_id,
         events::reaction::{ReactionEventContent, Relation},
-        room_id,
     };
     use serde_json::json;
     use wiremock::{
@@ -892,7 +888,7 @@ mod tests {
         let client = logged_in_client(Some(server.uri())).await;
 
         let event_id = event_id!("$2:example.org");
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+        let room_id = &test_json::DEFAULT_SYNC_ROOM_ID;
 
         Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m%2Ereaction/.*".to_owned()))
@@ -903,9 +899,12 @@ mod tests {
             .await;
 
         let response = EventBuilder::default()
-            .add_state_event(EventsJson::Member)
-            .add_state_event(EventsJson::PowerLevels)
-            .add_state_event(EventsJson::Encryption)
+            .add_joined_room(
+                JoinedRoomBuilder::default()
+                    .add_state_event(StateTestEvent::Member)
+                    .add_state_event(StateTestEvent::PowerLevels)
+                    .add_state_event(StateTestEvent::Encryption),
+            )
             .build_sync_response();
 
         client.inner.base_client.receive_sync_response(response).await.unwrap();

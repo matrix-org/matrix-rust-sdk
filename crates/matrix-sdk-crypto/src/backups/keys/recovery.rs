@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    convert::TryFrom,
     io::{Cursor, Read},
     ops::DerefMut,
 };

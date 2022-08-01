@@ -240,6 +240,7 @@ mod tests {
             "test_key",
             room_id,
             &outbound.session_key().await,
+            outbound.settings().algorithm.to_owned(),
             None,
         );
 

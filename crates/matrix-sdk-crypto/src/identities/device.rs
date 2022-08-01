@@ -28,9 +28,9 @@ use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-        key::verification::VerificationMethod, room::encrypted::ToDeviceRoomEncryptedEventContent,
-        AnyToDeviceEventContent,
+        key::verification::VerificationMethod, AnyToDeviceEventContent,
     },
+    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
     OwnedDeviceKeyId, UserId,
 };
@@ -46,7 +46,10 @@ use crate::{
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, Session, SignedJsonObject, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
-    types::{DeviceKey, DeviceKeys, Signatures, SignedKey},
+    types::{
+        events::room::encrypted::ToDeviceEncryptedEventContent, DeviceKey, DeviceKeys, Signatures,
+        SignedKey,
+    },
     verification::VerificationMachine,
     OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
 };
@@ -255,7 +258,7 @@ impl Device {
     pub(crate) async fn encrypt(
         &self,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, ToDeviceRoomEncryptedEventContent)> {
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         self.inner.encrypt(self.verification_machine.store.inner(), content).await
     }
 
@@ -265,7 +268,7 @@ impl Device {
         &self,
         session: InboundGroupSession,
         message_index: Option<u32>,
-    ) -> OlmResult<(Session, ToDeviceRoomEncryptedEventContent)> {
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let export = if let Some(index) = message_index {
             session.export_at_index(index).await
         } else {
@@ -512,7 +515,7 @@ impl ReadOnlyDevice {
         &self,
         store: &dyn CryptoStore,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, ToDeviceRoomEncryptedEventContent)> {
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let sender_key = if let Some(k) = self.curve25519_key() {
             k
         } else {

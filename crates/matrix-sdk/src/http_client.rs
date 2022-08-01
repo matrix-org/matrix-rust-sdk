@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{any::type_name, convert::TryFrom, fmt::Debug, sync::Arc, time::Duration};
+use std::{any::type_name, fmt::Debug, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
@@ -50,8 +50,9 @@ pub trait HttpSend: AsyncTraitDeps {
     /// # Examples
     ///
     /// ```
-    /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, async_trait, HttpError, config::RequestConfig, bytes::Bytes};
+    /// use matrix_sdk::{
+    ///     async_trait, bytes::Bytes, config::RequestConfig, HttpError, HttpSend,
+    /// };
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);

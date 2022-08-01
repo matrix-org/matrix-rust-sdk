@@ -18,6 +18,12 @@ pub trait RoomDelegate: Sync + Send {
     fn did_receive_message(&self, messages: Arc<AnyMessage>);
 }
 
+pub enum Membership {
+    Invited,
+    Joined,
+    Left,
+}
+
 pub struct Room {
     room: MatrixRoom,
     delegate: Arc<RwLock<Option<Box<dyn RoomDelegate>>>>,
@@ -78,6 +84,14 @@ impl Room {
             let avatar_url_string = member.display_name().map(|m| m.to_owned());
             Ok(avatar_url_string)
         })
+    }
+
+    pub fn membership(&self) -> Membership {
+        match &self.room {
+            MatrixRoom::Invited(_) => Membership::Invited,
+            MatrixRoom::Joined(_) => Membership::Joined,
+            MatrixRoom::Left(_) => Membership::Left,
+        }
     }
 
     pub fn is_direct(&self) -> bool {

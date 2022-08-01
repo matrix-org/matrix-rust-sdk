@@ -22,10 +22,7 @@ use dashmap::DashMap;
 use futures_util::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    events::{
-        room::{encrypted::RoomEncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyToDeviceEventContent, ToDeviceEventType,
-    },
+    events::{AnyToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
@@ -38,6 +35,7 @@ use crate::{
     error::{EventError, MegolmResult, OlmResult},
     olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
+    types::events::room::encrypted::RoomEncryptedEventContent,
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
@@ -160,7 +158,7 @@ impl GroupSessionManager {
         room_id: &RoomId,
         content: Value,
         event_type: &str,
-    ) -> MegolmResult<RoomEncryptedEventContent> {
+    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         let session = self.sessions.get(room_id).expect("Session wasn't created nor shared");
 
         assert!(!session.expired(), "Session expired");
@@ -252,8 +250,7 @@ impl GroupSessionManager {
                         .or_insert_with(BTreeMap::new)
                         .insert(
                             DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                            Raw::new(&AnyToDeviceEventContent::RoomEncrypted(encrypted))
-                                .expect("Failed to serialize encrypted event"),
+                            encrypted.cast(),
                         );
                     share_info
                         .entry(device.user_id().to_owned())
@@ -323,7 +320,7 @@ impl GroupSessionManager {
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
-        history_visibility: HistoryVisibility,
+        settings: &EncryptionSettings,
         outbound: &OutboundGroupSession,
     ) -> OlmResult<(bool, HashMap<OwnedUserId, Vec<Device>>)> {
         let users: HashSet<&UserId> = users.collect();
@@ -331,7 +328,7 @@ impl GroupSessionManager {
 
         trace!(
             ?users,
-            ?history_visibility,
+            ?settings,
             session_id = outbound.session_id(),
             room_id = outbound.room_id().as_str(),
             "Calculating group session recipients"
@@ -347,16 +344,19 @@ impl GroupSessionManager {
         // get the session but is in the set of users that received the session.
         let user_left = !users_shared_with.difference(&users).collect::<HashSet<_>>().is_empty();
 
-        let visibility_changed = outbound.settings().history_visibility != history_visibility;
+        let visibility_changed =
+            outbound.settings().history_visibility != settings.history_visibility;
+        let algorithm_changed = outbound.settings().algorithm != settings.algorithm;
 
         // To protect the room history we need to rotate the session if either:
         //
         // 1. Any user left the room.
         // 2. Any of the users' devices got deleted or blacklisted.
         // 3. The history visibility changed.
+        // 4. The encryption algorithm changed.
         //
         // This is calculated in the following code and stored in this variable.
-        let mut should_rotate = user_left || visibility_changed;
+        let mut should_rotate = user_left || visibility_changed || algorithm_changed;
 
         for user_id in users {
             let user_devices = self.store.get_user_devices_filtered(user_id).await?;
@@ -445,22 +445,27 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        trace!(room_id = room_id.as_str(), "Checking if a room key needs to be shared",);
+        trace!(room_id = room_id.as_str(), "Checking if a room key needs to be shared");
 
         let encryption_settings = encryption_settings.into();
-        let history_visibility = encryption_settings.history_visibility.clone();
         let mut changes = Changes::default();
 
+        // Try to get an existing session or create a new one.
         let (outbound, inbound) =
             self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
 
+        // Having an inbound group session here means that we created a new
+        // group session pair, which we then need to store.
         if let Some(inbound) = inbound {
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
         }
 
+        // Collect the recipient devices and check if either the settings
+        // or the recipient list changed in a way that requires the
+        // session to be rotated.
         let (should_rotate, devices) =
-            self.collect_session_recipients(users, history_visibility, &outbound).await?;
+            self.collect_session_recipients(users, &encryption_settings, &outbound).await?;
 
         let outbound = if should_rotate {
             let old_session_id = outbound.session_id();
@@ -475,7 +480,8 @@ impl GroupSessionManager {
                 old_session_id = old_session_id,
                 session_id = outbound.session_id(),
                 "A user or device has left the room since we last sent a \
-                message, rotating the room key.",
+                message, or the encryption settings have changed. Rotating the \
+                room key.",
             );
 
             outbound
@@ -483,6 +489,8 @@ impl GroupSessionManager {
             outbound
         };
 
+        // Filter out the devices that already received this room key or have a
+        // to-device message already queued up.
         let devices: Vec<Device> = devices
             .into_iter()
             .flat_map(|(_, d)| {
@@ -494,11 +502,16 @@ impl GroupSessionManager {
         let key_content = outbound.as_content().await;
         let message_index = outbound.message_index().await;
 
+        // If we have some recipients, log them here.
         if !devices.is_empty() {
             let recipients = devices.iter().fold(BTreeMap::new(), |mut acc, d| {
                 acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
                 acc
             });
+
+            // If there are new recipients we need to persist the outbound group
+            // session as the to-device requests are persisted with the session.
+            changes.outbound_group_sessions = vec![outbound.clone()];
 
             info!(
                 index = message_index,
@@ -509,6 +522,10 @@ impl GroupSessionManager {
             );
         }
 
+        // Chunk the recipients out so each to-device request will contain a
+        // limited amount of to-device messages.
+        //
+        // Create concurrent tasks for each chunk of recipients.
         let tasks: Vec<_> = devices
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .map(|chunk| {
@@ -522,12 +539,19 @@ impl GroupSessionManager {
             })
             .collect();
 
+        // Wait for all the tasks to finish up and queue up the Olm session that
+        // was used to encrypt the room key to be persisted again. This is
+        // needed because each encryption step will mutate the Olm session,
+        // ratcheting its state forward.
         for result in join_all(tasks).await {
             let used_sessions: OlmResult<Vec<Session>> = result.expect("Encryption task panicked");
 
             changes.sessions.extend(used_sessions?);
         }
 
+        // The to-device requests get added to the outbound group session, this
+        // way we're making sure that they are persisted and scoped to the
+        // session.
         let requests = outbound.pending_requests();
 
         if requests.is_empty() {
@@ -545,6 +569,7 @@ impl GroupSessionManager {
             let mut recipients: BTreeMap<&UserId, BTreeSet<&DeviceIdOrAllDevices>> =
                 BTreeMap::new();
 
+            // We're just collecting the recipients for logging reasons.
             for request in &requests {
                 for (user_id, device_map) in &request.messages {
                     let devices = device_map.keys();
@@ -565,6 +590,7 @@ impl GroupSessionManager {
             );
         }
 
+        // Persist any changes we might have collected.
         if !changes.is_empty() {
             let session_count = changes.sessions.len();
 
@@ -584,19 +610,22 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
+    use std::{collections::HashSet, ops::Deref};
 
     use matrix_sdk_test::{async_test, response_from_file};
     use ruma::{
         api::{
-            client::keys::{claim_keys, get_keys},
+            client::{
+                keys::{claim_keys, get_keys},
+                to_device::send_event_to_device::v3::Response as ToDeviceResponse,
+            },
             IncomingResponse,
         },
         device_id,
         events::room::history_visibility::HistoryVisibility,
-        room_id, user_id, DeviceId, TransactionId, UserId,
+        room_id, user_id, DeviceId, EventEncryptionAlgorithm, TransactionId, UserId,
     };
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
     use crate::{EncryptionSettings, OlmMachine};
 
@@ -616,12 +645,67 @@ mod tests {
             .expect("Can't parse the keys upload response")
     }
 
+    fn bob_keys_query_response() -> get_keys::v3::Response {
+        let data = json!({
+            "device_keys": {
+                "@bob:localhost": {
+                    "BOBDEVICE": {
+                        "user_id": "@bob:localhost",
+                        "device_id": "BOBDEVICE",
+                        "algorithms": [
+                            "m.olm.v1.curve25519-aes-sha2",
+                            "m.megolm.v1.aes-sha2",
+                            "m.megolm.v2.aes-sha2"
+                        ],
+                        "keys": {
+                            "curve25519:BOBDEVICE": "QzXDFZj0Pt5xG4r11XGSrqE4mnFOTgRM5pz7n3tzohU",
+                            "ed25519:BOBDEVICE": "T7QMEXcEo/NfiC/8doVHT+2XnMm0pDpRa27bmE8PlPI"
+                        },
+                        "signatures": {
+                            "@bob:localhost": {
+                                "ed25519:BOBDEVICE": "1Ee9J02KoVf4DKhT+LkurpZJEygiznqpgkT4lqvMTLtZyzShsVTnwmoMPttuGcJkLp9lMK1egveNYCEaYP80Cw"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let data = response_from_file(&data);
+
+        get_keys::v3::Response::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
+    }
+
+    fn bob_one_time_key() -> claim_keys::v3::Response {
+        let data = json!({
+            "failures": {},
+            "one_time_keys":{
+                "@bob:localhost":{
+                    "BOBDEVICE":{
+                      "signed_curve25519:AAAAAAAAAAA": {
+                          "key":"bm1olfbksjC5SwKxCLLK4XaINCA0FwR/155J85gIpCk",
+                          "signatures":{
+                              "@bob:localhost":{
+                                  "ed25519:BOBDEVICE":"BKyS/+EV76zdZkWgny2D0svZ0ycS3etfyHCrsDgm7MYe166HqQmSoX29HsjGLvE/5F+Sg2zW7RJileUvquPwDA"
+                              }
+                          }
+                      }
+                    }
+                }
+            }
+        });
+        let data = response_from_file(&data);
+
+        claim_keys::v3::Response::try_from_http_response(data)
+            .expect("Can't parse the keys claim response")
+    }
+
     fn keys_claim_response() -> claim_keys::v3::Response {
         let data = include_bytes!("../../../../benchmarks/benches/crypto_bench/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
         claim_keys::v3::Response::try_from_http_response(data)
-            .expect("Can't parse the keys upload response")
+            .expect("Can't parse the keys claim response")
     }
 
     async fn machine_with_user(user_id: &UserId, device_id: &DeviceId) -> OlmMachine {
@@ -633,12 +717,39 @@ mod tests {
 
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
         machine.mark_request_as_sent(&txn_id, &keys_claim).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &bob_keys_query_response()).await.unwrap();
+        machine.mark_request_as_sent(&txn_id, &bob_one_time_key()).await.unwrap();
 
         machine
     }
 
     async fn machine() -> OlmMachine {
         machine_with_user(alice_id(), alice_device_id()).await
+    }
+
+    async fn machine_with_shared_room_key() -> OlmMachine {
+        let machine = machine().await;
+        let room_id = room_id!("!test:localhost");
+        let keys_claim = keys_claim_response();
+
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let requests =
+            machine.share_room_key(room_id, users, EncryptionSettings::default()).await.unwrap();
+
+        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+        assert!(!outbound.pending_requests().is_empty());
+        assert!(!outbound.shared());
+
+        let response = ToDeviceResponse::new();
+        for request in requests {
+            machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
+        }
+
+        assert!(outbound.shared());
+        assert!(outbound.pending_requests().is_empty());
+
+        machine
     }
 
     #[async_test]
@@ -661,6 +772,73 @@ mod tests {
     }
 
     #[async_test]
+    async fn ratcheted_sharing() {
+        let machine = machine_with_shared_room_key().await;
+
+        let room_id = room_id!("!test:localhost");
+        let late_joiner = user_id!("@bob:localhost");
+        let keys_claim = keys_claim_response();
+
+        let mut users: HashSet<_> = keys_claim.one_time_keys.keys().map(Deref::deref).collect();
+        users.insert(late_joiner);
+
+        let requests = machine
+            .share_room_key(room_id, users.into_iter(), EncryptionSettings::default())
+            .await
+            .unwrap();
+
+        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
+        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+        assert_eq!(event_count, 1);
+        assert!(!outbound.pending_requests().is_empty());
+    }
+
+    #[async_test]
+    async fn changing_encryption_settings() {
+        let machine = machine_with_shared_room_key().await;
+        let room_id = room_id!("!test:localhost");
+        let keys_claim = keys_claim_response();
+
+        let users = keys_claim.one_time_keys.keys().map(Deref::deref);
+        let outbound = machine.group_session_manager.get_outbound_group_session(room_id).unwrap();
+
+        let (should_rotate, _) = machine
+            .group_session_manager
+            .collect_session_recipients(users.clone(), &EncryptionSettings::default(), &outbound)
+            .await
+            .unwrap();
+
+        assert!(!should_rotate);
+
+        let settings = EncryptionSettings {
+            history_visibility: HistoryVisibility::Invited,
+            ..Default::default()
+        };
+
+        let (should_rotate, _) = machine
+            .group_session_manager
+            .collect_session_recipients(users.clone(), &settings, &outbound)
+            .await
+            .unwrap();
+
+        assert!(should_rotate);
+
+        let settings = EncryptionSettings {
+            algorithm: EventEncryptionAlgorithm::from("m.megolm.v2.aes-sha2"),
+            ..Default::default()
+        };
+
+        let (should_rotate, _) = machine
+            .group_session_manager
+            .collect_session_recipients(users, &settings, &outbound)
+            .await
+            .unwrap();
+
+        assert!(should_rotate);
+    }
+
+    #[async_test]
     async fn key_recipient_collecting() {
         // The user id comes from the fact that the keys_query.json file uses
         // this one.
@@ -676,12 +854,13 @@ mod tests {
             .await
             .expect("We should be able to create a new session");
         let history_visibility = HistoryVisibility::Joined;
+        let settings = EncryptionSettings { history_visibility, ..Default::default() };
 
         let users = [user_id].into_iter();
 
         let (_, recipients) = machine
             .group_session_manager
-            .collect_session_recipients(users, history_visibility, &outbound)
+            .collect_session_recipients(users, &settings, &outbound)
             .await
             .expect("We should be able to collect the session recipients");
 

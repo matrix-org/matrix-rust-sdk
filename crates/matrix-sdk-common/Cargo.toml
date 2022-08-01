@@ -16,7 +16,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
-ruma = { git = "https://github.com/ruma/ruma", rev = "96155915f", features = ["client-api-c"] }
+ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b", features = ["client-api-c"] }
 serde = "1.0.136"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -26,10 +26,15 @@ use super::{EventType, ToDeviceEvent};
 /// The `m.room_key` to-device event.
 pub type RoomKeyEvent = ToDeviceEvent<RoomKeyContent>;
 
-impl EventType for RoomKeyContent {
-    fn event_type(&self) -> &str {
-        "m.room_key"
+impl RoomKeyEvent {
+    /// Get the algorithm of the room key.
+    pub fn algorithm(&self) -> EventEncryptionAlgorithm {
+        self.content.algorithm()
     }
+}
+
+impl EventType for RoomKeyContent {
+    const EVENT_TYPE: &'static str = "m.room_key";
 }
 
 /// The `m.room_key` event content.
@@ -49,6 +54,14 @@ pub enum RoomKeyContent {
 }
 
 impl RoomKeyContent {
+    /// Get the algorithm of the room key.
+    pub fn algorithm(&self) -> EventEncryptionAlgorithm {
+        match &self {
+            RoomKeyContent::MegolmV1AesSha2(_) => EventEncryptionAlgorithm::MegolmV1AesSha2,
+            RoomKeyContent::Unknown(c) => c.algorithm.to_owned(),
+        }
+    }
+
     pub(super) fn serialize_zeroized(&self) -> Result<Raw<RoomKeyContent>, serde_json::Error> {
         #[derive(Serialize)]
         struct Helper<'a> {
@@ -69,7 +82,7 @@ impl RoomKeyContent {
                 };
 
                 let helper = RoomKeyHelper {
-                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    algorithm: self.algorithm(),
                     other: serde_json::to_value(helper)?,
                 };
 

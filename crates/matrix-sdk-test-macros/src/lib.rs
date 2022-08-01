@@ -38,13 +38,15 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_call: TokenStream = if fun.sig.asyncness.is_some() {
         quote! {
             {
-                assert!(#fn_name().await.is_ok());
+                let res = #fn_name().await;
+                assert!(res.is_ok(), "{:?}", res);
             }
         }
     } else {
         quote! {
             {
-                assert!(#fn_name().is_ok());
+                let res = #fn_name();
+                assert!(res.is_ok(), "{:?}", res);
             }
         }
     }

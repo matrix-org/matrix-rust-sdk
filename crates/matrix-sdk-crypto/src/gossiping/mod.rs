@@ -180,10 +180,11 @@ impl GossipRequest {
             }
         };
 
-        let request = ToDeviceRequest::new(
+        let request = ToDeviceRequest::with_id(
             &self.request_recipient,
             DeviceIdOrAllDevices::AllDevices,
             content,
+            TransactionId::new(),
         );
 
         OutgoingRequest { request_id: request.txn_id.clone(), request: Arc::new(request.into()) }

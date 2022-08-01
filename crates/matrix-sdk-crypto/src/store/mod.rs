@@ -75,7 +75,7 @@ use crate::{
     },
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        ReadOnlyAccount, Session,
+        ReadOnlyAccount, Session, SessionCreationError,
     },
     utilities::encode,
     verification::VerificationMachine,
@@ -603,7 +603,7 @@ pub enum CryptoStoreError {
 
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
-    SessionCreation(#[from] vodozemac::megolm::SessionKeyDecodeError),
+    SessionCreation(#[from] SessionCreationError),
 
     /// A Matrix identifier failed to be validated.
     #[error(transparent)]

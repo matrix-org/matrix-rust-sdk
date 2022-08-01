@@ -113,6 +113,8 @@ jobs:
 
       - name: Install Node.js
         uses: actions/setup-node@v3
+        with:
+          node-version: 18.0
 
       - name: Install NPM dependencies
         working-directory: ${{ env.MATRIX_SDK_CRYPTO_JS_PATH }}
@@ -162,7 +164,7 @@ jobs:
           args: uniffi_bindgen --version ^0.18
 
       - name: Generate .xcframework
-        run: sh bindings/apple/debug_build_xcframework.sh ci
+        run: sh bindings/apple/debug_build_xcframework.sh x86_64 ci
 
       - name: Run XCTests
         run: |
@@ -170,4 +172,4 @@ jobs:
             -project bindings/apple/MatrixRustSDK.xcodeproj \
             -scheme MatrixRustSDK \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 13,OS=15.4'
+            -destination 'platform=iOS Simulator,name=iPhone 13'

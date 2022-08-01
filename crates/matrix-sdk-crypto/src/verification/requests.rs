@@ -380,9 +380,13 @@ impl VerificationRequest {
         let mut inner = self.inner.lock().unwrap();
 
         inner.accept(methods).map(|c| match c {
-            OutgoingContent::ToDevice(content) => {
-                ToDeviceRequest::new(self.other_user(), inner.other_device_id(), content).into()
-            }
+            OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
+                self.other_user(),
+                inner.other_device_id(),
+                content,
+                TransactionId::new(),
+            )
+            .into(),
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
@@ -435,7 +439,13 @@ impl VerificationRequest {
                     )
                     .into()
                 } else {
-                    ToDeviceRequest::new(self.other_user(), other_device, content).into()
+                    ToDeviceRequest::with_id(
+                        self.other_user(),
+                        other_device,
+                        content,
+                        TransactionId::new(),
+                    )
+                    .into()
                 }
             }
             OutgoingContent::Room(room_id, content) => {
@@ -627,10 +637,11 @@ impl VerificationRequest {
                     self.verification_cache.insert_sas(sas.clone());
 
                     let request = match content {
-                        OutgoingContent::ToDevice(content) => ToDeviceRequest::new(
+                        OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
                             self.other_user(),
                             inner.other_device_id(),
                             content,
+                            TransactionId::new(),
                         )
                         .into(),
                         OutgoingContent::Room(room_id, content) => {
@@ -1098,12 +1109,10 @@ impl RequestState<Ready> {
                             // before the other side tried to do the same; ignore it if we did and
                             // we're the lexicographically smaller user ID (or device ID if equal).
                             use std::cmp::Ordering;
-                            match (sender.cmp(own_user_id), device.device_id().cmp(own_device_id)) {
-                                (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
-                                    false
-                                }
-                                _ => true,
-                            }
+                            !matches!(
+                                (sender.cmp(own_user_id), device.device_id().cmp(own_device_id)),
+                                (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater)
+                            )
                         } else {
                             true
                         };

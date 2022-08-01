@@ -1,3 +1,5 @@
+//! Discrete events found in a sync response.
+
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 
@@ -92,246 +94,6 @@ pub static JOIN_RULES: Lazy<JsonValue> = Lazy::new(|| {
         "unsigned": {
           "age": 1392989
         }
-    })
-});
-
-pub static ROOM_MESSAGES: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "chunk": [
-          {
-            "age": 1042,
-            "content": {
-              "body": "hello world",
-              "msgtype": "m.text"
-            },
-            "event_id": "$1444812213350496Caaaa:example.com",
-            "origin_server_ts": 1444812213737i64,
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@alice:example.com",
-            "type": "m.room.message"
-          },
-          {
-            "age": 20123,
-            "content": {
-              "body": "the world is big",
-              "msgtype": "m.text"
-            },
-            "event_id": "$1444812213350496Cbbbb:example.com",
-            "origin_server_ts": 1444812194656i64,
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@bob:example.com",
-            "type": "m.room.message"
-          },
-          {
-            "age": 50789,
-            "content": {
-              "name": "New room name"
-            },
-            "event_id": "$1444812213350496Ccccc:example.com",
-            "origin_server_ts": 1444812163990i64,
-            "prev_content": {
-              "name": "Old room name"
-            },
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@bob:example.com",
-            "state_key": "",
-            "type": "m.room.name"
-          }
-        ],
-        "end": "t47409-4357353_219380_26003_2265",
-        "start": "t47429-4392820_219380_26003_2265"
-    })
-});
-
-pub static SYNC_ROOM_MESSAGES_BATCH_1: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "chunk": [
-          {
-            "age": 1042,
-            "content": {
-              "body": "hello world",
-              "msgtype": "m.text"
-            },
-            "event_id": "$1444812213350496Caaaf:example.com",
-            "origin_server_ts": 1444812213737i64,
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@alice:example.com",
-            "type": "m.room.message"
-          },
-          {
-            "age": 20123,
-            "content": {
-              "body": "the world is big",
-              "msgtype": "m.text"
-            },
-            "event_id": "$1444812213350496Cbbbf:example.com",
-            "origin_server_ts": 1444812194656i64,
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@bob:example.com",
-            "type": "m.room.message"
-          },
-          {
-            "age": 50789,
-            "content": {
-              "name": "New room name"
-            },
-            "event_id": "$1444812213350496Ccccf:example.com",
-            "origin_server_ts": 1444812163990i64,
-            "prev_content": {
-              "name": "Old room name"
-            },
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@bob:example.com",
-            "state_key": "",
-            "type": "m.room.name"
-          }
-        ],
-        "end": "t47409-4357353_219380_26003_2269",
-        "start": "t392-516_47314_0_7_1_1_1_11444_1"
-    })
-});
-
-pub static SYNC_ROOM_MESSAGES_BATCH_2: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "chunk": [
-          {
-            "age": 1042,
-            "content": {
-              "body": "hello world",
-              "msgtype": "m.text"
-            },
-            "event_id": "$1444812213350496Caaak:example.com",
-            "origin_server_ts": 1444812213737i64,
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@alice:example.com",
-            "type": "m.room.message"
-          },
-          {
-            "age": 20123,
-            "content": {
-              "body": "the world is big",
-              "msgtype": "m.text"
-            },
-            "event_id": "$1444812213350496Cbbbk:example.com",
-            "origin_server_ts": 1444812194656i64,
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@bob:example.com",
-            "type": "m.room.message"
-          },
-          {
-            "age": 50789,
-            "content": {
-              "name": "New room name"
-            },
-            "event_id": "$1444812213350496Cccck:example.com",
-            "origin_server_ts": 1444812163990i64,
-            "prev_content": {
-              "name": "Old room name"
-            },
-            "room_id": "!Xq3620DUiqCaoxq:example.com",
-            "sender": "@bob:example.com",
-            "state_key": "",
-            "type": "m.room.name"
-          }
-        ],
-        "end": "t47409-4357353_219380_26003_2270",
-        "start": "t47409-4357353_219380_26003_2269"
-    })
-});
-
-pub static KEYS_QUERY: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-      "device_keys": {
-        "@alice:example.org": {
-          "JLAFKJWSCS": {
-              "algorithms": [
-                  "m.olm.v1.curve25519-aes-sha2",
-                  "m.megolm.v1.aes-sha2"
-              ],
-              "device_id": "JLAFKJWSCS",
-              "user_id": "@alice:example.org",
-              "keys": {
-                  "curve25519:JLAFKJWSCS": "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4",
-                  "ed25519:JLAFKJWSCS": "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
-              },
-              "signatures": {
-                  "@alice:example.org": {
-                      "ed25519:JLAFKJWSCS": "m53Wkbh2HXkc3vFApZvCrfXcX3AI51GsDHustMhKwlv3TuOJMj4wistcOTM8q2+e/Ro7rWFUb9ZfnNbwptSUBA"
-                  }
-              },
-              "unsigned": {
-                  "device_display_name": "Alice's mobile phone"
-              }
-          }
-        }
-      },
-      "failures": {}
-    })
-});
-
-pub static KEYS_UPLOAD: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-      "one_time_key_counts": {
-        "curve25519": 10,
-        "signed_curve25519": 20
-      }
-    })
-});
-
-pub static LOGIN: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "access_token": "abc123",
-        "device_id": "GHTYAJCE",
-        "home_server": "matrix.org",
-        "user_id": "@cheeky_monkey:matrix.org"
-    })
-});
-
-pub static LOGIN_WITH_DISCOVERY: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "access_token": "abc123",
-        "device_id": "GHTYAJCE",
-        "home_server": "matrix.org",
-        "user_id": "@cheeky_monkey:matrix.org",
-        "well_known": {
-            "m.homeserver": {
-                "base_url": "https://example.org"
-            },
-            "m.identity_server": {
-                "base_url": "https://id.example.org"
-            }
-        }
-    })
-});
-
-pub static LOGIN_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-      "errcode": "M_FORBIDDEN",
-      "error": "Invalid password"
-    })
-});
-
-pub static LOGIN_TYPES: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "flows": [
-            {
-                "type": "m.login.password"
-            },
-            {
-                "type": "m.login.sso"
-            },
-            {
-                "type": "m.login.token"
-            }
-        ]
-    })
-});
-
-pub static EMPTY: Lazy<JsonValue> = Lazy::new(|| json!({}));
-
-pub static EVENT_ID: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "event_id": "$h29iv0s8:example.com"
     })
 });
 
@@ -609,28 +371,6 @@ pub static PRESENCE: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static PUBLIC_ROOMS: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "chunk": [
-            {
-                "aliases": [
-                    "#murrays:cheese.bar"
-                ],
-                "avatar_url": "mxc://bleeker.street/CHEDDARandBRIE",
-                "guest_can_join": false,
-                "name": "CHEESE",
-                "num_joined_members": 37,
-                "room_id": "!ol19s:bleecker.street",
-                "topic": "Tasty tasty cheese",
-                "world_readable": true
-            }
-        ],
-        "next_batch": "p190q",
-        "prev_batch": "p1902",
-        "total_room_count_estimate": 115
-    })
-});
-
 pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -830,28 +570,6 @@ pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static REGISTRATION_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "errcode": "M_FORBIDDEN",
-        "error": "Invalid password",
-        "completed": ["example.type.foo"],
-        "flows": [
-            {
-                "stages": ["example.type.foo", "example.type.bar"]
-            },
-            {
-                "stages": ["example.type.foo", "example.type.baz"]
-            }
-        ],
-        "params": {
-            "example.type.baz": {
-                "example_key": "foobar"
-            }
-        },
-        "session": "xxxxxx"
-    })
-});
-
 pub static REACTION: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -995,12 +713,6 @@ pub static ROOM_AVATAR: Lazy<JsonValue> = Lazy::new(|| {
         "unsigned": {
             "age": 1234
         }
-    })
-});
-
-pub static ROOM_ID: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "room_id": "!testroom:example.org"
     })
 });
 

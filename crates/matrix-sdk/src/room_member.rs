@@ -51,9 +51,7 @@ impl RoomMember {
     /// let client = Client::new(homeserver).await.unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     /// let room_id = room_id!("!roomid:example.com");
-    /// let room = client
-    ///     .get_joined_room(&room_id)
-    ///     .unwrap();
+    /// let room = client.get_joined_room(&room_id).unwrap();
     /// let members = room.members().await.unwrap();
     /// let member = members.first().unwrap();
     /// if let Some(avatar) = member.avatar(MediaFormat::File).await.unwrap() {
