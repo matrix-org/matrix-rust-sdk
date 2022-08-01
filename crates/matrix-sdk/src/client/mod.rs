@@ -106,7 +106,7 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
-type EventHandlerMap = BTreeMap<EventHandlerKey<'static>, Vec<EventHandlerWrapper>>;
+type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
 
 type NotificationHandlerFut = EventHandlerFut;
 type NotificationHandlerFn =
@@ -514,17 +514,17 @@ impl Client {
         });
 
         let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
-        let handle = EventHandlerHandle { handler_id, ev_kind: Ev::KIND, ev_type: Ev::TYPE };
+        let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
 
         self.inner
             .event_handlers
             .write()
             .await
-            .entry(handle.to_key(room_id))
+            .entry(key.clone())
             .or_default()
-            .push(EventHandlerWrapper { handler_fn, handle });
+            .push(EventHandlerWrapper { handler_fn, handler_id });
 
-        handle
+        EventHandlerHandle { key, handler_id }
     }
 
     #[allow(missing_docs)]
@@ -589,12 +589,11 @@ impl Client {
     /// # });
     /// ```
     pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
-        let key = handle.to_key(None);
         let mut event_handlers = self.inner.event_handlers.write().await;
 
-        if let btree_map::Entry::Occupied(mut entry) = event_handlers.entry(key) {
+        if let btree_map::Entry::Occupied(mut entry) = event_handlers.entry(handle.key) {
             let v = entry.get_mut();
-            v.retain(|e| e.handle.handler_id != handle.handler_id);
+            v.retain(|e| e.handler_id != handle.handler_id);
 
             if v.is_empty() {
                 entry.remove();

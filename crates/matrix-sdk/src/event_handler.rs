@@ -33,7 +33,14 @@
 
 #[cfg(any(feature = "anyhow", feature = "eyre"))]
 use std::any::TypeId;
-use std::{borrow::Cow, fmt, future::Future, ops::Deref, pin::Pin};
+use std::{
+    borrow::{Borrow, Cow},
+    fmt,
+    future::Future,
+    iter,
+    ops::Deref,
+    pin::Pin,
+};
 
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
@@ -90,8 +97,29 @@ pub trait SyncEvent {
     const TYPE: &'static str;
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct EventHandlerKey<'a> {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct EventHandlerKey(EventHandlerKeyInner<'static>);
+
+impl EventHandlerKey {
+    pub(crate) fn new(
+        ev_kind: EventKind,
+        ev_type: &'static str,
+        room_id: Option<OwnedRoomId>,
+    ) -> Self {
+        Self(EventHandlerKeyInner { ev_kind, ev_type, room_id })
+    }
+}
+
+// This lifetime-generic impl is what makes it possible to obtain a
+// &'static str event type from get_key_value in call_event_handlers.
+impl<'a> Borrow<EventHandlerKeyInner<'a>> for EventHandlerKey {
+    fn borrow(&self) -> &EventHandlerKeyInner<'a> {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct EventHandlerKeyInner<'a> {
     pub ev_kind: EventKind,
     pub ev_type: &'a str,
     pub room_id: Option<OwnedRoomId>,
@@ -99,27 +127,20 @@ pub(crate) struct EventHandlerKey<'a> {
 
 pub(crate) struct EventHandlerWrapper {
     pub handler_fn: Box<EventHandlerFn>,
-    pub handle: EventHandlerHandle,
+    pub handler_id: u64,
 }
 
 /// Handle to remove a registered event handler by passing it to
 /// [`Client::remove_event_handler`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct EventHandlerHandle {
-    pub(crate) ev_kind: EventKind,
-    pub(crate) ev_type: &'static str,
+    pub(crate) key: EventHandlerKey,
     pub(crate) handler_id: u64,
-}
-
-impl EventHandlerHandle {
-    pub(crate) fn to_key(self, room_id: Option<OwnedRoomId>) -> EventHandlerKey<'static> {
-        EventHandlerKey { ev_kind: self.ev_kind, ev_type: self.ev_type, room_id }
-    }
 }
 
 impl EventHandlerContext for EventHandlerHandle {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
-        Some(data.handle)
+        Some(data.handle.clone())
     }
 }
 
@@ -401,30 +422,35 @@ impl Client {
     ) {
         // Construct event handler futures
         let futures: Vec<_> = {
-            let handlers_lock = self.event_handlers().await;
-
-            let non_room_event_handlers = handlers_lock
-                .get(&EventHandlerKey { ev_kind, ev_type, room_id: None })
-                .into_iter()
-                .flatten();
-
-            let room_event_handlers = room.iter().flat_map(|r| {
+            let non_room_handler_key = EventHandlerKeyInner { ev_kind, ev_type, room_id: None };
+            let room_handler_key = room.as_ref().map(|r| {
                 let room_id = Some(r.room_id().to_owned());
-                handlers_lock
-                    .get(&EventHandlerKey { ev_kind, ev_type, room_id })
-                    .into_iter()
-                    .flatten()
+                EventHandlerKeyInner { ev_kind, ev_type, room_id }
             });
 
-            non_room_event_handlers
-                .chain(room_event_handlers)
-                .map(|handler_wrapper| {
-                    let client = self.clone();
-                    let room = room.clone();
-                    let handle = handler_wrapper.handle;
-                    let data = EventHandlerData { client, room, raw, encryption_info, handle };
+            let handlers_lock = self.event_handlers().await;
 
-                    (handler_wrapper.handler_fn)(data)
+            iter::once(non_room_handler_key)
+                .chain(room_handler_key)
+                .flat_map(|b_key| {
+                    // Use get_key_value instead of just get to be able to access the event_type
+                    // from the BTreeMap key as &'static str, required for EventHandlerHandle.
+                    handlers_lock.get_key_value(&b_key).into_iter().flat_map(|(key, handlers)| {
+                        handlers.iter().map(|wrap| {
+                            let data = EventHandlerData {
+                                client: self.clone(),
+                                room: room.clone(),
+                                raw,
+                                encryption_info,
+                                handle: EventHandlerHandle {
+                                    key: key.clone(),
+                                    handler_id: wrap.handler_id,
+                                },
+                            };
+
+                            (wrap.handler_fn)(data)
+                        })
+                    })
                 })
                 .collect()
         };
@@ -598,7 +624,9 @@ mod static_events {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder};
+    use matrix_sdk_test::{
+        async_test, test_json::DEFAULT_SYNC_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder,
+    };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     use std::{future, sync::Arc};
@@ -814,10 +842,19 @@ mod tests {
             })
             .await;
 
-        let handle = client
+        let handle_a = client
             .add_event_handler(move |_ev: OriginalSyncRoomMemberEvent| async {
                 panic!("handler should have been removed");
             })
+            .await;
+        let handle_b = client
+            .add_room_event_handler(
+                #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
+                *DEFAULT_SYNC_ROOM_ID,
+                move |_ev: OriginalSyncRoomMemberEvent| async {
+                    panic!("handler should have been removed");
+                },
+            )
             .await;
 
         client
@@ -836,7 +873,8 @@ mod tests {
             )
             .build_sync_response();
 
-        client.remove_event_handler(handle).await;
+        client.remove_event_handler(handle_a).await;
+        client.remove_event_handler(handle_b).await;
 
         client.process_sync(response).await?;
 
