@@ -305,11 +305,12 @@ impl BaseClient {
                         #[cfg(feature = "e2e-encryption")]
                         AnySyncRoomEvent::MessageLike(e) => match e {
                             AnySyncMessageLikeEvent::RoomEncrypted(
-                                SyncMessageLikeEvent::Original(encrypted),
+                                SyncMessageLikeEvent::Original(_),
                             ) => {
                                 if let Some(olm) = self.olm_machine() {
-                                    if let Ok(decrypted) =
-                                        olm.decrypt_room_event(encrypted, room_id).await
+                                    if let Ok(decrypted) = olm
+                                        .decrypt_room_event(event.event.cast_ref(), room_id)
+                                        .await
                                     {
                                         event = decrypted.into();
                                     }
@@ -400,8 +401,8 @@ impl BaseClient {
                 }
                 Err(err) => {
                     warn!(
-                        "Couldn't deserialize stripped state event for room {}: {:?}",
-                        room_info.room_id, err
+                        room_id = %room_info.room_id,
+                        "Couldn't deserialize stripped state event: {err:?}",
                     );
                 }
             }
@@ -429,10 +430,7 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(
-                        "Couldn't deserialize state event for room {}: {:?} {:#?}",
-                        room_id, e, raw_event
-                    );
+                    warn!(%room_id, "Couldn't deserialize state event: {e:?}");
                     continue;
                 }
             };
@@ -831,7 +829,7 @@ impl BaseClient {
             .filter_map(|event| match event.deserialize() {
                 Ok(ev) => Some(ev),
                 Err(e) => {
-                    debug!(?event, "Failed to deserialize m.room.member event: {}", e);
+                    debug!(?event, "Failed to deserialize m.room.member event: {e}");
                     None
                 }
             })

@@ -54,7 +54,7 @@ async fn print_timeline(room: Room) {
     while let Some(event) = backward_stream.next().await {
         let event = event.unwrap();
         if let Some(content) = event_content(event.event.deserialize().unwrap()) {
-            println!("{}", content);
+            println!("{content}");
         }
     }
 }

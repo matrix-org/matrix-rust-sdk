@@ -28,7 +28,8 @@ pub use account::{OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
-    PickledInboundGroupSession, PickledOutboundGroupSession, SessionKey, ShareInfo,
+    PickledInboundGroupSession, PickledOutboundGroupSession, SessionCreationError, SessionKey,
+    ShareInfo,
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
@@ -44,15 +45,17 @@ pub(crate) mod tests {
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{Relation, Replacement, RoomMessageEventContent},
-            AnyMessageLikeEvent, AnyRoomEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent,
-            MessageLikeEvent, SyncMessageLikeEvent,
+            AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEvent,
         },
         room_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
     use vodozemac::olm::OlmMessage;
 
-    use crate::olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session};
+    use crate::{
+        olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
+        utilities::json_convert,
+    };
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")
@@ -136,10 +139,8 @@ pub(crate) mod tests {
         };
 
         let bob_keys = bob.identity_keys();
-        let result = alice
-            .create_inbound_session(&bob_keys.curve25519.to_base64(), &prekey_message)
-            .await
-            .unwrap();
+        let result =
+            alice.create_inbound_session(bob_keys.curve25519, &prekey_message).await.unwrap();
 
         assert_eq!(bob_session.session_id(), result.session.session_id());
 
@@ -163,6 +164,7 @@ pub(crate) mod tests {
             "test_key",
             room_id,
             &outbound.session_key().await,
+            outbound.settings().algorithm.to_owned(),
             None,
         );
 
@@ -203,6 +205,7 @@ pub(crate) mod tests {
             "test_key",
             room_id,
             &outbound.session_key().await,
+            outbound.settings().algorithm.to_owned(),
             None,
         );
 
@@ -220,20 +223,9 @@ pub(crate) mod tests {
             "room_id": room_id,
             "type": "m.room.encrypted",
             "content": encrypted_content,
-        })
-        .to_string();
+        });
 
-        let event: AnySyncRoomEvent = serde_json::from_str(&event).unwrap();
-
-        let event = if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(event),
-        )) = event
-        {
-            event
-        } else {
-            panic!("Invalid event type")
-        };
-
+        let event = json_convert(&event).unwrap();
         let decrypted = inbound.decrypt(&event).await.unwrap().0;
 
         if let AnyRoomEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
@@ -257,7 +249,8 @@ pub(crate) mod tests {
         let export: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
         let export = ExportedRoomKey::try_from(export).unwrap();
 
-        let imported = InboundGroupSession::from_export(export);
+        let imported = InboundGroupSession::from_export(&export)
+            .expect("We can always import an inbound group session from a fresh export");
 
         assert_eq!(inbound.session_id(), imported.session_id());
     }

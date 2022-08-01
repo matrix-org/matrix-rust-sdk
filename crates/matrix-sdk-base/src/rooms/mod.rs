@@ -47,9 +47,9 @@ impl fmt::Display for DisplayName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DisplayName::Named(s) | DisplayName::Calculated(s) | DisplayName::Aliased(s) => {
-                write!(f, "{}", s)
+                write!(f, "{s}")
             }
-            DisplayName::EmptyWas(s) => write!(f, "Empty Room (was {})", s),
+            DisplayName::EmptyWas(s) => write!(f, "Empty Room (was {s})"),
             DisplayName::Empty => write!(f, "Empty Room"),
         }
     }

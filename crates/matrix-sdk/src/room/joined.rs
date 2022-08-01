@@ -159,6 +159,7 @@ impl Joined {
     ///
     /// ```no_run
     /// use std::time::Duration;
+    ///
     /// use matrix_sdk::ruma::api::client::typing::create_typing_event::v3::Typing;
     ///
     /// # use matrix_sdk::{
@@ -416,7 +417,6 @@ impl Joined {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
-    /// # use std::convert::TryFrom;
     /// # use serde::{Deserialize, Serialize};
     /// use matrix_sdk::ruma::{
     ///     events::{
@@ -513,7 +513,6 @@ impl Joined {
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -557,7 +556,7 @@ impl Joined {
             if event_type == "m.reaction" {
                 debug!(
                     room_id = %self.room_id(),
-                    "Sending plaintext event because the event type is {}", event_type
+                    "Sending plaintext event because the event type is {event_type}",
                 );
                 (Raw::new(&content)?.cast(), event_type)
             } else {
@@ -577,11 +576,8 @@ impl Joined {
 
                 let encrypted_content =
                     olm.encrypt_room_event_raw(self.inner.room_id(), content, event_type).await?;
-                let raw_content = Raw::new(&encrypted_content)
-                    .expect("Failed to serialize encrypted event")
-                    .cast();
 
-                (raw_content, "m.room.encrypted")
+                (encrypted_content.cast(), "m.room.encrypted")
             }
         } else {
             debug!(

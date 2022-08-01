@@ -1,6 +1,6 @@
 [package]
 authors = ["Johannes Becker <j.becker@famedly.com>"]
-edition = "2018"
+edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Appservice SDK based on the matrix-sdk"

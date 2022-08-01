@@ -43,8 +43,8 @@
 //! # async {
 //! #
 //! use matrix_sdk_appservice::{
-//!     ruma::events::room::member::SyncRoomMemberEvent,
-//!     AppService, AppServiceRegistration
+//!     ruma::events::room::member::SyncRoomMemberEvent, AppService,
+//!     AppServiceRegistration,
 //! };
 //!
 //! let homeserver_url = "http://127.0.0.1:8008";
@@ -60,13 +60,15 @@
 //!           users:
 //!           - exclusive: true
 //!             regex: '@_appservice_.*'
-//!     ")?;
+//!     ",
+//! )?;
 //!
-//! let mut appservice = AppService::new(homeserver_url, server_name, registration).await?;
+//! let mut appservice =
+//!     AppService::new(homeserver_url, server_name, registration).await?;
 //! appservice
 //!     .virtual_user(None)
 //!     .await?
-//!     .register_event_handler(|_ev: SyncRoomMemberEvent| async {
+//!     .add_event_handler(|_ev: SyncRoomMemberEvent| async {
 //!         // do stuff
 //!     })
 //!     .await;
@@ -84,7 +86,7 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
-use std::{convert::TryInto, sync::Arc};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 pub use error::Error;
@@ -122,7 +124,7 @@ pub use virtual_user::VirtualUserBuilder;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 const USER_KEY: &[u8] = b"appservice.users.";
-pub const USER_MEMBER: &[u8] = b"appservice.users.membership.";
+const USER_MEMBER: &[u8] = b"appservice.users.membership.";
 
 type Localpart = String;
 
@@ -256,10 +258,12 @@ impl AppService {
     /// ```no_run
     /// # use matrix_sdk_appservice::AppService;
     /// # fn run(appservice: AppService) {
-    /// appservice.register_user_query(Box::new(|appservice, req| Box::pin(async move {
-    ///     println!("Got request for {}", req.user_id);
-    ///     true
-    /// })));
+    /// appservice.register_user_query(Box::new(|appservice, req| {
+    ///     Box::pin(async move {
+    ///         println!("Got request for {}", req.user_id);
+    ///         true
+    ///     })
+    /// }));
     /// # }
     /// ```
     pub async fn register_user_query(
@@ -278,10 +282,12 @@ impl AppService {
     /// ```no_run
     /// # use matrix_sdk_appservice::AppService;
     /// # fn run(appservice: AppService) {
-    /// appservice.register_room_query(Box::new(|appservice, req| Box::pin(async move {
-    ///     println!("Got request for {}", req.room_alias);
-    ///     true
-    /// })));
+    /// appservice.register_room_query(Box::new(|appservice, req| {
+    ///     Box::pin(async move {
+    ///         println!("Got request for {}", req.room_alias);
+    ///         true
+    ///     })
+    /// }));
     /// # }
     /// ```
     pub async fn register_room_query(
@@ -492,7 +498,7 @@ impl AppService {
         }
         for task in tasks {
             if let Err(e) = task.await {
-                warn!("Joining sync task failed: {}", e);
+                warn!("Joining sync task failed: {e}");
             }
         }
         Ok(())
@@ -505,7 +511,7 @@ impl AppService {
     pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
         let host = host.into();
         let port = port.into();
-        info!("Starting AppService on {}:{}", &host, &port);
+        info!(host, port, "Starting AppService");
 
         webserver::run_server(self.clone(), host, port).await?;
         Ok(())
@@ -640,7 +646,7 @@ mod tests {
         appservice
             .virtual_user(None)
             .await?
-            .register_event_handler({
+            .add_event_handler({
                 let on_state_member = on_state_member.clone();
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     *on_state_member.lock().unwrap() = true;
@@ -796,7 +802,7 @@ mod tests {
         appservice
             .virtual_user(None)
             .await?
-            .register_event_handler({
+            .add_event_handler({
                 let on_state_member = on_state_member.clone();
                 move |_ev: OriginalSyncRoomMemberEvent| {
                     *on_state_member.lock().unwrap() = true;

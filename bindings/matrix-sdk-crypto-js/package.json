@@ -1,6 +1,6 @@
 {
     "name": "@matrix-org/matrix-sdk-crypto-js",
-    "version": "0.5.0",
+    "version": "0.1.0-alpha.0",
     "homepage": "https://github.com/matrix-org/matrix-rust-sdk",
     "description": "Matrix encryption library, for JavaScript",
     "license": "Apache-2.0",
@@ -35,7 +35,7 @@
         "node": ">= 10"
     },
     "scripts": {
-        "build": "cross-env RUSTFLAGS='-C opt-level=z' wasm-pack build --release --target nodejs --out-name matrix_sdk_crypto --out-dir ./pkg",
+        "build": "cross-env RUSTFLAGS='-C opt-level=z' wasm-pack build --release --target nodejs --scope matrix-org --out-dir ./pkg",
         "test": "jest --verbose",
         "doc": "typedoc --tsconfig ."
     }

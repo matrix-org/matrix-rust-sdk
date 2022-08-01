@@ -69,9 +69,7 @@ impl std::fmt::Debug for SecretSendContent {
 }
 
 impl EventType for SecretSendContent {
-    fn event_type(&self) -> &str {
-        "m.secret.send"
-    }
+    const EVENT_TYPE: &'static str = "m.secret.send";
 }
 
 #[cfg(test)]

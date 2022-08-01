@@ -42,16 +42,13 @@ async fn login_and_sync(
     #[cfg(feature = "sled")]
     {
         // The location to save files to
-        let mut home = dirs::home_dir().expect("no home directory found");
-        home.push("party_bot");
-        let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
-        client_builder = client_builder.state_store(state_store);
+        let home = dirs::home_dir().expect("no home directory found").join("party_bot");
+        client_builder = client_builder.sled_store(home, None)?;
     }
 
     #[cfg(feature = "indexeddb")]
     {
-        let state_store = matrix_sdk_indexeddb::StateStore::open();
-        client_builder = client_builder.state_store(state_store);
+        client_builder = client_builder.indexeddb_store("party_bot", None).await?;
     }
 
     let client = client_builder.build().await.unwrap();
@@ -61,7 +58,7 @@ async fn login_and_sync(
         .send()
         .await?;
 
-    println!("logged in as {}", username);
+    println!("logged in as {username}");
 
     // An initial sync to set up state and so our bot doesn't respond to old
     // messages. If the `StateStore` finds saved state in the location given the
@@ -69,7 +66,7 @@ async fn login_and_sync(
     client.sync_once(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the
     // initial sync to avoid responding to messages before the bot was running.
-    client.register_event_handler(on_room_message).await;
+    client.add_event_handler(on_room_message).await;
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`

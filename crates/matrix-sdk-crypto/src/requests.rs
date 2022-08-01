@@ -78,9 +78,14 @@ impl ToDeviceRequest {
     pub(crate) fn new(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
-        content: AnyToDeviceEventContent,
+        event_type: &str,
+        content: Raw<AnyToDeviceEventContent>,
     ) -> Self {
-        Self::with_id(recipient, recipient_device, content, TransactionId::new())
+        let event_type = ToDeviceEventType::from(event_type);
+        let user_messages = iter::once((recipient_device.into(), content)).collect();
+        let messages = iter::once((recipient.to_owned(), user_messages)).collect();
+
+        ToDeviceRequest { event_type, txn_id: TransactionId::new(), messages }
     }
 
     pub(crate) fn for_recipients(
@@ -89,20 +94,24 @@ impl ToDeviceRequest {
         content: AnyToDeviceEventContent,
         txn_id: OwnedTransactionId,
     ) -> Self {
+        let event_type = content.event_type();
+        let raw_content = Raw::new(&content).expect("Failed to serialize to-device event");
+
         if recipient_devices.is_empty() {
-            Self::new(recipient, DeviceIdOrAllDevices::AllDevices, content)
+            Self::new(
+                recipient,
+                DeviceIdOrAllDevices::AllDevices,
+                &event_type.to_string(),
+                raw_content,
+            )
         } else {
-            let event_type = content.event_type();
             let device_messages = recipient_devices
                 .into_iter()
-                .map(|d| {
-                    let raw_content =
-                        Raw::new(&content).expect("Failed to serialize to-device event");
-                    (DeviceIdOrAllDevices::DeviceId(d), raw_content)
-                })
+                .map(|d| (DeviceIdOrAllDevices::DeviceId(d), raw_content.clone()))
                 .collect();
 
             let messages = iter::once((recipient.to_owned(), device_messages)).collect();
+
             ToDeviceRequest { event_type, txn_id, messages }
         }
     }

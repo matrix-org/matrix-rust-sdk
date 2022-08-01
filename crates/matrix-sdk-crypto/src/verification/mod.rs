@@ -501,10 +501,9 @@ impl IdentitiesBeingVerified {
                     }
                     Err(e) => {
                         error!(
-                            "Error signing device keys for {} {} {:?}",
-                            device.user_id(),
-                            device.device_id(),
-                            e
+                            user_id = %device.user_id(),
+                            device_id = %device.device_id(),
+                            "Error signing device keys: {e:?}",
                         );
                         None
                     }
@@ -527,17 +526,16 @@ impl IdentitiesBeingVerified {
                     Ok(r) => Some(r),
                     Err(SignatureError::MissingSigningKey) => {
                         warn!(
-                            "Can't sign the public cross signing keys for {}, \
-                              no private user signing key found",
-                            i.user_id()
+                            user_id = %i.user_id(),
+                            "Can't sign the public cross signing keys, \
+                             no private user signing key found",
                         );
                         None
                     }
                     Err(e) => {
                         error!(
-                            "Error signing the public cross signing keys for {} {:?}",
-                            i.user_id(),
-                            e
+                            user_id = %i.user_id(),
+                            "Error signing the public cross signing keys: {e:?}",
                         );
                         None
                     }
@@ -707,7 +705,6 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::convert::TryInto;
 
     use ruma::{
         events::{AnyToDeviceEventContent, ToDeviceEvent},

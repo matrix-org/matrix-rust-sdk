@@ -44,6 +44,7 @@ use ruma::{
     RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
@@ -396,7 +397,7 @@ impl Room {
             _ => (summary.joined_member_count, summary.invited_member_count),
         };
 
-        tracing::debug!(
+        debug!(
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
             joined, invited,
@@ -589,6 +590,8 @@ impl Room {
     /// Add a new timeline slice to the timeline streams.
     #[cfg(feature = "experimental-timeline")]
     pub async fn add_timeline_slice(&self, timeline: &TimelineSlice) {
+        use tracing::warn;
+
         if timeline.sync {
             let mut streams = self.forward_timeline_streams.lock().await;
             let mut remaining_streams = Vec::with_capacity(streams.len());
@@ -596,7 +599,11 @@ impl Room {
                 if !forward.is_closed() {
                     if let Err(error) = forward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            tracing::warn!("Drop timeline slice because the limit of the buffer for the forward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 forward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(forward);
@@ -611,7 +618,11 @@ impl Room {
                 if !backward.is_closed() {
                     if let Err(error) = backward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            tracing::warn!("Drop timeline slice because the limit of the buffer for the backward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 backward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(backward);

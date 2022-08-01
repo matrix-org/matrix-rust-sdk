@@ -1,5 +1,6 @@
 // Copyright 2020 Damir Jelić
 // Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2022 Famedly GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +20,10 @@ use std::{
     future::Future,
     io::Read,
     pin::Pin,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering::SeqCst},
+        Arc, RwLock as StdRwLock,
+    },
 };
 
 use anymap2::any::CloneAnySendSync;
@@ -80,7 +84,10 @@ use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
+    event_handler::{
+        EventHandler, EventHandlerData, EventHandlerHandle, EventHandlerResult,
+        EventHandlerWrapper, EventKind, SyncEvent,
+    },
     http_client::HttpClient,
     room, Account, Error, Result,
 };
@@ -101,8 +108,8 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-type EventHandlerFn = Box<dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync>;
-type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerFn>>;
+pub(crate) type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
+type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerWrapper>>;
 
 type NotificationHandlerFut = EventHandlerFut;
 type NotificationHandlerFn =
@@ -152,10 +159,13 @@ pub(crate) struct ClientInner {
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
-    /// Event handlers. See `register_event_handler`.
+    /// Event handlers. See `add_event_handler`.
     event_handlers: RwLock<EventHandlerMap>,
-    /// Custom event handler context. See `register_event_handler_context`.
+    /// Custom event handler context. See `add_event_handler_context`.
     event_handler_data: StdRwLock<AnyMap>,
+    /// When registering a event handler, the current value is used for the
+    /// handlers identification, then the counter is incremented.
+    event_handler_counter: AtomicU64,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     /// Whether the client should operate in application service style mode.
@@ -346,9 +356,11 @@ impl Client {
     /// "context" arguments: They have to implement [`EventHandlerContext`].
     /// This trait is named that way because most of the types implementing it
     /// give additional context about an event: The room it was in, its raw form
-    /// and other similar things. As an exception to this,
-    /// [`Client`] also implements the `EventHandlerContext` trait
-    /// so you don't have to clone your client into the event handler manually.
+    /// and other similar things. As two exceptions to this,
+    /// [`Client`] and [`EventHandlerHandle`] also implement the
+    /// `EventHandlerContext` trait so you don't have to clone your client
+    /// into the event handler manually and a handler can decide to remove
+    /// itself.
     ///
     /// Some context arguments are not universally applicable. A context
     /// argument that isn't available for the given event type will result in
@@ -388,14 +400,16 @@ impl Client {
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
+    ///
     /// client
-    ///     .register_event_handler(
+    ///     .add_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
     ///             // Common usage: Room event plus room and client.
     ///         },
     ///     )
-    ///     .await
-    ///     .register_event_handler(
+    ///     .await;
+    /// client
+    ///     .add_event_handler(
     ///         |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
     ///             async move {
     ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
@@ -403,8 +417,9 @@ impl Client {
     ///             }
     ///         },
     ///     )
-    ///     .await
-    ///     .register_event_handler(|ev: SyncRoomTopicEvent| async move {
+    ///     .await;
+    /// client
+    ///     .add_event_handler(|ev: SyncRoomTopicEvent| async move {
     ///         // You can omit any or all arguments after the first.
     ///     })
     ///     .await;
@@ -419,64 +434,144 @@ impl Client {
     ///     expires_at: MilliSecondsSinceUnixEpoch,
     /// }
     ///
-    /// client.register_event_handler(|ev: SyncTokenEvent, room: Room| async move {
+    /// client.add_event_handler(|ev: SyncTokenEvent, room: Room| async move {
     ///     todo!("Display the token");
     /// }).await;
     ///
     /// // Adding your custom data to the handler can be done as well
     /// let data = "MyCustomIdentifier".to_owned();
     ///
-    /// client.register_event_handler({
+    /// client.add_event_handler({
     ///     let data = data.clone();
     ///     move |ev: SyncRoomMessageEvent | {
     ///         let data = data.clone();
     ///         async move {
-    ///             println!("Calling the handler with identifier {}", data);
+    ///             println!("Calling the handler with identifier {data}");
     ///         }
     ///     }
     /// }).await;
     /// # });
     /// ```
+    pub async fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        let key = (Ev::KIND, Ev::TYPE);
+
+        let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
+            let maybe_fut = serde_json::from_str(data.raw.get())
+                .map(|ev| handler.clone().handle_event(ev, data));
+
+            Box::pin(async move {
+                match maybe_fut {
+                    Ok(Some(fut)) => {
+                        fut.await.print_error(Ev::TYPE);
+                    }
+                    Ok(None) => {
+                        error!(
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Event handler has an invalid context argument",
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Failed to deserialize event, skipping event handler.\n
+                             Deserialization error: {e}",
+                        );
+                    }
+                }
+            })
+        });
+
+        let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
+
+        let handle = EventHandlerHandle { handler_id, ev_id: key };
+
+        self.inner
+            .event_handlers
+            .write()
+            .await
+            .entry(key)
+            .or_default()
+            .push(EventHandlerWrapper { handler_fn, handle });
+
+        handle
+    }
+
+    #[allow(missing_docs)]
+    #[deprecated = "Use [`Client::add_event_handler`](#method.add_event_handler) instead"]
     pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        let event_type = H::ID.1;
-        self.inner.event_handlers.write().await.entry(H::ID).or_default().push(Box::new(
-            move |data| {
-                let maybe_fut = serde_json::from_str(data.raw.get())
-                    .map(|ev| handler.clone().handle_event(ev, data));
-
-                Box::pin(async move {
-                    match maybe_fut {
-                        Ok(Some(fut)) => {
-                            fut.await.print_error(event_type);
-                        }
-                        Ok(None) => {
-                            error!(
-                                "Event handler for {} has an invalid context argument",
-                                event_type
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to deserialize `{}` event, skipping event handler.\n\
-                                 Deserialization error: {}",
-                                event_type, e,
-                            );
-                        }
-                    }
-                })
-            },
-        ));
-
+        self.add_event_handler(handler).await;
         self
     }
 
     pub(crate) async fn event_handlers(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
         self.inner.event_handlers.read().await
+    }
+
+    /// Remove the event handler associated with the handle.
+    ///
+    /// Note that handlers that remove themselves will still execute
+    /// with events received in the same sync cycle.
+    ///
+    ///  # Arguments
+    ///
+    /// `handle` - The [`EventHandlerHandle`] that is returned when
+    /// registering the event handler with [`Client::add_event_handler`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # use tokio::sync::mpsc;
+    /// #
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// #
+    /// use matrix_sdk::{
+    ///     event_handler::EventHandlerHandle,
+    ///     ruma::events::room::member::SyncRoomMemberEvent, Client,
+    /// };
+    /// #
+    /// # block_on(async {
+    /// # let client = matrix_sdk::Client::builder()
+    /// #     .homeserver_url(homeserver)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
+    /// #     .build()
+    /// #     .await
+    /// #     .unwrap();
+    ///
+    /// client
+    ///     .add_event_handler(
+    ///         |ev: SyncRoomMemberEvent,
+    ///          client: Client,
+    ///          handle: EventHandlerHandle| async move {
+    ///             // Common usage: Check arriving Event is the expected one
+    ///             println!("Expected RoomMemberEvent received!");
+    ///             client.remove_event_handler(handle);
+    ///         },
+    ///     )
+    ///     .await;
+    /// # });
+    /// ```
+    pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
+        let mut event_handlers = self.inner.event_handlers.write().await;
+
+        if let Some(v) = event_handlers.get_mut(&handle.ev_id) {
+            v.retain(|e| e.handle.handler_id != handle.handler_id);
+
+            if v.is_empty() {
+                event_handlers.remove(&handle.ev_id);
+            }
+        }
     }
 
     /// Add an arbitrary value for use as event handler context.
@@ -492,8 +587,7 @@ impl Client {
     /// ```
     /// # use futures::executor::block_on;
     /// use matrix_sdk::{
-    ///     event_handler::Ctx,
-    ///     room::Room,
+    ///     event_handler::Ctx, room::Room,
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     /// # #[derive(Clone)]
@@ -511,21 +605,32 @@ impl Client {
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
     ///
+    /// client.add_event_handler_context(my_gui_handle.clone());
     /// client
-    ///     .register_event_handler_context(my_gui_handle.clone())
-    ///     .register_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| async move {
+    ///     .add_event_handler(
+    ///         |ev: SyncRoomMessageEvent,
+    ///          room: Room,
+    ///          gui_handle: Ctx<SomeType>| async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
     ///         },
     ///     )
     ///     .await;
     /// # });
     /// ```
-    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
+    pub fn add_event_handler_context<T>(&self, ctx: T)
     where
         T: Clone + Send + Sync + 'static,
     {
         self.inner.event_handler_data.write().unwrap().insert(ctx);
+    }
+
+    #[allow(missing_docs)]
+    #[deprecated = "Use [`Client::add_event_handler_context`](#method.add_event_handler_context) instead"]
+    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.add_event_handler_context(ctx);
         self
     }
 
@@ -539,7 +644,7 @@ impl Client {
 
     /// Register a handler for a notification.
     ///
-    /// Similar to [`Client::register_event_handler`], but only allows functions
+    /// Similar to [`Client::add_event_handler`], but only allows functions
     /// or closures with exactly the three arguments [`Notification`],
     /// [`room::Room`], [`Client`] for now.
     pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
@@ -725,7 +830,6 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -742,8 +846,8 @@ impl Client {
     ///     .await?;
     ///
     /// println!(
-    ///     "Logged in as {}, got device_id {} and access_token {}",
-    ///     user, response.device_id, response.access_token,
+    ///     "Logged in as {user}, got device_id {} and access_token {}",
+    ///     response.device_id, response.access_token,
     /// );
     /// # anyhow::Ok(()) });
     /// ```
@@ -792,7 +896,6 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
@@ -875,8 +978,10 @@ impl Client {
     ///     .await
     ///     .unwrap();
     ///
-    /// println!("Logged in as {}, got device_id {} and access_token {}",
-    ///          response.user_id, response.device_id, response.access_token);
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     response.user_id, response.device_id, response.access_token
+    /// );
     /// # })
     /// ```
     ///
@@ -1006,7 +1111,10 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::{Client, Session, ruma::{device_id, user_id}};
+    /// use matrix_sdk::{
+    ///     ruma::{device_id, user_id},
+    ///     Client, Session,
+    /// };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -1036,10 +1144,8 @@ impl Client {
     /// let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
-    /// let session: Session = client
-    ///     .login("example", "my-password", None, None)
-    ///     .await?
-    ///     .into();
+    /// let session: Session =
+    ///     client.login("example", "my-password", None, None).await?.into();
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
@@ -1061,7 +1167,6 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::{
@@ -1092,7 +1197,7 @@ impl Client {
         registration: impl Into<register::v3::Request<'_>>,
     ) -> HttpResult<register::v3::Response> {
         let homeserver = self.homeserver().await;
-        info!("Registering to {}", homeserver);
+        info!("Registering to {homeserver}");
 
         let config = if self.inner.appservice_mode {
             Some(RequestConfig::short_retry().force_auth())
@@ -1224,7 +1329,6 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// use matrix_sdk::Client;
-    /// # use std::convert::TryInto;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let limit = Some(10);
@@ -1300,15 +1404,13 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use url::Url;
     /// # use matrix_sdk::Client;
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// use matrix_sdk::ruma::{
-    ///     api::client::directory::get_public_rooms_filtered,
-    ///     directory::Filter,
+    ///     api::client::directory::get_public_rooms_filtered, directory::Filter,
     /// };
     /// # let mut client = Client::new(homeserver).await?;
     ///
@@ -1356,9 +1458,7 @@ impl Client {
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
     /// let mut image = File::open(path)?;
     ///
-    /// let response = client
-    ///     .upload(&mime::IMAGE_JPEG, &mut image)
-    ///     .await?;
+    /// let response = client.upload(&mime::IMAGE_JPEG, &mut image).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) });
@@ -1415,7 +1515,6 @@ impl Client {
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1498,7 +1597,6 @@ impl Client {
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1546,7 +1644,7 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
     /// # use url::Url;
-    /// # use std::{collections::BTreeMap, convert::TryFrom};
+    /// # use std::collections::BTreeMap;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1635,8 +1733,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
+    ///     config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1647,9 +1745,11 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
-    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
-    /// }).await;
+    /// client
+    ///     .add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
+    ///     })
+    ///     .await;
     ///
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
@@ -1718,7 +1818,7 @@ impl Client {
     ///
     /// This method will internally call [`Client::sync_once`] in a loop.
     ///
-    /// This method can be used with the [`Client::register_event_handler`]
+    /// This method can be used with the [`Client::add_event_handler`]
     /// method to react to individual events. If you instead wish to handle
     /// events in a bulk manner the [`Client::sync_with_callback`] and
     /// [`Client::sync_stream`] methods can be used instead. Those two methods
@@ -1740,8 +1840,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
+    ///     config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1749,9 +1849,11 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
-    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
-    /// }).await;
+    /// client
+    ///     .add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
+    ///     })
+    ///     .await;
     ///
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
@@ -1838,8 +1940,6 @@ impl Client {
                 if callback(r).await == LoopCtrl::Break {
                     return;
                 }
-            } else {
-                continue;
             }
 
             Client::delay_sync(&mut last_sync_time).await
@@ -1868,12 +1968,13 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use futures::StreamExt;
-    /// use matrix_sdk::{Client, config::SyncSettings};
+    /// use matrix_sdk::{config::SyncSettings, Client};
     ///
     /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
-    /// let mut sync_stream = Box::pin(client.sync_stream(SyncSettings::default()).await);
+    /// let mut sync_stream =
+    ///     Box::pin(client.sync_stream(SyncSettings::default()).await);
     ///
     /// while let Some(Ok(response)) = sync_stream.next().await {
     ///     for room in response.rooms.join.values() {

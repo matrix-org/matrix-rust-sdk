@@ -91,7 +91,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # let alice = user_id!("@alice:example.org");
@@ -143,7 +142,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # let alice = user_id!("@alice:example.org");
@@ -195,7 +193,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
@@ -216,7 +213,8 @@ impl UserIdentity {
     /// let methods = vec![VerificationMethod::SasV1];
     ///
     /// if let Some(user) = user {
-    ///     let verification = user.request_verification_with_methods(methods).await?;
+    ///     let verification =
+    ///         user.request_verification_with_methods(methods).await?;
     /// }
     /// # anyhow::Ok(()) });
     /// ```
@@ -274,7 +272,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
@@ -318,7 +315,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
@@ -358,7 +354,6 @@ impl UserIdentity {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{
     /// #    Client,
     /// #    ruma::{
@@ -379,14 +374,19 @@ impl UserIdentity {
     ///     // matches what we expect, for this we fetch the first public key we
     ///     // can find, there's currently only a single key allowed so this is
     ///     // fine.
-    ///     if user.master_key().get_first_key().map(|k| k.to_base64()) == Some("MyMasterKey".to_string()) {
+    ///     if user.master_key().get_first_key().map(|k| k.to_base64())
+    ///         == Some("MyMasterKey".to_string())
+    ///     {
     ///         println!(
     ///             "Master keys match for user {}, marking the user as verified",
     ///             user.user_id().as_str(),
     ///         );
     ///         user.verify().await?;
     ///     } else {
-    ///         println!("Master keys don't match for user {}", user.user_id().as_str());
+    ///         println!(
+    ///             "Master keys don't match for user {}",
+    ///             user.user_id().as_str()
+    ///         );
     ///     }
     /// }
     /// # anyhow::Ok(()) });

@@ -12,6 +12,9 @@ pub struct CiArgs {
     cmd: Option<CiCommand>,
 }
 
+const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
+const WASM_TIMEOUT_VALUE: &str = "120";
+
 #[derive(Subcommand)]
 enum CiCommand {
     /// Check style
@@ -69,6 +72,7 @@ enum WasmFeatureSet {
     MatrixSdkIndexeddbStores,
     IndexeddbNoCrypto,
     IndexeddbWithCrypto,
+    Indexeddb,
     MatrixSdkCommandBot,
 }
 
@@ -197,6 +201,12 @@ fn run_appservice_tests() -> Result<()> {
 }
 
 fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    if let Some(WasmFeatureSet::Indexeddb) = cmd {
+        run_wasm_checks(Some(WasmFeatureSet::IndexeddbNoCrypto))?;
+        run_wasm_checks(Some(WasmFeatureSet::IndexeddbWithCrypto))?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode"),
         (
@@ -225,6 +235,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(arg_set.split_whitespace())
             .args(["--", "-D", "warnings"])
+            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()
     };
 
@@ -233,6 +244,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 
         cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(["--", "-D", "warnings", "-A", "clippy::unused-unit"])
+            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
             .run()
     };
 
@@ -258,6 +270,11 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 }
 
 fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
+    if let Some(WasmFeatureSet::Indexeddb) = cmd {
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbNoCrypto))?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbWithCrypto))?;
+        return Ok(());
+    }
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, ("matrix-sdk-qrcode", "")),
         (
@@ -286,16 +303,24 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     ]);
 
     let run = |(folder, arg_set): (&str, &str)| {
-        let _p = pushd(format!("crates/{}", folder));
-        cmd!("pwd").run()?; // print dir so we know what might have failed
-        cmd!("wasm-pack test --node -- ").args(arg_set.split_whitespace()).run()?;
-        cmd!("wasm-pack test --firefox --headless --").args(arg_set.split_whitespace()).run()
+        let _p = pushd(format!("crates/{folder}"));
+        cmd!("pwd").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?; // print dir so we know what might have failed
+        cmd!("wasm-pack test --node -- ")
+            .args(arg_set.split_whitespace())
+            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+            .run()?;
+        cmd!("wasm-pack test --firefox --headless --")
+            .args(arg_set.split_whitespace())
+            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+            .run()
     };
 
     let test_command_bot = || {
         let _p = pushd("crates/matrix-sdk/examples/wasm_command_bot");
-        cmd!("wasm-pack test --node").run()?;
-        cmd!("wasm-pack test --firefox --headless").run()
+        cmd!("wasm-pack test --node").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?;
+        cmd!("wasm-pack test --firefox --headless")
+            .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)
+            .run()
     };
 
     match cmd {

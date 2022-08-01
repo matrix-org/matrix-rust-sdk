@@ -51,12 +51,25 @@ zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.18", default-features = false, features = ["time"] }
-ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b", features = ["client-api-c", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd" }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-ruma = { git = "https://github.com/ruma/ruma", rev = "ca8c66c885241a7ba3805399604eda4a38979f6b", features = ["client-api-c", "js", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd", features = ["js"] }
+[target.'cfg(target_arch = "wasm32")'.dependencies.ruma]
+git = "https://github.com/ruma/ruma"
+rev = "ca8c66c885241a7ba3805399604eda4a38979f6b"
+features = ["client-api-c", "js", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
+git = "https://github.com/ruma/ruma"
+rev = "ca8c66c885241a7ba3805399604eda4a38979f6b"
+features = ["client-api-c", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac/"
+rev = "18bcbc3359298894415931547ea41abb75af2d4a"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac/"
+rev = "18bcbc3359298894415931547ea41abb75af2d4a"
+features = ["js"]
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }

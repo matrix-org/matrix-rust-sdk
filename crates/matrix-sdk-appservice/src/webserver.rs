@@ -145,7 +145,7 @@ mod filters {
             .and(warp::body::bytes())
             .and_then(|method, path: FullPath, query, headers, bytes| async move {
                 let uri = http::uri::Builder::new()
-                    .path_and_query(format!("{}?{}", path.as_str(), query))
+                    .path_and_query(format!("{}?{query}", path.as_str()))
                     .build()
                     .map_err(Error::from)?;
 
@@ -164,8 +164,12 @@ mod filters {
 
 mod handlers {
     use percent_encoding::percent_decode_str;
+    use serde::Serialize;
 
     use super::*;
+
+    #[derive(Serialize)]
+    struct EmptyObject {}
 
     pub async fn user(
         user_id: String,
@@ -177,12 +181,12 @@ mod handlers {
             let request = query_user::IncomingRequest::try_from_http_request(request, &[user_id])
                 .map_err(Error::from)?;
             return if user_exists(appservice.clone(), request).await {
-                Ok(warp::reply::json(&String::from("{}")))
+                Ok(warp::reply::json(&EmptyObject {}))
             } else {
                 Err(warp::reject::not_found())
             };
         }
-        Ok(warp::reply::json(&String::from("{}")))
+        Ok(warp::reply::json(&EmptyObject {}))
     }
 
     pub async fn room(
@@ -195,12 +199,12 @@ mod handlers {
             let request = query_room::IncomingRequest::try_from_http_request(request, &[room_id])
                 .map_err(Error::from)?;
             return if room_exists(appservice.clone(), request).await {
-                Ok(warp::reply::json(&String::from("{}")))
+                Ok(warp::reply::json(&EmptyObject {}))
             } else {
                 Err(warp::reject::not_found())
             };
         }
-        Ok(warp::reply::json(&String::from("{}")))
+        Ok(warp::reply::json(&EmptyObject {}))
     }
 
     pub async fn transaction(
@@ -213,7 +217,7 @@ mod handlers {
                 .map_err(Error::from)?;
 
         appservice.receive_transaction(incoming_transaction).await?;
-        Ok(warp::reply::json(&String::from("{}")))
+        Ok(warp::reply::json(&EmptyObject {}))
     }
 }
 

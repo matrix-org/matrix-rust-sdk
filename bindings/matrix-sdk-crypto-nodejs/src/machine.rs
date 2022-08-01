@@ -7,11 +7,8 @@ use std::{
 
 use napi::bindgen_prelude::Either7;
 use napi_derive::*;
-use ruma::{
-    events::room::encrypted::OriginalSyncRoomEncryptedEvent, DeviceKeyAlgorithm,
-    OwnedTransactionId, UInt,
-};
-use serde_json::Value as JsonValue;
+use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
+use serde_json::{value::RawValue, Value as JsonValue};
 use zeroize::Zeroize;
 
 use crate::{
@@ -389,8 +386,7 @@ impl OlmMachine {
         event: String,
         room_id: &identifiers::RoomId,
     ) -> napi::Result<responses::DecryptedRoomEvent> {
-        let event: OriginalSyncRoomEncryptedEvent =
-            serde_json::from_str(event.as_str()).map_err(into_err)?;
+        let event = Raw::from_json(RawValue::from_string(event).map_err(into_err)?);
         let room_id = room_id.inner.clone();
 
         let room_event = self.inner.decrypt_room_event(&event, &room_id).await.map_err(into_err)?;

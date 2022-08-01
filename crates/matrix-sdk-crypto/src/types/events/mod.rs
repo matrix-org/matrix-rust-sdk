@@ -18,16 +18,30 @@
 //! types. Once deserialized they aim to zeroize all the secret material once
 //! the type is dropped.
 
+pub mod room;
 pub mod room_key;
 pub mod secret_send;
 mod to_device;
 
+use ruma::serde::Raw;
 pub use to_device::{ToDeviceCustomEvent, ToDeviceEvent, ToDeviceEvents};
 
 /// A trait for event contents to define their event type.
 pub trait EventType {
+    /// The event type of the event content.
+    const EVENT_TYPE: &'static str;
+
     /// Get the event type of the event content.
-    fn event_type(&self) -> &str;
+    ///
+    /// **Note**: This should never be implemented manually, this takes the
+    /// event type from the constant.
+    fn event_type(&self) -> &'static str {
+        Self::EVENT_TYPE
+    }
+}
+
+impl<T: EventType> EventType for Raw<T> {
+    const EVENT_TYPE: &'static str = T::EVENT_TYPE;
 }
 
 fn from_str<'a, T, E>(string: &'a str) -> Result<T, E>

@@ -3,7 +3,7 @@
 [changelog]
 # changelog header
 header = """
-# Matrix SDK Crypto Node.js Changelog\n
+# Matrix SDK Crypto JavaScript Changelog\n
 All notable changes to this project will be documented in this file.\n
 """
 # template for the changelog body
@@ -14,10 +14,10 @@ body = """
 {% else %}\
     ## [unreleased]
 {% endif %}\
-{% for group, commits in commits | filter(attribute="scope", value="crypto-nodejs") | group_by(attribute="group") %}
+{% for group, commits in commits | filter(attribute="scope", value="crypto-js") | group_by(attribute="group") %}
     ### {{ group | upper_first }}
     {% for commit in commits %}
-        - {{ commit.id | truncate(length=7, end="") }}{% if commit.breaking %} [**breaking**] {% endif %}: {{ commit.message | upper_first }}\
+        - {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }}\
     {% endfor %}
 {% endfor %}\n
 """
@@ -48,11 +48,11 @@ commit_parsers = [
     { body = ".*security", group = "Security"},
 ]
 # filter out the commits that are not matched by commit parsers
-filter_commits = true
+filter_commits = false
 # glob pattern for matching git tags
 tag_pattern = "v[0-9]*"
 # regex for skipping tags
-skip_tags = "v0.1.0-beta.1"
+skip_tags = ""
 # regex for ignoring tags
 ignore_tags = ""
 # sort the tags chronologically

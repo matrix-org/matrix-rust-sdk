@@ -48,7 +48,7 @@ use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
-    types::events::secret_send::SecretSendEvent,
+    types::events::{secret_send::SecretSendEvent, EventType},
     Device,
 };
 
@@ -435,7 +435,8 @@ impl GossipMachine {
         let request = ToDeviceRequest::new(
             device.user_id(),
             device.device_id().to_owned(),
-            AnyToDeviceEventContent::RoomEncrypted(content),
+            content.event_type(),
+            content.cast(),
         );
 
         let request = OutgoingRequest {
@@ -459,7 +460,8 @@ impl GossipMachine {
         let request = ToDeviceRequest::new(
             device.user_id(),
             device.device_id().to_owned(),
-            AnyToDeviceEventContent::RoomEncrypted(content),
+            content.event_type(),
+            content.cast(),
         );
 
         let request = OutgoingRequest {
@@ -589,9 +591,10 @@ impl GossipMachine {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
+        algorithm: &EventEncryptionAlgorithm,
     ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
-            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            algorithm.to_owned(),
             room_id.to_owned(),
             sender_key.to_owned(),
             session_id.to_owned(),
@@ -666,9 +669,10 @@ impl GossipMachine {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
+        algorithm: &EventEncryptionAlgorithm,
     ) -> Result<bool, CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
-            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            algorithm.to_owned(),
             room_id.to_owned(),
             sender_key.to_owned(),
             session_id.to_owned(),
@@ -950,10 +954,9 @@ mod tests {
         device_id,
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-            room::encrypted::ToDeviceRoomEncryptedEventContent,
             room_key_request::ToDeviceRoomKeyRequestEventContent,
             secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
-            AnyToDeviceEvent, ToDeviceEvent,
+            AnyToDeviceEvent, ToDeviceEvent as RumaToDeviceEvent,
         },
         room_id,
         to_device::DeviceIdOrAllDevices,
@@ -966,6 +969,8 @@ mod tests {
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStore, MemoryStore, Store},
+        types::events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
+        utilities::json_convert,
         verification::VerificationMachine,
         OutgoingRequests,
     };
@@ -1064,7 +1069,12 @@ mod tests {
 
         assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         let (cancel, request) = machine
-            .request_key(session.room_id(), &session.sender_key, session.session_id())
+            .request_key(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+                session.algorithm(),
+            )
             .await
             .unwrap();
 
@@ -1073,7 +1083,12 @@ mod tests {
         machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         let (cancel, _) = machine
-            .request_key(session.room_id(), &session.sender_key, session.session_id())
+            .request_key(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+                session.algorithm(),
+            )
             .await
             .unwrap();
 
@@ -1099,6 +1114,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1110,6 +1126,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1141,6 +1158,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1155,7 +1173,7 @@ mod tests {
 
         let content: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
 
-        let event = ToDeviceEvent { sender: alice_id().to_owned(), content };
+        let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
         assert!(
             machine
@@ -1189,6 +1207,7 @@ mod tests {
                 session.room_id(),
                 &session.sender_key,
                 session.session_id(),
+                session.algorithm(),
             )
             .await
             .unwrap();
@@ -1202,7 +1221,7 @@ mod tests {
 
         let content: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
 
-        let event = ToDeviceEvent { sender: alice_id().to_owned(), content };
+        let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
         let second_session =
             machine.receive_forwarded_room_key(&session.sender_key, &event).await.unwrap();
@@ -1213,7 +1232,7 @@ mod tests {
 
         let content: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
 
-        let event = ToDeviceEvent { sender: alice_id().to_owned(), content };
+        let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
         let second_session =
             machine.receive_forwarded_room_key(&session.sender_key, &event).await.unwrap();
@@ -1238,7 +1257,7 @@ mod tests {
         );
         own_device.set_trust_state(LocalTrust::Verified);
         // Now we do want to share the keys.
-        assert!(machine.should_share_key(&own_device, &inbound).await.is_ok());
+        machine.should_share_key(&own_device, &inbound).await.unwrap();
 
         let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
         machine.store.save_devices(&[bob_device]).await.unwrap();
@@ -1284,7 +1303,7 @@ mod tests {
                 bob_device.curve25519_key().unwrap(),
             )
             .await;
-        assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
+        machine.should_share_key(&bob_device, &inbound).await.unwrap();
 
         let (other_outbound, other_inbound) =
             account.create_group_session_pair_with_defaults(room_id()).await;
@@ -1375,6 +1394,7 @@ mod tests {
                 room_id(),
                 &bob_account.identity_keys.curve25519.to_base64(),
                 group_session.session_id(),
+                &group_session.settings().algorithm,
             )
             .await
             .unwrap();
@@ -1406,7 +1426,7 @@ mod tests {
 
         alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent { sender: alice_id().to_owned(), content };
+        let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
         // Bob doesn't have any outgoing requests.
         assert!(bob_machine.outgoing_requests.is_empty());
@@ -1431,11 +1451,13 @@ mod tests {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id().to_owned()))
             .unwrap();
-        let content: ToDeviceRoomEncryptedEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent { sender: bob_id().to_owned(), content };
+        let event =
+            ToDeviceEvent { sender: bob_id().to_owned(), content, other: Default::default() };
+        let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
         assert!(alice_machine
@@ -1488,7 +1510,7 @@ mod tests {
 
         alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
 
-        let event = ToDeviceEvent {
+        let event = RumaToDeviceEvent {
             sender: bob_account.user_id().to_owned(),
             content: ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
@@ -1517,7 +1539,7 @@ mod tests {
         alice_machine.collect_incoming_key_requests().await.unwrap();
         assert!(alice_machine.outgoing_requests.is_empty());
 
-        let event = ToDeviceEvent {
+        let event = RumaToDeviceEvent {
             sender: alice_id().to_owned(),
             content: ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretName::CrossSigningMasterKey),
@@ -1577,6 +1599,7 @@ mod tests {
                 room_id(),
                 &bob_account.identity_keys.curve25519.to_base64(),
                 group_session.session_id(),
+                &group_session.settings().algorithm,
             )
             .await
             .unwrap();
@@ -1608,7 +1631,7 @@ mod tests {
 
         alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent { sender: alice_id().to_owned(), content };
+        let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
         // Bob doesn't have any outgoing requests.
         assert!(bob_machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1653,11 +1676,13 @@ mod tests {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id().to_owned()))
             .unwrap();
-        let content: ToDeviceRoomEncryptedEventContent = content.deserialize_as().unwrap();
+        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent { sender: bob_id().to_owned(), content };
+        let event =
+            ToDeviceEvent { sender: bob_id().to_owned(), content, other: Default::default() };
+        let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
         assert!(alice_machine

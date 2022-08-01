@@ -1,4 +1,4 @@
-const { RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, ToDeviceRequest, SignatureUploadRequest, RoomMessageRequest, KeysBackupRequest } = require('../pkg/matrix_sdk_crypto');
+const { RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, ToDeviceRequest, SignatureUploadRequest, RoomMessageRequest, KeysBackupRequest } = require('../pkg/matrix_sdk_crypto_js');
 
 describe('RequestType', () => {
     test('has the correct variant values', () => {

@@ -1,4 +1,5 @@
 // Copyright 2021 Jonas Platte
+// Copyright 2022 Famedly GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,11 +14,11 @@
 // limitations under the License.
 
 //! Types and traits related for event handlers. For usage, see
-//! [`Client::register_event_handler`].
+//! [`Client::add_event_handler`].
 //!
 //! ### How it works
 //!
-//! The `register_event_handler` method registers event handlers of different
+//! The `add_event_handler` method registers event handlers of different
 //! signatures by actually storing boxed closures that all have the same
 //! signature of `async (EventHandlerData) -> ()` where `EventHandlerData` is a
 //! private type that contains all of the data an event handler *might* need.
@@ -38,8 +39,9 @@ use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw};
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
+use tracing::error;
 
-use crate::{room, Client};
+use crate::{client::EventHandlerFn, room, Client};
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -80,7 +82,28 @@ impl EventKind {
 /// A statically-known event kind/type that can be retrieved from an event sync.
 pub trait SyncEvent {
     #[doc(hidden)]
-    const ID: (EventKind, &'static str);
+    const KIND: EventKind;
+    #[doc(hidden)]
+    const TYPE: &'static str;
+}
+
+pub(crate) struct EventHandlerWrapper {
+    pub handler_fn: Box<EventHandlerFn>,
+    pub handle: EventHandlerHandle,
+}
+
+/// Handle to remove a registered event handler by passing it to
+/// [`Client::remove_event_handler`].
+#[derive(Clone, Copy, Debug)]
+pub struct EventHandlerHandle {
+    pub(crate) ev_id: (EventKind, &'static str),
+    pub(crate) handler_id: u64,
+}
+
+impl EventHandlerContext for EventHandlerHandle {
+    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+        Some(data.handle)
+    }
 }
 
 /// Interface for event handlers.
@@ -107,7 +130,7 @@ pub trait SyncEvent {
 /// `Ev` and `Ctx` are generic parameters rather than associated types because
 /// the argument list is a generic parameter for the `Fn` traits too, so a
 /// single type could implement `Fn` multiple times with different argument
-/// lists¹. Luckily, when calling [`Client::register_event_handler`] with a
+/// lists¹. Luckily, when calling [`Client::add_event_handler`] with a
 /// closure argument the trait solver takes into account that only a single one
 /// of the implementations applies (even though this could theoretically change
 /// through a dependency upgrade) and uses that rather than raising an ambiguity
@@ -120,11 +143,6 @@ pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
     type Future: Future + Send + 'static;
-
-    /// The event type being handled, for example a message event of type
-    /// `m.room.message`.
-    #[doc(hidden)]
-    const ID: (EventKind, &'static str);
 
     /// Create a future for handling the given event.
     ///
@@ -143,6 +161,7 @@ pub struct EventHandlerData<'a> {
     pub room: Option<room::Room>,
     pub raw: &'a RawJsonValue,
     pub encryption_info: Option<&'a EncryptionInfo>,
+    pub handle: EventHandlerHandle,
 }
 
 /// Context for an event handler.
@@ -175,7 +194,7 @@ impl EventHandlerContext for room::Room {
 /// The raw JSON form of an event.
 ///
 /// Used as a context argument for event handlers (see
-/// [`Client::register_event_handler`]).
+/// [`Client::add_event_handler`]).
 // FIXME: This could be made to not own the raw JSON value with some changes to
 //        the traits above, but only with GATs.
 #[derive(Clone, Debug)]
@@ -202,7 +221,7 @@ impl EventHandlerContext for Option<EncryptionInfo> {
 }
 
 /// A custom value registered with
-/// [`.register_event_handler_context`][Client::register_event_handler_context].
+/// [`.add_event_handler_context`][Client::add_event_handler_context].
 #[derive(Debug)]
 pub struct Ctx<T>(pub T);
 
@@ -237,14 +256,14 @@ impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E
         match self {
             #[cfg(feature = "anyhow")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<anyhow::Error>() => {
-                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+                error!("Event handler for `{event_type}` failed: {e:?}");
             }
             #[cfg(feature = "eyre")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<eyre::Report>() => {
-                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+                error!("Event handler for `{event_type}` failed: {e:?}");
             }
             Err(e) => {
-                tracing::error!("Event handler for `{}` failed: {}", event_type, e);
+                error!("Event handler for `{event_type}` failed: {e}");
             }
             Ok(_) => {}
         }
@@ -383,14 +402,15 @@ impl Client {
                 .get(&event_handler_id)
                 .into_iter()
                 .flatten()
-                .map(|handler| {
+                .map(|handler_wrapper| {
                     let data = EventHandlerData {
                         client: self.clone(),
                         room: room.clone(),
                         raw: raw_event.json(),
                         encryption_info,
+                        handle: handler_wrapper.handle,
                     };
-                    (handler)(data)
+                    (handler_wrapper.handler_fn)(data)
                 })
                 .collect();
 
@@ -416,7 +436,6 @@ macro_rules! impl_event_handler {
             $($ty: EventHandlerContext),*
         {
             type Future = Fut;
-            const ID: (EventKind, &'static str) = Ev::ID;
 
             fn handle_event(&self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
                 Some((self)(ev, $($ty::from_data(&_d)?),*))
@@ -450,21 +469,24 @@ mod static_events {
     where
         C: StaticEventContent + GlobalAccountDataEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::GlobalAccountData, C::TYPE);
+        const KIND: EventKind = EventKind::GlobalAccountData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RoomAccountDataEvent<C>
     where
         C: StaticEventContent + RoomAccountDataEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RoomAccountData, C::TYPE);
+        const KIND: EventKind = EventKind::RoomAccountData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
     where
         C: StaticEventContent + EphemeralRoomEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::EphemeralRoomData, C::TYPE);
+        const KIND: EventKind = EventKind::EphemeralRoomData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
@@ -472,40 +494,39 @@ mod static_events {
         C: StaticEventContent + MessageLikeEventContent + RedactContent,
         C::Redacted: MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::MessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::MessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
     where
         C: StaticEventContent + MessageLikeEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::OriginalMessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::OriginalMessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
     where
         C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RedactedMessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::RedactedMessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) =
-            (EventKind::MessageLike, events::room::redaction::RoomRedactionEventContent::TYPE);
+        const KIND: EventKind = EventKind::MessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::OriginalMessageLike,
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
+        const KIND: EventKind = EventKind::OriginalMessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::RedactedMessageLike,
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
+        const KIND: EventKind = EventKind::RedactedMessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncStateEvent<C>
@@ -513,46 +534,53 @@ mod static_events {
         C: StaticEventContent + StateEventContent + RedactContent,
         C::Redacted: StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::State, C::TYPE);
+        const KIND: EventKind = EventKind::State;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::OriginalState, C::TYPE);
+        const KIND: EventKind = EventKind::OriginalState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
     where
         C: StaticEventContent + StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RedactedState, C::TYPE);
+        const KIND: EventKind = EventKind::RedactedState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::StrippedStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::StrippedState, C::TYPE);
+        const KIND: EventKind = EventKind::StrippedState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::InitialStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::InitialState, C::TYPE);
+        const KIND: EventKind = EventKind::InitialState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::ToDeviceEvent<C>
     where
         C: StaticEventContent + ToDeviceEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::ToDevice, C::TYPE);
+        const KIND: EventKind = EventKind::ToDevice;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl SyncEvent for PresenceEvent {
-        const ID: (EventKind, &'static str) = (EventKind::Presence, PresenceEventContent::TYPE);
+        const KIND: EventKind = EventKind::Presence;
+        const TYPE: &'static str = PresenceEventContent::TYPE;
     }
 }
 
@@ -567,7 +595,13 @@ mod tests {
         EphemeralTestEvent, EventBuilder, StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
     };
     use ruma::{
-        events::room::member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
+        events::{
+            room::{
+                member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
+                power_levels::OriginalSyncRoomPowerLevelsEvent,
+            },
+            typing::SyncTypingEvent,
+        },
         room_id,
     };
     use serde_json::json;
@@ -575,7 +609,7 @@ mod tests {
     use crate::{room, Client};
 
     #[async_test]
-    async fn event_handler() -> crate::Result<()> {
+    async fn add_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
         let client = crate::client::tests::logged_in_client(None).await;
@@ -586,31 +620,34 @@ mod tests {
         let invited_member_count = Arc::new(AtomicU8::new(0));
 
         client
-            .register_event_handler({
+            .add_event_handler({
                 let member_count = member_count.clone();
                 move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
                     member_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
             })
-            .await
-            .register_event_handler({
+            .await;
+        client
+            .add_event_handler({
                 let typing_count = typing_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent| {
+                move |_ev: SyncTypingEvent| {
                     typing_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
             })
-            .await
-            .register_event_handler({
+            .await;
+        client
+            .add_event_handler({
                 let power_levels_count = power_levels_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent, _client: Client, _room: room::Room| {
+                move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
                     power_levels_count.fetch_add(1, SeqCst);
                     future::ready(())
                 }
             })
-            .await
-            .register_event_handler({
+            .await;
+        client
+            .add_event_handler({
                 let invited_member_count = invited_member_count.clone();
                 move |_ev: StrippedRoomMemberEvent| {
                     invited_member_count.fetch_add(1, SeqCst);
@@ -671,6 +708,59 @@ mod tests {
         assert_eq!(typing_count.load(SeqCst), 1);
         assert_eq!(power_levels_count.load(SeqCst), 1);
         assert_eq!(invited_member_count.load(SeqCst), 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn remove_event_handler() -> crate::Result<()> {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = crate::client::tests::logged_in_client(None).await;
+
+        let member_count = Arc::new(AtomicU8::new(0));
+
+        client
+            .add_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let handle = client
+            .add_event_handler({
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    panic!("handler should have been removed");
+                    #[allow(unreachable_code)]
+                    future::ready(())
+                }
+            })
+            .await;
+
+        client
+            .add_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: OriginalSyncRoomMemberEvent| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
+            )
+            .build_sync_response();
+
+        client.remove_event_handler(handle).await;
+
+        client.process_sync(response).await?;
+
+        assert_eq!(member_count.load(SeqCst), 2);
 
         Ok(())
     }

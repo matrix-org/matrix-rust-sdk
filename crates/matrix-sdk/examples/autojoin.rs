@@ -22,13 +22,13 @@ async fn on_stripped_state_member(
             // retry autojoin due to synapse sending invites, before the
             // invited user can join for more information see
             // https://github.com/matrix-org/synapse/issues/4345
-            eprintln!("Failed to join room {} ({:?}), retrying in {}s", room.room_id(), err, delay);
+            eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
 
             sleep(Duration::from_secs(delay)).await;
             delay *= 2;
 
             if delay > 3600 {
-                eprintln!("Can't join room {} ({:?})", room.room_id(), err);
+                eprintln!("Can't join room {} ({err:?})", room.room_id());
                 break;
             }
         }
@@ -47,16 +47,13 @@ async fn login_and_sync(
     #[cfg(feature = "sled")]
     {
         // The location to save files to
-        let mut home = dirs::home_dir().expect("no home directory found");
-        home.push("autojoin_bot");
-        let state_store = matrix_sdk_sled::StateStore::open_with_path(home)?;
-        client_builder = client_builder.state_store(state_store);
+        let home = dirs::home_dir().expect("no home directory found").join("autojoin_bot");
+        client_builder = client_builder.sled_store(home, None)?;
     }
 
     #[cfg(feature = "indexeddb")]
     {
-        let state_store = matrix_sdk_indexeddb::StateStore::open();
-        client_builder = client_builder.state_store(state_store);
+        client_builder = client_builder.indexeddb_store("autojoin_bot", None).await?;
     }
 
     let client = client_builder.build().await?;
@@ -67,9 +64,9 @@ async fn login_and_sync(
         .send()
         .await?;
 
-    println!("logged in as {}", username);
+    println!("logged in as {username}");
 
-    client.register_event_handler(on_stripped_state_member).await;
+    client.add_event_handler(on_stripped_state_member).await;
 
     client.sync(SyncSettings::default()).await;
 

@@ -63,7 +63,7 @@ pub fn keys_query(c: &mut Criterion) {
     let mut group = c.benchmark_group("Keys querying");
     group.throughput(Throughput::Elements(count as u64));
 
-    let name = format!("{} device and cross signing keys", count);
+    let name = format!("{count} device and cross signing keys");
 
     group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
         b.to_async(&runtime)
@@ -96,7 +96,7 @@ pub fn keys_claiming(c: &mut Criterion) {
     let mut group = c.benchmark_group("Olm session creation");
     group.throughput(Throughput::Elements(count as u64));
 
-    let name = format!("{} one-time keys", count);
+    let name = format!("{count} one-time keys");
 
     group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
         b.iter_batched(
@@ -158,7 +158,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("Room key sharing");
     group.throughput(Throughput::Elements(count as u64));
-    let name = format!("{} devices", count);
+    let name = format!("{count} devices");
 
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
@@ -225,7 +225,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let mut group = c.benchmark_group("Devices missing sessions collecting");
     group.throughput(Throughput::Elements(count as u64));
 
-    let name = format!("{} devices", count);
+    let name = format!("{count} devices");
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 

@@ -2,7 +2,7 @@
 name = "matrix-sdk-crypto-ffi"
 version = "0.1.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
-edition = "2018"
+edition = "2021"
 rust-version = "1.60"
 description = "Uniffi based bindings for the Rust SDK crypto crate"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
@@ -57,7 +57,7 @@ features = ["rt-multi-thread"]
 
 [dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac/"
-rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd"
+rev = "18bcbc3359298894415931547ea41abb75af2d4a"
 
 [build-dependencies]
 uniffi_build = { version = "0.18.0", features = ["builtin-bindgen"] }

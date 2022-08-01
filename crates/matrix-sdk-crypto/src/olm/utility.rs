@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::convert::TryInto;
-
 use ruma::{CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
 use serde::Serialize;
 use serde_json::Value;

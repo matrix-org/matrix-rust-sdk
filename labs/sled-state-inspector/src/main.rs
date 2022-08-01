@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
@@ -66,7 +66,7 @@ impl InspectorHelper {
     fn complete_event_types(&self, arg: Option<&&str>) -> Vec<Pair> {
         Self::EVENT_TYPES
             .iter()
-            .map(|&t| Pair { display: t.to_owned(), replacement: format!("{} ", t) })
+            .map(|&t| Pair { display: t.to_owned(), replacement: format!("{t} ") })
             .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()
     }
@@ -105,7 +105,7 @@ impl Completer for InspectorHelper {
             ("get-members", "get all the membership events in the given room"),
         ]
         .iter()
-        .map(|(r, d)| Pair { display: format!("{} ({})", r, d), replacement: format!("{} ", r) })
+        .map(|(r, d)| Pair { display: format!("{r} ({d})"), replacement: format!("{r} ") })
         .collect();
 
         if args.is_empty() {
@@ -188,13 +188,13 @@ impl Printer {
             for line in LinesWithEndings::from(&data) {
                 let ranges: Vec<(Style, &str)> = h.highlight(line, &self.ps);
                 let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                print!("{}", escaped);
+                print!("{escaped}");
             }
 
             // Clear the formatting
             println!("\x1b[0m");
         } else {
-            println!("{}", data);
+            println!("{data}");
         }
     }
 }
@@ -202,8 +202,12 @@ impl Printer {
 impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
-        let store =
-            Arc::new(StateStore::open_with_path(database_path).expect("Can't open sled database"));
+        let store = Arc::new(
+            StateStore::builder()
+                .path(database_path.into())
+                .build()
+                .expect("Can't open sled database"),
+        );
 
         Self { store, printer }
     }
@@ -314,7 +318,7 @@ impl Inspector {
                 self.run(m).await;
             }
             Err(e) => {
-                println!("{}", e);
+                println!("{e}");
             }
         }
     }

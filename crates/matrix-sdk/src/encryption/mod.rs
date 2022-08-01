@@ -555,7 +555,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::{device_id, user_id}};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -563,15 +562,14 @@ impl Encryption {
     /// # let alice = user_id!("@alice:example.org");
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
-    /// if let Some(device) = client
-    ///     .encryption()
-    ///     .get_device(alice, device_id!("DEVICEID"))
-    ///     .await? {
-    ///         println!("{:?}", device.verified());
+    /// if let Some(device) =
+    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?
+    /// {
+    ///     println!("{:?}", device.verified());
     ///
-    ///         if !device.verified() {
-    ///             let verification = device.request_verification().await?;
-    ///         }
+    ///     if !device.verified() {
+    ///         let verification = device.request_verification().await?;
+    ///     }
     /// }
     /// # anyhow::Ok(()) });
     /// ```
@@ -600,7 +598,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -640,7 +637,6 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, ruma::user_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -691,7 +687,7 @@ impl Encryption {
     ///
     /// # Examples
     /// ```no_run
-    /// # use std::{convert::TryFrom, collections::BTreeMap};
+    /// # use std::collections::BTreeMap;
     /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
     /// # use url::Url;
     /// # use futures::executor::block_on;
@@ -841,7 +837,8 @@ impl Encryption {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let path = PathBuf::from("/home/example/e2e-keys.txt");
-    /// let result = client.encryption().import_keys(path, "secret-passphrase").await?;
+    /// let result =
+    ///     client.encryption().import_keys(path, "secret-passphrase").await?;
     ///
     /// println!(
     ///     "Imported {} room keys out of {}",

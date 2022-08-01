@@ -37,6 +37,7 @@ use crate::{
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
+    types::events::EventType,
     ReadOnlyDevice,
 };
 
@@ -145,7 +146,8 @@ impl SessionManager {
                 let request = ToDeviceRequest::new(
                     device.user_id(),
                     device.device_id().to_owned(),
-                    AnyToDeviceEventContent::RoomEncrypted(content),
+                    content.event_type(),
+                    content.cast(),
                 );
 
                 let request = OutgoingRequest {
@@ -338,10 +340,7 @@ impl SessionManager {
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
                 if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
-                    error!(
-                        "Error while treating an unwedged device {} {} {:?}",
-                        user_id, device_id, e
-                    );
+                    error!(%user_id, %device_id, "Error while treating an unwedged device: {e:?}");
                 }
 
                 changes.sessions.push(session);
