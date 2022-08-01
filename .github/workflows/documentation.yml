@@ -58,8 +58,8 @@ jobs:
         run: |
           mkdir -p target/docs/bindings/matrix-sdk-crypto-nodejs/
           mkdir -p target/docs/bindings/matrix-sdk-crypto-js/
-          mv bindings/matrix-sdk-crypto-nodejs/docs/* target/docs/bindings/matrix-sdk-crypto-nodejs/
-          mv bindings/matrix-sdk-crypto-js/docs/* target/docs/bindings/matrix-sdk-crypto-js/
+          mv -f bindings/matrix-sdk-crypto-nodejs/docs/* target/docs/bindings/matrix-sdk-crypto-nodejs/
+          mv -f bindings/matrix-sdk-crypto-js/docs/* target/docs/bindings/matrix-sdk-crypto-js/
 
       - name: Deploy documentation
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
