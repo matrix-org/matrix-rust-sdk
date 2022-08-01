@@ -815,12 +815,8 @@ mod tests {
             .await;
 
         let handle = client
-            .add_event_handler({
-                move |_ev: OriginalSyncRoomMemberEvent| {
-                    panic!("handler should have been removed");
-                    #[allow(unreachable_code)]
-                    future::ready(())
-                }
+            .add_event_handler(move |_ev: OriginalSyncRoomMemberEvent| async {
+                panic!("handler should have been removed");
             })
             .await;
 
