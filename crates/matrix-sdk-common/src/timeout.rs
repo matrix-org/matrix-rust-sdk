@@ -50,7 +50,8 @@ where
     }
 }
 
-// TODO: Enable tests for wasm32 and debug why `with_timeout` test fails
+// TODO: Enable tests for wasm32 and debug why
+// `with_timeout` test fails https://github.com/matrix-org/matrix-rust-sdk/issues/896
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     use matrix_sdk_test::async_test;
