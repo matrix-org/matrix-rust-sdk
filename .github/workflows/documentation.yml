@@ -56,15 +56,16 @@ jobs:
       - name: Prepare the doc hierarchy
         shell: bash
         run: |
-          mkdir -p target/docs/bindings/matrix-sdk-crypto-nodejs/
-          mkdir -p target/docs/bindings/matrix-sdk-crypto-js/
-          mv -f bindings/matrix-sdk-crypto-nodejs/docs/* target/docs/bindings/matrix-sdk-crypto-nodejs/
-          mv -f bindings/matrix-sdk-crypto-js/docs/* target/docs/bindings/matrix-sdk-crypto-js/
+          mkdir -p doc/bindings/matrix-sdk-crypto-nodejs/
+          mkdir -p doc/bindings/matrix-sdk-crypto-js/
+          mv target/doc/* doc/
+          mv bindings/matrix-sdk-crypto-nodejs/docs/* doc/bindings/matrix-sdk-crypto-nodejs/
+          mv bindings/matrix-sdk-crypto-js/docs/* doc/bindings/matrix-sdk-crypto-js/
 
       - name: Deploy documentation
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/doc/
+          publish_dir: ./doc/
           force_orphan: true
