@@ -15,7 +15,7 @@
 
 //! User sessions.
 
-use ruma::{OwnedDeviceId, OwnedUserId};
+use ruma::{api::client::session::refresh_token, OwnedDeviceId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 
 /// A user session, containing an access token, an optional refresh token and
@@ -100,10 +100,7 @@ pub struct SessionTokens {
 
 impl SessionTokens {
     /// Update this `SessionTokens` with the values found in the given response.
-    pub fn update_with_refresh_response(
-        &mut self,
-        response: &ruma::api::client::session::refresh_token::v3::Response,
-    ) {
+    pub fn update_with_refresh_response(&mut self, response: &refresh_token::v3::Response) {
         self.access_token = response.access_token.clone();
         if let Some(refresh_token) = response.refresh_token.clone() {
             self.refresh_token = Some(refresh_token);
