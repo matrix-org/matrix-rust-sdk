@@ -820,14 +820,16 @@ impl GossipMachine {
         if let Some(device) =
             self.store.get_device_from_curve_key(&event.sender, sender_key).await?
         {
-            if device.verified() {
+            // Only accept secrets from one of our own trusted devices.
+            if device.user_id() == self.user_id() && device.verified() {
                 self.accept_secret(event, request, secret_name).await?;
             } else {
                 warn!(
                     sender = event.sender.as_str(),
                     request_id = event.content.request_id.as_str(),
                     secret_name = secret_name.as_ref(),
-                    "Received a m.secret.send event from an unverified device"
+                    "Received a m.secret.send event from another user or from \
+                    unverified device"
                 );
             }
         } else {
