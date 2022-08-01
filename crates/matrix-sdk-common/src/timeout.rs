@@ -49,3 +49,48 @@ where
         return try_future.timeout(duration).await.map_err(|_| ElapsedError(()));
     }
 }
+
+// TODO: Enable tests for wasm32 and debug why `with_timeout` test fails
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod tests {
+    use matrix_sdk_test::async_test;
+    #[cfg(not(target_arch = "wasm32"))]
+    use tokio::time::{sleep, Duration};
+    #[cfg(target_arch = "wasm32")]
+    use {std::time::Duration, wasm_timer::Delay};
+
+    use super::timeout;
+
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    #[async_test]
+    async fn without_timeout() {
+        let duration_future = Duration::from_millis(500);
+        let duration_timeout = Duration::from_millis(800);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let fut = sleep(duration_future);
+        #[cfg(target_arch = "wasm32")]
+        let fut = Delay::new(duration_future);
+
+        let res = timeout(fut, duration_timeout).await;
+
+        assert!(res.is_ok());
+    }
+
+    #[async_test]
+    async fn with_timeout() {
+        let duration_future = Duration::from_millis(900);
+        let duration_timeout = Duration::from_millis(800);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let fut = sleep(duration_future);
+        #[cfg(target_arch = "wasm32")]
+        let fut = Delay::new(duration_future);
+
+        let res = timeout(fut, duration_timeout).await;
+
+        assert!(res.is_err());
+    }
+}
