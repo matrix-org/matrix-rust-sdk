@@ -464,6 +464,10 @@ impl Client {
     /// [`add_event_handler`][Self::add_event_handler], except that the handler
     /// will only be called for events in the room with the specified ID. See
     /// that method for more details on event handler functions.
+    ///
+    /// `client.add_room_event_handler(room_id, hdl)` is equivalent to
+    /// `room.add_event_handler(hdl)`. Use whichever one is more convenient in
+    /// your use case.
     pub async fn add_room_event_handler<Ev, Ctx, H>(
         &self,
         room_id: &RoomId,
