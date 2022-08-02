@@ -36,7 +36,7 @@ use ruma::{
     OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tracing::{debug, info, trace, warn};
-use vodozemac::Curve25519PublicKey;
+use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
 use super::{GossipRequest, KeyForwardDecision, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
@@ -899,10 +899,7 @@ impl GossipMachine {
                 // If we have a previous session, check if we have a better version
                 // and store the new one if so.
                 let session = if let Some(old_session) = old_session {
-                    let first_old_index = old_session.first_known_index();
-                    let first_index = session.first_known_index();
-
-                    if first_old_index > first_index {
+                    if session.compare(&old_session).await == SessionOrdering::Better {
                         self.mark_as_done(info).await?;
                         Some(session)
                     } else {

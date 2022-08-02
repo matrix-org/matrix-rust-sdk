@@ -35,7 +35,7 @@ use serde_json::Value;
 use vodozemac::{
     megolm::{
         DecryptedMessage, DecryptionError, ExportedSessionKey, InboundGroupSession as InnerSession,
-        InboundGroupSessionPickle, MegolmMessage,
+        InboundGroupSessionPickle, MegolmMessage, SessionOrdering,
     },
     Curve25519PublicKey, PickleError,
 };
@@ -328,6 +328,13 @@ impl InboundGroupSession {
     /// Get the first message index we know how to decrypt.
     pub fn first_known_index(&self) -> u32 {
         self.first_known_index
+    }
+
+    /// Check if the `InboundGroupSession` is better than the given other
+    /// `InboundGroupSession`
+    pub async fn compare(&self, other: &InboundGroupSession) -> SessionOrdering {
+        let mut other = other.inner.lock().await;
+        self.inner.lock().await.compare(&mut other)
     }
 
     /// Decrypt the given ciphertext.
