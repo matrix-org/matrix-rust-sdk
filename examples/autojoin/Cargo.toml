@@ -1,0 +1,13 @@
+[package]
+name = "example-autojoin"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { version = "1.20.1", features = ["full"] }
+anyhow = "1"
+tracing-subscriber = "0.3.15"
+
+[dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"

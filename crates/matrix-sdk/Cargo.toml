@@ -149,15 +149,3 @@ wasm-bindgen-test = "0.3.30"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"
-
-[[example]]
-name = "cross_signing_bootstrap"
-required-features = ["e2e-encryption"]
-
-[[example]]
-name = "emoji_verification"
-required-features = ["e2e-encryption"]
-
-[[example]]
-name = "timeline"
-required-features = ["sled", "experimental-timeline"]

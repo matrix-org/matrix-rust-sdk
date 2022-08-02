@@ -1,0 +1,16 @@
+[package]
+name = "example-cross-signing-bootstrap"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1.20.1", features = ["full"] }
+tracing-subscriber = "0.3.15"
+url = "2.2.2"
+
+[dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"
+version = "0.5.0"
+features = ["e2e-encryption"]
