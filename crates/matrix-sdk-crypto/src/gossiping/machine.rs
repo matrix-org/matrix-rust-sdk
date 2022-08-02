@@ -876,79 +876,86 @@ impl GossipMachine {
         Ok(())
     }
 
+    async fn accept_forwarded_room_key(
+        &self,
+        info: &GossipRequest,
+        sender_key: &str,
+        event: &ToDeviceForwardedRoomKeyEvent,
+    ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
+        match InboundGroupSession::from_forwarded_key(sender_key, &event.content) {
+            Ok(session) => {
+                let old_session = self
+                    .store
+                    .get_inbound_group_session(
+                        session.room_id(),
+                        &session.sender_key,
+                        session.session_id(),
+                    )
+                    .await?;
+
+                let session_id = session.session_id().to_owned();
+
+                // If we have a previous session, check if we have a better version
+                // and store the new one if so.
+                let session = if let Some(old_session) = old_session {
+                    let first_old_index = old_session.first_known_index();
+                    let first_index = session.first_known_index();
+
+                    if first_old_index > first_index {
+                        self.mark_as_done(info).await?;
+                        Some(session)
+                    } else {
+                        None
+                    }
+                // If we didn't have a previous session, store it.
+                } else {
+                    self.mark_as_done(info).await?;
+                    Some(session)
+                };
+
+                if let Some(s) = &session {
+                    info!(
+                        sender = event.sender.as_str(),
+                        sender_key = sender_key,
+                        claimed_sender_key = event.content.sender_key.as_str(),
+                        room_id = s.room_id().as_str(),
+                        session_id = session_id.as_str(),
+                        "Received a forwarded room key",
+                    );
+                } else {
+                    info!(
+                        sender = event.sender.as_str(),
+                        sender_key = sender_key,
+                        claimed_sender_key = event.content.sender_key.as_str(),
+                        room_id = event.content.room_id.as_str(),
+                        session_id = session_id.as_str(),
+                        "Received a forwarded room key but we already have a better version of it",
+                    );
+                }
+
+                Ok(session)
+            }
+            Err(e) => {
+                warn!(
+                    sender = event.sender.as_str(),
+                    sender_key = sender_key,
+                    claimed_sender_key = event.content.sender_key.as_str(),
+                    room_id = event.content.room_id.as_str(),
+                    "Couldn't create a group session from a received room key"
+                );
+                Err(e.into())
+            }
+        }
+    }
+
     /// Receive a forwarded room key event.
     pub async fn receive_forwarded_room_key(
         &self,
         sender_key: &str,
         event: &ToDeviceForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        let key_info = self.get_key_info(&event.content).await?;
-
-        if let Some(info) = key_info {
-            match InboundGroupSession::from_forwarded_key(sender_key, &event.content) {
-                Ok(session) => {
-                    let old_session = self
-                        .store
-                        .get_inbound_group_session(
-                            session.room_id(),
-                            &session.sender_key,
-                            session.session_id(),
-                        )
-                        .await?;
-
-                    let session_id = session.session_id().to_owned();
-
-                    // If we have a previous session, check if we have a better version
-                    // and store the new one if so.
-                    let session = if let Some(old_session) = old_session {
-                        let first_old_index = old_session.first_known_index();
-                        let first_index = session.first_known_index();
-
-                        if first_old_index > first_index {
-                            self.mark_as_done(&info).await?;
-                            Some(session)
-                        } else {
-                            None
-                        }
-                    // If we didn't have a previous session, store it.
-                    } else {
-                        self.mark_as_done(&info).await?;
-                        Some(session)
-                    };
-
-                    if let Some(s) = &session {
-                        info!(
-                            sender = event.sender.as_str(),
-                            sender_key = sender_key,
-                            claimed_sender_key = event.content.sender_key.as_str(),
-                            room_id = s.room_id().as_str(),
-                            session_id = session_id.as_str(),
-                            "Received a forwarded room key",
-                        );
-                    } else {
-                        info!(
-                            sender = event.sender.as_str(),
-                            sender_key = sender_key,
-                            claimed_sender_key = event.content.sender_key.as_str(),
-                            room_id = event.content.room_id.as_str(),
-                            session_id = session_id.as_str(),
-                            "Received a forwarded room key but we already have a better version of it",
-                        );
-                    }
-
-                    Ok(session)
-                }
-                Err(e) => {
-                    warn!(
-                        sender = event.sender.as_str(),
-                        sender_key = sender_key,
-                        claimed_sender_key = event.content.sender_key.as_str(),
-                        room_id = event.content.room_id.as_str(),
-                        "Couldn't create a group session from a received room key"
-                    );
-                    Err(e.into())
-                }
-            }
+        if let Some(info) = self.get_key_info(&event.content).await? {
+            self.accept_forwarded_room_key(&info, sender_key, event).await
         } else {
             warn!(
                 sender = event.sender.as_str(),
