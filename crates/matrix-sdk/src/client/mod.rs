@@ -1467,7 +1467,7 @@ impl Client {
                         Err(RefreshTokenError::UnableToRefreshToken)
                     };
 
-                    Err(error.into())
+                    Err(error)
                 }
             }
         } else {
