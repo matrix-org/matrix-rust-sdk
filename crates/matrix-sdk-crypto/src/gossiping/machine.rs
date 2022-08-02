@@ -982,25 +982,23 @@ mod tests {
         device_id,
         events::{
             forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-            room_key_request::ToDeviceRoomKeyRequestEventContent,
+            room::encrypted::ToDeviceRoomEncryptedEventContent,
             secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
-            AnyToDeviceEvent, ToDeviceEvent as RumaToDeviceEvent,
+            AnyToDeviceEvent, ToDeviceEvent as RumaToDeviceEvent, ToDeviceEventContent,
         },
-        room_id,
-        to_device::DeviceIdOrAllDevices,
-        user_id, DeviceId, RoomId, UserId,
+        room_id, user_id, DeviceId, RoomId, UserId,
     };
+    use serde::de::DeserializeOwned;
 
     use super::{GossipMachine, KeyForwardDecision};
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
+        olm::{Account, OutboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStore, MemoryStore, Store},
-        types::events::{room::encrypted::ToDeviceEncryptedEventContent, ToDeviceEvent},
         utilities::json_convert,
         verification::VerificationMachine,
-        OutgoingRequests,
+        OutgoingRequest, OutgoingRequests,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1039,18 +1037,20 @@ mod tests {
         ReadOnlyAccount::new(alice_id(), alice2_device_id())
     }
 
-    fn bob_machine() -> GossipMachine {
-        let user_id = Arc::from(bob_id());
-        let account = ReadOnlyAccount::new(&user_id, alice_device_id());
+    fn test_gossip_machine(user_id: &UserId) -> GossipMachine {
+        let user_id = Arc::from(user_id);
+        let device_id = DeviceId::new();
+
+        let account = ReadOnlyAccount::new(&user_id, &device_id);
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.to_owned(), identity, store, verification);
         let session_cache = GroupSessionCache::new(store.clone());
 
         GossipMachine::new(
             user_id,
-            bob_device_id().into(),
+            device_id.into(),
             store,
             session_cache,
             Arc::new(DashMap::new()),
@@ -1079,6 +1079,93 @@ mod tests {
             session_cache,
             Arc::new(DashMap::new()),
         )
+    }
+
+    async fn machines_for_key_share(
+        create_sessions: bool,
+    ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
+        let alice_machine = get_machine().await;
+        let alice_account = Account {
+            inner: alice_machine.store.account().clone(),
+            store: alice_machine.store.clone(),
+        };
+        let alice_device = ReadOnlyDevice::from_account(alice_machine.store.account()).await;
+
+        let bob_machine = test_gossip_machine(alice_id());
+        let bob_device = ReadOnlyDevice::from_account(bob_machine.store.account()).await;
+
+        // We need a trusted device, otherwise we won't request keys
+        bob_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store.save_devices(&[bob_device]).await.unwrap();
+        bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
+
+        if create_sessions {
+            // Create Olm sessions for our two accounts.
+            let (alice_session, bob_session) =
+                alice_machine.store.account().create_session_for(bob_machine.store.account()).await;
+
+            // Populate our stores with Olm sessions and a Megolm session.
+
+            alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
+            bob_machine.store.save_sessions(&[bob_session]).await.unwrap();
+        }
+
+        let (group_session, inbound_group_session) =
+            bob_machine.store.account().create_group_session_pair_with_defaults(room_id()).await;
+
+        bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
+
+        // Alice wants to request the outbound group session from bob.
+        assert!(
+            alice_machine
+                .create_outgoing_key_request(
+                    room_id(),
+                    &bob_machine.store.account().identity_keys().curve25519.to_base64(),
+                    group_session.session_id(),
+                    &group_session.settings().algorithm,
+                )
+                .await
+                .unwrap(),
+            "We should request a room key"
+        );
+
+        group_session
+            .mark_shared_with(
+                alice_device.user_id(),
+                alice_device.device_id(),
+                alice_device.curve25519_key().unwrap(),
+            )
+            .await;
+
+        // Put the outbound session into bobs store.
+        bob_machine.outbound_group_sessions.insert(group_session.clone());
+
+        (alice_machine, alice_account, group_session, bob_machine)
+    }
+
+    fn request_to_event<C>(
+        recipient: &UserId,
+        sender: &UserId,
+        request: &OutgoingRequest,
+    ) -> RumaToDeviceEvent<C>
+    where
+        C: ToDeviceEventContent + DeserializeOwned,
+    {
+        let content = request
+            .request()
+            .to_device()
+            .expect("The request should be always a to-device request")
+            .messages
+            .get(recipient)
+            .unwrap()
+            .values()
+            .next()
+            .unwrap();
+        let content: C = content
+            .deserialize_as()
+            .expect("We can always deserialize the to-device event content");
+
+        RumaToDeviceEvent { sender: sender.to_owned(), content }
     }
 
     #[async_test]
@@ -1178,7 +1265,7 @@ mod tests {
 
         // We need a trusted device, otherwise we won't request keys
         alice_device.set_trust_state(LocalTrust::Verified);
-        machine.store.save_devices(&[alice_device]).await.unwrap();
+        machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         let (_, session) = account.create_group_session_pair_with_defaults(room_id()).await;
         machine
@@ -1216,8 +1303,10 @@ mod tests {
                 .is_none()
         );
 
-        let first_session =
-            machine.receive_forwarded_room_key(&session.sender_key, &event).await.unwrap();
+        let first_session = machine
+            .receive_forwarded_room_key(&alice_device.curve25519_key().unwrap().to_base64(), &event)
+            .await
+            .unwrap();
         let first_session = first_session.unwrap();
 
         assert_eq!(first_session.first_known_index(), 10);
@@ -1251,8 +1340,10 @@ mod tests {
 
         let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
-        let second_session =
-            machine.receive_forwarded_room_key(&session.sender_key, &event).await.unwrap();
+        let second_session = machine
+            .receive_forwarded_room_key(&alice_device.curve25519_key().unwrap().to_base64(), &event)
+            .await
+            .unwrap();
 
         assert!(second_session.is_none());
 
@@ -1262,8 +1353,10 @@ mod tests {
 
         let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
-        let second_session =
-            machine.receive_forwarded_room_key(&session.sender_key, &event).await.unwrap();
+        let second_session = machine
+            .receive_forwarded_room_key(&alice_device.curve25519_key().unwrap().to_base64(), &event)
+            .await
+            .unwrap();
 
         assert_eq!(second_session.unwrap().first_known_index(), 0);
     }
@@ -1385,76 +1478,15 @@ mod tests {
 
     #[async_test]
     async fn key_share_cycle() {
-        let alice_machine = get_machine().await;
-        let alice_account = Account { inner: account(), store: alice_machine.store.clone() };
-
-        let bob_machine = bob_machine();
-        let bob_account = bob_account();
-
-        let second_account = alice_2_account();
-        let alice_device = ReadOnlyDevice::from_account(&second_account).await;
-
-        // We need a trusted device, otherwise we won't request keys
-        alice_device.set_trust_state(LocalTrust::Verified);
-        alice_machine.store.save_devices(&[alice_device]).await.unwrap();
-
-        // Create Olm sessions for our two accounts.
-        let (alice_session, bob_session) = alice_account.create_session_for(&bob_account).await;
-
-        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
-        let bob_device = ReadOnlyDevice::from_account(&bob_account).await;
-
-        // Populate our stores with Olm sessions and a Megolm session.
-
-        alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
-        alice_machine.store.save_devices(&[bob_device]).await.unwrap();
-        bob_machine.store.save_sessions(&[bob_session]).await.unwrap();
-        bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
-
-        let (group_session, inbound_group_session) =
-            bob_account.create_group_session_pair_with_defaults(room_id()).await;
-
-        bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
-
-        // Alice wants to request the outbound group session from bob.
-        alice_machine
-            .create_outgoing_key_request(
-                room_id(),
-                &bob_account.identity_keys.curve25519.to_base64(),
-                group_session.session_id(),
-                &group_session.settings().algorithm,
-            )
-            .await
-            .unwrap();
-        group_session
-            .mark_shared_with(
-                alice_device.user_id(),
-                alice_device.device_id(),
-                alice_device.curve25519_key().unwrap(),
-            )
-            .await;
-
-        // Put the outbound session into bobs store.
-        bob_machine.outbound_group_sessions.insert(group_session.clone());
+        let (alice_machine, alice_account, group_session, bob_machine) =
+            machines_for_key_share(true).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let id = &request.request_id;
-        let content = request
-            .request
-            .to_device()
-            .unwrap()
-            .messages
-            .get(alice_id())
-            .unwrap()
-            .get(&DeviceIdOrAllDevices::AllDevices)
-            .unwrap();
-        let content: ToDeviceRoomKeyRequestEventContent = content.deserialize_as().unwrap();
+        let event = request_to_event(alice_id(), alice_id(), request);
 
-        alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
-
-        let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
+        alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Bob doesn't have any outgoing requests.
         assert!(bob_machine.outgoing_requests.is_empty());
@@ -1469,22 +1501,9 @@ mod tests {
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        let id = &request.request_id;
-        let content = request
-            .request
-            .to_device()
-            .unwrap()
-            .messages
-            .get(alice_id())
-            .unwrap()
-            .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id().to_owned()))
-            .unwrap();
-        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
-
-        bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
-
-        let event =
-            ToDeviceEvent { sender: bob_id().to_owned(), content, other: Default::default() };
+        let event: RumaToDeviceEvent<ToDeviceRoomEncryptedEventContent> =
+            request_to_event(alice_id(), alice_id(), request);
+        bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
         let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
@@ -1492,7 +1511,7 @@ mod tests {
             .store
             .get_inbound_group_session(
                 room_id(),
-                &bob_account.identity_keys().curve25519.to_base64(),
+                &bob_machine.store.account().identity_keys().curve25519.to_base64(),
                 group_session.session_id()
             )
             .await
@@ -1592,74 +1611,15 @@ mod tests {
 
     #[async_test]
     async fn key_share_cycle_without_session() {
-        let alice_machine = get_machine().await;
-        let alice_account = Account { inner: account(), store: alice_machine.store.clone() };
-
-        let bob_machine = bob_machine();
-        let bob_account = bob_account();
-
-        let second_account = alice_2_account();
-        let alice_device = ReadOnlyDevice::from_account(&second_account).await;
-
-        // We need a trusted device, otherwise we won't request keys
-        alice_device.set_trust_state(LocalTrust::Verified);
-        alice_machine.store.save_devices(&[alice_device]).await.unwrap();
-
-        // Create Olm sessions for our two accounts.
-        let (alice_session, bob_session) = alice_account.create_session_for(&bob_account).await;
-
-        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
-        let bob_device = ReadOnlyDevice::from_account(&bob_account).await;
-
-        // Populate our stores with Olm sessions and a Megolm session.
-
-        alice_machine.store.save_devices(&[bob_device]).await.unwrap();
-        bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
-
-        let (group_session, inbound_group_session) =
-            bob_account.create_group_session_pair_with_defaults(room_id()).await;
-
-        bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
-
-        // Alice wants to request the outbound group session from bob.
-        alice_machine
-            .create_outgoing_key_request(
-                room_id(),
-                &bob_account.identity_keys.curve25519.to_base64(),
-                group_session.session_id(),
-                &group_session.settings().algorithm,
-            )
-            .await
-            .unwrap();
-        group_session
-            .mark_shared_with(
-                alice_device.user_id(),
-                alice_device.device_id(),
-                alice_device.curve25519_key().unwrap(),
-            )
-            .await;
-
-        // Put the outbound session into bobs store.
-        bob_machine.outbound_group_sessions.insert(group_session.clone());
+        let (alice_machine, alice_account, group_session, bob_machine) =
+            machines_for_key_share(false).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let id = &request.request_id;
-        let content = request
-            .request
-            .to_device()
-            .unwrap()
-            .messages
-            .get(alice_id())
-            .unwrap()
-            .get(&DeviceIdOrAllDevices::AllDevices)
-            .unwrap();
-        let content: ToDeviceRoomKeyRequestEventContent = content.deserialize_as().unwrap();
+        let event = request_to_event(alice_id(), alice_id(), request);
 
-        alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
-
-        let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
+        alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Bob doesn't have any outgoing requests.
         assert!(bob_machine.outgoing_to_device_requests().await.unwrap().is_empty());
@@ -1678,6 +1638,8 @@ mod tests {
         assert!(!bob_machine.users_for_key_claim.is_empty());
         assert!(!bob_machine.wait_queue.is_empty());
 
+        let (alice_session, bob_session) =
+            alice_machine.store.account().create_session_for(bob_machine.store.account()).await;
         // We create a session now.
         alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
         bob_machine.store.save_sessions(&[bob_session]).await.unwrap();
@@ -1691,25 +1653,11 @@ mod tests {
 
         // Get the request and convert it to a encrypted to-device event.
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
-
         let request = &requests[0];
 
-        let id = &request.request_id;
-        let content = request
-            .request
-            .to_device()
-            .unwrap()
-            .messages
-            .get(alice_id())
-            .unwrap()
-            .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id().to_owned()))
-            .unwrap();
-        let content: ToDeviceEncryptedEventContent = content.deserialize_as().unwrap();
-
-        bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
-
-        let event =
-            ToDeviceEvent { sender: bob_id().to_owned(), content, other: Default::default() };
+        let event: RumaToDeviceEvent<ToDeviceRoomEncryptedEventContent> =
+            request_to_event(alice_id(), alice_id(), request);
+        bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
         let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
@@ -1717,7 +1665,7 @@ mod tests {
             .store
             .get_inbound_group_session(
                 room_id(),
-                &bob_account.identity_keys().curve25519.to_base64(),
+                &bob_machine.store.account().identity_keys().curve25519.to_base64(),
                 group_session.session_id()
             )
             .await
