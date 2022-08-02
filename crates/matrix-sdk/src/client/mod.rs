@@ -1355,9 +1355,9 @@ impl Client {
     /// This method is protected behind a lock, so calling this method several
     /// times at once will only call the endpoint once and all subsequent calls
     /// will wait for the result of the first call. The first call will
-    /// return `Ok(Some(response))` or the error returned by the endpoint,
-    /// while the others will return `Ok(None)` if the token was refreshed by
-    /// the first call or an [`HttpError::UnableToRefreshToken`] error, if it
+    /// return `Ok(Some(response))` or the [`HttpError`] returned by the
+    /// endpoint, while the others will return `Ok(None)` if the token was
+    /// refreshed by the first call or a [`RefreshTokenError`] error, if it
     /// failed.
     ///
     /// # Example

@@ -332,6 +332,12 @@ pub enum ImageError {
 }
 
 /// Errors that can happen when refreshing an access token.
+///
+/// This is usually only returned by [`Client::refresh_access_token()`], unless
+/// [handling refresh tokens] is activated for the `Client`.
+///
+/// [`Client::refresh_access_token()`]: crate::Client::refresh_access_token()
+/// [handling refresh tokens]: crate::ClientBuilder::handle_refresh_tokens()
 #[derive(Debug, Error, Clone)]
 pub enum RefreshTokenError {
     /// The Matrix endpoint returned an error.

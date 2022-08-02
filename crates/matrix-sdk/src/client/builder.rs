@@ -321,13 +321,13 @@ impl ClientBuilder {
     /// Enabling this setting means that the `Client` will try to refresh the
     /// token automatically, which means that:
     ///
-    /// * If refreshing the token fails, the error is forwarded, so if an
-    /// [`UnknownToken`] error is encountered, it means that the user needs
-    /// to be logged in again.
+    /// * If refreshing the token fails, the error is forwarded, so any endpoint
+    ///   can return [`HttpError::RefreshToken`]. If an [`UnknownToken`] error
+    ///   is encountered, it means that the user needs to be logged in again.
     ///
     /// * The access token and refresh token need to be watched for changes,
-    /// using [`Client::session_tokens_signal()`] for example, to be able to
-    /// [restore the session] later.
+    ///   using [`Client::session_tokens_signal()`] for example, to be able to
+    ///   [restore the session] later.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
