@@ -31,7 +31,6 @@ ignore:
   - "bindings/matrix-sdk-crypto-nodejs"
   - "bindings/matrix-sdk-ffi"
   - "crates/matrix-sdk-indexeddb"
-  - "crates/matrix-sdk-test"
-  - "crates/matrix-sdk-test-macros"
+  - "testing"
   - "labs"
   - "xtask"

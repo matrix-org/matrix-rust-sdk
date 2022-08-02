@@ -32,5 +32,5 @@ tokio = { version = "1.17.0", default-features = false, features = ["rt", "sync"
 instant = { version = "0.1.12", features = ["now"] }
 
 [dev-dependencies]
-matrix-sdk-test = { path = "../matrix-sdk-test/", version="0.5.0" }
+matrix-sdk-test = { path = "../../testing/matrix-sdk-test/", version="0.5.0" }
 wasm-bindgen-test = "0.3.30"

@@ -6,10 +6,11 @@ members = [
     "bindings/matrix-sdk-crypto-nodejs",
     "bindings/matrix-sdk-ffi",
     "crates/*",
+    "testing/*",
     "labs/*",
     "xtask",
 ]
-# xtask, labs and the bindings should only be built when invoked explicitly.
+# xtask, labs, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 

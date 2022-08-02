@@ -1,0 +1,18 @@
+
+version: '3'
+
+services:
+
+  synapse:
+    build: .
+    restart: "no"
+    healthcheck:
+      disable: true
+    volumes:
+      - matrix-rust-sdk-ci-data:/data
+      
+    ports:
+      - 8228:8008/tcp
+
+volumes:
+  matrix-rust-sdk-ci-data:
