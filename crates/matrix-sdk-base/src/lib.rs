@@ -23,7 +23,7 @@ pub use matrix_sdk_common::*;
 pub use crate::timeline_stream::TimelineStreamError;
 pub use crate::{
     error::{Error, Result},
-    session::{Session, SessionIds, SessionTokens},
+    session::{Session, SessionMeta, SessionTokens},
 };
 
 mod client;

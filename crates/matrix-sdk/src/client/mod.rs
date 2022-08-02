@@ -34,7 +34,7 @@ use futures_signals::signal::Signal;
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
-    BaseClient, Session, SessionIds, SessionTokens, StateStore,
+    BaseClient, Session, SessionMeta, SessionTokens, StateStore,
 };
 use matrix_sdk_common::{
     instant::{Duration, Instant},
@@ -317,18 +317,18 @@ impl Client {
         }
     }
 
-    fn session_ids(&self) -> Option<&SessionIds> {
-        self.base_client().session_ids()
+    fn session_meta(&self) -> Option<&SessionMeta> {
+        self.base_client().session_meta()
     }
 
     /// Get the user id of the current owner of the client.
     pub fn user_id(&self) -> Option<&UserId> {
-        self.session_ids().map(|s| s.user_id.as_ref())
+        self.session_meta().map(|s| s.user_id.as_ref())
     }
 
     /// Get the device ID that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
-        self.session_ids().map(|s| s.device_id.as_ref())
+        self.session_meta().map(|s| s.device_id.as_ref())
     }
 
     /// Get the current access token and optional refresh token for this

@@ -52,17 +52,17 @@ pub struct Session {
 }
 
 impl Session {
-    /// Creates a `Session` from a `SessionIds` and `SessionTokens`.
-    pub fn from_parts(ids: SessionIds, tokens: SessionTokens) -> Self {
-        let SessionIds { user_id, device_id } = ids;
+    /// Creates a `Session` from a `SessionMeta` and `SessionTokens`.
+    pub fn from_parts(meta: SessionMeta, tokens: SessionTokens) -> Self {
+        let SessionMeta { user_id, device_id } = meta;
         let SessionTokens { access_token, refresh_token } = tokens;
         Self { access_token, refresh_token, user_id, device_id }
     }
 
-    /// Split this `Session` between `SessionIds` and `SessionTokens`.
-    pub fn into_parts(self) -> (SessionIds, SessionTokens) {
+    /// Split this `Session` between `SessionMeta` and `SessionTokens`.
+    pub fn into_parts(self) -> (SessionMeta, SessionTokens) {
         let Self { access_token, refresh_token, user_id, device_id } = self;
-        (SessionIds { user_id, device_id }, SessionTokens { access_token, refresh_token })
+        (SessionMeta { user_id, device_id }, SessionTokens { access_token, refresh_token })
     }
 }
 
@@ -79,7 +79,7 @@ impl From<ruma::api::client::session::login::v3::Response> for Session {
 
 /// The immutable parts of the session: the user ID and device ID.
 #[derive(Clone, Debug)]
-pub struct SessionIds {
+pub struct SessionMeta {
     /// The user the access token was issued for.
     pub user_id: OwnedUserId,
     /// The ID of the client device.

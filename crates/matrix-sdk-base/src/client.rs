@@ -66,7 +66,7 @@ use crate::{
     store::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store, StoreConfig,
     },
-    Session, SessionIds, SessionTokens, StateStore,
+    Session, SessionMeta, SessionTokens, StateStore,
 };
 
 /// A no IO Client implementation.
@@ -91,7 +91,7 @@ pub struct BaseClient {
 impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
-            .field("session_ids", &self.store.session_ids())
+            .field("session_meta", &self.store.session_meta())
             .field("session_tokens", &self.store.session_tokens)
             .field("sync_token", &self.store.sync_token)
             .finish()
@@ -125,25 +125,20 @@ impl BaseClient {
         }
     }
 
-    /// Get the session IDs.
+    /// Get the session meta information.
     ///
     /// If the client is currently logged in, this will return a
-    /// [`SessionIds`] object which contains the user ID and device ID.
-    ///
-    /// Returns a session IDs object if the client is logged in. Otherwise
-    /// returns `None`.
-    pub fn session_ids(&self) -> Option<&SessionIds> {
-        self.store.session_ids()
+    /// [`SessionMeta`] object which contains the user ID and device ID.
+    /// Otherwise it returns `None`.
+    pub fn session_meta(&self) -> Option<&SessionMeta> {
+        self.store.session_meta()
     }
 
     /// Get the session tokens.
     ///
     /// If the client is currently logged in, this will return a
     /// [`SessionTokens`] object which contains the access token and optional
-    /// refresh token.
-    ///
-    /// Returns a session tokens object if the client is logged in. Otherwise
-    /// returns `None`.
+    /// refresh token. Otherwise it returns `None`.
     pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
         self.store.session_tokens()
     }
@@ -183,7 +178,7 @@ impl BaseClient {
 
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
-        self.store.session_ids().is_some()
+        self.store.session_meta().is_some()
     }
 
     /// Receive a login response and update the session of the client.
@@ -1030,8 +1025,8 @@ impl BaseClient {
             .transpose()?
         {
             Ok(event.content.global)
-        } else if let Some(session_ids) = self.store.session_ids() {
-            Ok(Ruleset::server_default(&session_ids.user_id))
+        } else if let Some(session_meta) = self.store.session_meta() {
+            Ok(Ruleset::server_default(&session_meta.user_id))
         } else {
             Ok(Ruleset::new())
         }

@@ -62,7 +62,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
-    MinimalRoomMemberEvent, Room, Session, SessionIds, SessionTokens,
+    MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
 };
 
 pub(crate) mod ambiguity_map;
@@ -410,7 +410,7 @@ where
 #[derive(Debug, Clone)]
 pub(crate) struct Store {
     pub(super) inner: Arc<dyn StateStore>,
-    session_ids: Arc<OnceCell<SessionIds>>,
+    session_meta: Arc<OnceCell<SessionMeta>>,
     pub(super) session_tokens: Mutable<Option<SessionTokens>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
@@ -432,7 +432,7 @@ impl Store {
     pub fn new(inner: Arc<dyn StateStore>) -> Self {
         Self {
             inner,
-            session_ids: Default::default(),
+            session_meta: Default::default(),
             session_tokens: Default::default(),
             sync_token: Default::default(),
             rooms: Default::default(),
@@ -456,16 +456,16 @@ impl Store {
         let token = self.get_sync_token().await?;
         *self.sync_token.write().await = token;
 
-        let (session_ids, session_tokens) = session.into_parts();
-        self.session_ids.set(session_ids).expect("Session IDs were already set");
+        let (session_meta, session_tokens) = session.into_parts();
+        self.session_meta.set(session_meta).expect("Session IDs were already set");
         self.session_tokens.set(Some(session_tokens));
 
         Ok(())
     }
 
-    /// The current [`SessionIds`] containing our user ID and device ID.
-    pub fn session_ids(&self) -> Option<&SessionIds> {
-        self.session_ids.get()
+    /// The current [`SessionMeta`] containing our user ID and device ID.
+    pub fn session_meta(&self) -> Option<&SessionMeta> {
+        self.session_meta.get()
     }
 
     /// The current [`SessionTokens`] containing our access token and optional
@@ -482,9 +482,9 @@ impl Store {
     /// The current [`Session`] containing our user id, device ID, access
     /// token and optional refresh token.
     pub fn session(&self) -> Option<Session> {
-        let ids = self.session_ids.get()?;
+        let meta = self.session_meta.get()?;
         let tokens = self.session_tokens.get_cloned()?;
-        Some(Session::from_parts(ids.to_owned(), tokens))
+        Some(Session::from_parts(meta.to_owned(), tokens))
     }
 
     /// Get all the rooms this store knows about.
@@ -518,7 +518,7 @@ impl Store {
     /// didn't exist yet in the store
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let user_id =
-            &self.session_ids.get().expect("Creating room while not being logged in").user_id;
+            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
         self.stripped_rooms
             .entry(room_id.to_owned())
@@ -534,7 +534,7 @@ impl Store {
         }
 
         let user_id =
-            &self.session_ids.get().expect("Creating room while not being logged in").user_id;
+            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
         self.rooms
             .entry(room_id.to_owned())
