@@ -1148,6 +1148,7 @@ mod tests {
     }
 
     async fn machines_for_key_share(
+        other_machine_owner: &UserId,
         create_sessions: bool,
     ) -> (GossipMachine, Account, OutboundGroupSession, GossipMachine) {
         let alice_machine = get_machine().await;
@@ -1157,12 +1158,14 @@ mod tests {
         };
         let alice_device = ReadOnlyDevice::from_account(alice_machine.store.account()).await;
 
-        let bob_machine = test_gossip_machine(alice_id());
+        let bob_machine = test_gossip_machine(other_machine_owner);
         let bob_device = ReadOnlyDevice::from_account(bob_machine.store.account()).await;
 
         // We need a trusted device, otherwise we won't request keys
+        let second_device = ReadOnlyDevice::from_account(&alice_2_account()).await;
+        second_device.set_trust_state(LocalTrust::Verified);
         bob_device.set_trust_state(LocalTrust::Verified);
-        alice_machine.store.save_devices(&[bob_device]).await.unwrap();
+        alice_machine.store.save_devices(&[bob_device, second_device]).await.unwrap();
         bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         if create_sessions {
@@ -1535,7 +1538,7 @@ mod tests {
     #[async_test]
     async fn key_share_cycle() {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(true).await;
+            machines_for_key_share(alice_id(), true).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1597,6 +1600,59 @@ mod tests {
             .unwrap();
 
         assert_eq!(session.session_id(), group_session.session_id())
+    }
+
+    #[async_test]
+    async fn reject_forward_from_another_user() {
+        let (alice_machine, alice_account, group_session, bob_machine) =
+            machines_for_key_share(bob_id(), true).await;
+
+        // Get the request and convert it into a event.
+        let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
+        let request = &requests[0];
+        let event = request_to_event(alice_id(), alice_id(), request);
+
+        alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
+
+        // Bob doesn't have any outgoing requests.
+        assert!(bob_machine.outgoing_requests.is_empty());
+
+        // Receive the room key request from alice.
+        bob_machine.receive_incoming_key_request(&event);
+        bob_machine.collect_incoming_key_requests().await.unwrap();
+        // Now bob does have an outgoing request.
+        assert!(!bob_machine.outgoing_requests.is_empty());
+
+        // Get the request and convert it to a encrypted to-device event.
+        let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
+        let request = &requests[0];
+
+        let event: EncryptedToDeviceEvent = request_to_event(alice_id(), bob_id(), request);
+        bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
+
+        // Check that alice doesn't have the session.
+        assert!(alice_machine
+            .store
+            .get_inbound_group_session(
+                room_id(),
+                &bob_machine.store.account().identity_keys().curve25519.to_base64(),
+                group_session.session_id()
+            )
+            .await
+            .unwrap()
+            .is_none());
+
+        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
+        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
+            let session = alice_machine
+                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
+                .await
+                .unwrap();
+
+            assert!(session.is_none(), "We should not receive a room key from another user");
+        } else {
+            panic!("Invalid decrypted event type");
+        }
     }
 
     #[async_test]
@@ -1672,7 +1728,7 @@ mod tests {
     #[async_test]
     async fn key_share_cycle_without_session() {
         let (alice_machine, alice_account, group_session, bob_machine) =
-            machines_for_key_share(false).await;
+            machines_for_key_share(alice_id(), false).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
