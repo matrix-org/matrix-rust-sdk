@@ -1,0 +1,62 @@
+name: Release Crypto-js
+#
+# This workflow releases the crypto-bindings for wasm/js
+#
+# It is triggered when seeing a tag prefixed matching `matrix-sdk-crypto-js-v[0-9]+.*`,
+# which then build the native bindings for linux, mac and windows via the CI and uploads
+# them to the corresponding Github Release tag. Once they are finished, this workflow will
+# package the npm tar.gz and uploads that to the Github Release tag as well, before publishing
+# it to npmjs.com automatically.
+
+env:
+  PKG_PATH: "bindings/matrix-sdk-crypto-js"
+
+on:
+  push:
+    tags:
+      - matrix-sdk-crypto-js-v[0-9]+.*
+
+jobs:
+
+  publish-js-package:
+    name: "Package js package"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.3.0
+        with:
+          version: latest
+
+      - name: Build lib
+        working-directory: ${{env.PKG_PATH}}
+        run: |
+          npm install
+          wasm-pack build
+          cd pkg
+          npm package
+
+      - name: Upload npm package to release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: ${{env.PKG_PATH}}/pkg/*tgz
+
+      - name: Publish to npmjs.com
+        uses: JS-DevTools/npm-publish@v1
+        with:
+          package: ${{env.PKG_PATH}}/pkg/package.json
+          access: public
+          token: ${{ secrets.NPM_TOKEN }}
