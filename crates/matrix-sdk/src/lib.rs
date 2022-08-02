@@ -17,18 +17,6 @@
 #![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
-#[cfg(not(any(feature = "native-tls", feature = "rustls-tls")))]
-compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
-
-#[cfg(all(feature = "native-tls", feature = "rustls-tls"))]
-compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled");
-
-#[cfg(all(feature = "sso-login", target_arch = "wasm32"))]
-compile_error!("'sso-login' cannot be enabled on 'wasm32' arch");
-
-#[cfg(all(feature = "image-rayon", target_arch = "wasm32"))]
-compile_error!("'image-rayon' cannot be enabled on 'wasm32' arch");
-
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
@@ -58,7 +46,7 @@ mod sync;
 pub mod encryption;
 
 pub use account::Account;
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 pub use client::SsoLoginBuilder;
 pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl};
 #[cfg(feature = "image-proc")]

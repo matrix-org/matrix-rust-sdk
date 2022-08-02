@@ -96,7 +96,7 @@ use crate::{
 mod builder;
 mod login_builder;
 
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 pub use self::login_builder::SsoLoginBuilder;
 pub use self::{
     builder::{ClientBuildError, ClientBuilder},
@@ -1157,7 +1157,7 @@ impl Client {
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`login_token`]: #method.login_token
     /// [`restore_login`]: #method.restore_login
-    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    #[cfg(feature = "sso-login")]
     pub fn login_sso<'a, F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<'a, F>
     where
         F: FnOnce(String) -> Fut + Send,
@@ -1189,7 +1189,7 @@ impl Client {
 
     /// Login to the server via Single Sign-On.
     #[deprecated = "Replaced by [`Client::login_sso`](#method.login_sso)"]
-    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    #[cfg(feature = "sso-login")]
     #[deny(clippy::future_not_send)]
     pub async fn login_with_sso<C>(
         &self,

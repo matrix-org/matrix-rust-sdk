@@ -1,6 +1,6 @@
 #![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
 
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 use std::future::Future;
 
 use ruma::{
@@ -149,7 +149,7 @@ impl<'a> LoginBuilder<'a> {
 ///
 /// Created with [`Client::login_sso`].
 /// Finalized with [`.send()`](Self::send).
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 #[allow(missing_debug_implementations)]
 pub struct SsoLoginBuilder<'a, F> {
     client: Client,
@@ -162,7 +162,7 @@ pub struct SsoLoginBuilder<'a, F> {
     request_refresh_token: bool,
 }
 
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 impl<'a, F, Fut> SsoLoginBuilder<'a, F>
 where
     F: FnOnce(String) -> Fut + Send,
