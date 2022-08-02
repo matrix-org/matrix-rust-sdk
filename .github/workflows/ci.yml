@@ -52,6 +52,7 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
+          components: llvm-tools-preview
           override: true
 
       - name: Load cache
@@ -88,6 +89,7 @@ jobs:
       with:
         toolchain: stable
         profile: minimal
+        components: llvm-tools-preview
         override: true
 
     - name: Load cache
@@ -139,6 +141,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
+          components: llvm-tools-preview
           profile: minimal
           override: true
 
@@ -256,6 +259,7 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
+          components: llvm-tools-preview
           override: true
 
       - name: Load cache

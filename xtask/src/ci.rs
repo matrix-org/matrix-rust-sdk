@@ -165,7 +165,7 @@ fn run_feature_tests(cmd: Option<FeatureSet>, test_cmd: &str) -> Result<()> {
     ]);
     let run = |arg_set: &str| {
         cmd!("rustup run stable cargo")
-            .arg(test_cmd)
+            .args(test_cmd.split_whitespace())
             .args("run -p matrix-sdk".split_whitespace())
             .args(arg_set.split_whitespace())
             .run()?;
@@ -194,12 +194,12 @@ fn run_crypto_tests(test_cmd: &str) -> Result<()> {
     )
     .run()?;
     cmd!("rustup run stable cargo")
-        .arg(test_cmd)
+        .args(test_cmd.split_whitespace())
         .args("run -p matrix-sdk-crypto --features=backups_v1".split_whitespace())
         .run()?;
     cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1").run()?;
     cmd!("rustup run stable cargo")
-        .arg(test_cmd)
+        .args(test_cmd.split_whitespace())
         .args("run -p matrix-sdk-crypto-ffi".split_whitespace())
         .run()?;
 
@@ -209,7 +209,7 @@ fn run_crypto_tests(test_cmd: &str) -> Result<()> {
 fn run_appservice_tests(test_cmd: &str) -> Result<()> {
     cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
     cmd!("rustup run stable cargo")
-        .arg(test_cmd)
+        .args(test_cmd.split_whitespace())
         .args("run -p matrix-sdk-appservice".split_whitespace())
         .run()?;
     cmd!("rustup run stable cargo test --doc -p matrix-sdk-appservice").run()?;
