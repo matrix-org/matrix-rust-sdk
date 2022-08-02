@@ -12,9 +12,12 @@ env:
   PKG_PATH: "bindings/matrix-sdk-crypto-js"
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
-    tags:
-      - matrix-sdk-crypto-js-v[0-9]+.*
+    # tags:
+    #   - matrix-sdk-crypto-js-v[0-9]+.*
 
 jobs:
 
@@ -54,9 +57,9 @@ jobs:
           draft: true
           files: ${{env.PKG_PATH}}/pkg/*tgz
 
-      - name: Publish to npmjs.com
-        uses: JS-DevTools/npm-publish@v1
-        with:
-          package: ${{env.PKG_PATH}}/pkg/package.json
-          access: public
-          token: ${{ secrets.NPM_TOKEN }}
+      # - name: Publish to npmjs.com
+      #   uses: JS-DevTools/npm-publish@v1
+      #   with:
+      #     package: ${{env.PKG_PATH}}/pkg/package.json
+      #     access: public
+      #     token: ${{ secrets.NPM_TOKEN }}
