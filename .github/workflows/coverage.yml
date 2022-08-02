@@ -35,6 +35,18 @@ jobs:
         command: install
         args: cargo-tarpaulin
 
+    # set up backend for integration tests
+    - uses: actions/setup-python@v4
+      with:
+        python-version: 3.8
+
+    - uses: gnunicorn/setup-matrix-synapse@main
+      with:
+        uploadLogs: true
+        httpPort: 8228
+        disableRateLimiting: true
+        serverName: "matrix-sdk.rs"
+
     - name: Run tarpaulin
       uses: actions-rs/cargo@v1
       with:
