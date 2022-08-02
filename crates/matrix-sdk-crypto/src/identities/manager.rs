@@ -20,7 +20,10 @@ use std::{
 };
 
 use futures_util::future::join_all;
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{
+    executor::spawn,
+    timeout::{timeout, ElapsedError},
+};
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
     OwnedDeviceId, OwnedUserId, UserId,
@@ -53,10 +56,6 @@ pub(crate) struct KeysQueryListener {
     store: Store,
 }
 
-/// Error type notifying that a timeout has elapsed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Elapsed(());
-
 /// Result type telling us if a `/keys/query` response was expected for a given
 /// user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,7 +83,7 @@ impl KeysQueryListener {
         &self,
         timeout: Duration,
         user: &UserId,
-    ) -> Result<UserKeyQueryResult, Elapsed> {
+    ) -> Result<UserKeyQueryResult, ElapsedError> {
         let users_for_key_query = self.store.users_for_key_query();
 
         if users_for_key_query.contains(user) {
@@ -108,17 +107,8 @@ impl KeysQueryListener {
     ///
     /// If the given timeout has elapsed the method will stop waiting and return
     /// an error.
-    pub async fn wait(&self, timeout: Duration) -> Result<(), Elapsed> {
-        let listener = self.inner.listen();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        tokio::time::timeout(timeout, async { listener.await }).await.map_err(|_| Elapsed(()))?;
-
-        // TODO we should ensure that this is async on wasm as well.
-        #[cfg(target_arch = "wasm32")]
-        listener.wait_timeout(timeout);
-
-        Ok(())
+    pub async fn wait(&self, duration: Duration) -> Result<(), ElapsedError> {
+        timeout(self.inner.listen(), duration).await
     }
 }
 

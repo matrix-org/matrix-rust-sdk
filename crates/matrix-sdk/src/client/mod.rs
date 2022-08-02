@@ -15,11 +15,10 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     io::Read,
-    pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering::SeqCst},
         Arc, RwLock as StdRwLock,
@@ -85,8 +84,8 @@ use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
-        EventHandler, EventHandlerData, EventHandlerHandle, EventHandlerResult,
-        EventHandlerWrapper, EventKind, SyncEvent,
+        EventHandler, EventHandlerFn, EventHandlerFut, EventHandlerHandle, EventHandlerKey,
+        EventHandlerResult, EventHandlerWrapper, SyncEvent,
     },
     http_client::HttpClient,
     room, Account, Error, Result,
@@ -107,9 +106,7 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
-type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-pub(crate) type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
-type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerWrapper>>;
+type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
 
 type NotificationHandlerFut = EventHandlerFut;
 type NotificationHandlerFn =
@@ -458,8 +455,38 @@ impl Client {
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        let key = (Ev::KIND, Ev::TYPE);
+        self.add_event_handler_impl(handler, None).await
+    }
 
+    /// Register a handler for a specific room, and event type.
+    ///
+    /// This method works the same way as
+    /// [`add_event_handler`][Self::add_event_handler], except that the handler
+    /// will only be called for events in the room with the specified ID. See
+    /// that method for more details on event handler functions.
+    pub async fn add_room_event_handler<Ev, Ctx, H>(
+        &self,
+        room_id: &RoomId,
+        handler: H,
+    ) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        self.add_event_handler_impl(handler, Some(room_id.to_owned())).await
+    }
+
+    async fn add_event_handler_impl<Ev, Ctx, H>(
+        &self,
+        handler: H,
+        room_id: Option<OwnedRoomId>,
+    ) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
             let maybe_fut = serde_json::from_str(data.raw.get())
                 .map(|ev| handler.clone().handle_event(ev, data));
@@ -487,18 +514,17 @@ impl Client {
         });
 
         let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
-
-        let handle = EventHandlerHandle { handler_id, ev_id: key };
+        let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
 
         self.inner
             .event_handlers
             .write()
             .await
-            .entry(key)
+            .entry(key.clone())
             .or_default()
-            .push(EventHandlerWrapper { handler_fn, handle });
+            .push(EventHandlerWrapper { handler_fn, handler_id });
 
-        handle
+        EventHandlerHandle { key, handler_id }
     }
 
     #[allow(missing_docs)]
@@ -565,11 +591,12 @@ impl Client {
     pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
         let mut event_handlers = self.inner.event_handlers.write().await;
 
-        if let Some(v) = event_handlers.get_mut(&handle.ev_id) {
-            v.retain(|e| e.handle.handler_id != handle.handler_id);
+        if let btree_map::Entry::Occupied(mut entry) = event_handlers.entry(handle.key) {
+            let v = entry.get_mut();
+            v.retain(|e| e.handler_id != handle.handler_id);
 
             if v.is_empty() {
-                event_handlers.remove(&handle.ev_id);
+                entry.remove();
             }
         }
     }
