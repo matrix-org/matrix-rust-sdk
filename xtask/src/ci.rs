@@ -8,6 +8,8 @@ use crate::{build_docs, DenyWarnings, Result};
 
 #[derive(Args)]
 pub struct CiArgs {
+    #[clap(long = "coverage")]
+    with_coverage: bool,
     #[clap(subcommand)]
     cmd: Option<CiCommand>,
 }
@@ -79,6 +81,11 @@ enum WasmFeatureSet {
 impl CiArgs {
     pub fn run(self) -> Result<()> {
         let _p = pushd(&workspace_root()?)?;
+        let test_cmd = if self.with_coverage {
+            "llvm-cov nextest --lcov --output-path lcov.info"
+        } else {
+            "nextest"
+        };
 
         match self.cmd {
             Some(cmd) => match cmd {
@@ -86,21 +93,21 @@ impl CiArgs {
                 CiCommand::Typos => check_typos(),
                 CiCommand::Clippy => check_clippy(),
                 CiCommand::Docs => check_docs(),
-                CiCommand::TestFeatures { cmd } => run_feature_tests(cmd),
-                CiCommand::TestAppservice => run_appservice_tests(),
+                CiCommand::TestFeatures { cmd } => run_feature_tests(cmd, test_cmd),
+                CiCommand::TestAppservice => run_appservice_tests(test_cmd),
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
                 CiCommand::WasmPack { cmd } => run_wasm_pack_tests(cmd),
-                CiCommand::TestCrypto => run_crypto_tests(),
+                CiCommand::TestCrypto => run_crypto_tests(test_cmd),
             },
             None => {
                 check_style()?;
                 check_clippy()?;
                 check_typos()?;
                 check_docs()?;
-                run_feature_tests(None)?;
-                run_appservice_tests()?;
+                run_feature_tests(None, test_cmd)?;
+                run_appservice_tests(test_cmd)?;
                 run_wasm_checks(None)?;
-                run_crypto_tests()?;
+                run_crypto_tests(test_cmd)?;
 
                 Ok(())
             }
@@ -141,7 +148,7 @@ fn check_docs() -> Result<()> {
     build_docs([], DenyWarnings::Yes)
 }
 
-fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
+fn run_feature_tests(cmd: Option<FeatureSet>, test_cmd: &str) -> Result<()> {
     let args = BTreeMap::from([
         (FeatureSet::NoEncryption, "--no-default-features --features sled,native-tls"),
         (FeatureSet::NoSled, "--no-default-features --features e2e-encryption,native-tls"),
@@ -156,9 +163,10 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
         (FeatureSet::SsoLogin, "--features sso-login"),
         (FeatureSet::ExperimentalTimeline, "--features experimental-timeline"),
     ]);
-
     let run = |arg_set: &str| {
-        cmd!("rustup run stable cargo nextest run -p matrix-sdk")
+        cmd!("rustup run stable cargo")
+            .arg(test_cmd)
+            .args("run -p matrix-sdk".split_whitespace())
             .args(arg_set.split_whitespace())
             .run()?;
         cmd!("rustup run stable cargo test --doc -p matrix-sdk")
@@ -180,21 +188,30 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     Ok(())
 }
 
-fn run_crypto_tests() -> Result<()> {
+fn run_crypto_tests(test_cmd: &str) -> Result<()> {
     cmd!(
         "rustup run stable cargo clippy -p matrix-sdk-crypto --features=backups_v1 -- -D warnings"
     )
     .run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto --features=backups_v1").run()?;
+    cmd!("rustup run stable cargo")
+        .arg(test_cmd)
+        .args("run -p matrix-sdk-crypto --features=backups_v1".split_whitespace())
+        .run()?;
     cmd!("rustup run stable cargo test --doc -p matrix-sdk-crypto --features=backups_v1").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
+    cmd!("rustup run stable cargo")
+        .arg(test_cmd)
+        .args("run -p matrix-sdk-crypto-ffi".split_whitespace())
+        .run()?;
 
     Ok(())
 }
 
-fn run_appservice_tests() -> Result<()> {
+fn run_appservice_tests(test_cmd: &str) -> Result<()> {
     cmd!("rustup run stable cargo clippy -p matrix-sdk-appservice -- -D warnings").run()?;
-    cmd!("rustup run stable cargo nextest run -p matrix-sdk-appservice").run()?;
+    cmd!("rustup run stable cargo")
+        .arg(test_cmd)
+        .args("run -p matrix-sdk-appservice".split_whitespace())
+        .run()?;
     cmd!("rustup run stable cargo test --doc -p matrix-sdk-appservice").run()?;
 
     Ok(())

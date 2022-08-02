@@ -60,11 +60,19 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: run
-          args: -p xtask -- ci test-features ${{ matrix.name }}
+          args: -p xtask -- ci --coverage test-features ${{ matrix.name }}
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
 
   test-matrix-sdk-crypto:
     name: 🐧 [m]-crypto
@@ -88,11 +96,19 @@ jobs:
     - name: Install nextest
       uses: taiki-e/install-action@nextest
 
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
+
     - name: Test
       uses: actions-rs/cargo@v1
       with:
         command: run
-        args: -p xtask -- ci test-crypto
+        args: -p xtask -- ci --coverage test-crypto
+
+    - name: Upload to codecov.io
+      uses: codecov/codecov-action@v3
+      with:
+        files: lcov.info
 
   test-all-crates:
     name: ${{ matrix.name }}
@@ -132,17 +148,25 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Test
         uses: actions-rs/cargo@v1
         with:
-          command: nextest
-          args: run --workspace --exclude matrix-sdk-integration-testing
+          command: llvm-cov
+          args: nextest --lcov --output-path lcov.info run --workspace --exclude matrix-sdk-integration-testing
 
       - name: Test documentation
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --doc
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
 
   test-wasm:
     name: 🕸️ ${{ matrix.name }}
@@ -240,6 +264,9 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - uses: actions/setup-python@v4
         with:
           python-version: 3.8
@@ -254,5 +281,10 @@ jobs:
       - name: Test
         uses: actions-rs/cargo@v1
         with:
-          command: nextest
-          args: run -p matrix-sdk-integration-testing
+          command: llvm-cov
+          args: nextest --lcov --output-path lcov.info run -p matrix-sdk-integration-testing
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
