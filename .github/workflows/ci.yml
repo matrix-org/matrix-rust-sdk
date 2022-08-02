@@ -66,6 +66,34 @@ jobs:
           command: run
           args: -p xtask -- ci test-features ${{ matrix.name }}
 
+  test-matrix-sdk-examples:
+    name: 🐧 [m]-examples
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
+
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
+
+    - name: Test
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci examples
+
   test-matrix-sdk-crypto:
     name: 🐧 [m]-crypto
     runs-on: ubuntu-latest
