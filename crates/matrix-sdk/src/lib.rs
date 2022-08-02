@@ -63,6 +63,6 @@ pub use client::SsoLoginBuilder;
 pub use client::{Client, ClientBuildError, ClientBuilder, LoginBuilder, LoopCtrl};
 #[cfg(feature = "image-proc")]
 pub use error::ImageError;
-pub use error::{Error, HttpError, HttpResult, Result, RumaApiError};
+pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;

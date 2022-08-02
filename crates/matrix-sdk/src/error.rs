@@ -102,13 +102,9 @@ pub enum HttpError {
     #[error("missing user_id in session")]
     UserIdRequired,
 
-    /// Tried to send a refresh token request without a refresh token.
-    #[error("missing refresh token")]
-    RefreshTokenRequired,
-
-    /// There was an ongoing refresh token call that failed.
-    #[error("the access token could not be refreshed")]
-    UnableToRefreshToken,
+    /// An error occurred while refreshing the access token.
+    #[error(transparent)]
+    RefreshToken(#[from] RefreshTokenError),
 }
 
 /// Internal representation of errors.
@@ -333,4 +329,21 @@ pub enum ImageError {
     /// The thumbnail size is bigger than the original image.
     #[error("the thumbnail size is bigger than the original image size")]
     ThumbnailBiggerThanOriginal,
+}
+
+/// Errors that can happen when refreshing an access token.
+#[derive(Debug, Error, Clone)]
+pub enum RefreshTokenError {
+    /// The Matrix endpoint returned an error.
+    #[error(transparent)]
+    ClientApi(#[from] ruma::api::client::Error),
+
+    /// Tried to send a refresh token request without a refresh token.
+    #[error("missing refresh token")]
+    RefreshTokenRequired,
+
+    /// There was an ongoing refresh token call that failed and the error could
+    /// not be forwarded.
+    #[error("the access token could not be refreshed")]
+    UnableToRefreshToken,
 }

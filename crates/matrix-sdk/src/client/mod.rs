@@ -90,7 +90,7 @@ use crate::{
         EventHandlerResult, EventHandlerWrapper, SyncEvent,
     },
     http_client::HttpClient,
-    room, Account, Error, Result, RumaApiError,
+    room, Account, Error, RefreshTokenError, Result, RumaApiError,
 };
 
 mod builder;
@@ -178,7 +178,7 @@ pub(crate) struct ClientInner {
     /// `M_UNKNOWN_TOKEN` error is encountered.
     handle_refresh_tokens: bool,
     /// Lock making sure we're only doing one token refresh at a time.
-    refresh_token_lock: Mutex<Result<(), ()>>,
+    refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -1413,19 +1413,25 @@ impl Client {
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
     /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_login
-    pub async fn refresh_access_token(&self) -> Result<Option<refresh_token::v3::Response>> {
+    pub async fn refresh_access_token(&self) -> HttpResult<Option<refresh_token::v3::Response>> {
         #[cfg(not(target_arch = "wasm32"))]
         let lock = self.inner.refresh_token_lock.try_lock().ok();
         #[cfg(target_arch = "wasm32")]
         let lock = self.inner.refresh_token_lock.try_lock();
 
         if let Some(mut guard) = lock {
-            let mut session_tokens =
-                self.session_tokens().ok_or(HttpError::RefreshTokenRequired)?;
+            let mut session_tokens = if let Some(tokens) = self.session_tokens() {
+                tokens
+            } else {
+                *guard = Err(RefreshTokenError::RefreshTokenRequired);
+
+                return Err(RefreshTokenError::RefreshTokenRequired.into());
+            };
+
             let refresh_token = session_tokens
                 .refresh_token
                 .as_ref()
-                .ok_or(HttpError::RefreshTokenRequired)?
+                .ok_or(RefreshTokenError::RefreshTokenRequired)?
                 .clone();
             let request = refresh_token::v3::Request::new(refresh_token);
 
@@ -1452,7 +1458,14 @@ impl Client {
                     Ok(Some(res))
                 }
                 Err(error) => {
-                    *guard = Err(());
+                    *guard = if let HttpError::Api(FromHttpResponseError::Server(
+                        ServerError::Known(RumaApiError::ClientApi(api_error)),
+                    )) = &error
+                    {
+                        Err(RefreshTokenError::ClientApi(api_error.to_owned()))
+                    } else {
+                        Err(RefreshTokenError::UnableToRefreshToken)
+                    };
 
                     Err(error.into())
                 }
@@ -1460,7 +1473,7 @@ impl Client {
         } else {
             match *self.inner.refresh_token_lock.lock().await {
                 Ok(_) => Ok(None),
-                Err(_) => Err(HttpError::UnableToRefreshToken.into()),
+                Err(_) => Err(RefreshTokenError::UnableToRefreshToken.into()),
             }
         }
     }
@@ -1862,7 +1875,17 @@ impl Client {
                 if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
                     let refresh_res = self.refresh_access_token().await;
 
-                    if refresh_res.is_ok() {
+                    if let Err(refresh_error) = refresh_res {
+                        match &refresh_error {
+                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                                // Refreshing access tokens is not supported by
+                                // this `Session`, ignore.
+                            }
+                            _ => {
+                                return Err(refresh_error);
+                            }
+                        }
+                    } else {
                         return self.send_inner(request, config).await;
                     }
                 }

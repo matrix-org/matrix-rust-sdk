@@ -6,7 +6,9 @@ use futures::{
 };
 use futures_signals::signal::SignalExt;
 use matches::assert_matches;
-use matrix_sdk::{config::RequestConfig, executor::spawn, Error, HttpError, RumaApiError, Session};
+use matrix_sdk::{
+    config::RequestConfig, executor::spawn, HttpError, RefreshTokenError, RumaApiError, Session,
+};
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
@@ -134,7 +136,7 @@ async fn no_refresh_token() {
         .await;
 
     let res = client.refresh_access_token().await;
-    assert_matches!(res, Err(Error::Http(HttpError::RefreshTokenRequired)));
+    assert_matches!(res, Err(HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired)));
 }
 
 #[async_test]
