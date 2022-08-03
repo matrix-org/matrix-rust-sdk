@@ -895,9 +895,10 @@ impl GossipMachine {
         info: &GossipRequest,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
+        algorithm: EventEncryptionAlgorithm,
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        match InboundGroupSession::from_forwarded_key(sender_key, content) {
+        match InboundGroupSession::from_forwarded_key(sender_key, &algorithm, content) {
             Ok(session) => {
                 let old_session = self
                     .store
@@ -932,6 +933,7 @@ impl GossipMachine {
                         claimed_sender_key = content.claimed_sender_key.to_base64(),
                         room_id = s.room_id().as_str(),
                         session_id = session_id.as_str(),
+                        %algorithm,
                         "Received a forwarded room key",
                     );
                 } else {
@@ -941,6 +943,7 @@ impl GossipMachine {
                         claimed_sender_key = content.claimed_sender_key.to_base64(),
                         room_id = %content.room_id,
                         session_id = session_id.as_str(),
+                        %algorithm,
                         "Received a forwarded room key but we already have a better version of it",
                     );
                 }
@@ -953,6 +956,7 @@ impl GossipMachine {
                     sender_key = sender_key.to_base64(),
                     claimed_sender_key = content.claimed_sender_key.to_base64(),
                     room_id = content.room_id.as_str(),
+                    %algorithm,
                     "Couldn't create a group session from a received room key"
                 );
                 Err(e.into())
@@ -967,9 +971,17 @@ impl GossipMachine {
         event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         match &event.content {
-            ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(content)
+            | ForwardedRoomKeyContent::MegolmV2AesSha2(content) => {
                 if let Some(info) = self.get_key_info(content).await? {
-                    self.accept_forwarded_room_key(&info, &event.sender, sender_key, content).await
+                    self.accept_forwarded_room_key(
+                        &info,
+                        &event.sender,
+                        sender_key,
+                        event.content.algorithm(),
+                        content,
+                    )
+                    .await
                 } else {
                     warn!(
                         sender = event.sender.as_str(),

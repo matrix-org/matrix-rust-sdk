@@ -171,9 +171,9 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub fn from_forwarded_key(
         sender_key: Curve25519PublicKey,
+        algorithm: &EventEncryptionAlgorithm,
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Self, SessionCreationError> {
-        let algorithm = EventEncryptionAlgorithm::MegolmV1AesSha2;
         let config = OutboundGroupSession::session_config(&algorithm)?;
 
         let session = InnerSession::import(&content.session_key, config);
@@ -196,7 +196,7 @@ impl InboundGroupSession {
             forwarding_chains: forwarding_chains.into(),
             imported: true,
             backed_up: AtomicBool::new(false).into(),
-            algorithm: algorithm.into(),
+            algorithm: algorithm.to_owned().into(),
         })
     }
 

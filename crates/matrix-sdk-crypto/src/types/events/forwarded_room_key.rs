@@ -50,6 +50,9 @@ pub enum ForwardedRoomKeyContent {
     /// The `m.megolm.v1.aes-sha2` variant of the `m.forwarded_room_key`
     /// content.
     MegolmV1AesSha2(Box<ForwardedMegolmV1AesSha2Content>),
+    /// The `m.megolm.v2.aes-sha2` variant of the `m.forwarded_room_key`
+    /// content.
+    MegolmV2AesSha2(Box<ForwardedMegolmV1AesSha2Content>),
     /// An unknown and unsupported variant of the `m.forwarded_room_key`
     /// content.
     Unknown(UnknownRoomKeyContent),
@@ -61,6 +64,9 @@ impl ForwardedRoomKeyContent {
         match self {
             ForwardedRoomKeyContent::MegolmV1AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV1AesSha2
+            }
+            ForwardedRoomKeyContent::MegolmV2AesSha2(_) => {
+                EventEncryptionAlgorithm::MegolmV2AesSha2
             }
             ForwardedRoomKeyContent::Unknown(c) => c.algorithm.to_owned(),
         }
@@ -161,6 +167,10 @@ impl TryFrom<RoomKeyHelper> for ForwardedRoomKeyContent {
                 let content: ForwardedMegolmV1AesSha2Content = serde_json::from_value(value.other)?;
                 Self::MegolmV1AesSha2(content.into())
             }
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
+                let content: ForwardedMegolmV1AesSha2Content = serde_json::from_value(value.other)?;
+                Self::MegolmV2AesSha2(content.into())
+            }
             _ => Self::Unknown(UnknownRoomKeyContent {
                 algorithm: value.algorithm,
                 other: serde_json::from_value(value.other)?,
@@ -177,6 +187,10 @@ impl Serialize for ForwardedRoomKeyContent {
         let helper = match self {
             Self::MegolmV1AesSha2(r) => RoomKeyHelper {
                 algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                other: serde_json::to_value(r).map_err(serde::ser::Error::custom)?,
+            },
+            Self::MegolmV2AesSha2(r) => RoomKeyHelper {
+                algorithm: EventEncryptionAlgorithm::MegolmV2AesSha2,
                 other: serde_json::to_value(r).map_err(serde::ser::Error::custom)?,
             },
             Self::Unknown(r) => RoomKeyHelper {

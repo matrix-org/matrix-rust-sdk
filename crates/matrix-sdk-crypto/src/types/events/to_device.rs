@@ -201,6 +201,7 @@ impl ToDeviceEvents {
             ToDeviceEvents::ForwardedRoomKey(mut e) => {
                 match &mut e.content {
                     ForwardedRoomKeyContent::MegolmV1AesSha2(c) => c.session_key.zeroize(),
+                    ForwardedRoomKeyContent::MegolmV2AesSha2(c) => c.session_key.zeroize(),
                     ForwardedRoomKeyContent::Unknown(_) => (),
                 }
 
