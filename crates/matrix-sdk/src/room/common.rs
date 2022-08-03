@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
 
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
@@ -41,8 +41,10 @@ use ruma::{
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
 };
+use serde::de::DeserializeOwned;
 
 use crate::{
+    event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
     media::{MediaFormat, MediaRequest},
     room::RoomType,
     BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomMember,
@@ -229,6 +231,24 @@ impl Common {
         }
 
         Ok(response)
+    }
+
+    /// Register a handler for events of a specific type, within this room.
+    ///
+    /// This method works the same way as [`Client::add_event_handler`], except
+    /// that the handler will only be called for events within this room. See
+    /// that method for more details on event handler functions.
+    ///
+    /// `room.add_event_handler(hdl)` is equivalent to
+    /// `client.add_room_event_handler(room_id, hdl)`. Use whichever one is more
+    /// convenient in your use case.
+    pub async fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        self.client.add_room_event_handler(self.room_id(), handler).await
     }
 
     /// Get a stream for the timeline of this `Room`
