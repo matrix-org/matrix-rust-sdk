@@ -81,7 +81,7 @@ pub enum IndexeddbStoreError {
 /// Sometimes Migrations can't proceed without having to drop existing
 /// data. This allows you to configure, how these cases should be handled.
 #[allow(dead_code)]
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MigrationConflictStrategy {
     /// Just drop the data, we don't care that we have to sync again
     Drop,
@@ -269,7 +269,7 @@ async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
     Ok(())
 }
 
-#[derive(Builder, Debug, PartialEq)]
+#[derive(Builder, Debug, PartialEq, Eq)]
 #[builder(name = "IndexeddbStoreBuilder", build_fn(skip))]
 pub struct IndexeddbStoreBuilderConfig {
     /// The name for the indexeddb store to use, `state` is none given
