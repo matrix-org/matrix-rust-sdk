@@ -1037,7 +1037,11 @@ impl OlmMachine {
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: session.sender_key().to_base64(),
                 sender_claimed_keys: session.signing_keys().to_owned(),
-                forwarding_curve25519_key_chain: session.forwarding_key_chain().to_vec(),
+                forwarding_curve25519_key_chain: session
+                    .forwarding_key_chain()
+                    .iter()
+                    .map(|k| k.to_base64())
+                    .collect(),
             },
             verification_state,
         })

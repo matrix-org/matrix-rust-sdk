@@ -34,7 +34,7 @@ pub use group_sessions::{
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::{SignedJsonObject, VerifyJson};
-pub use vodozemac::olm::IdentityKeys;
+pub use vodozemac::{olm::IdentityKeys, Curve25519PublicKey};
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -43,7 +43,6 @@ pub(crate) mod tests {
     use ruma::{
         device_id, event_id,
         events::{
-            forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
             room::message::{Relation, Replacement, RoomMessageEventContent},
             AnyMessageLikeEvent, AnyRoomEvent, MessageLikeEvent,
         },
@@ -54,7 +53,9 @@ pub(crate) mod tests {
 
     use crate::{
         olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
-        types::events::room::encrypted::EncryptedEvent,
+        types::events::{
+            forwarded_room_key::ForwardedRoomKeyContent, room::encrypted::EncryptedEvent,
+        },
         utilities::json_convert,
     };
 
@@ -321,7 +322,7 @@ pub(crate) mod tests {
         let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
 
         let export = inbound.export().await;
-        let export: ToDeviceForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let export: ForwardedRoomKeyContent = export.try_into().unwrap();
         let export = ExportedRoomKey::try_from(export).unwrap();
 
         let imported = InboundGroupSession::from_export(&export)
