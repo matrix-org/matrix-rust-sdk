@@ -928,6 +928,7 @@ impl IndexeddbStore {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl CryptoStore for IndexeddbStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, CryptoStoreError> {
@@ -1072,7 +1073,7 @@ impl CryptoStore for IndexeddbStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use matrix_sdk_crypto::cryptostore_integration_tests;
 
@@ -1093,7 +1094,7 @@ mod tests {
     cryptostore_integration_tests! { integration }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 #[rustfmt::skip]
 mod encrypted_tests {
     use super::IndexeddbStore;
@@ -1107,7 +1108,8 @@ mod encrypted_tests {
             .await
             .expect("Can't create a passphrase protected store")
     }
-// FIXME: the tests pass, if run one by one, but run all together locally,
-//        as well as CI fails... see matrix-org/matrix-rust-sdk#661
-//     cryptostore_integration_tests! { integration }
+
+    // FIXME: the tests pass, if run one by one, but run all together locally,
+    //        as well as CI fails... see matrix-org/matrix-rust-sdk#661
+    //     cryptostore_integration_tests! { integration }
 }
