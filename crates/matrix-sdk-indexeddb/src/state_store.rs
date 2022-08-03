@@ -1486,6 +1486,7 @@ impl IndexeddbStore {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
 impl StateStore for IndexeddbStore {
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
@@ -1665,7 +1666,7 @@ struct TimelineMetadata {
     pub end_position: usize,
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -1683,7 +1684,7 @@ mod tests {
     statestore_integration_tests! { integration }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod encrypted_tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -1702,10 +1703,10 @@ mod encrypted_tests {
     statestore_integration_tests! { integration }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod migration_tests {
-    #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
     use indexed_db_futures::prelude::*;
     use matrix_sdk_test::async_test;
     use uuid::Uuid;
@@ -1730,6 +1731,7 @@ mod migration_tests {
         db_req.into_future().await?;
         Ok(())
     }
+
     #[async_test]
     pub async fn test_no_upgrade() -> Result<()> {
         let name = format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());

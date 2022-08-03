@@ -1,30 +1,22 @@
-#[cfg(target_arch = "wasm32")]
+#![cfg_attr(not(target_arch = "wasm32"), allow(unused))]
+
 use matrix_sdk_base::store::{StoreConfig, StoreError};
-#[cfg(target_arch = "wasm32")]
 use thiserror::Error;
 
-mod safe_encode;
-
-#[cfg(target_arch = "wasm32")]
-mod state_store;
-
-#[cfg(target_arch = "wasm32")]
 #[cfg(feature = "e2e-encryption")]
 mod cryptostore;
+mod safe_encode;
+mod state_store;
 
-#[cfg(target_arch = "wasm32")]
 #[cfg(feature = "e2e-encryption")]
 pub use cryptostore::IndexeddbStore as CryptoStore;
-#[cfg(target_arch = "wasm32")]
 #[cfg(feature = "e2e-encryption")]
 use cryptostore::IndexeddbStoreError;
-#[cfg(target_arch = "wasm32")]
 pub use state_store::{IndexeddbStore as StateStore, IndexeddbStoreBuilder as StateStoreBuilder};
 
-#[cfg(target_arch = "wasm32")]
-#[cfg(feature = "e2e-encryption")]
 /// Create a [`StateStore`] and a [`CryptoStore`] that use the same name and
 /// passphrase.
+#[cfg(feature = "e2e-encryption")]
 async fn open_stores_with_name(
     name: impl Into<String>,
     passphrase: Option<&str>,
@@ -44,7 +36,6 @@ async fn open_stores_with_name(
     Ok((state_store, crypto_store))
 }
 
-#[cfg(target_arch = "wasm32")]
 /// Create a [`StoreConfig`] with an opened indexeddb [`StateStore`] that uses
 /// the given name and passphrase. If `encryption` is enabled, a [`CryptoStore`]
 /// with the same parameters is also opened.
@@ -52,31 +43,36 @@ pub async fn make_store_config(
     name: impl Into<String>,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, OpenStoreError> {
-    let name = name.into();
-
-    #[cfg(feature = "e2e-encryption")]
+    #[cfg(target_arch = "wasm32")]
     {
-        let (state_store, crypto_store) = open_stores_with_name(name, passphrase).await?;
-        Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
-    }
+        let name = name.into();
 
-    #[cfg(not(feature = "e2e-encryption"))]
-    {
-        let mut builder = StateStore::builder();
-        builder.name(name.clone());
-
-        if let Some(passphrase) = passphrase {
-            builder.passphrase(passphrase.to_owned());
+        #[cfg(feature = "e2e-encryption")]
+        {
+            let (state_store, crypto_store) = open_stores_with_name(name, passphrase).await?;
+            Ok(StoreConfig::new().state_store(state_store).crypto_store(crypto_store))
         }
 
-        let state_store = builder.build().await.map_err(StoreError::from)?;
+        #[cfg(not(feature = "e2e-encryption"))]
+        {
+            let mut builder = StateStore::builder();
+            builder.name(name.clone());
 
-        Ok(StoreConfig::new().state_store(state_store))
+            if let Some(passphrase) = passphrase {
+                builder.passphrase(passphrase.to_owned());
+            }
+
+            let state_store = builder.build().await.map_err(StoreError::from)?;
+
+            Ok(StoreConfig::new().state_store(state_store))
+        }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
 
 /// All the errors that can occur when opening an IndexedDB store.
-#[cfg(target_arch = "wasm32")]
 #[derive(Error, Debug)]
 pub enum OpenStoreError {
     /// An error occurred with the state store implementation.
