@@ -12,14 +12,12 @@ rust-version = "1.60"
 version = "0.5.0"
 
 [package.metadata.docs.rs]
-features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
 qrcode = ["dep:matrix-sdk-qrcode"]
 backups_v1 = ["dep:olm-rs", "dep:bs58"]
-docsrs = []
 
 # Testing helpers for implementations based upon this
 testing = ["dep:http"]
