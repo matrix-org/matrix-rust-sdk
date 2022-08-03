@@ -12,7 +12,10 @@ mod state_store;
 pub use cryptostore::IndexeddbStore as CryptoStore;
 #[cfg(feature = "e2e-encryption")]
 use cryptostore::IndexeddbStoreError;
-pub use state_store::{IndexeddbStore as StateStore, IndexeddbStoreBuilder as StateStoreBuilder};
+pub use state_store::{
+    IndexeddbStore as StateStore, IndexeddbStoreBuilder as StateStoreBuilder,
+    MigrationConflictStrategy,
+};
 
 /// Create a [`StateStore`] and a [`CryptoStore`] that use the same name and
 /// passphrase.
