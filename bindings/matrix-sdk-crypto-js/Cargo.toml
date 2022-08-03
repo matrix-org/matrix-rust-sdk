@@ -12,7 +12,6 @@ rust-version = "1.60"
 version = "0.1.0-alpha.0"
 
 [package.metadata.docs.rs]
-features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.wasm-pack.profile.release]
@@ -24,7 +23,6 @@ crate-type = ["cdylib"]
 [features]
 default = ["tracing"]
 qrcode = ["matrix-sdk-crypto/qrcode"]
-docsrs = []
 tracing = []
 
 [dependencies]
