@@ -138,7 +138,7 @@ impl ClientBuilder {
     ///
     /// This is a shorthand for
     /// <code>.[store_config](Self::store_config)([matrix_sdk_indexeddb]::[make_store_config](matrix_sdk_indexeddb::make_store_config)(path, passphrase).await?)</code>.
-    #[cfg(all(feature = "indexeddb", target_arch = "wasm32"))]
+    #[cfg(feature = "indexeddb")]
     pub async fn indexeddb_store(
         self,
         name: impl Into<String>,
@@ -489,7 +489,7 @@ pub enum ClientBuildError {
     Http(#[from] HttpError),
 
     /// Error opening the indexeddb store.
-    #[cfg(all(feature = "indexeddb", target_arch = "wasm32"))]
+    #[cfg(feature = "indexeddb")]
     #[error(transparent)]
     IndexeddbStore(#[from] matrix_sdk_indexeddb::OpenStoreError),
 
