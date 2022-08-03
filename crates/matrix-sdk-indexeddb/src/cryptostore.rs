@@ -401,7 +401,7 @@ impl IndexeddbStore {
 
             for session in changes.inbound_group_sessions {
                 let room_id = session.room_id();
-                let sender_key = session.sender_key();
+                let sender_key = session.sender_key().to_base64();
                 let session_id = session.session_id();
                 let key = self
                     .encode_key(KEYS::INBOUND_GROUP_SESSIONS, (room_id, sender_key, session_id));

@@ -363,7 +363,7 @@ mod tests {
             BTreeMap::from([(
                 session.room_id().to_owned(),
                 BTreeMap::from([(
-                    session.sender_key().to_owned(),
+                    session.sender_key().to_base64(),
                     BTreeSet::from([session.session_id().to_owned()]),
                 )]),
             )]),
@@ -390,7 +390,7 @@ mod tests {
             BTreeMap::from([(
                 another_session.room_id().to_owned(),
                 BTreeMap::from([(
-                    another_session.sender_key().to_owned(),
+                    another_session.sender_key().to_base64(),
                     BTreeSet::from([another_session.session_id().to_owned()]),
                 )]),
             )]),

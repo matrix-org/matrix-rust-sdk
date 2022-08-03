@@ -31,9 +31,11 @@ pub use outbound::{
     EncryptionSettings, GroupSession, OutboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
 use thiserror::Error;
-use vodozemac::megolm::SessionKeyDecodeError;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
+use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
 use zeroize::Zeroize;
+
+use crate::types::{deserialize_curve_key, serialize_curve_key};
 
 /// An error type for the creation of group sessions.
 #[derive(Debug, Error)]
@@ -59,7 +61,8 @@ pub struct ExportedRoomKey {
     pub room_id: OwnedRoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
-    pub sender_key: String,
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    pub sender_key: Curve25519PublicKey,
 
     /// The ID of the session that the key is for.
     pub session_id: String,
@@ -87,7 +90,8 @@ pub struct BackedUpRoomKey {
     pub algorithm: EventEncryptionAlgorithm,
 
     /// The Curve25519 key of the device which initiated the session originally.
-    pub sender_key: String,
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    pub sender_key: Curve25519PublicKey,
 
     /// The key for the session.
     pub session_key: ExportedSessionKey,
@@ -122,7 +126,7 @@ impl TryInto<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
             Ok(ToDeviceForwardedRoomKeyEventContentInit {
                 algorithm: self.algorithm,
                 room_id: self.room_id,
-                sender_key: self.sender_key,
+                sender_key: self.sender_key.to_base64(),
                 session_id: self.session_id,
                 session_key: self.session_key.to_base64(),
                 sender_claimed_ed25519_key: claimed_key.to_owned(),
@@ -158,6 +162,7 @@ impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
 
         let session_key = ExportedSessionKey::from_base64(&forwarded_key.session_key)?;
         forwarded_key.session_key.zeroize();
+        let sender_key = Curve25519PublicKey::from_base64(&forwarded_key.sender_key)?;
 
         Ok(Self {
             algorithm: forwarded_key.algorithm,
@@ -165,7 +170,7 @@ impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
             session_id: forwarded_key.session_id,
             forwarding_curve25519_key_chain: forwarded_key.forwarding_curve25519_key_chain,
             sender_claimed_keys,
-            sender_key: forwarded_key.sender_key,
+            sender_key,
             session_key,
         })
     }

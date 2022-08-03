@@ -233,7 +233,7 @@ impl Serialize for Signatures {
 // likes to base64 encode all byte slices.
 //
 // This ensures that we serialize/deserialize in a Matrix-compatible way.
-fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
+pub(crate) fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -241,7 +241,7 @@ where
     Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
 }
 
-fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
+pub(crate) fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
