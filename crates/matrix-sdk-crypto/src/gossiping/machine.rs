@@ -1009,13 +1009,14 @@ mod tests {
     use ruma::{
         device_id,
         events::{
-            room::encrypted::ToDeviceRoomEncryptedEventContent,
             secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
-            ToDeviceEvent as RumaToDeviceEvent, ToDeviceEventContent,
+            AnyToDeviceEventContent, ToDeviceEvent as RumaToDeviceEvent, ToDeviceEventContent,
         },
-        room_id, user_id, DeviceId, RoomId, UserId,
+        room_id,
+        serde::Raw,
+        user_id, DeviceId, RoomId, UserId,
     };
-    use serde::de::DeserializeOwned;
+    use serde::{de::DeserializeOwned, Serialize};
 
     use super::{GossipMachine, KeyForwardDecision};
     use crate::{
@@ -1026,8 +1027,9 @@ mod tests {
         types::events::{
             forwarded_room_key::ForwardedRoomKeyContent,
             olm_v1::{AnyDecryptedOlmEvent, DecryptedOlmV1Event},
+            room::encrypted::EncryptedToDeviceEvent,
+            EventType, ToDeviceEvent,
         },
-        utilities::json_convert,
         verification::VerificationMachine,
         OutgoingRequest, OutgoingRequests,
     };
@@ -1174,15 +1176,11 @@ mod tests {
         (alice_machine, alice_account, group_session, bob_machine)
     }
 
-    fn request_to_event<C>(
+    fn extract_content<'a>(
         recipient: &UserId,
-        sender: &UserId,
-        request: &OutgoingRequest,
-    ) -> RumaToDeviceEvent<C>
-    where
-        C: ToDeviceEventContent + DeserializeOwned,
-    {
-        let content = request
+        request: &'a OutgoingRequest,
+    ) -> &'a Raw<AnyToDeviceEventContent> {
+        request
             .request()
             .to_device()
             .expect("The request should be always a to-device request")
@@ -1191,7 +1189,34 @@ mod tests {
             .unwrap()
             .values()
             .next()
-            .unwrap();
+            .unwrap()
+    }
+
+    fn request_to_event<C>(
+        recipient: &UserId,
+        sender: &UserId,
+        request: &OutgoingRequest,
+    ) -> ToDeviceEvent<C>
+    where
+        C: EventType + DeserializeOwned + Serialize + std::fmt::Debug,
+    {
+        let content = extract_content(recipient, request);
+        let content: C = content
+            .deserialize_as()
+            .expect("We can always deserialize the to-device event content");
+
+        ToDeviceEvent { sender: sender.to_owned(), content, other: Default::default() }
+    }
+
+    fn request_to_ruma_event<C>(
+        recipient: &UserId,
+        sender: &UserId,
+        request: &OutgoingRequest,
+    ) -> RumaToDeviceEvent<C>
+    where
+        C: ToDeviceEventContent + DeserializeOwned,
+    {
+        let content = extract_content(recipient, request);
         let content: C = content
             .deserialize_as()
             .expect("We can always deserialize the to-device event content");
@@ -1528,7 +1553,7 @@ mod tests {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let event = request_to_event(alice_id(), alice_id(), request);
+        let event = request_to_ruma_event(alice_id(), alice_id(), request);
 
         alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
@@ -1545,10 +1570,8 @@ mod tests {
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        let event: RumaToDeviceEvent<ToDeviceRoomEncryptedEventContent> =
-            request_to_event(alice_id(), alice_id(), request);
+        let event: EncryptedToDeviceEvent = request_to_event(alice_id(), alice_id(), request);
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
-        let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
         assert!(alice_machine
@@ -1667,7 +1690,7 @@ mod tests {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let event = request_to_event(alice_id(), alice_id(), request);
+        let event = request_to_ruma_event(alice_id(), alice_id(), request);
 
         alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
@@ -1705,10 +1728,8 @@ mod tests {
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        let event: RumaToDeviceEvent<ToDeviceRoomEncryptedEventContent> =
-            request_to_event(alice_id(), alice_id(), request);
+        let event: EncryptedToDeviceEvent = request_to_event(alice_id(), alice_id(), request);
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
-        let event = json_convert(&event).unwrap();
 
         // Check that alice doesn't have the session.
         assert!(alice_machine
