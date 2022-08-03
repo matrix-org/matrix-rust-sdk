@@ -1094,7 +1094,7 @@ impl ReadOnlyAccount {
     #[allow(dead_code)]
     /// Testing only helper to create a session for the given Account
     pub async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
-        use ruma::events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent};
+        use ruma::events::dummy::ToDeviceDummyEventContent;
 
         other.generate_one_time_keys_helper(1).await;
         let one_time = other.signed_one_time_keys().await;
@@ -1107,7 +1107,11 @@ impl ReadOnlyAccount {
         other.mark_keys_as_published().await;
 
         let message = our_session
-            .encrypt(&device, AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
+            .encrypt(
+                &device,
+                "m.dummy",
+                serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap(),
+            )
             .await
             .unwrap()
             .deserialize()

@@ -35,7 +35,7 @@ use crate::{
     error::{EventError, MegolmResult, OlmResult},
     olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
-    types::events::room::encrypted::RoomEncryptedEventContent,
+    types::events::{room::encrypted::RoomEncryptedEventContent, EventType},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
@@ -216,7 +216,7 @@ impl GroupSessionManager {
     /// Encrypt the given content for the given devices and create a to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
-        content: AnyToDeviceEventContent,
+        content: OutboundGroupSession,
         devices: Vec<Device>,
         message_index: u32,
     ) -> OlmResult<(
@@ -237,11 +237,16 @@ impl GroupSessionManager {
         let mut changed_sessions = Vec::new();
         let mut share_infos = BTreeMap::new();
 
-        let encrypt = |device: Device, content: AnyToDeviceEventContent| async move {
+        let encrypt = |device: Device, session: OutboundGroupSession| async move {
             let mut message = BTreeMap::new();
             let mut share_info = BTreeMap::new();
 
-            let encrypted = device.encrypt(content.clone()).await;
+            let content = session.as_content().await;
+            let event_type = content.event_type();
+            let content =
+                serde_json::to_value(content).expect("We can always serialize our own room key");
+
+            let encrypted = device.encrypt(event_type, content).await;
 
             let used_session = match encrypted {
                 Ok((session, encrypted)) => {
@@ -409,13 +414,12 @@ impl GroupSessionManager {
 
     pub async fn encrypt_request(
         chunk: Vec<Device>,
-        content: AnyToDeviceEventContent,
         outbound: OutboundGroupSession,
         message_index: u32,
         being_shared: Arc<DashMap<OwnedTransactionId, OutboundGroupSession>>,
     ) -> OlmResult<Vec<Session>> {
         let (id, request, share_infos, used_sessions) =
-            Self::encrypt_session_for(content.clone(), chunk, message_index).await?;
+            Self::encrypt_session_for(outbound.clone(), chunk, message_index).await?;
 
         if !request.messages.is_empty() {
             outbound.add_request(id.clone(), request.into(), share_infos);
@@ -499,7 +503,6 @@ impl GroupSessionManager {
             })
             .collect();
 
-        let key_content = outbound.as_content().await;
         let message_index = outbound.message_index().await;
 
         // If we have some recipients, log them here.
@@ -531,7 +534,6 @@ impl GroupSessionManager {
             .map(|chunk| {
                 spawn(Self::encrypt_request(
                     chunk.to_vec(),
-                    key_content.clone(),
                     outbound.clone(),
                     message_index,
                     self.sessions.sessions_being_shared.clone(),

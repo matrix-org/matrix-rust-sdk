@@ -1589,8 +1589,7 @@ pub(crate) mod tests {
                 message::{MessageType, RoomMessageEventContent},
             },
             AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnyToDeviceEvent,
-            AnyToDeviceEventContent, MessageLikeEvent, MessageLikeUnsigned,
-            OriginalMessageLikeEvent,
+            MessageLikeEvent, MessageLikeUnsigned, OriginalMessageLikeEvent,
         },
         room_id,
         serde::Raw,
@@ -1717,7 +1716,7 @@ pub(crate) mod tests {
             alice.get_device(&bob.user_id, &bob.device_id, None).await.unwrap().unwrap();
 
         let (session, content) = bob_device
-            .encrypt(AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
+            .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
             .await
             .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
@@ -1945,7 +1944,7 @@ pub(crate) mod tests {
         let event = ToDeviceEvent {
             sender: alice.user_id().to_owned(),
             content: bob_device
-                .encrypt(AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new()))
+                .encrypt("m.dummy", serde_json::to_value(ToDeviceDummyEventContent::new()).unwrap())
                 .await
                 .unwrap()
                 .1
