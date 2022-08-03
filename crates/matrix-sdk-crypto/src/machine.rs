@@ -580,7 +580,7 @@ impl OlmMachine {
                         sender_key = sender_key.to_base64(),
                         room_id = %content.room_id,
                         session_id = session.session_id(),
-                        algorithm = %event.algorithm(),
+                        algorithm = %event.content.algorithm(),
                         "Received a new megolm room key",
                     );
 
