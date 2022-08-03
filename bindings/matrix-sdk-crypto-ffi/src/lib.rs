@@ -249,9 +249,11 @@ pub fn migrate(
         let pickle =
             InboundGroupSession::from_libolm_pickle(&session.pickle, &data.pickle_key)?.pickle();
 
+        let sender_key = Curve25519PublicKey::from_base64(&session.sender_key)?;
+
         let pickle = matrix_sdk_crypto::olm::PickledInboundGroupSession {
             pickle,
-            sender_key: session.sender_key,
+            sender_key,
             signing_key: session
                 .signing_key
                 .into_iter()

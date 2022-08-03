@@ -40,6 +40,7 @@ use ruma::{
     OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tracing::{debug, info, trace, warn};
+use vodozemac::Curve25519PublicKey;
 
 use super::{GossipRequest, KeyForwardDecision, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
@@ -589,14 +590,14 @@ impl GossipMachine {
     pub async fn request_key(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         session_id: &str,
         algorithm: &EventEncryptionAlgorithm,
     ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
             algorithm.to_owned(),
             room_id.to_owned(),
-            sender_key.to_owned(),
+            sender_key.to_base64(),
             session_id.to_owned(),
         )
         .into();
@@ -667,14 +668,14 @@ impl GossipMachine {
     pub async fn create_outgoing_key_request(
         &self,
         room_id: &RoomId,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         session_id: &str,
         algorithm: &EventEncryptionAlgorithm,
     ) -> Result<bool, CryptoStoreError> {
         let key_info = RequestedKeyInfo::new(
             algorithm.to_owned(),
             room_id.to_owned(),
-            sender_key.to_owned(),
+            sender_key.to_base64(),
             session_id.to_owned(),
         )
         .into();
@@ -801,7 +802,7 @@ impl GossipMachine {
 
     async fn receive_secret(
         &self,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         event: &mut SecretSendEvent,
         request: &GossipRequest,
         secret_name: &SecretName,
@@ -818,7 +819,7 @@ impl GossipMachine {
         );
 
         if let Some(device) =
-            self.store.get_device_from_curve_key(&event.sender, sender_key).await?
+            self.store.get_device_from_curve_key(&event.sender, &sender_key.to_base64()).await?
         {
             // Only accept secrets from one of our own trusted devices.
             if device.user_id() == self.user_id() && device.verified() {
@@ -847,7 +848,7 @@ impl GossipMachine {
 
     pub async fn receive_secret_event(
         &self,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         event: &mut SecretSendEvent,
     ) -> Result<(), CryptoStoreError> {
         debug!(
@@ -879,7 +880,7 @@ impl GossipMachine {
     async fn accept_forwarded_room_key(
         &self,
         info: &GossipRequest,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         event: &ToDeviceForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         match InboundGroupSession::from_forwarded_key(sender_key, &event.content) {
@@ -888,7 +889,7 @@ impl GossipMachine {
                     .store
                     .get_inbound_group_session(
                         session.room_id(),
-                        &session.sender_key,
+                        &session.sender_key.to_base64(),
                         session.session_id(),
                     )
                     .await?;
@@ -916,7 +917,7 @@ impl GossipMachine {
                 if let Some(s) = &session {
                     info!(
                         sender = event.sender.as_str(),
-                        sender_key = sender_key,
+                        sender_key = sender_key.to_base64(),
                         claimed_sender_key = event.content.sender_key.as_str(),
                         room_id = s.room_id().as_str(),
                         session_id = session_id.as_str(),
@@ -925,7 +926,7 @@ impl GossipMachine {
                 } else {
                     info!(
                         sender = event.sender.as_str(),
-                        sender_key = sender_key,
+                        sender_key = sender_key.to_base64(),
                         claimed_sender_key = event.content.sender_key.as_str(),
                         room_id = event.content.room_id.as_str(),
                         session_id = session_id.as_str(),
@@ -938,7 +939,7 @@ impl GossipMachine {
             Err(e) => {
                 warn!(
                     sender = event.sender.as_str(),
-                    sender_key = sender_key,
+                    sender_key = sender_key.to_base64(),
                     claimed_sender_key = event.content.sender_key.as_str(),
                     room_id = event.content.room_id.as_str(),
                     "Couldn't create a group session from a received room key"
@@ -951,7 +952,7 @@ impl GossipMachine {
     /// Receive a forwarded room key event.
     pub async fn receive_forwarded_room_key(
         &self,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         event: &ToDeviceForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         if let Some(info) = self.get_key_info(&event.content).await? {
@@ -959,7 +960,7 @@ impl GossipMachine {
         } else {
             warn!(
                 sender = event.sender.as_str(),
-                sender_key = sender_key,
+                sender_key = sender_key.to_base64(),
                 room_id = event.content.room_id.as_str(),
                 session_id = event.content.session_id.as_str(),
                 claimed_sender_key = event.content.sender_key.as_str(),
@@ -1120,7 +1121,7 @@ mod tests {
             alice_machine
                 .create_outgoing_key_request(
                     room_id(),
-                    &bob_machine.store.account().identity_keys().curve25519.to_base64(),
+                    bob_machine.store.account().identity_keys().curve25519,
                     group_session.session_id(),
                     &group_session.settings().algorithm,
                 )
@@ -1186,7 +1187,7 @@ mod tests {
         let (cancel, request) = machine
             .request_key(
                 session.room_id(),
-                &session.sender_key,
+                session.sender_key,
                 session.session_id(),
                 session.algorithm(),
             )
@@ -1200,7 +1201,7 @@ mod tests {
         let (cancel, _) = machine
             .request_key(
                 session.room_id(),
-                &session.sender_key,
+                session.sender_key,
                 session.session_id(),
                 session.algorithm(),
             )
@@ -1227,7 +1228,7 @@ mod tests {
         machine
             .create_outgoing_key_request(
                 session.room_id(),
-                &session.sender_key,
+                session.sender_key,
                 session.session_id(),
                 session.algorithm(),
             )
@@ -1239,7 +1240,7 @@ mod tests {
         machine
             .create_outgoing_key_request(
                 session.room_id(),
-                &session.sender_key,
+                session.sender_key,
                 session.session_id(),
                 session.algorithm(),
             )
@@ -1271,7 +1272,7 @@ mod tests {
         machine
             .create_outgoing_key_request(
                 session.room_id(),
-                &session.sender_key,
+                session.sender_key,
                 session.session_id(),
                 session.algorithm(),
             )
@@ -1290,21 +1291,19 @@ mod tests {
 
         let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
-        assert!(
-            machine
-                .store
-                .get_inbound_group_session(
-                    session.room_id(),
-                    &session.sender_key,
-                    session.session_id(),
-                )
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(machine
+            .store
+            .get_inbound_group_session(
+                session.room_id(),
+                &session.sender_key.to_base64(),
+                session.session_id(),
+            )
+            .await
+            .unwrap()
+            .is_none());
 
         let first_session = machine
-            .receive_forwarded_room_key(&alice_device.curve25519_key().unwrap().to_base64(), &event)
+            .receive_forwarded_room_key(alice_device.curve25519_key().unwrap(), &event)
             .await
             .unwrap();
         let first_session = first_session.unwrap();
@@ -1322,7 +1321,7 @@ mod tests {
         machine
             .create_outgoing_key_request(
                 session.room_id(),
-                &session.sender_key,
+                session.sender_key,
                 session.session_id(),
                 session.algorithm(),
             )
@@ -1341,7 +1340,7 @@ mod tests {
         let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
         let second_session = machine
-            .receive_forwarded_room_key(&alice_device.curve25519_key().unwrap().to_base64(), &event)
+            .receive_forwarded_room_key(alice_device.curve25519_key().unwrap(), &event)
             .await
             .unwrap();
 
@@ -1354,7 +1353,7 @@ mod tests {
         let event = RumaToDeviceEvent { sender: alice_id().to_owned(), content };
 
         let second_session = machine
-            .receive_forwarded_room_key(&alice_device.curve25519_key().unwrap().to_base64(), &event)
+            .receive_forwarded_room_key(alice_device.curve25519_key().unwrap(), &event)
             .await
             .unwrap();
 
@@ -1522,7 +1521,7 @@ mod tests {
 
         if let AnyToDeviceEvent::ForwardedRoomKey(e) = decrypted.event.deserialize().unwrap() {
             let session =
-                alice_machine.receive_forwarded_room_key(&decrypted.sender_key, &e).await.unwrap();
+                alice_machine.receive_forwarded_room_key(decrypted.sender_key, &e).await.unwrap();
             alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
         } else {
             panic!("Invalid decrypted event type");
@@ -1531,7 +1530,11 @@ mod tests {
         // Check that alice now does have the session.
         let session = alice_machine
             .store
-            .get_inbound_group_session(room_id(), &decrypted.sender_key, group_session.session_id())
+            .get_inbound_group_session(
+                room_id(),
+                &decrypted.sender_key.to_base64(),
+                group_session.session_id(),
+            )
             .await
             .unwrap()
             .unwrap();
@@ -1676,7 +1679,7 @@ mod tests {
 
         if let AnyToDeviceEvent::ForwardedRoomKey(e) = decrypted.event.deserialize().unwrap() {
             let session =
-                alice_machine.receive_forwarded_room_key(&decrypted.sender_key, &e).await.unwrap();
+                alice_machine.receive_forwarded_room_key(decrypted.sender_key, &e).await.unwrap();
             alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
         } else {
             panic!("Invalid decrypted event type");
@@ -1685,7 +1688,11 @@ mod tests {
         // Check that alice now does have the session.
         let session = alice_machine
             .store
-            .get_inbound_group_session(room_id(), &decrypted.sender_key, group_session.session_id())
+            .get_inbound_group_session(
+                room_id(),
+                &decrypted.sender_key.to_base64(),
+                group_session.session_id(),
+            )
             .await
             .unwrap()
             .unwrap();

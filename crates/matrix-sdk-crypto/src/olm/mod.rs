@@ -50,7 +50,7 @@ pub(crate) mod tests {
         room_id, user_id, DeviceId, UserId,
     };
     use serde_json::json;
-    use vodozemac::olm::OlmMessage;
+    use vodozemac::{olm::OlmMessage, Curve25519PublicKey};
 
     use crate::{
         olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
@@ -160,7 +160,8 @@ pub(crate) mod tests {
         assert!(outbound.shared());
 
         let inbound = InboundGroupSession::new(
-            "test_key",
+            Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw")
+                .unwrap(),
             "test_key",
             room_id,
             &outbound.session_key().await,
@@ -201,7 +202,8 @@ pub(crate) mod tests {
         )));
 
         let inbound = InboundGroupSession::new(
-            "test_key",
+            Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw")
+                .unwrap(),
             "test_key",
             room_id,
             &outbound.session_key().await,

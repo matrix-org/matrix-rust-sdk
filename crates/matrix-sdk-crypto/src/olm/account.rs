@@ -101,7 +101,7 @@ pub(crate) struct OlmDecryptionInfo {
     pub message_hash: OlmMessageHash,
     pub event: Raw<AnyToDeviceEvent>,
     pub signing_key: String,
-    pub sender_key: String,
+    pub sender_key: Curve25519PublicKey,
     pub inbound_group_session: Option<InboundGroupSession>,
 }
 
@@ -159,7 +159,7 @@ impl Account {
                 message_hash,
                 event,
                 signing_key,
-                sender_key: sender_key.to_base64(),
+                sender_key,
                 inbound_group_session: None,
             }),
             Err(OlmError::SessionWedged(user_id, sender_key)) => {
@@ -1062,11 +1062,11 @@ impl ReadOnlyAccount {
         );
         let identity_keys = self.identity_keys();
 
-        let sender_key = identity_keys.curve25519.to_base64();
+        let sender_key = identity_keys.curve25519;
         let signing_key = identity_keys.ed25519.to_base64();
 
         let inbound = InboundGroupSession::new(
-            &sender_key,
+            sender_key,
             &signing_key,
             room_id,
             &outbound.session_key().await,

@@ -234,7 +234,7 @@ macro_rules! cryptostore_integration_tests {
                 store.save_changes(changes).await.expect("Can't save group session");
 
                 let loaded_session = store
-                    .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
+                    .get_inbound_group_session(&session.room_id, &session.sender_key.to_base64(), session.session_id())
                     .await
                     .unwrap()
                     .unwrap();
@@ -302,7 +302,7 @@ macro_rules! cryptostore_integration_tests {
                 store.load_account().await.unwrap();
 
                 let loaded_session = store
-                    .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
+                    .get_inbound_group_session(&session.room_id, &session.sender_key.to_base64(), session.session_id())
                     .await
                     .unwrap()
                     .unwrap();
