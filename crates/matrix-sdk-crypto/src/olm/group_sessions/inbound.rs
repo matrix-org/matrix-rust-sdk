@@ -23,10 +23,7 @@ use std::{
 
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    events::{
-        forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-        room::history_visibility::HistoryVisibility, AnyRoomEvent,
-    },
+    events::{room::history_visibility::HistoryVisibility, AnyRoomEvent},
     serde::Raw,
     DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId, RoomId,
 };
@@ -34,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{
     megolm::{
-        DecryptedMessage, DecryptionError, ExportedSessionKey, InboundGroupSession as InnerSession,
+        DecryptedMessage, DecryptionError, InboundGroupSession as InnerSession,
         InboundGroupSessionPickle, MegolmMessage, SessionConfig, SessionOrdering,
     },
     Curve25519PublicKey, PickleError,
@@ -45,7 +42,10 @@ use crate::{
     error::{EventError, MegolmResult},
     types::{
         deserialize_curve_key,
-        events::room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
+        events::{
+            forwarded_room_key::ForwardedMegolmV1AesSha2Content,
+            room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
+        },
         serialize_curve_key,
     },
 };
@@ -71,7 +71,7 @@ pub struct InboundGroupSession {
     pub signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
     /// The Room this GroupSession belongs to
     pub room_id: Arc<RoomId>,
-    forwarding_chains: Arc<Vec<String>>,
+    forwarding_chains: Arc<Vec<Curve25519PublicKey>>,
     imported: bool,
     algorithm: Arc<EventEncryptionAlgorithm>,
     backed_up: Arc<AtomicBool>,
@@ -165,25 +165,24 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub fn from_forwarded_key(
         sender_key: Curve25519PublicKey,
-        content: &ToDeviceForwardedRoomKeyEventContent,
+        content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Self, SessionCreationError> {
-        let key = ExportedSessionKey::from_base64(&content.session_key)?;
-        let algorithm = EventEncryptionAlgorithm::from(content.algorithm.as_str());
+        let algorithm = EventEncryptionAlgorithm::MegolmV1AesSha2;
 
-        let session = InnerSession::import(&key, SessionConfig::version_1());
+        let session = InnerSession::import(&content.session_key, SessionConfig::version_1());
 
         let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
-        forwarding_chains.push(sender_key.to_base64());
+        forwarding_chains.push(sender_key);
 
         let mut sender_claimed_key = BTreeMap::new();
         sender_claimed_key
-            .insert(DeviceKeyAlgorithm::Ed25519, content.sender_claimed_ed25519_key.to_owned());
+            .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.to_base64());
 
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: content.session_id.as_str().into(),
-            sender_key,
+            sender_key: content.claimed_sender_key,
             first_known_index,
             history_visibility: None.into(),
             signing_keys: sender_claimed_key.into(),
@@ -256,7 +255,7 @@ impl InboundGroupSession {
     /// Each ed25519 key represents a single device. If device A forwards the
     /// session to device B and device B to C this list will contain the ed25519
     /// keys of A and B.
-    pub fn forwarding_key_chain(&self) -> &[String] {
+    pub fn forwarding_key_chain(&self) -> &[Curve25519PublicKey] {
         &self.forwarding_chains
     }
 
@@ -446,7 +445,7 @@ pub struct PickledInboundGroupSession {
     /// The list of claimed ed25519 that forwarded us this key. Will be None if
     /// we directly received this session.
     #[serde(default)]
-    pub forwarding_chains: Vec<String>,
+    pub forwarding_chains: Vec<Curve25519PublicKey>,
     /// Flag remembering if the session was directly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,

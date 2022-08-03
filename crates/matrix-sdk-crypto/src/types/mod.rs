@@ -37,7 +37,7 @@ pub use device_keys::*;
 pub use one_time_keys::*;
 use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize, Serializer};
-use vodozemac::{Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -247,4 +247,42 @@ where
 {
     let key = key.to_base64();
     s.serialize_str(&key)
+}
+
+pub(crate) fn deserialize_ed25519_key<'de, D>(de: D) -> Result<Ed25519PublicKey, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let key: String = Deserialize::deserialize(de)?;
+    Ed25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn serialize_ed25519_key<S>(key: &Ed25519PublicKey, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let key = key.to_base64();
+    s.serialize_str(&key)
+}
+
+pub(crate) fn deserialize_curve_key_vec<'de, D>(de: D) -> Result<Vec<Curve25519PublicKey>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let keys: Vec<String> = Deserialize::deserialize(de)?;
+    let keys: Result<Vec<Curve25519PublicKey>, KeyError> =
+        keys.iter().map(|k| Curve25519PublicKey::from_base64(k)).collect();
+
+    keys.map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn serialize_curve_key_vec<S>(
+    keys: &[Curve25519PublicKey],
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let keys: Vec<String> = keys.iter().map(|k| k.to_base64()).collect();
+    keys.serialize(s)
 }

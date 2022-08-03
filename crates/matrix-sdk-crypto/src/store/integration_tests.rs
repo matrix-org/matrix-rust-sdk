@@ -18,8 +18,8 @@ macro_rules! cryptostore_integration_tests {
                 testing::{get_device, get_other_identity, get_own_identity},
                 ReadOnlyDevice,
                 olm::{
-                    InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
-                    ReadOnlyAccount, Session,
+                    Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
+                    PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
                 },
                 store::{CryptoStore, GossipRequest, Changes, DeviceChanges, IdentityChanges, RecoveryKey},
             };
@@ -286,7 +286,8 @@ macro_rules! cryptostore_integration_tests {
 
                 let mut export = session.export().await;
 
-                export.forwarding_curve25519_key_chain = vec!["some_chain".to_owned()];
+                let curve_key = Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw").unwrap();
+                export.forwarding_curve25519_key_chain = vec![curve_key];
 
                 let session = InboundGroupSession::from_export(&export).unwrap();
 
