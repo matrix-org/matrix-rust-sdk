@@ -26,7 +26,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine};
-use matrix_sdk_crypto::types::SigningKey;
+use matrix_sdk_crypto::types::{events::EventEncryptionAlgorithm, SigningKey};
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
@@ -272,7 +272,7 @@ pub fn migrate(
             imported: session.imported,
             backed_up: session.backed_up,
             history_visibility: None,
-            algorithm: ruma::EventEncryptionAlgorithm::MegolmV1AesSha2,
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
         };
 
         let session = matrix_sdk_crypto::olm::InboundGroupSession::from_pickle(pickle)?;

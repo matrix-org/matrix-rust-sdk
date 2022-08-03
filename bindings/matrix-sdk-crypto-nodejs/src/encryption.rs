@@ -14,26 +14,31 @@ pub enum EncryptionAlgorithm {
 
     /// Megolm version 1 using AES-256 and SHA-256.
     MegolmV1AesSha2,
+
+    /// Megolm version 2 using AES-256 and SHA-256.
+    MegolmV2AesSha2,
 }
 
-impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
+impl From<EncryptionAlgorithm> for matrix_sdk_crypto::types::events::EventEncryptionAlgorithm {
     fn from(value: EncryptionAlgorithm) -> Self {
         use EncryptionAlgorithm::*;
 
         match value {
             OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
             MegolmV1AesSha2 => Self::MegolmV1AesSha2,
+            MegolmV2AesSha2 => Self::MegolmV2AesSha2,
         }
     }
 }
 
-impl From<ruma::EventEncryptionAlgorithm> for EncryptionAlgorithm {
-    fn from(value: ruma::EventEncryptionAlgorithm) -> Self {
-        use ruma::EventEncryptionAlgorithm::*;
+impl From<matrix_sdk_crypto::types::events::EventEncryptionAlgorithm> for EncryptionAlgorithm {
+    fn from(value: matrix_sdk_crypto::types::events::EventEncryptionAlgorithm) -> Self {
+        use matrix_sdk_crypto::types::events::EventEncryptionAlgorithm::*;
 
         match value {
             OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
             MegolmV1AesSha2 => Self::MegolmV1AesSha2,
+            MegolmV2AesSha2 => Self::MegolmV2AesSha2,
             _ => unreachable!("Unknown variant"),
         }
     }
