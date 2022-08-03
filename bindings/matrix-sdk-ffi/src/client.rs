@@ -184,7 +184,7 @@ impl Client {
 
     pub fn restore_token(&self) -> anyhow::Result<String> {
         RUNTIME.block_on(async move {
-            let session = self.client.session().expect("Missing session").clone();
+            let session = self.client.session().expect("Missing session");
             let homeurl = self.client.homeserver().await.into();
             Ok(serde_json::to_string(&RestoreToken {
                 session,

@@ -21,6 +21,7 @@ use std::{
 #[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, sync::Arc};
 
+use futures_signals::signal::ReadOnlyMutable;
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_common::deserialized_responses::TimelineSlice;
 use matrix_sdk_common::{
@@ -62,11 +63,10 @@ use crate::error::Error;
 use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
-    session::Session,
     store::{
         ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store, StoreConfig,
     },
-    StateStore,
+    Session, SessionMeta, SessionTokens, StateStore,
 };
 
 /// A no IO Client implementation.
@@ -91,7 +91,8 @@ pub struct BaseClient {
 impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
-            .field("session", &self.session())
+            .field("session_meta", &self.store.session_meta())
+            .field("session_tokens", &self.store.session_tokens)
             .field("sync_token", &self.store.sync_token)
             .finish()
     }
@@ -124,6 +125,29 @@ impl BaseClient {
         }
     }
 
+    /// Get the session meta information.
+    ///
+    /// If the client is currently logged in, this will return a
+    /// [`SessionMeta`] object which contains the user ID and device ID.
+    /// Otherwise it returns `None`.
+    pub fn session_meta(&self) -> Option<&SessionMeta> {
+        self.store.session_meta()
+    }
+
+    /// Get the session tokens.
+    ///
+    /// If the client is currently logged in, this will return a
+    /// [`SessionTokens`] object which contains the access token and optional
+    /// refresh token. Otherwise it returns `None`.
+    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
+        self.store.session_tokens()
+    }
+
+    /// Set the session tokens.
+    pub fn set_session_tokens(&self, tokens: SessionTokens) {
+        self.store.set_session_tokens(tokens)
+    }
+
     /// Get the user login session.
     ///
     /// If the client is currently logged in, this will return a
@@ -132,7 +156,7 @@ impl BaseClient {
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
     /// `None`.
-    pub fn session(&self) -> Option<&Session> {
+    pub fn session(&self) -> Option<Session> {
         self.store.session()
     }
 
@@ -154,7 +178,7 @@ impl BaseClient {
 
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
-        self.store.session().is_some()
+        self.store.session_meta().is_some()
     }
 
     /// Receive a login response and update the session of the client.
@@ -169,6 +193,7 @@ impl BaseClient {
     ) -> Result<()> {
         let session = Session {
             access_token: response.access_token.clone(),
+            refresh_token: response.refresh_token.clone(),
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
@@ -1000,8 +1025,8 @@ impl BaseClient {
             .transpose()?
         {
             Ok(event.content.global)
-        } else if let Some(session) = self.store.session() {
-            Ok(Ruleset::server_default(&session.user_id))
+        } else if let Some(session_meta) = self.store.session_meta() {
+            Ok(Ruleset::server_default(&session_meta.user_id))
         } else {
             Ok(Ruleset::new())
         }
@@ -1137,6 +1162,7 @@ mod tests {
         client
             .restore_login(Session {
                 access_token: "token".to_owned(),
+                refresh_token: None,
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })
@@ -1191,6 +1217,7 @@ mod tests {
         client
             .restore_login(Session {
                 access_token: "token".to_owned(),
+                refresh_token: None,
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })
