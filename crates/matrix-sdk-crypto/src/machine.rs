@@ -43,7 +43,7 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
-use vodozemac::Ed25519Signature;
+use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -550,14 +550,14 @@ impl OlmMachine {
     /// Create a group session from a room key and add it to our crypto store.
     async fn add_room_key(
         &self,
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         signing_key: &str,
         event: &RoomKeyEvent,
     ) -> OlmResult<Option<InboundGroupSession>> {
         let unsupported_warning = || {
             warn!(
                 sender = %event.sender,
-                sender_key = sender_key,
+                sender_key = sender_key.to_base64(),
                 algorithm = %event.algorithm(),
                 "Received room key with unsupported key algorithm",
             );
@@ -720,7 +720,7 @@ impl OlmMachine {
             Err(e) => {
                 warn!(
                     sender = decrypted.sender.as_str(),
-                    sender_key = decrypted.sender_key.as_str(),
+                    sender_key = decrypted.sender_key.to_base64(),
                     error = ?e,
                     "Decrypted to-device event failed to be deserialized correctly"
                 );
@@ -731,7 +731,7 @@ impl OlmMachine {
 
         trace!(
             sender = decrypted.sender.as_str(),
-            sender_key = decrypted.sender_key.as_str(),
+            sender_key = decrypted.sender_key.to_base64(),
             event_type = %event.event_type(),
             "Received a decrypted to-device event"
         );
@@ -739,20 +739,18 @@ impl OlmMachine {
         match event {
             ToDeviceEvents::RoomKey(e) => {
                 let session =
-                    self.add_room_key(&decrypted.sender_key, &decrypted.signing_key, &e).await?;
+                    self.add_room_key(decrypted.sender_key, &decrypted.signing_key, &e).await?;
                 decrypted.inbound_group_session = session;
             }
             ToDeviceEvents::ForwardedRoomKey(e) => {
                 let session = self
                     .key_request_machine
-                    .receive_forwarded_room_key(&decrypted.sender_key, &e)
+                    .receive_forwarded_room_key(decrypted.sender_key, &e)
                     .await?;
                 decrypted.inbound_group_session = session;
             }
             ToDeviceEvents::SecretSend(mut e) => {
-                self.key_request_machine
-                    .receive_secret_event(&decrypted.sender_key, &mut e)
-                    .await?;
+                self.key_request_machine.receive_secret_event(decrypted.sender_key, &mut e).await?;
                 decrypted.event = Raw::from_json(to_raw_value(&e)?)
             }
             _ => {
@@ -1001,7 +999,7 @@ impl OlmMachine {
             .request_key(
                 room_id,
                 #[allow(deprecated)]
-                &content.sender_key().to_base64(),
+                content.sender_key(),
                 content.session_id(),
                 &content.algorithm(),
             )
@@ -1014,10 +1012,11 @@ impl OlmMachine {
         sender: &UserId,
         device_id: &DeviceId,
     ) -> StoreResult<EncryptionInfo> {
-        let verification_state = if let Some(device) =
-            self.get_device(sender, device_id, None).await?.filter(|d| {
-                d.curve25519_key().map(|k| k.to_base64() == session.sender_key()).unwrap_or(false)
-            }) {
+        let verification_state = if let Some(device) = self
+            .get_device(sender, device_id, None)
+            .await?
+            .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
+        {
             if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
                 || device.verified()
             {
@@ -1036,7 +1035,7 @@ impl OlmMachine {
             sender,
             sender_device: device_id,
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-                curve25519_key: session.sender_key().to_owned(),
+                curve25519_key: session.sender_key().to_base64(),
                 sender_claimed_keys: session.signing_keys().to_owned(),
                 forwarding_curve25519_key_chain: session.forwarding_key_chain().to_vec(),
             },
@@ -1071,7 +1070,7 @@ impl OlmMachine {
                         sender = event.sender.as_str(),
                         room_id = room_id.as_str(),
                         session_id = session.session_id(),
-                        sender_key = session.sender_key(),
+                        sender_key = session.sender_key().to_base64(),
                         algorithm = %session.algorithm(),
                         "Successfully decrypted a room event"
                     );
@@ -1085,7 +1084,7 @@ impl OlmMachine {
                         sender = event.sender.as_str(),
                         room_id = room_id.as_str(),
                         session_id = session.session_id(),
-                        sender_key = session.sender_key(),
+                        sender_key = session.sender_key().to_base64(),
                         algorithm = %session.algorithm(),
                         error = ?e,
                         "Event was successfully decrypted but has an invalid format"
@@ -1108,7 +1107,7 @@ impl OlmMachine {
                 .create_outgoing_key_request(
                     room_id,
                     #[allow(deprecated)]
-                    &content.sender_key().to_base64(),
+                    content.sender_key(),
                     content.session_id(),
                     &content.algorithm(),
                 )
@@ -1335,7 +1334,7 @@ impl OlmMachine {
 
         #[derive(Debug)]
         struct ShallowSessions {
-            inner: BTreeMap<Arc<RoomId>, BTreeMap<Arc<str>, SessionIdToIndexMap>>,
+            inner: BTreeMap<Arc<RoomId>, BTreeMap<String, SessionIdToIndexMap>>,
         }
 
         impl ShallowSessions {
@@ -1343,7 +1342,7 @@ impl OlmMachine {
                 self.inner
                     .get(&session.room_id)
                     .and_then(|m| {
-                        m.get(&session.sender_key).and_then(|m| {
+                        m.get(&session.sender_key.to_base64()).and_then(|m| {
                             m.get(&session.session_id)
                                 .map(|existing| existing <= &session.first_known_index())
                         })
@@ -1362,7 +1361,7 @@ impl OlmMachine {
 
                     acc.entry(s.room_id)
                         .or_default()
-                        .entry(s.sender_key)
+                        .entry(s.sender_key.to_base64())
                         .or_default()
                         .insert(s.session_id, index);
 
@@ -1388,7 +1387,7 @@ impl OlmMachine {
 
                         keys.entry(session.room_id().to_owned())
                             .or_insert_with(BTreeMap::new)
-                            .entry(session.sender_key().to_owned())
+                            .entry(session.sender_key().to_base64())
                             .or_insert_with(BTreeSet::new)
                             .insert(session.session_id().to_owned());
 
@@ -1397,7 +1396,7 @@ impl OlmMachine {
                 }
                 Err(e) => {
                     warn!(
-                        sender_key= key.sender_key,
+                        sender_key= key.sender_key.to_base64(),
                         room_id = %key.room_id,
                         session_id = key.session_id,
                         error = ?e,

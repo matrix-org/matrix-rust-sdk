@@ -54,11 +54,9 @@ where
 // `with_timeout` test fails https://github.com/matrix-org/matrix-rust-sdk/issues/896
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
+    use std::{future, time::Duration};
+
     use matrix_sdk_test::async_test;
-    #[cfg(not(target_arch = "wasm32"))]
-    use tokio::time::{sleep, Duration};
-    #[cfg(target_arch = "wasm32")]
-    use {std::time::Duration, wasm_timer::Delay};
 
     use super::timeout;
 
@@ -67,31 +65,15 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn without_timeout() {
-        let duration_future = Duration::from_millis(500);
-        let duration_timeout = Duration::from_millis(800);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let fut = sleep(duration_future);
-        #[cfg(target_arch = "wasm32")]
-        let fut = Delay::new(duration_future);
-
-        let res = timeout(fut, duration_timeout).await;
-
-        res.expect("future should have completed without ElapsedError");
+        timeout(future::ready(()), Duration::from_millis(100))
+            .await
+            .expect("future should have completed without ElapsedError");
     }
 
     #[async_test]
     async fn with_timeout() {
-        let duration_future = Duration::from_millis(900);
-        let duration_timeout = Duration::from_millis(800);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let fut = sleep(duration_future);
-        #[cfg(target_arch = "wasm32")]
-        let fut = Delay::new(duration_future);
-
-        let res = timeout(fut, duration_timeout).await;
-
-        res.expect_err("future should throw an ElapsedError");
+        timeout(future::pending::<()>(), Duration::from_millis(100))
+            .await
+            .expect_err("future should return an ElapsedError");
     }
 }

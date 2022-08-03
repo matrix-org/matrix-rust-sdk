@@ -63,11 +63,11 @@ const TRACKED_USERS_TABLE: &str = "crypto-store-secret-tracked-users";
 
 impl EncodeKey for InboundGroupSession {
     fn encode(&self) -> Vec<u8> {
-        (self.room_id(), self.sender_key(), self.session_id()).encode()
+        (self.room_id(), self.sender_key().to_base64(), self.session_id()).encode()
     }
 
     fn encode_secure(&self, table_name: &str, store_cipher: &StoreCipher) -> Vec<u8> {
-        (self.room_id(), self.sender_key(), self.session_id())
+        (self.room_id(), self.sender_key().to_base64(), self.session_id())
             .encode_secure(table_name, store_cipher)
     }
 }

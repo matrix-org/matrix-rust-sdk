@@ -30,6 +30,7 @@ async-trait = "0.1.53"
 dashmap = "5.2.0"
 futures-channel = "0.3.21"
 futures-core = "0.3.21"
+futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.21", default-features = false }
 http = { version = "0.2.6", optional = true }
 lru = "0.7.5"

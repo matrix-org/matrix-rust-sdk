@@ -88,7 +88,7 @@ impl GroupSessionStore {
         self.entries
             .entry((*session.room_id).to_owned())
             .or_default()
-            .entry(session.sender_key.to_string())
+            .entry(session.sender_key.to_base64())
             .or_default()
             .insert(session.session_id().to_owned(), session)
             .is_none()
@@ -184,6 +184,7 @@ impl DeviceStore {
 mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
+    use vodozemac::Curve25519PublicKey;
 
     use crate::{
         identities::device::testing::get_device,
@@ -227,6 +228,7 @@ mod tests {
     async fn test_group_session_store() {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
+        let curve_key = "Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw";
 
         let (outbound, _) = account.create_group_session_pair_with_defaults(room_id).await;
 
@@ -236,7 +238,7 @@ mod tests {
         assert!(outbound.shared());
 
         let inbound = InboundGroupSession::new(
-            "test_key",
+            Curve25519PublicKey::from_base64(curve_key).unwrap(),
             "test_key",
             room_id,
             &outbound.session_key().await,
@@ -247,7 +249,7 @@ mod tests {
         let store = GroupSessionStore::new();
         store.add(inbound.clone());
 
-        let loaded_session = store.get(room_id, "test_key", outbound.session_id()).unwrap();
+        let loaded_session = store.get(room_id, curve_key, outbound.session_id()).unwrap();
         assert_eq!(inbound, loaded_session);
     }
 

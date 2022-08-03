@@ -72,7 +72,9 @@ impl PendingBackup {
     fn session_was_part_of_the_backup(&self, session: &InboundGroupSession) -> bool {
         self.sessions
             .get(session.room_id())
-            .and_then(|r| r.get(session.sender_key()).map(|s| s.contains(session.session_id())))
+            .and_then(|r| {
+                r.get(&session.sender_key().to_base64()).map(|s| s.contains(session.session_id()))
+            })
             .unwrap_or(false)
     }
 }
@@ -544,7 +546,7 @@ impl BackupMachine {
             session_record
                 .entry(room_id.to_owned())
                 .or_default()
-                .entry(sender_key)
+                .entry(sender_key.to_base64())
                 .or_default()
                 .insert(session_id.clone());
 

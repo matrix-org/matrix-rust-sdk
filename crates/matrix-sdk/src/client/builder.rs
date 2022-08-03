@@ -2,7 +2,11 @@ use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
-use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
+use matrix_sdk_base::{
+    locks::{Mutex, RwLock},
+    store::StoreConfig,
+    BaseClient, StateStore,
+};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName, UserId,
@@ -68,6 +72,7 @@ pub struct ClientBuilder {
     respect_login_well_known: bool,
     appservice_mode: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
+    handle_refresh_tokens: bool,
 }
 
 impl ClientBuilder {
@@ -80,6 +85,7 @@ impl ClientBuilder {
             respect_login_well_known: true,
             appservice_mode: false,
             server_versions: None,
+            handle_refresh_tokens: false,
         }
     }
 
@@ -305,6 +311,32 @@ impl ClientBuilder {
         self.http_cfg.get_or_insert_with(Default::default).settings()
     }
 
+    /// Handle [refreshing access tokens] automatically.
+    ///
+    /// By default, the `Client` forwards any error and doesn't handle errors
+    /// with the access token, which means that
+    /// [`Client::refresh_access_token()`] needs to be called manually to
+    /// refresh access tokens.
+    ///
+    /// Enabling this setting means that the `Client` will try to refresh the
+    /// token automatically, which means that:
+    ///
+    /// * If refreshing the token fails, the error is forwarded, so any endpoint
+    ///   can return [`HttpError::RefreshToken`]. If an [`UnknownToken`] error
+    ///   is encountered, it means that the user needs to be logged in again.
+    ///
+    /// * The access token and refresh token need to be watched for changes,
+    ///   using [`Client::session_tokens_signal()`] for example, to be able to
+    ///   [restore the session] later.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
+    /// [restore the session]: Client::restore_login
+    pub fn handle_refresh_tokens(mut self) -> Self {
+        self.handle_refresh_tokens = true;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -385,6 +417,8 @@ impl ClientBuilder {
             appservice_mode: self.appservice_mode,
             respect_login_well_known: self.respect_login_well_known,
             sync_beat: event_listener::Event::new(),
+            handle_refresh_tokens: self.handle_refresh_tokens,
+            refresh_token_lock: Mutex::new(Ok(())),
         });
 
         Ok(Client { inner })

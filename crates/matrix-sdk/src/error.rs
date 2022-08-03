@@ -101,6 +101,10 @@ pub enum HttpError {
     /// Tried to send a request without `user_id` in the `Session`
     #[error("missing user_id in session")]
     UserIdRequired,
+
+    /// An error occurred while refreshing the access token.
+    #[error(transparent)]
+    RefreshToken(#[from] RefreshTokenError),
 }
 
 /// Internal representation of errors.
@@ -325,4 +329,27 @@ pub enum ImageError {
     /// The thumbnail size is bigger than the original image.
     #[error("the thumbnail size is bigger than the original image size")]
     ThumbnailBiggerThanOriginal,
+}
+
+/// Errors that can happen when refreshing an access token.
+///
+/// This is usually only returned by [`Client::refresh_access_token()`], unless
+/// [handling refresh tokens] is activated for the `Client`.
+///
+/// [`Client::refresh_access_token()`]: crate::Client::refresh_access_token()
+/// [handling refresh tokens]: crate::ClientBuilder::handle_refresh_tokens()
+#[derive(Debug, Error, Clone)]
+pub enum RefreshTokenError {
+    /// The Matrix endpoint returned an error.
+    #[error(transparent)]
+    ClientApi(#[from] ruma::api::client::Error),
+
+    /// Tried to send a refresh token request without a refresh token.
+    #[error("missing refresh token")]
+    RefreshTokenRequired,
+
+    /// There was an ongoing refresh token call that failed and the error could
+    /// not be forwarded.
+    #[error("the access token could not be refreshed")]
+    UnableToRefreshToken,
 }

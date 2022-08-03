@@ -106,6 +106,18 @@ pub static LOGIN_WITH_DISCOVERY: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+/// Successful call to `POST /_matrix/client/v3/login` with a refresh token.
+pub static LOGIN_WITH_REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "access_token": "abc123",
+        "device_id": "GHTYAJCE",
+        "home_server": "matrix.org",
+        "user_id": "@cheeky_monkey:matrix.org",
+        "expires_in_ms": 432000000,
+        "refresh_token": "zyx987",
+    })
+});
+
 /// Failed call to `POST /_matrix/client/v3/login`
 pub static LOGIN_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
     json!({
@@ -128,6 +140,16 @@ pub static LOGIN_TYPES: Lazy<JsonValue> = Lazy::new(|| {
                 "type": "m.login.token"
             }
         ]
+    })
+});
+
+/// Failed call to an endpoint when the resource that was asked could not be
+/// found.
+pub static NOT_FOUND: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+      "errcode": "M_NOT_FOUND",
+      "error": "No resource was found for this request.",
+      "soft_logout": true,
     })
 });
 
@@ -154,6 +176,23 @@ pub static PUBLIC_ROOMS: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+/// `POST /_matrix/client/v3/refresh` without new refresh token.
+pub static REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+      "access_token": "5678",
+      "expire_in_ms": 432000000,
+    })
+});
+
+/// `POST /_matrix/client/v3/refresh` with a new refresh token.
+pub static REFRESH_TOKEN_WITH_REFRESH_TOKEN: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+      "access_token": "9012",
+      "expire_in_ms": 432000000,
+      "refresh_token": "wxyz",
+    })
+});
+
 /// Failed call to `POST /_matrix/client/v3/register`
 pub static REGISTRATION_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
     json!({
@@ -174,6 +213,15 @@ pub static REGISTRATION_RESPONSE_ERR: Lazy<JsonValue> = Lazy::new(|| {
             }
         },
         "session": "xxxxxx"
+    })
+});
+
+/// Failed called to any endpoint with an expired access token.
+pub static UNKNOWN_TOKEN_SOFT_LOGOUT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+      "errcode": "M_UNKNOWN_TOKEN",
+      "error": "Invalid access token passed.",
+      "soft_logout": true,
     })
 });
 

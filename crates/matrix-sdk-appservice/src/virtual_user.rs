@@ -128,6 +128,7 @@ impl<'a> VirtualUserBuilder<'a> {
 
             Session {
                 access_token: response.access_token,
+                refresh_token: response.refresh_token,
                 user_id: response.user_id,
                 device_id: response.device_id,
             }
@@ -135,6 +136,7 @@ impl<'a> VirtualUserBuilder<'a> {
             // Don’t log in
             Session {
                 access_token: self.appservice.registration.as_token.clone(),
+                refresh_token: None,
                 user_id: user_id.clone(),
                 device_id: self.device_id.unwrap_or_else(DeviceId::new),
             }

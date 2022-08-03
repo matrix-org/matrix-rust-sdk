@@ -12,7 +12,6 @@ rust-version = "1.60"
 version = "0.5.0"
 
 [package.metadata.docs.rs]
-features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
@@ -21,7 +20,6 @@ crate-type = ["cdylib"]
 [features]
 default = []
 qrcode = ["matrix-sdk-crypto/qrcode"]
-docsrs = []
 tracing = ["dep:tracing-subscriber"]
 
 [dependencies]

@@ -37,13 +37,17 @@ use vodozemac::{
         DecryptedMessage, DecryptionError, ExportedSessionKey, InboundGroupSession as InnerSession,
         InboundGroupSessionPickle, MegolmMessage,
     },
-    PickleError,
+    Curve25519PublicKey, PickleError,
 };
 
 use super::{BackedUpRoomKey, ExportedRoomKey, SessionCreationError, SessionKey};
 use crate::{
     error::{EventError, MegolmResult},
-    types::events::room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
+    types::{
+        deserialize_curve_key,
+        events::room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
+        serialize_curve_key,
+    },
 };
 
 // TODO add creation times to the inbound group sessions so we can export
@@ -62,7 +66,7 @@ pub struct InboundGroupSession {
     pub session_id: Arc<str>,
     first_known_index: u32,
     /// The sender_key associated to this GroupSession
-    pub sender_key: Arc<str>,
+    pub sender_key: Curve25519PublicKey,
     /// Map of DeviceKeyAlgorithm to the public ed25519 key of the account
     pub signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
     /// The Room this GroupSession belongs to
@@ -91,7 +95,7 @@ impl InboundGroupSession {
     /// * `session_key` - The private session key that is used to decrypt
     /// messages.
     pub fn new(
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         signing_key: &str,
         room_id: &RoomId,
         session_key: &SessionKey,
@@ -110,7 +114,7 @@ impl InboundGroupSession {
             history_visibility: history_visibility.into(),
             session_id: session_id.into(),
             first_known_index,
-            sender_key: sender_key.to_owned().into(),
+            sender_key,
             signing_keys: keys.into(),
             room_id: room_id.into(),
             forwarding_chains: Vec::new().into(),
@@ -160,7 +164,7 @@ impl InboundGroupSession {
     /// * `content` - A forwarded room key content that contains the session key
     /// to create the `InboundGroupSession`.
     pub fn from_forwarded_key(
-        sender_key: &str,
+        sender_key: Curve25519PublicKey,
         content: &ToDeviceForwardedRoomKeyEventContent,
     ) -> Result<Self, SessionCreationError> {
         let key = ExportedSessionKey::from_base64(&content.session_key)?;
@@ -170,7 +174,7 @@ impl InboundGroupSession {
 
         let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
-        forwarding_chains.push(sender_key.to_owned());
+        forwarding_chains.push(sender_key.to_base64());
 
         let mut sender_claimed_key = BTreeMap::new();
         sender_claimed_key
@@ -179,7 +183,7 @@ impl InboundGroupSession {
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: content.session_id.as_str().into(),
-            sender_key: content.sender_key.as_str().into(),
+            sender_key,
             first_known_index,
             history_visibility: None.into(),
             signing_keys: sender_claimed_key.into(),
@@ -202,7 +206,7 @@ impl InboundGroupSession {
 
         PickledInboundGroupSession {
             pickle,
-            sender_key: self.sender_key.to_string(),
+            sender_key: self.sender_key,
             signing_key: (*self.signing_keys).clone(),
             room_id: (*self.room_id).to_owned(),
             forwarding_chains: self.forwarding_key_chain().to_vec(),
@@ -222,8 +226,8 @@ impl InboundGroupSession {
     }
 
     /// Get the sender key that this session was received from.
-    pub fn sender_key(&self) -> &str {
-        &self.sender_key
+    pub fn sender_key(&self) -> Curve25519PublicKey {
+        self.sender_key
     }
 
     /// Has the session been backed up to the server.
@@ -266,7 +270,7 @@ impl InboundGroupSession {
         ExportedRoomKey {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             room_id: (*self.room_id).to_owned(),
-            sender_key: (*self.sender_key).to_owned(),
+            sender_key: self.sender_key,
             session_id: self.session_id().to_owned(),
             forwarding_curve25519_key_chain: self.forwarding_key_chain().to_vec(),
             sender_claimed_keys: (*self.signing_keys).clone(),
@@ -293,7 +297,7 @@ impl InboundGroupSession {
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: session_id.into(),
-            sender_key: pickle.sender_key.into(),
+            sender_key: pickle.sender_key,
             history_visibility: pickle.history_visibility.into(),
             first_known_index,
             signing_keys: pickle.signing_key.into(),
@@ -427,7 +431,8 @@ pub struct PickledInboundGroupSession {
     /// The pickle string holding the InboundGroupSession.
     pub pickle: InboundGroupSessionPickle,
     /// The public curve25519 key of the account that sent us the session
-    pub sender_key: String,
+    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
+    pub sender_key: Curve25519PublicKey,
     /// The public ed25519 key of the account that sent us the session.
     pub signing_key: BTreeMap<DeviceKeyAlgorithm, String>,
     /// The id of the room that the session is used in.
@@ -463,7 +468,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
             session_id: key.session_id.to_owned().into(),
-            sender_key: key.sender_key.to_owned().into(),
+            sender_key: key.sender_key,
             history_visibility: None.into(),
             first_known_index,
             signing_keys: key.sender_claimed_keys.to_owned().into(),
