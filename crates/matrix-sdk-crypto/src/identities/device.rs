@@ -28,13 +28,14 @@ use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-        key::verification::VerificationMethod, AnyToDeviceEventContent,
+        key::verification::VerificationMethod,
     },
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
     OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 use tracing::warn;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
@@ -257,9 +258,10 @@ impl Device {
     /// * `content` - The content of the event that should be encrypted.
     pub(crate) async fn encrypt(
         &self,
-        content: AnyToDeviceEventContent,
+        event_type: &str,
+        content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        self.inner.encrypt(self.verification_machine.store.inner(), content).await
+        self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this
@@ -288,7 +290,9 @@ impl Device {
             );
         };
 
-        self.encrypt(AnyToDeviceEventContent::ForwardedRoomKey(content)).await
+        let content = serde_json::to_value(content)?;
+
+        self.encrypt("m.forwarded_room_key", content).await
     }
 }
 
@@ -514,7 +518,8 @@ impl ReadOnlyDevice {
     pub(crate) async fn encrypt(
         &self,
         store: &dyn CryptoStore,
-        content: AnyToDeviceEventContent,
+        event_type: &str,
+        content: Value,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let sender_key = if let Some(k) = self.curve25519_key() {
             k
@@ -548,7 +553,7 @@ impl ReadOnlyDevice {
             return Err(OlmError::MissingSession);
         };
 
-        let message = session.encrypt(self, content).await?;
+        let message = session.encrypt(self, event_type, content).await?;
 
         Ok((session, message))
     }

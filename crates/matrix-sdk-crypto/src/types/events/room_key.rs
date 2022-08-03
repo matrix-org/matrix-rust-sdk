@@ -110,6 +110,13 @@ pub struct MegolmV1AesSha2Content {
     other: BTreeMap<String, Value>,
 }
 
+impl MegolmV1AesSha2Content {
+    /// Create a new `m.megolm.v1.aes-sha2` `m.room_key` content.
+    pub fn new(room_id: OwnedRoomId, session_id: String, session_key: SessionKey) -> Self {
+        Self { room_id, session_id, session_key, other: Default::default() }
+    }
+}
+
 impl std::fmt::Debug for MegolmV1AesSha2Content {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MegolmV1AesSha2Content")

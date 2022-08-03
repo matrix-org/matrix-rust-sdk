@@ -15,13 +15,9 @@
 use std::{fmt, sync::Arc};
 
 use matrix_sdk_common::locks::Mutex;
-use ruma::{
-    events::{AnyToDeviceEventContent, EventContent},
-    serde::Raw,
-    DeviceId, SecondsSinceUnixEpoch, UserId,
-};
+use ruma::{serde::Raw, DeviceId, SecondsSinceUnixEpoch, UserId};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use vodozemac::{
     olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionPickle},
     Curve25519PublicKey,
@@ -117,12 +113,11 @@ impl Session {
     pub async fn encrypt(
         &mut self,
         recipient_device: &ReadOnlyDevice,
-        content: AnyToDeviceEventContent,
+        event_type: &str,
+        content: Value,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
         let recipient_signing_key =
             recipient_device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
-
-        let event_type = content.event_type();
 
         let payload = json!({
             "sender": self.user_id.as_str(),
