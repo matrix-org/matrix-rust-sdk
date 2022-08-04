@@ -344,6 +344,31 @@ impl Client {
         self.base_client().session_tokens().get_cloned()
     }
 
+    /// Get the current access token for this session.
+    ///
+    /// Will be `None` if the client has not been logged in.
+    ///
+    /// After login, this token should only change if support for [refreshing
+    /// access tokens] has been enabled.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub fn access_token(&self) -> Option<String> {
+        self.session_tokens().map(|tokens| tokens.access_token)
+    }
+
+    /// Get the current refresh token for this session.
+    ///
+    /// Will be `None` if the client has not been logged in, or if the access
+    /// token doesn't expire.
+    ///
+    /// After login, this token should only change if support for [refreshing
+    /// access tokens] has been enabled.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub fn refresh_token(&self) -> Option<String> {
+        self.session_tokens().and_then(|tokens| tokens.refresh_token)
+    }
+
     /// [`Signal`] to get notified when the current access token and optional
     /// refresh token for this session change.
     ///
@@ -1339,11 +1364,8 @@ impl Client {
     /// persist_session(client.session());
     ///
     /// // Handle when an `M_UNKNOWN_TOKEN` error is encountered.
-    /// async fn on_unknown_token_err(
-    ///     client: &Client,
-    ///     session: &Session,
-    /// ) -> Result<(), Error> {
-    ///     if session.refresh_token.is_some()
+    /// async fn on_unknown_token_err(client: &Client) -> Result<(), Error> {
+    ///     if client.refresh_token().is_some()
     ///         && client.refresh_access_token().await.is_ok()
     ///     {
     ///         persist_session(client.session());
@@ -1397,7 +1419,8 @@ impl Client {
                     request,
                     None,
                     self.homeserver().await.to_string(),
-                    self.session().as_ref(),
+                    self.access_token().as_deref(),
+                    self.user_id(),
                     self.server_versions().await?,
                 )
                 .await;
@@ -1764,7 +1787,8 @@ impl Client {
                 request,
                 Some(request_config),
                 self.homeserver().await.to_string(),
-                self.session().as_ref(),
+                self.access_token().as_deref(),
+                self.user_id(),
                 self.server_versions().await?,
             )
             .await?)
@@ -1865,7 +1889,8 @@ impl Client {
                 request,
                 config,
                 self.homeserver().await.to_string(),
-                self.session().as_ref(),
+                self.access_token().as_deref(),
+                self.user_id(),
                 self.server_versions().await?,
             )
             .await
@@ -1879,6 +1904,7 @@ impl Client {
                 get_supported_versions::Request::new(),
                 None,
                 self.homeserver().await.to_string(),
+                None,
                 None,
                 &[MatrixVersion::V1_0],
             )

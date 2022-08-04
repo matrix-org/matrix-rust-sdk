@@ -394,6 +394,7 @@ impl ClientBuilder {
                         Some(RequestConfig::short_retry()),
                         homeserver,
                         None,
+                        None,
                         &[MatrixVersion::V1_0],
                     )
                     .await
