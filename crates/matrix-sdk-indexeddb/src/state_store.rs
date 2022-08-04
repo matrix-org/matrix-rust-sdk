@@ -473,20 +473,14 @@ impl IndexeddbStateStore {
         IndexeddbStateStore::builder().name(name).build().await.map_err(StoreError::backend)
     }
 
-    fn serialize_event(
-        &self,
-        event: &impl Serialize,
-    ) -> std::result::Result<JsValue, IndexeddbStateStoreError> {
+    fn serialize_event(&self, event: &impl Serialize) -> Result<JsValue> {
         Ok(match &self.store_cipher {
             Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
             None => JsValue::from_serde(event)?,
         })
     }
 
-    fn deserialize_event<T: DeserializeOwned>(
-        &self,
-        event: JsValue,
-    ) -> std::result::Result<T, IndexeddbStateStoreError> {
+    fn deserialize_event<T: DeserializeOwned>(&self, event: JsValue) -> Result<T> {
         match &self.store_cipher {
             Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
             None => Ok(event.into_serde()?),
@@ -503,11 +497,7 @@ impl IndexeddbStateStore {
         }
     }
 
-    fn encode_to_range<T>(
-        &self,
-        table_name: &str,
-        key: T,
-    ) -> Result<IdbKeyRange, IndexeddbStateStoreError>
+    fn encode_to_range<T>(&self, table_name: &str, key: T) -> Result<IdbKeyRange>
     where
         T: SafeEncode,
     {
@@ -1043,7 +1033,7 @@ impl IndexeddbStateStore {
             }
         }
 
-        tx.await.into_result().map_err::<IndexeddbStateStoreError, _>(|e| e.into())
+        tx.await.into_result().map_err(|e| e.into())
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
@@ -1368,7 +1358,7 @@ impl IndexeddbStateStore {
 
         tx.object_store(KEYS::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
 
-        tx.await.into_result().map_err::<IndexeddbStateStoreError, _>(|e| e.into())?;
+        tx.await.into_result().map_err(IndexeddbStateStoreError::from)?;
         Ok(prev)
     }
 
@@ -1441,7 +1431,7 @@ impl IndexeddbStateStore {
                 store.delete(&key)?;
             }
         }
-        tx.await.into_result().map_err::<IndexeddbStateStoreError, _>(|e| e.into())
+        tx.await.into_result().map_err(|e| e.into())
     }
 
     #[cfg(feature = "experimental-timeline")]
