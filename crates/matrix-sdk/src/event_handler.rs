@@ -178,7 +178,7 @@ impl EventHandlerContext for EventHandlerHandle {
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
-pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
+pub trait EventHandler<Ev, Ctx>: Send + Sync + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
     type Future: Future + Send + 'static;
@@ -327,8 +327,8 @@ impl Client {
         <H::Future as Future>::Output: EventHandlerResult,
     {
         let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
-            let maybe_fut = serde_json::from_str(data.raw.get())
-                .map(|ev| handler.clone().handle_event(ev, data));
+            let maybe_fut =
+                serde_json::from_str(data.raw.get()).map(|ev| handler.handle_event(ev, data));
 
             Box::pin(async move {
                 match maybe_fut {
@@ -539,7 +539,7 @@ macro_rules! impl_event_handler {
         impl<Ev, Fun, Fut, $($ty),*> EventHandler<Ev, ($($ty,)*)> for Fun
         where
             Ev: SyncEvent,
-            Fun: Fn(Ev, $($ty),*) -> Fut + Clone + Send + Sync + 'static,
+            Fun: Fn(Ev, $($ty),*) -> Fut + Send + Sync + 'static,
             Fut: Future + Send + 'static,
             Fut::Output: EventHandlerResult,
             $($ty: EventHandlerContext),*
