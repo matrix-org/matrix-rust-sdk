@@ -366,6 +366,14 @@ impl Client {
         EventHandlerHandle { key, handler_id }
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn event_handler_drop_guard(
+        &self,
+        handle: EventHandlerHandle,
+    ) -> EventHandlerDropGuard {
+        EventHandlerDropGuard { client: self.clone(), handle }
+    }
+
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: EventKind,
@@ -511,6 +519,18 @@ impl Client {
         for fut in futures {
             fut.await;
         }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct EventHandlerDropGuard {
+    handle: EventHandlerHandle,
+    client: Client,
+}
+
+impl Drop for EventHandlerDropGuard {
+    fn drop(&mut self) {
+        self.client.remove_event_handler(self.handle.clone());
     }
 }
 
@@ -908,5 +928,21 @@ mod tests {
         assert_eq!(member_count.load(SeqCst), 2);
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn event_handler_drop_guard() {
+        let client = crate::client::tests::no_retry_test_client(None).await;
+
+        let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
+        assert_eq!(client.event_handlers().len(), 1);
+
+        {
+            let _guard = client.event_handler_drop_guard(handle);
+            assert_eq!(client.event_handlers().len(), 1);
+            // guard dropped here
+        }
+
+        assert_eq!(client.event_handlers().len(), 0);
     }
 }
