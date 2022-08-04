@@ -4,14 +4,14 @@ use matrix_sdk_base::store::{StoreConfig, StoreError};
 use thiserror::Error;
 
 #[cfg(feature = "e2e-encryption")]
-mod cryptostore;
+mod crypto_store;
 mod safe_encode;
 mod state_store;
 
 #[cfg(feature = "e2e-encryption")]
-pub use cryptostore::IndexeddbStore as CryptoStore;
+pub use crypto_store::IndexeddbStore as CryptoStore;
 #[cfg(feature = "e2e-encryption")]
-use cryptostore::IndexeddbStoreError;
+use crypto_store::IndexeddbStoreError;
 pub use state_store::{
     IndexeddbStore as StateStore, IndexeddbStoreBuilder as StateStoreBuilder,
     MigrationConflictStrategy,
