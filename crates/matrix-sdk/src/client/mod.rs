@@ -1615,11 +1615,8 @@ impl Client {
                 let tx = tx.clone();
 
                 async move {
-                    let full_event = event.into_full_event(room.room_id().to_owned());
-
-                    if full_event.membership() == &MembershipState::Join
-                        && full_event.state_key().as_str()
-                            == client.user_id().expect("user_id").as_str()
+                    if event.membership() == &MembershipState::Join
+                        && event.state_key() == client.user_id().expect("user_id")
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
 
@@ -1635,7 +1632,7 @@ impl Client {
                         if let Err(e) = tx.send(joined_result).await {
                             debug!(
                                 "Sending event from event_handler failed, \
-                                     receiver already dropped: {}",
+                                 receiver already dropped: {}",
                                 e
                             );
                         }
@@ -1688,7 +1685,7 @@ impl Client {
                         rx_room_id.borrow().to_owned().expect("room_id not provided by channel");
 
                     if event.membership() == &MembershipState::Join
-                        && event.state_key().as_str() == client.user_id().expect("user_id").as_str()
+                        && event.state_key() == client.user_id().expect("user_id")
                         && room.room_id() == room_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
@@ -1828,7 +1825,7 @@ impl Client {
                         return;
                     };
 
-                    if event_content.creator.as_str() == client.user_id().expect("user_id").as_str()
+                    if event_content.creator == client.user_id().expect("user_id")
                         && room.room_id() == room_id
                     {
                         debug!(

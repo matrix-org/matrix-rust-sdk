@@ -118,11 +118,8 @@ impl Common {
                     let tx = tx.clone();
 
                     async move {
-                        let full_event = event.into_full_event(room.room_id().to_owned());
-
-                        if full_event.membership() == &MembershipState::Leave
-                            && full_event.state_key().as_str()
-                                == client.user_id().expect("user_id").as_str()
+                        if (event.membership() == &MembershipState::Leave) && (event.state_key()
+                                == client.user_id().expect("user_id"))
                         {
                             debug!("received RoomMemberEvent corresponding to requested leave");
 
