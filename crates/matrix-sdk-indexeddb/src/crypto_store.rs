@@ -138,7 +138,7 @@ pub struct AccountInfo {
 
 impl IndexeddbCryptoStore {
     pub(crate) async fn open_with_store_cipher(
-        prefix: String,
+        prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto", prefix);
@@ -185,7 +185,7 @@ impl IndexeddbCryptoStore {
 
     /// Open a new `IndexeddbCryptoStore` with default name and no passphrase
     pub async fn open() -> Result<Self> {
-        IndexeddbCryptoStore::open_with_store_cipher("crypto".to_owned(), None).await
+        IndexeddbCryptoStore::open_with_store_cipher("crypto", None).await
     }
 
     fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
@@ -218,7 +218,7 @@ impl IndexeddbCryptoStore {
     }
 
     /// Open a new `IndexeddbCryptoStore` with given name and passphrase
-    pub async fn open_with_passphrase(prefix: String, passphrase: &str) -> Result<Self> {
+    pub async fn open_with_passphrase(prefix: &str, passphrase: &str) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto-meta", prefix);
 
         let mut db_req: OpenDbRequest = IdbDatabase::open_f64(&name, 1.0)?;
@@ -270,7 +270,7 @@ impl IndexeddbCryptoStore {
     }
 
     /// Open a new `IndexeddbCryptoStore` with given name and no passphrase
-    pub async fn open_with_name(name: String) -> Result<Self> {
+    pub async fn open_with_name(name: &str) -> Result<Self> {
         IndexeddbCryptoStore::open_with_store_cipher(name, None).await
     }
 

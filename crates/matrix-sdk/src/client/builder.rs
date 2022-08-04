@@ -141,7 +141,7 @@ impl ClientBuilder {
     #[cfg(feature = "indexeddb")]
     pub async fn indexeddb_store(
         self,
-        name: impl Into<String>,
+        name: &str,
         passphrase: Option<&str>,
     ) -> Result<Self, matrix_sdk_indexeddb::OpenStoreError> {
         let config = matrix_sdk_indexeddb::make_store_config(name, passphrase).await?;
