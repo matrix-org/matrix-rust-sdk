@@ -67,7 +67,7 @@ use super::OpenStoreError;
 use crate::encode_key::ENCODE_SEPARATOR;
 use crate::encode_key::{EncodeKey, EncodeUnchecked};
 #[cfg(feature = "crypto-store")]
-pub use crate::CryptoStore;
+pub use crate::SledCryptoStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SledStoreError {
@@ -208,8 +208,8 @@ const ALL_GLOBAL_KEYS: &[&str] = &[VERSION_KEY];
 type Result<A, E = SledStoreError> = std::result::Result<A, E>;
 
 #[derive(Builder, Debug, PartialEq, Eq)]
-#[builder(name = "SledStoreBuilder", build_fn(skip))]
-pub struct SledStoreBuilderConfig {
+#[builder(name = "SledStateStoreBuilder", build_fn(skip))]
+pub struct SledStateStoreBuilderConfig {
     /// Path to the sled store files, created if not yet existing
     path: PathBuf,
     /// Set the password the sled store is encrypted with (if any)
@@ -220,8 +220,8 @@ pub struct SledStoreBuilderConfig {
     migration_conflict_strategy: MigrationConflictStrategy,
 }
 
-impl SledStoreBuilder {
-    pub fn build(&mut self) -> Result<SledStore> {
+impl SledStateStoreBuilder {
+    pub fn build(&mut self) -> Result<SledStateStore> {
         let is_temp = self.path.is_none();
 
         let mut cfg = Config::new().temporary(is_temp);
@@ -249,7 +249,7 @@ impl SledStoreBuilder {
             None
         };
 
-        let mut store = SledStore::open_helper(db, path, store_cipher)?;
+        let mut store = SledStateStore::open_helper(db, path, store_cipher)?;
 
         let migration_res = store.upgrade();
         if let Err(SledStoreError::MigrationConflict { path, .. }) = &migration_res {
@@ -288,10 +288,10 @@ impl SledStoreBuilder {
 
     // testing only
     #[cfg(test)]
-    fn build_encrypted() -> StoreResult<SledStore> {
+    fn build_encrypted() -> StoreResult<SledStateStore> {
         let db = Config::new().temporary(true).open().map_err(StoreError::backend)?;
 
-        SledStore::open_helper(
+        SledStateStore::open_helper(
             db,
             None,
             Some(StoreCipher::new().expect("can't create store cipher").into()),
@@ -301,7 +301,7 @@ impl SledStoreBuilder {
 }
 
 #[derive(Clone)]
-pub struct SledStore {
+pub struct SledStateStore {
     path: Option<PathBuf>,
     pub(crate) inner: Db,
     store_cipher: Option<Arc<StoreCipher>>,
@@ -333,18 +333,18 @@ pub struct SledStore {
     room_event_id_to_position: Tree,
 }
 
-impl std::fmt::Debug for SledStore {
+impl std::fmt::Debug for SledStateStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(path) = &self.path {
-            f.debug_struct("SledStore").field("path", &path).finish()
+            f.debug_struct("SledStateStore").field("path", &path).finish()
         } else {
-            f.debug_struct("SledStore").field("path", &"memory store").finish()
+            f.debug_struct("SledStateStore").field("path", &"memory store").finish()
         }
     }
 }
 
 #[allow(deprecated)]
-impl SledStore {
+impl SledStateStore {
     fn open_helper(
         db: Db,
         path: Option<PathBuf>,
@@ -417,28 +417,28 @@ impl SledStore {
         })
     }
 
-    /// Generate a SledStoreBuilder with default parameters
-    pub fn builder() -> SledStoreBuilder {
-        SledStoreBuilder::default()
+    /// Generate a SledStateStoreBuilder with default parameters
+    pub fn builder() -> SledStateStoreBuilder {
+        SledStateStoreBuilder::default()
     }
 
-    #[deprecated(note = "Use SledStoreBuilder instead.")]
+    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
     pub fn open() -> StoreResult<Self> {
-        SledStore::builder().build().map_err(StoreError::backend)
+        SledStateStore::builder().build().map_err(StoreError::backend)
     }
 
-    #[deprecated(note = "Use SledStoreBuilder instead.")]
+    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
     pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> StoreResult<Self> {
-        SledStore::builder()
+        SledStateStore::builder()
             .path(path.as_ref().into())
             .passphrase(passphrase.to_owned())
             .build()
             .map_err(StoreError::backend)
     }
 
-    #[deprecated(note = "Use SledStoreBuilder instead.")]
+    #[deprecated(note = "Use SledStateStoreBuilder instead.")]
     pub fn open_with_path(path: impl AsRef<Path>) -> StoreResult<Self> {
-        SledStore::builder().path(path.as_ref().into()).build().map_err(StoreError::backend)
+        SledStateStore::builder().path(path.as_ref().into()).build().map_err(StoreError::backend)
     }
 
     fn drop_tables(self) -> StoreResult<()> {
@@ -502,12 +502,12 @@ impl SledStore {
         })
     }
 
-    /// Open a `CryptoStore` that uses the same database as this store.
+    /// Open a `SledCryptoStore` that uses the same database as this store.
     ///
     /// The given passphrase will be used to encrypt private data.
     #[cfg(feature = "crypto-store")]
-    pub fn open_crypto_store(&self) -> Result<CryptoStore, OpenStoreError> {
-        CryptoStore::open_with_database(self.inner.clone(), self.store_cipher.clone())
+    pub fn open_crypto_store(&self) -> Result<SledCryptoStore, OpenStoreError> {
+        SledCryptoStore::open_with_database(self.inner.clone(), self.store_cipher.clone())
     }
 
     fn serialize_value(&self, event: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
@@ -1533,7 +1533,7 @@ impl SledStore {
 }
 
 #[async_trait]
-impl StateStore for SledStore {
+impl StateStore for SledStateStore {
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(Into::into)
     }
@@ -1725,10 +1725,10 @@ struct TimelineMetadata {
 mod tests {
     use matrix_sdk_base::statestore_integration_tests;
 
-    use super::{SledStore, StateStore, StoreResult};
+    use super::{SledStateStore, StateStore, StoreResult};
 
     async fn get_store() -> StoreResult<impl StateStore> {
-        SledStore::builder().build().map_err(Into::into)
+        SledStateStore::builder().build().map_err(Into::into)
     }
 
     statestore_integration_tests! { integration }
@@ -1738,10 +1738,10 @@ mod tests {
 mod encrypted_tests {
     use matrix_sdk_base::statestore_integration_tests;
 
-    use super::{SledStoreBuilder, StateStore, StoreResult};
+    use super::{SledStateStoreBuilder, StateStore, StoreResult};
 
     async fn get_store() -> StoreResult<impl StateStore> {
-        SledStoreBuilder::build_encrypted().map_err(Into::into)
+        SledStateStoreBuilder::build_encrypted().map_err(Into::into)
     }
 
     statestore_integration_tests! { integration }
@@ -1752,19 +1752,19 @@ mod migration {
     use matrix_sdk_test::async_test;
     use tempfile::TempDir;
 
-    use super::{MigrationConflictStrategy, Result, SledStore, SledStoreError};
+    use super::{MigrationConflictStrategy, Result, SledStateStore, SledStoreError};
 
     #[async_test]
     pub async fn migrating_v1_to_2_plain() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStore::builder().path(folder.path().to_path_buf()).build()?;
+        let store = SledStateStore::builder().path(folder.path().to_path_buf()).build()?;
 
         store.set_db_version(1u8)?;
         drop(store);
 
         // this transparently migrates to the latest version
-        let _store = SledStore::builder().path(folder.path().to_path_buf()).build()?;
+        let _store = SledStateStore::builder().path(folder.path().to_path_buf()).build()?;
         Ok(())
     }
 
@@ -1772,7 +1772,7 @@ mod migration {
     pub async fn migrating_v1_to_2_with_pw_backed_up() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStore::builder()
+        let store = SledStateStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("something".to_owned())
             .build()?;
@@ -1781,7 +1781,7 @@ mod migration {
         drop(store);
 
         // this transparently creates a backup and a fresh db
-        let _store = SledStore::builder()
+        let _store = SledStateStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("something".to_owned())
             .build()?;
@@ -1793,7 +1793,7 @@ mod migration {
     pub async fn migrating_v1_to_2_with_pw_drop() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStore::builder()
+        let store = SledStateStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("other thing".to_owned())
             .build()?;
@@ -1802,7 +1802,7 @@ mod migration {
         drop(store);
 
         // this transparently creates a backup and a fresh db
-        let _store = SledStore::builder()
+        let _store = SledStateStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("other thing".to_owned())
             .migration_conflict_strategy(MigrationConflictStrategy::Drop)
@@ -1815,7 +1815,7 @@ mod migration {
     pub async fn migrating_v1_to_2_with_pw_raises() -> Result<()> {
         let folder = TempDir::new()?;
 
-        let store = SledStore::builder()
+        let store = SledStateStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("secret".to_owned())
             .build()?;
@@ -1824,7 +1824,7 @@ mod migration {
         drop(store);
 
         // this transparently creates a backup and a fresh db
-        let res = SledStore::builder()
+        let res = SledStateStore::builder()
             .path(folder.path().to_path_buf())
             .passphrase("secret".to_owned())
             .migration_conflict_strategy(MigrationConflictStrategy::Raise)

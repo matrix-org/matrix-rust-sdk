@@ -14,11 +14,9 @@ mod encode_key;
 mod state_store;
 
 #[cfg(feature = "crypto-store")]
-pub use crypto_store::SledStore as CryptoStore;
+pub use crypto_store::SledCryptoStore;
 #[cfg(feature = "state-store")]
-pub use state_store::{
-    MigrationConflictStrategy, SledStore as StateStore, SledStoreBuilder as StateStoreBuilder,
-};
+pub use state_store::{MigrationConflictStrategy, SledStateStore, SledStateStoreBuilder};
 
 /// All the errors that can occur when opening a sled store.
 #[derive(Error, Debug)]
@@ -39,11 +37,11 @@ pub enum OpenStoreError {
     Sled(#[from] SledError),
 }
 
-/// Create a [`StoreConfig`] with an opened sled [`StateStore`] that uses the
+/// Create a [`StoreConfig`] with an opened [`SledStateStore`] that uses the
 /// given path and passphrase.
 ///
-/// If the `e2e-encryption` Cargo feature is enabled, a [`CryptoStore`] with the
-/// same parameters is also opened.
+/// If the `e2e-encryption` Cargo feature is enabled, a [`SledCryptoStore`] with
+/// the same parameters is also opened.
 ///
 /// [`StoreConfig`]: #StoreConfig
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
@@ -59,13 +57,13 @@ pub fn make_store_config(
 
     #[cfg(all(feature = "crypto-store", not(feature = "state-store")))]
     {
-        let crypto_store = CryptoStore::open_with_passphrase(path, passphrase)?;
+        let crypto_store = SledCryptoStore::open_with_passphrase(path, passphrase)?;
         Ok(StoreConfig::new().crypto_store(crypto_store))
     }
 
     #[cfg(not(feature = "crypto-store"))]
     {
-        let mut store_builder = StateStore::builder();
+        let mut store_builder = SledStateStore::builder();
         store_builder.path(path.as_ref().to_path_buf());
 
         if let Some(passphrase) = passphrase {
@@ -83,13 +81,13 @@ pub fn make_store_config(
 fn open_stores_with_path(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
-) -> Result<(StateStore, CryptoStore), OpenStoreError> {
-    let mut store_builder = StateStore::builder();
+) -> Result<(SledStateStore, SledCryptoStore), OpenStoreError> {
+    let mut store_builder = SledStateStore::builder();
     store_builder.path(path.as_ref().to_path_buf());
 
     if let Some(passphrase) = passphrase {
         store_builder.passphrase(passphrase.to_owned());
-    };
+    }
 
     let state_store = store_builder.build().map_err(StoreError::backend)?;
     let crypto_store = state_store.open_crypto_store()?;

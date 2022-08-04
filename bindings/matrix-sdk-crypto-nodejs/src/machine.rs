@@ -65,7 +65,7 @@ impl OlmMachine {
 
         let store = store_path
             .map(|store_path| {
-                matrix_sdk_sled::CryptoStore::open_with_passphrase(
+                matrix_sdk_sled::SledCryptoStore::open_with_passphrase(
                     store_path,
                     store_passphrase.as_deref(),
                 )

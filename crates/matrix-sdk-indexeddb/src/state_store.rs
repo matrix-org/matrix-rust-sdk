@@ -65,7 +65,7 @@ use crate::safe_encode::SafeEncode;
 struct StoreKeyWrapper(Vec<u8>);
 
 #[derive(Debug, thiserror::Error)]
-pub enum IndexeddbStoreError {
+pub enum IndexeddbStateStoreError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
@@ -85,17 +85,17 @@ pub enum IndexeddbStoreError {
 pub enum MigrationConflictStrategy {
     /// Just drop the data, we don't care that we have to sync again
     Drop,
-    /// Raise a `IndexedDBStore::MigrationConflict` error with the path to the
-    /// DB in question. The caller then has to take care about what they want
-    /// to do and try again after.
+    /// Raise a [`IndexeddbStateStoreError::MigrationConflict`] error with the
+    /// path to the DB in question. The caller then has to take care about
+    /// what they want to do and try again after.
     Raise,
     /// Default.
     BackupAndDrop,
 }
 
-impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStoreError {
-        IndexeddbStoreError::DomException {
+impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStateStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStateStoreError {
+        IndexeddbStateStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
             code: frm.code(),
@@ -103,12 +103,12 @@ impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
     }
 }
 
-impl From<IndexeddbStoreError> for StoreError {
-    fn from(e: IndexeddbStoreError) -> Self {
+impl From<IndexeddbStateStoreError> for StoreError {
+    fn from(e: IndexeddbStateStoreError) -> Self {
         match e {
-            IndexeddbStoreError::Json(e) => StoreError::Json(e),
-            IndexeddbStoreError::StoreError(e) => e,
-            IndexeddbStoreError::Encryption(e) => match e {
+            IndexeddbStateStoreError::Json(e) => StoreError::Json(e),
+            IndexeddbStateStoreError::StoreError(e) => e,
+            IndexeddbStateStoreError::Encryption(e) => match e {
                 EncryptionError::Random(e) => StoreError::Encryption(e.to_string()),
                 EncryptionError::Serialization(e) => StoreError::Json(e),
                 EncryptionError::Encryption(e) => StoreError::Encryption(e.to_string()),
@@ -270,8 +270,8 @@ async fn backup(source: &IdbDatabase, meta: &IdbDatabase) -> Result<()> {
 }
 
 #[derive(Builder, Debug, PartialEq, Eq)]
-#[builder(name = "IndexeddbStoreBuilder", build_fn(skip))]
-pub struct IndexeddbStoreBuilderConfig {
+#[builder(name = "IndexeddbStateStoreBuilder", build_fn(skip))]
+pub struct IndexeddbStateStoreBuilderConfig {
     /// The name for the indexeddb store to use, `state` is none given
     name: String,
     /// The password the indexeddb should be encrypted with. If not given, the
@@ -283,8 +283,8 @@ pub struct IndexeddbStoreBuilderConfig {
     migration_conflict_strategy: MigrationConflictStrategy,
 }
 
-impl IndexeddbStoreBuilder {
-    pub async fn build(&mut self) -> Result<IndexeddbStore> {
+impl IndexeddbStateStoreBuilder {
+    pub async fn build(&mut self) -> Result<IndexeddbStateStore> {
         let migration_strategy = self
             .migration_conflict_strategy
             .clone()
@@ -375,7 +375,7 @@ impl IndexeddbStoreBuilder {
                     }
                     MigrationConflictStrategy::Drop => true,
                     MigrationConflictStrategy::Raise => {
-                        return Err(IndexeddbStoreError::MigrationConflict {
+                        return Err(IndexeddbStateStoreError::MigrationConflict {
                             name,
                             old_version,
                             new_version: KEYS::CURRENT_DB_VERSION,
@@ -401,29 +401,29 @@ impl IndexeddbStoreBuilder {
         ));
 
         let db = db_req.into_future().await?;
-        Ok(IndexeddbStore { name, inner: db, meta: meta_db, store_cipher })
+        Ok(IndexeddbStateStore { name, inner: db, meta: meta_db, store_cipher })
     }
 }
 
-pub struct IndexeddbStore {
+pub struct IndexeddbStateStore {
     name: String,
     pub(crate) inner: IdbDatabase,
     pub(crate) meta: IdbDatabase,
     pub(crate) store_cipher: Option<Arc<StoreCipher>>,
 }
 
-impl std::fmt::Debug for IndexeddbStore {
+impl std::fmt::Debug for IndexeddbStateStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IndexeddbStore").field("name", &self.name).finish()
+        f.debug_struct("IndexeddbStateStore").field("name", &self.name).finish()
     }
 }
 
-type Result<A, E = IndexeddbStoreError> = std::result::Result<A, E>;
+type Result<A, E = IndexeddbStateStoreError> = std::result::Result<A, E>;
 
-impl IndexeddbStore {
-    /// Generate a IndexeddbStoreBuilder with default parameters
-    pub fn builder() -> IndexeddbStoreBuilder {
-        IndexeddbStoreBuilder::default()
+impl IndexeddbStateStore {
+    /// Generate a IndexeddbStateStoreBuilder with default parameters
+    pub fn builder() -> IndexeddbStateStoreBuilder {
+        IndexeddbStateStoreBuilder::default()
     }
 
     /// Whether this database has any migration backups
@@ -449,18 +449,18 @@ impl IndexeddbStore {
     }
 
     #[allow(dead_code)]
-    #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
+    #[deprecated(note = "Use IndexeddbStateStoreBuilder instead.")]
     pub async fn open() -> StoreResult<Self> {
-        IndexeddbStore::builder()
+        IndexeddbStateStore::builder()
             .name("state".to_owned())
             .build()
             .await
             .map_err(StoreError::backend)
     }
 
-    #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
+    #[deprecated(note = "Use IndexeddbStateStoreBuilder instead.")]
     pub async fn open_with_passphrase(name: String, passphrase: &str) -> StoreResult<Self> {
-        IndexeddbStore::builder()
+        IndexeddbStateStore::builder()
             .name(name)
             .passphrase(passphrase.to_owned())
             .build()
@@ -468,15 +468,15 @@ impl IndexeddbStore {
             .map_err(StoreError::backend)
     }
 
-    #[deprecated(note = "Use IndexeddbStoreBuilder instead.")]
+    #[deprecated(note = "Use IndexeddbStateStoreBuilder instead.")]
     pub async fn open_with_name(name: String) -> StoreResult<Self> {
-        IndexeddbStore::builder().name(name).build().await.map_err(StoreError::backend)
+        IndexeddbStateStore::builder().name(name).build().await.map_err(StoreError::backend)
     }
 
     fn serialize_event(
         &self,
         event: &impl Serialize,
-    ) -> std::result::Result<JsValue, IndexeddbStoreError> {
+    ) -> std::result::Result<JsValue, IndexeddbStateStoreError> {
         Ok(match &self.store_cipher {
             Some(cipher) => JsValue::from_serde(&cipher.encrypt_value_typed(event)?)?,
             None => JsValue::from_serde(event)?,
@@ -486,7 +486,7 @@ impl IndexeddbStore {
     fn deserialize_event<T: DeserializeOwned>(
         &self,
         event: JsValue,
-    ) -> std::result::Result<T, IndexeddbStoreError> {
+    ) -> std::result::Result<T, IndexeddbStateStoreError> {
         match &self.store_cipher {
             Some(cipher) => Ok(cipher.decrypt_value_typed(event.into_serde()?)?),
             None => Ok(event.into_serde()?),
@@ -507,7 +507,7 @@ impl IndexeddbStore {
         &self,
         table_name: &str,
         key: T,
-    ) -> Result<IdbKeyRange, IndexeddbStoreError>
+    ) -> Result<IdbKeyRange, IndexeddbStateStoreError>
     where
         T: SafeEncode,
     {
@@ -515,7 +515,7 @@ impl IndexeddbStore {
             Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| IndexeddbStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
+        .map_err(|e| IndexeddbStateStoreError::StoreError(StoreError::Backend(anyhow!(e).into())))
     }
 
     #[cfg(feature = "experimental-timeline")]
@@ -1043,7 +1043,7 @@ impl IndexeddbStore {
             }
         }
 
-        tx.await.into_result().map_err::<IndexeddbStoreError, _>(|e| e.into())
+        tx.await.into_result().map_err::<IndexeddbStateStoreError, _>(|e| e.into())
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
@@ -1368,7 +1368,7 @@ impl IndexeddbStore {
 
         tx.object_store(KEYS::CUSTOM)?.put_key_val(&jskey, &self.serialize_event(&value)?)?;
 
-        tx.await.into_result().map_err::<IndexeddbStoreError, _>(|e| e.into())?;
+        tx.await.into_result().map_err::<IndexeddbStateStoreError, _>(|e| e.into())?;
         Ok(prev)
     }
 
@@ -1441,7 +1441,7 @@ impl IndexeddbStore {
                 store.delete(&key)?;
             }
         }
-        tx.await.into_result().map_err::<IndexeddbStoreError, _>(|e| e.into())
+        tx.await.into_result().map_err::<IndexeddbStateStoreError, _>(|e| e.into())
     }
 
     #[cfg(feature = "experimental-timeline")]
@@ -1488,7 +1488,7 @@ impl IndexeddbStore {
 
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
-impl StateStore for IndexeddbStore {
+impl StateStore for IndexeddbStateStore {
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> StoreResult<()> {
         self.save_filter(filter_name, filter_id).await.map_err(|e| e.into())
     }
@@ -1674,11 +1674,11 @@ mod tests {
     use matrix_sdk_base::statestore_integration_tests;
     use uuid::Uuid;
 
-    use super::{IndexeddbStore, Result};
+    use super::{IndexeddbStateStore, Result};
 
-    async fn get_store() -> Result<IndexeddbStore> {
+    async fn get_store() -> Result<IndexeddbStateStore> {
         let db_name = format!("test-state-plain-{}", Uuid::new_v4().as_hyphenated());
-        Ok(IndexeddbStore::builder().name(db_name).build().await?)
+        Ok(IndexeddbStateStore::builder().name(db_name).build().await?)
     }
 
     statestore_integration_tests! { integration }
@@ -1692,12 +1692,12 @@ mod encrypted_tests {
     use matrix_sdk_base::statestore_integration_tests;
     use uuid::Uuid;
 
-    use super::{IndexeddbStore, Result};
+    use super::{IndexeddbStateStore, Result};
 
-    async fn get_store() -> Result<IndexeddbStore> {
+    async fn get_store() -> Result<IndexeddbStateStore> {
         let db_name = format!("test-state-encrypted-{}", Uuid::new_v4().as_hyphenated());
         let passphrase = format!("some_passphrase-{}", Uuid::new_v4().as_hyphenated());
-        Ok(IndexeddbStore::builder().name(db_name).passphrase(passphrase).build().await?)
+        Ok(IndexeddbStateStore::builder().name(db_name).passphrase(passphrase).build().await?)
     }
 
     statestore_integration_tests! { integration }
@@ -1713,7 +1713,8 @@ mod migration_tests {
     use wasm_bindgen::JsValue;
 
     use super::{
-        IndexeddbStore, IndexeddbStoreError, MigrationConflictStrategy, Result, ALL_STORES,
+        IndexeddbStateStore, IndexeddbStateStoreError, MigrationConflictStrategy, Result,
+        ALL_STORES,
     };
 
     pub async fn create_fake_db(name: &str, version: f64) -> Result<()> {
@@ -1737,7 +1738,7 @@ mod migration_tests {
         let name = format!("simple-1.1-no-cipher-{}", Uuid::new_v4().as_hyphenated().to_string());
 
         // this transparently migrates to the latest version
-        let store = IndexeddbStore::builder().name(name).build().await?;
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
         // simple check that the layout exists.
@@ -1752,7 +1753,7 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store = IndexeddbStore::builder().name(name).build().await?;
+        let store = IndexeddbStateStore::builder().name(name).build().await?;
         // this didn't create any backup
         assert_eq!(store.has_backups().await?, false);
         assert_eq!(store.get_sync_token().await?, None);
@@ -1767,7 +1768,8 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store = IndexeddbStore::builder().name(name).passphrase(passphrase).build().await?;
+        let store =
+            IndexeddbStateStore::builder().name(name).passphrase(passphrase).build().await?;
         // this creates a backup by default
         assert_eq!(store.has_backups().await?, true);
         assert!(store.latest_backup().await?.is_some(), "No backup_found");
@@ -1785,7 +1787,7 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store = IndexeddbStore::builder()
+        let store = IndexeddbStateStore::builder()
             .name(name)
             .passphrase(passphrase)
             .migration_conflict_strategy(MigrationConflictStrategy::Drop)
@@ -1807,14 +1809,14 @@ mod migration_tests {
         create_fake_db(&name, 1.0).await?;
 
         // this transparently migrates to the latest version
-        let store_res = IndexeddbStore::builder()
+        let store_res = IndexeddbStateStore::builder()
             .name(name)
             .passphrase(passphrase)
             .migration_conflict_strategy(MigrationConflictStrategy::Raise)
             .build()
             .await;
 
-        if let Err(IndexeddbStoreError::MigrationConflict { .. }) = store_res {
+        if let Err(IndexeddbStateStoreError::MigrationConflict { .. }) = store_res {
             // all fine!
         } else {
             assert!(false, "Conflict didn't raise: {:?}", store_res)

@@ -3,8 +3,8 @@ use std::{fmt::Debug, sync::Arc};
 use atty::Stream;
 use clap::{Arg, ArgMatches, Command as Argparse};
 use futures::executor::block_on;
-use matrix_sdk_base::RoomInfo;
-use matrix_sdk_sled::StateStore;
+use matrix_sdk_base::{RoomInfo, StateStore};
+use matrix_sdk_sled::SledStateStore;
 use ruma::{events::StateEventType, OwnedRoomId, OwnedUserId, RoomId};
 use rustyline::{
     completion::{Completer, Pair},
@@ -26,13 +26,13 @@ use syntect::{
 
 #[derive(Clone)]
 struct Inspector {
-    store: Arc<StateStore>,
+    store: Arc<SledStateStore>,
     printer: Printer,
 }
 
 #[derive(Helper)]
 struct InspectorHelper {
-    store: Arc<StateStore>,
+    store: Arc<SledStateStore>,
     _highlighter: MatchingBracketHighlighter,
     _validator: MatchingBracketValidator,
     _hinter: HistoryHinter,
@@ -54,7 +54,7 @@ impl InspectorHelper {
         "m.room.topic",
     ];
 
-    fn new(store: Arc<StateStore>) -> Self {
+    fn new(store: Arc<SledStateStore>) -> Self {
         Self {
             store,
             _highlighter: MatchingBracketHighlighter::new(),
@@ -72,9 +72,8 @@ impl InspectorHelper {
     }
 
     fn complete_rooms(&self, arg: Option<&&str>) -> Vec<Pair> {
-        let rooms: Vec<RoomInfo> = block_on(async {
-            matrix_sdk_base::StateStore::get_room_infos(&*self.store).await.unwrap()
-        });
+        let rooms: Vec<RoomInfo> =
+            block_on(async { StateStore::get_room_infos(&*self.store).await.unwrap() });
 
         rooms
             .into_iter()
@@ -203,7 +202,7 @@ impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
         let store = Arc::new(
-            StateStore::builder()
+            SledStateStore::builder()
                 .path(database_path.into())
                 .build()
                 .expect("Can't open sled database"),
@@ -242,8 +241,7 @@ impl Inspector {
     }
 
     async fn list_rooms(&self) {
-        let rooms: Vec<RoomInfo> =
-            matrix_sdk_base::StateStore::get_room_infos(&*self.store).await.unwrap();
+        let rooms: Vec<RoomInfo> = StateStore::get_room_infos(&*self.store).await.unwrap();
         self.printer.pretty_print_struct(&rooms);
     }
 
@@ -254,7 +252,7 @@ impl Inspector {
 
     async fn get_profiles(&self, room_id: OwnedRoomId) {
         let joined: Vec<OwnedUserId> =
-            matrix_sdk_base::StateStore::get_joined_user_ids(&*self.store, &room_id).await.unwrap();
+            StateStore::get_joined_user_ids(&*self.store, &room_id).await.unwrap();
 
         for member in joined {
             let event = self.store.get_profile(&room_id, &member).await.unwrap();
@@ -264,7 +262,7 @@ impl Inspector {
 
     async fn get_members(&self, room_id: OwnedRoomId) {
         let joined: Vec<OwnedUserId> =
-            matrix_sdk_base::StateStore::get_joined_user_ids(&*self.store, &room_id).await.unwrap();
+            StateStore::get_joined_user_ids(&*self.store, &room_id).await.unwrap();
 
         for member in joined {
             let event = self.store.get_member_event(&room_id, &member).await.unwrap();

@@ -161,7 +161,7 @@ pub fn migrate(
         olm::PrivateCrossSigningIdentity,
         store::{Changes as RustChanges, CryptoStore, RecoveryKey},
     };
-    use matrix_sdk_sled::CryptoStore as SledStore;
+    use matrix_sdk_sled::SledCryptoStore;
     use tokio::runtime::Runtime;
     use vodozemac::{
         megolm::InboundGroupSession,
@@ -184,7 +184,7 @@ pub fn migrate(
         progress_listener.on_progress(progress as i32, total as i32)
     };
 
-    let store = SledStore::open_with_passphrase(path, passphrase.as_deref())?;
+    let store = SledCryptoStore::open_with_passphrase(path, passphrase.as_deref())?;
     let runtime = Runtime::new()?;
 
     processed_steps += 1;

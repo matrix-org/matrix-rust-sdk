@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use criterion::*;
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
-use matrix_sdk_sled::CryptoStore as SledCryptoStore;
+use matrix_sdk_sled::SledCryptoStore;
 use matrix_sdk_test::response_from_file;
 use ruma::{
     api::{

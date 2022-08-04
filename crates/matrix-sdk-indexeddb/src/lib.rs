@@ -9,23 +9,20 @@ mod safe_encode;
 mod state_store;
 
 #[cfg(feature = "e2e-encryption")]
-pub use crypto_store::IndexeddbStore as CryptoStore;
+pub use crypto_store::IndexeddbCryptoStore;
 #[cfg(feature = "e2e-encryption")]
-use crypto_store::IndexeddbStoreError;
-pub use state_store::{
-    IndexeddbStore as StateStore, IndexeddbStoreBuilder as StateStoreBuilder,
-    MigrationConflictStrategy,
-};
+use crypto_store::IndexeddbCryptoStoreError;
+pub use state_store::{IndexeddbStateStore, IndexeddbStateStoreBuilder, MigrationConflictStrategy};
 
-/// Create a [`StateStore`] and a [`CryptoStore`] that use the same name and
-/// passphrase.
+/// Create a [`IndexeddbStateStore`] and a [`IndexeddbCryptoStore`] that use the
+/// same name and passphrase.
 #[cfg(feature = "e2e-encryption")]
 async fn open_stores_with_name(
     name: impl Into<String>,
     passphrase: Option<&str>,
-) -> Result<(StateStore, CryptoStore), OpenStoreError> {
+) -> Result<(IndexeddbStateStore, IndexeddbCryptoStore), OpenStoreError> {
     let name = name.into();
-    let mut builder = StateStore::builder();
+    let mut builder = IndexeddbStateStore::builder();
     builder.name(name.clone());
 
     if let Some(passphrase) = passphrase {
@@ -34,14 +31,15 @@ async fn open_stores_with_name(
 
     let state_store = builder.build().await.map_err(StoreError::from)?;
     let crypto_store =
-        CryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone()).await?;
+        IndexeddbCryptoStore::open_with_store_cipher(name, state_store.store_cipher.clone())
+            .await?;
 
     Ok((state_store, crypto_store))
 }
 
-/// Create a [`StoreConfig`] with an opened indexeddb [`StateStore`] that uses
-/// the given name and passphrase. If `encryption` is enabled, a [`CryptoStore`]
-/// with the same parameters is also opened.
+/// Create a [`StoreConfig`] with an opened indexeddb [`IndexeddbStateStore`]
+/// that uses the given name and passphrase. If `encryption` is enabled, a
+/// [`IndexeddbCryptoStore`] with the same parameters is also opened.
 pub async fn make_store_config(
     name: impl Into<String>,
     passphrase: Option<&str>,
@@ -58,7 +56,7 @@ pub async fn make_store_config(
 
         #[cfg(not(feature = "e2e-encryption"))]
         {
-            let mut builder = StateStore::builder();
+            let mut builder = IndexeddbStateStore::builder();
             builder.name(name.clone());
 
             if let Some(passphrase) = passphrase {
@@ -85,5 +83,5 @@ pub enum OpenStoreError {
     /// An error occurred with the crypto store implementation.
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
-    Crypto(#[from] IndexeddbStoreError),
+    Crypto(#[from] IndexeddbCryptoStoreError),
 }
