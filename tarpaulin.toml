@@ -1,7 +1,7 @@
 [default-config]
 debug = false
 verbose = false
-exclude-files = ["crates/matrix_sdk/examples/*"]
+exclude-files = ["examples/*"]
 workspace = true
 exclude = [
     "matrix-sdk-crypto-ffi",
