@@ -1,0 +1,15 @@
+[package]
+name = "example-custom-events"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+dirs = "4.0.0"
+serde = "1.0"
+tokio = { version = "1.20.1", features = ["full"] }
+tracing-subscriber = "0.3.15"
+
+[dependencies.matrix-sdk]
+path = "../../crates/matrix-sdk"
