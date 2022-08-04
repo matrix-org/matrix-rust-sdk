@@ -19,12 +19,11 @@ pub use state_store::{
 /// same name and passphrase.
 #[cfg(feature = "e2e-encryption")]
 async fn open_stores_with_name(
-    name: impl Into<String>,
+    name: &str,
     passphrase: Option<&str>,
 ) -> Result<(IndexeddbStateStore, IndexeddbCryptoStore), OpenStoreError> {
-    let name = name.into();
     let mut builder = IndexeddbStateStore::builder();
-    builder.name(name.clone());
+    builder.name(name.to_owned());
 
     if let Some(passphrase) = passphrase {
         builder.passphrase(passphrase.to_owned());
@@ -42,13 +41,11 @@ async fn open_stores_with_name(
 /// that uses the given name and passphrase. If `encryption` is enabled, a
 /// [`IndexeddbCryptoStore`] with the same parameters is also opened.
 pub async fn make_store_config(
-    name: impl Into<String>,
+    name: &str,
     passphrase: Option<&str>,
 ) -> Result<StoreConfig, OpenStoreError> {
     #[cfg(target_arch = "wasm32")]
     {
-        let name = name.into();
-
         #[cfg(feature = "e2e-encryption")]
         {
             let (state_store, crypto_store) = open_stores_with_name(name, passphrase).await?;
@@ -58,7 +55,7 @@ pub async fn make_store_config(
         #[cfg(not(feature = "e2e-encryption"))]
         {
             let mut builder = IndexeddbStateStore::builder();
-            builder.name(name.clone());
+            builder.name(name.to_owned());
 
             if let Some(passphrase) = passphrase {
                 builder.passphrase(passphrase.to_owned());
