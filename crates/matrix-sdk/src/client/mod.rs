@@ -68,6 +68,7 @@ use ruma::{
     assign,
     events::{
         room::{
+            create::RoomCreateEventContent,
             member::{MembershipState, RoomMemberEventContent},
             MediaSource,
         },
@@ -1646,7 +1647,7 @@ impl Client {
 
         self.send(request, None).await?;
 
-        return rx.recv().await.expect("receive joined room result from event handler");
+        rx.recv().await.expect("receive joined room result from event handler")
     }
 
     /// Join a room by `RoomId`.
@@ -1717,7 +1718,7 @@ impl Client {
         let response = self.send(request, None).await?;
         tx_room_id.send(Some(response.room_id)).expect("send error for room_id");
 
-        return rx.recv().await.expect("receive joined room result from event handler");
+        rx.recv().await.expect("receive joined room result from event handler")
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1797,9 +1798,70 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::v3::Request<'_>>,
-    ) -> HttpResult<create_room::v3::Response> {
+    ) -> Result<room::Joined> {
         let request = room.into();
-        self.send(request, None).await
+
+        let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
+        let (tx_room_id, rx_room_id) = watch::channel::<Option<OwnedRoomId>>(None);
+
+        self.add_event_handler({
+            move |event: SyncStateEvent<RoomCreateEventContent>,
+                  room: room::Room,
+                  client: Client,
+                  handle: EventHandlerHandle| {
+                let tx = tx.clone();
+                let mut rx_room_id = rx_room_id.clone();
+
+                async move {
+                    while rx_room_id.borrow_and_update().is_none() {
+                        rx_room_id.changed().await.expect("receive error for room_id");
+                    }
+
+                    let room_id =
+                        rx_room_id.borrow().to_owned().expect("room_id not provided by channel");
+
+                    let event_content = if let Some(original_event) = event.as_original() {
+                        &original_event.content
+                    } else {
+                        // return from handler since the create room event we received is redacted
+                        // and not the one we are looking for
+                        return;
+                    };
+
+                    if event_content.creator.as_str() == client.user_id().expect("user_id").as_str()
+                        && room.room_id() == room_id
+                    {
+                        debug!(
+                            "received RoomCreateEvent corresponding \
+                             to requested to create room"
+                        );
+
+                        client.remove_event_handler(handle).await;
+
+                        let joined_result = if let room::Room::Joined(joined_room) = room {
+                            Ok(joined_room)
+                        } else {
+                            warn!("Corresponding Room not in state: joined");
+                            Err(Error::InconsistentState)
+                        };
+
+                        if let Err(e) = tx.send(joined_result).await {
+                            debug!(
+                                "Sending event from event_handler failed, \
+                                 receiver already dropped: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .await;
+
+        let response = self.send(request, None).await?;
+        tx_room_id.send(Some(response.room_id)).expect("send error for room_id");
+
+        rx.recv().await.expect("receive joined room result from event handler")
     }
 
     /// Search the homeserver's directory for public rooms with a filter.

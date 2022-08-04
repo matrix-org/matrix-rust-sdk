@@ -150,14 +150,14 @@ impl Common {
 
         self.client.send(request, None).await?;
 
-        return rx.recv().await.expect("receive joined room result from event handler");
+        rx.recv().await.expect("receive joined room result from event handler")
     }
 
     /// Join this room.
     ///
     /// Only invited and left rooms can be joined via this method
     pub(crate) async fn join(&self) -> Result<Joined> {
-        return self.client.join_room_by_id(self.room_id()).await;
+        self.client.join_room_by_id(self.room_id()).await
     }
 
     /// Gets the avatar of this room, if set.
