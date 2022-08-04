@@ -66,7 +66,7 @@ async fn login_and_sync(
 
     println!("logged in as {username}");
 
-    client.add_event_handler(on_stripped_state_member).await;
+    client.add_event_handler(on_stripped_state_member);
 
     client.sync(SyncSettings::default()).await;
 

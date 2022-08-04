@@ -85,14 +85,14 @@ async fn on_ping_event(event: SyncPingEvent, room: Room) {
 // and run the client
 async fn sync_loop(client: Client) -> anyhow::Result<()> {
     // invite acceptance as in the getting-started-client
-    client.add_event_handler(on_stripped_state_member).await;
+    client.add_event_handler(on_stripped_state_member);
     client.sync_once(SyncSettings::default()).await.unwrap();
 
     // our customisation:
     //  - send `PingEvent` on `!ping` in any room
-    client.add_event_handler(on_regular_room_message).await;
+    client.add_event_handler(on_regular_room_message);
     //  - send `AckEvent` on `PingEvent` in any room
-    client.add_event_handler(on_ping_event).await;
+    client.add_event_handler(on_ping_event);
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     client.sync(settings).await; // this essentially loops until we kill the bot

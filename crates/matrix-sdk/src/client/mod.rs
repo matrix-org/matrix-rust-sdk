@@ -21,7 +21,7 @@ use std::{
     io::Read,
     sync::{
         atomic::{AtomicU64, Ordering::SeqCst},
-        Arc, RwLock as StdRwLock,
+        Arc, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard,
     },
 };
 
@@ -159,7 +159,7 @@ pub(crate) struct ClientInner {
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
-    event_handlers: RwLock<EventHandlerMap>,
+    event_handlers: StdRwLock<EventHandlerMap>,
     /// Custom event handler context. See `add_event_handler_context`.
     event_handler_data: StdRwLock<AnyMap>,
     /// When registering a event handler, the current value is used for the
@@ -536,28 +536,22 @@ impl Client {
     /// #     .await
     /// #     .unwrap();
     ///
-    /// client
-    ///     .add_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
-    ///             // Common usage: Room event plus room and client.
-    ///         },
-    ///     )
-    ///     .await;
-    /// client
-    ///     .add_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
-    ///             async move {
-    ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
-    ///                 // unencrypted events and events that were decrypted by the SDK.
-    ///             }
-    ///         },
-    ///     )
-    ///     .await;
-    /// client
-    ///     .add_event_handler(|ev: SyncRoomTopicEvent| async move {
-    ///         // You can omit any or all arguments after the first.
-    ///     })
-    ///     .await;
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
+    ///         // Common usage: Room event plus room and client.
+    ///     },
+    /// );
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
+    ///         async move {
+    ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
+    ///             // unencrypted events and events that were decrypted by the SDK.
+    ///         }
+    ///     },
+    /// );
+    /// client.add_event_handler(|ev: SyncRoomTopicEvent| async move {
+    ///     // You can omit any or all arguments after the first.
+    /// });
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
@@ -571,7 +565,7 @@ impl Client {
     ///
     /// client.add_event_handler(|ev: SyncTokenEvent, room: Room| async move {
     ///     todo!("Display the token");
-    /// }).await;
+    /// });
     ///
     /// // Adding your custom data to the handler can be done as well
     /// let data = "MyCustomIdentifier".to_owned();
@@ -584,16 +578,16 @@ impl Client {
     ///             println!("Calling the handler with identifier {data}");
     ///         }
     ///     }
-    /// }).await;
+    /// });
     /// # });
     /// ```
-    pub async fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
+    pub fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        self.add_event_handler_impl(handler, None).await
+        self.add_event_handler_impl(handler, None)
     }
 
     /// Register a handler for a specific room, and event type.
@@ -606,7 +600,7 @@ impl Client {
     /// `client.add_room_event_handler(room_id, hdl)` is equivalent to
     /// `room.add_event_handler(hdl)`. Use whichever one is more convenient in
     /// your use case.
-    pub async fn add_room_event_handler<Ev, Ctx, H>(
+    pub fn add_room_event_handler<Ev, Ctx, H>(
         &self,
         room_id: &RoomId,
         handler: H,
@@ -616,10 +610,10 @@ impl Client {
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        self.add_event_handler_impl(handler, Some(room_id.to_owned())).await
+        self.add_event_handler_impl(handler, Some(room_id.to_owned()))
     }
 
-    async fn add_event_handler_impl<Ev, Ctx, H>(
+    fn add_event_handler_impl<Ev, Ctx, H>(
         &self,
         handler: H,
         room_id: Option<OwnedRoomId>,
@@ -661,7 +655,7 @@ impl Client {
         self.inner
             .event_handlers
             .write()
-            .await
+            .unwrap()
             .entry(key.clone())
             .or_default()
             .push(EventHandlerWrapper { handler_fn, handler_id });
@@ -677,20 +671,35 @@ impl Client {
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        self.add_event_handler(handler).await;
+        self.add_event_handler(handler);
         self
     }
 
-    pub(crate) async fn event_handlers(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
-        self.inner.event_handlers.read().await
+    pub(crate) fn event_handlers(&self) -> StdRwLockReadGuard<'_, EventHandlerMap> {
+        self.inner.event_handlers.read().unwrap()
     }
 
     /// Remove the event handler associated with the handle.
     ///
-    /// Note that handlers that remove themselves will still execute
-    /// with events received in the same sync cycle.
+    /// Note that you **must not** call `remove_event_handler` from the
+    /// non-async part of an event handler, that is:
     ///
-    ///  # Arguments
+    /// ```ignore
+    /// client.add_event_handler(|ev: SomeEvent, client: Client, handle: EventHandlerHandle| {
+    ///     // ⚠ this will cause a deadlock ⚠
+    ///     client.remove_event_handler(handle);
+    ///
+    ///     async move {
+    ///         // removing the event handler here is fine
+    ///         client.remove_event_handler(handle);
+    ///     }
+    /// })
+    /// ```
+    ///
+    /// Note also that handlers that remove themselves will still execute with
+    /// events received in the same sync cycle.
+    ///
+    /// # Arguments
     ///
     /// `handle` - The [`EventHandlerHandle`] that is returned when
     /// registering the event handler with [`Client::add_event_handler`].
@@ -717,21 +726,19 @@ impl Client {
     /// #     .await
     /// #     .unwrap();
     ///
-    /// client
-    ///     .add_event_handler(
-    ///         |ev: SyncRoomMemberEvent,
-    ///          client: Client,
-    ///          handle: EventHandlerHandle| async move {
-    ///             // Common usage: Check arriving Event is the expected one
-    ///             println!("Expected RoomMemberEvent received!");
-    ///             client.remove_event_handler(handle);
-    ///         },
-    ///     )
-    ///     .await;
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMemberEvent,
+    ///      client: Client,
+    ///      handle: EventHandlerHandle| async move {
+    ///         // Common usage: Check arriving Event is the expected one
+    ///         println!("Expected RoomMemberEvent received!");
+    ///         client.remove_event_handler(handle);
+    ///     },
+    /// );
     /// # });
     /// ```
-    pub async fn remove_event_handler(&self, handle: EventHandlerHandle) {
-        let mut event_handlers = self.inner.event_handlers.write().await;
+    pub fn remove_event_handler(&self, handle: EventHandlerHandle) {
+        let mut event_handlers = self.inner.event_handlers.write().unwrap();
 
         if let btree_map::Entry::Occupied(mut entry) = event_handlers.entry(handle.key) {
             let v = entry.get_mut();
@@ -775,15 +782,13 @@ impl Client {
     /// let my_gui_handle: SomeType = obtain_gui_handle();
     ///
     /// client.add_event_handler_context(my_gui_handle.clone());
-    /// client
-    ///     .add_event_handler(
-    ///         |ev: SyncRoomMessageEvent,
-    ///          room: Room,
-    ///          gui_handle: Ctx<SomeType>| async move {
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| {
+    ///         async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
-    ///         },
-    ///     )
-    ///     .await;
+    ///         }
+    ///     },
+    /// );
     /// # });
     /// ```
     pub fn add_event_handler_context<T>(&self, ctx: T)
@@ -2107,11 +2112,9 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client
-    ///     .add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
-    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
-    ///     })
-    ///     .await;
+    /// client.add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
+    /// });
     ///
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
@@ -2211,11 +2214,9 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client
-    ///     .add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
-    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
-    ///     })
-    ///     .await;
+    /// client.add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    ///     println!("Received event {}: {:?}", ev.sender, ev.content);
+    /// });
     ///
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.

@@ -242,13 +242,13 @@ impl Common {
     /// `room.add_event_handler(hdl)` is equivalent to
     /// `client.add_room_event_handler(room_id, hdl)`. Use whichever one is more
     /// convenient in your use case.
-    pub async fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
+    pub fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        self.client.add_room_event_handler(self.room_id(), handler).await
+        self.client.add_room_event_handler(self.room_id(), handler)
     }
 
     /// Get a stream for the timeline of this `Room`
