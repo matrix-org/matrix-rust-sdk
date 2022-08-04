@@ -1026,7 +1026,7 @@ mod tests {
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> SledCryptoStore {
+    async fn get_store(name: &str, passphrase: Option<&str>) -> SledCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
         let store =
@@ -1049,7 +1049,7 @@ mod encrypted_tests {
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> SledCryptoStore {
+    async fn get_store(name: &str, passphrase: Option<&str>) -> SledCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
         let pass = passphrase.unwrap_or("default_test_password");
 

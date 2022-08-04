@@ -1082,7 +1082,7 @@ mod tests {
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbCryptoStore {
+    async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
         match passphrase {
             Some(pass) => IndexeddbCryptoStore::open_with_passphrase(name, pass)
                 .await
@@ -1103,9 +1103,9 @@ mod encrypted_tests {
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbCryptoStore {
-        let pass = passphrase.unwrap_or_else(|| name.as_str());
-        IndexeddbCryptoStore::open_with_passphrase(name.clone(), pass)
+    async fn get_store(name: &str, passphrase: Option<&str>) -> IndexeddbCryptoStore {
+        let pass = passphrase.unwrap_or(name);
+        IndexeddbCryptoStore::open_with_passphrase(name, pass)
             .await
             .expect("Can't create a passphrase protected store")
     }
