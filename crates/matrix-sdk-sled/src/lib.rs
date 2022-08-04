@@ -8,13 +8,13 @@ use sled::Error as SledError;
 use thiserror::Error;
 
 #[cfg(feature = "crypto-store")]
-mod cryptostore;
+mod crypto_store;
 mod encode_key;
 #[cfg(feature = "state-store")]
 mod state_store;
 
 #[cfg(feature = "crypto-store")]
-pub use cryptostore::SledStore as CryptoStore;
+pub use crypto_store::SledStore as CryptoStore;
 #[cfg(feature = "state-store")]
 pub use state_store::{
     MigrationConflictStrategy, SledStore as StateStore, SledStoreBuilder as StateStoreBuilder,
