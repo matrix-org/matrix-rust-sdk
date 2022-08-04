@@ -15,7 +15,8 @@
     "devDependencies": {
         "@napi-rs/cli": "^2.9.0",
         "jest": "^28.1.0",
-        "typedoc": "^0.22.17"
+        "typedoc": "^0.22.17",
+        "yargs-parser": "~21.0.1"
     },
     "engines": {
         "node": ">= 14"

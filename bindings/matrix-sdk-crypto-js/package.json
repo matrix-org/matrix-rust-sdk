@@ -29,7 +29,8 @@
         "wasm-pack": "^0.10.2",
         "jest": "^28.1.0",
         "typedoc": "^0.22.17",
-        "cross-env": "^7.0.3"
+        "cross-env": "^7.0.3",
+        "yargs-parser": "~21.0.1"
     },
     "engines": {
         "node": ">= 10"

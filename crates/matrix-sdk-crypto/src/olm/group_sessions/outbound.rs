@@ -26,11 +26,7 @@ use std::{
 use dashmap::DashMap;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    events::{
-        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
-        room_key::ToDeviceRoomKeyEventContent,
-        AnyToDeviceEventContent,
-    },
+    events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
     DeviceId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
     SecondsSinceUnixEpoch, TransactionId, UserId,
@@ -46,8 +42,11 @@ pub use vodozemac::{
 };
 
 use crate::{
-    types::events::room::encrypted::{
-        MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
+    types::events::{
+        room::encrypted::{
+            MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
+        },
+        room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
     },
     Device, ToDeviceRequest,
 };
@@ -374,15 +373,17 @@ impl OutboundGroupSession {
         session.message_index()
     }
 
-    pub(crate) async fn as_content(&self) -> AnyToDeviceEventContent {
+    pub(crate) async fn as_content(&self) -> RoomKeyContent {
         let session_key = self.session_key().await;
 
-        AnyToDeviceEventContent::RoomKey(ToDeviceRoomKeyEventContent::new(
-            EventEncryptionAlgorithm::MegolmV1AesSha2,
-            self.room_id().to_owned(),
-            self.session_id().to_owned(),
-            session_key.to_base64(),
-        ))
+        RoomKeyContent::MegolmV1AesSha2(
+            MegolmV1AesSha2RoomKeyContent::new(
+                self.room_id().to_owned(),
+                self.session_id().to_owned(),
+                session_key,
+            )
+            .into(),
+        )
     }
 
     /// Has or will the session be shared with the given user/device pair.

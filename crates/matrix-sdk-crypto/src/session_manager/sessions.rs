@@ -24,7 +24,7 @@ use ruma::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
-    events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
+    events::dummy::ToDeviceDummyEventContent,
     DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
     OwnedUserId, SecondsSinceUnixEpoch, TransactionId, UserId,
 };
@@ -140,8 +140,8 @@ impl SessionManager {
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
         if self.wedged_devices.get(user_id).and_then(|d| d.remove(device_id)).is_some() {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let content = AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new());
-                let (_, content) = device.encrypt(content).await?;
+                let content = serde_json::to_value(ToDeviceDummyEventContent::new())?;
+                let (_, content) = device.encrypt("m.dummy", content).await?;
 
                 let request = ToDeviceRequest::new(
                     device.user_id(),

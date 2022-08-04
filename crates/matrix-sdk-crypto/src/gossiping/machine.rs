@@ -28,13 +28,9 @@ use ruma::{
     events::{
         forwarded_room_key::{ToDeviceForwardedRoomKeyEvent, ToDeviceForwardedRoomKeyEventContent},
         room_key_request::{Action, RequestedKeyInfo, ToDeviceRoomKeyRequestEvent},
-        secret::{
-            request::{
-                RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
-            },
-            send::ToDeviceSecretSendEventContent as SecretSendEventContent,
+        secret::request::{
+            RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
         },
-        AnyToDeviceEventContent,
     },
     DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UserId,
@@ -49,7 +45,10 @@ use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
-    types::events::{secret_send::SecretSendEvent, EventType},
+    types::events::{
+        secret_send::{SecretSendContent, SecretSendEvent},
+        EventType,
+    },
     Device,
 };
 
@@ -238,7 +237,7 @@ impl GossipMachine {
         };
 
         let content = if let Some(secret) = self.store.export_secret(secret_name).await {
-            SecretSendEventContent::new(event.content.request_id.to_owned(), secret)
+            SecretSendContent::new(event.content.request_id.to_owned(), secret)
         } else {
             info!(?secret_name, "Can't serve a secret request, secret isn't found");
             return Ok(None);
@@ -428,10 +427,11 @@ impl GossipMachine {
     async fn share_secret(
         &self,
         device: &Device,
-        content: SecretSendEventContent,
+        content: SecretSendContent,
     ) -> OlmResult<Session> {
-        let (used_session, content) =
-            device.encrypt(AnyToDeviceEventContent::SecretSend(content)).await?;
+        let event_type = content.event_type();
+        let content = serde_json::to_value(content)?;
+        let (used_session, content) = device.encrypt(event_type, content).await?;
 
         let request = ToDeviceRequest::new(
             device.user_id(),
