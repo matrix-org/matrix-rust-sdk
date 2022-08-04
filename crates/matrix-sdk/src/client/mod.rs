@@ -2055,7 +2055,7 @@ impl Client {
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_username(username, password).send().await?;
     ///
     /// // Sync once so we receive the client state and old messages.
     /// client.sync_once(SyncSettings::default()).await?;
