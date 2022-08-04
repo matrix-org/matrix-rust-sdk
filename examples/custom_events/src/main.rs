@@ -31,24 +31,24 @@ use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
 
 // We use ruma to define our custom events. Just declare the events content
-// by deriving from `EventContent` adn define `ruma_events` for the metadata
+// by deriving from `EventContent` and define `ruma_events` for the metadata
 
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "rs.matrix-sdk.example.ping", kind = MessageLike)]
-pub struct PingContent {}
+pub struct PingEventContent {}
 
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "rs.matrix-sdk.example.ack", kind = MessageLike)]
-pub struct AckContent {
+pub struct AckEventContent {
     // the event ID of the ping.
     ping_id: OwnedEventId,
 }
 
-/// The final events can be redacted, hence us defining only the specialized
-/// content (and not room_id and event_id and such). Wrapping the content with
-/// `SyncMessageLikeEvent` props them up to become a full event.
-pub type PingEvent = SyncMessageLikeEvent<PingContent>;
-pub type AckEvent = SyncMessageLikeEvent<AckContent>;
+// !!Important!!: Deriving `EventContent` generates a few types and aliases,
+// like wrapping the content into full-blown events: for `PingEventContent` this
+// generates us `PingEvent` and `SyncPingEvent`, which have redaction support
+// and contain all the other event-metadata like event_id and room_id. We will
+// use that for `on_ping_event`.
 
 // we want to start the ping-ack-flow on "!ping" messages.
 async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
@@ -59,7 +59,7 @@ async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room
         };
 
         if msg_body.contains("!ping") {
-            let content = PingContent {};
+            let content = PingEventContent {};
 
             println!("sending ping");
             room.send(content, None).await.unwrap();
@@ -69,12 +69,12 @@ async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room
 }
 
 // call this on any PingEvent we receive
-async fn on_ping_event(event: PingEvent, room: Room) {
+async fn on_ping_event(event: SyncPingEvent, room: Room) {
     if let Room::Joined(room) = room {
         let event_id = event.event_id().to_owned();
 
         // Send an ack with the event_id of the ping, as our 'protocol' demands
-        let content = AckContent { ping_id: event_id };
+        let content = AckEventContent { ping_id: event_id };
         println!("sending ack");
         room.send(content, None).await.unwrap();
 
