@@ -44,6 +44,8 @@ enum CiCommand {
     },
     /// Run tests for the different crypto crate features
     TestCrypto,
+    /// Check that the examples compile
+    Examples,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -91,6 +93,7 @@ impl CiArgs {
                 CiCommand::Wasm { cmd } => run_wasm_checks(cmd),
                 CiCommand::WasmPack { cmd } => run_wasm_pack_tests(cmd),
                 CiCommand::TestCrypto => run_crypto_tests(),
+                CiCommand::Examples => check_examples(),
             },
             None => {
                 check_style()?;
@@ -101,11 +104,17 @@ impl CiArgs {
                 run_appservice_tests()?;
                 run_wasm_checks(None)?;
                 run_crypto_tests()?;
+                check_examples()?;
 
                 Ok(())
             }
         }
     }
+}
+
+fn check_examples() -> Result<()> {
+    cmd!("rustup run stable cargo check -p example-*").run()?;
+    Ok(())
 }
 
 fn check_style() -> Result<()> {
@@ -240,7 +249,7 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
     };
 
     let test_command_bot = || {
-        let _p = pushd("crates/matrix-sdk/examples/wasm_command_bot");
+        let _p = pushd("examples/wasm_command_bot");
 
         cmd!("rustup run stable cargo clippy --target wasm32-unknown-unknown")
             .args(["--", "-D", "warnings", "-A", "clippy::unused-unit"])
@@ -316,7 +325,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
     };
 
     let test_command_bot = || {
-        let _p = pushd("crates/matrix-sdk/examples/wasm_command_bot");
+        let _p = pushd("examples/wasm_command_bot");
         cmd!("wasm-pack test --node").env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE).run()?;
         cmd!("wasm-pack test --firefox --headless")
             .env(WASM_TIMEOUT_ENV_KEY, WASM_TIMEOUT_VALUE)

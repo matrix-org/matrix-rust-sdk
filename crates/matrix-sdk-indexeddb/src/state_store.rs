@@ -36,6 +36,12 @@ use matrix_sdk_base::{
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{deserialized_responses::SyncRoomEvent, store::BoxStream};
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
+#[cfg(feature = "experimental-timeline")]
+use ruma::{
+    canonical_json::redact_in_place,
+    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
+    CanonicalJsonObject, RoomVersionId,
+};
 use ruma::{
     events::{
         presence::PresenceEvent,
@@ -46,12 +52,6 @@ use ruma::{
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedUserId, RoomId, UserId,
-};
-#[cfg(feature = "experimental-timeline")]
-use ruma::{
-    events::{room::redaction::SyncRoomRedactionEvent, AnySyncMessageLikeEvent, AnySyncRoomEvent},
-    signatures::{redact_in_place, CanonicalJsonObject},
-    RoomVersionId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(feature = "experimental-timeline")]
@@ -880,7 +880,7 @@ impl IndexeddbStore {
                     let metadata: Option<TimelineMetadata> = timeline_metadata_store
                         .get(&self.encode_key(KEYS::ROOM_TIMELINE_METADATA, room_id))?
                         .await?
-                        .map(|v| self.deserialize_event(&v))
+                        .map(|v| self.deserialize_event(v))
                         .transpose()?;
                     if let Some(mut metadata) = metadata {
                         if !timeline.sync && Some(&timeline.start) != metadata.end.as_ref() {
