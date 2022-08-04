@@ -36,15 +36,6 @@ use wiremock::{
 use crate::{logged_in_client, mock_sync, no_retry_test_client};
 
 #[async_test]
-async fn set_homeserver() {
-    let (client, _) = no_retry_test_client().await;
-    let homeserver = Url::from_str("http://example.com/").unwrap();
-    client.set_homeserver(homeserver.clone()).await;
-
-    assert_eq!(client.homeserver().await, homeserver);
-}
-
-#[async_test]
 async fn login() {
     let (client, server) = no_retry_test_client().await;
     let homeserver = Url::from_str(&server.uri()).unwrap();
