@@ -21,7 +21,6 @@ use matrix_sdk::{
                 member::StrippedRoomMemberEvent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, TextMessageEventContent},
             },
-            SyncMessageLikeEvent,
         },
         OwnedEventId,
     },
@@ -44,7 +43,7 @@ pub struct AckEventContent {
     ping_id: OwnedEventId,
 }
 
-// !!Important!!: Deriving `EventContent` generates a few types and aliases,
+// Deriving `EventContent` generates a few types and aliases,
 // like wrapping the content into full-blown events: for `PingEventContent` this
 // generates us `PingEvent` and `SyncPingEvent`, which have redaction support
 // and contain all the other event-metadata like event_id and room_id. We will
