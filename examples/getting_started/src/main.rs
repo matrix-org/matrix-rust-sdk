@@ -88,7 +88,7 @@ async fn login_and_sync(
     // state events so we want to react to them. We add the event handler before
     // the sync, so this happens also for older messages. All rooms we've
     // already entered won't have stripped states anymore and thus won't fire
-    client.add_event_handler(on_stripped_state_member).await;
+    client.add_event_handler(on_stripped_state_member);
 
     // An initial sync to set up state and so our bot doesn't respond to old
     // messages. If the `StateStore` finds saved state in the location given the
@@ -97,7 +97,7 @@ async fn login_and_sync(
 
     // now that we've synced, let's attach a handler for incoming room messages, so
     // we can react on it
-    client.add_event_handler(on_room_message).await;
+    client.add_event_handler(on_room_message);
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`

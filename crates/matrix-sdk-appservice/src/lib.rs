@@ -65,13 +65,11 @@
 //!
 //! let mut appservice =
 //!     AppService::new(homeserver_url, server_name, registration).await?;
-//! appservice
-//!     .virtual_user(None)
-//!     .await?
-//!     .add_event_handler(|_ev: SyncRoomMemberEvent| async {
+//! appservice.virtual_user(None).await?.add_event_handler(
+//!     |_ev: SyncRoomMemberEvent| async {
 //!         // do stuff
-//!     })
-//!     .await;
+//!     },
+//! );
 //!
 //! let (host, port) = appservice.registration().get_host_and_port()?;
 //! appservice.run(host, port).await?;
@@ -643,17 +641,13 @@ mod tests {
 
         #[allow(clippy::mutex_atomic)]
         let on_state_member = Arc::new(Mutex::new(false));
-        appservice
-            .virtual_user(None)
-            .await?
-            .add_event_handler({
-                let on_state_member = on_state_member.clone();
-                move |_ev: OriginalSyncRoomMemberEvent| {
-                    *on_state_member.lock().unwrap() = true;
-                    future::ready(())
-                }
-            })
-            .await;
+        appservice.virtual_user(None).await?.add_event_handler({
+            let on_state_member = on_state_member.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                *on_state_member.lock().unwrap() = true;
+                future::ready(())
+            }
+        });
 
         let status = warp::test::request()
             .method("PUT")
@@ -799,17 +793,13 @@ mod tests {
 
         #[allow(clippy::mutex_atomic)]
         let on_state_member = Arc::new(Mutex::new(false));
-        appservice
-            .virtual_user(None)
-            .await?
-            .add_event_handler({
-                let on_state_member = on_state_member.clone();
-                move |_ev: OriginalSyncRoomMemberEvent| {
-                    *on_state_member.lock().unwrap() = true;
-                    future::ready(())
-                }
-            })
-            .await;
+        appservice.virtual_user(None).await?.add_event_handler({
+            let on_state_member = on_state_member.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                *on_state_member.lock().unwrap() = true;
+                future::ready(())
+            }
+        });
 
         let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 

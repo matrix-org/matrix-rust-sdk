@@ -428,7 +428,7 @@ impl Client {
                 EventHandlerKeyInner { ev_kind, ev_type, room_id }
             });
 
-            let handlers_lock = self.event_handlers().await;
+            let handlers_lock = self.event_handlers();
 
             iter::once(non_room_handler_key)
                 .chain(room_handler_key)
@@ -660,42 +660,34 @@ mod tests {
         let power_levels_count = Arc::new(AtomicU8::new(0));
         let invited_member_count = Arc::new(AtomicU8::new(0));
 
-        client
-            .add_event_handler({
-                let member_count = member_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
-                    member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
-        client
-            .add_event_handler({
-                let typing_count = typing_count.clone();
-                move |_ev: SyncTypingEvent| {
-                    typing_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
-        client
-            .add_event_handler({
-                let power_levels_count = power_levels_count.clone();
-                move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
-                    power_levels_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
-        client
-            .add_event_handler({
-                let invited_member_count = invited_member_count.clone();
-                move |_ev: StrippedRoomMemberEvent| {
-                    invited_member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
+        client.add_event_handler({
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_event_handler({
+            let typing_count = typing_count.clone();
+            move |_ev: SyncTypingEvent| {
+                typing_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_event_handler({
+            let power_levels_count = power_levels_count.clone();
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
+                power_levels_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_event_handler({
+            let invited_member_count = invited_member_count.clone();
+            move |_ev: StrippedRoomMemberEvent| {
+                invited_member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
 
         let response = EventBuilder::default()
             .add_joined_room(
@@ -766,42 +758,34 @@ mod tests {
         let power_levels_count = Arc::new(AtomicU8::new(0));
 
         // Room event handlers for member events in both rooms
-        client
-            .add_room_event_handler(room_id_a, {
-                let member_count = member_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
-                    member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
-        client
-            .add_room_event_handler(room_id_b, {
-                let member_count = member_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
-                    member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
+        client.add_room_event_handler(room_id_a, {
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_room_event_handler(room_id_b, {
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
 
         // Power levels event handlers for member events in room A
-        client
-            .add_room_event_handler(room_id_a, {
-                let power_levels_count = power_levels_count.clone();
-                move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
-                    power_levels_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
+        client.add_room_event_handler(room_id_a, {
+            let power_levels_count = power_levels_count.clone();
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
+                power_levels_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
 
         // Room name event handler for room name events in room B
-        client
-            .add_room_event_handler(room_id_b, move |_ev: OriginalSyncRoomNameEvent| async {
-                unreachable!("No room event in room B")
-            })
-            .await;
+        client.add_room_event_handler(room_id_b, move |_ev: OriginalSyncRoomNameEvent| async {
+            unreachable!("No room event in room B")
+        });
 
         let response = EventBuilder::default()
             .add_joined_room(
@@ -832,40 +816,32 @@ mod tests {
 
         let member_count = Arc::new(AtomicU8::new(0));
 
-        client
-            .add_event_handler({
-                let member_count = member_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent| {
-                    member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
+        client.add_event_handler({
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
 
-        let handle_a = client
-            .add_event_handler(move |_ev: OriginalSyncRoomMemberEvent| async {
+        let handle_a = client.add_event_handler(move |_ev: OriginalSyncRoomMemberEvent| async {
+            panic!("handler should have been removed");
+        });
+        let handle_b = client.add_room_event_handler(
+            #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
+            *DEFAULT_SYNC_ROOM_ID,
+            move |_ev: OriginalSyncRoomMemberEvent| async {
                 panic!("handler should have been removed");
-            })
-            .await;
-        let handle_b = client
-            .add_room_event_handler(
-                #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
-                *DEFAULT_SYNC_ROOM_ID,
-                move |_ev: OriginalSyncRoomMemberEvent| async {
-                    panic!("handler should have been removed");
-                },
-            )
-            .await;
+            },
+        );
 
-        client
-            .add_event_handler({
-                let member_count = member_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent| {
-                    member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
+        client.add_event_handler({
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
 
         let response = EventBuilder::default()
             .add_joined_room(
@@ -873,8 +849,8 @@ mod tests {
             )
             .build_sync_response();
 
-        client.remove_event_handler(handle_a).await;
-        client.remove_event_handler(handle_b).await;
+        client.remove_event_handler(handle_a);
+        client.remove_event_handler(handle_b);
 
         client.process_sync(response).await?;
 
