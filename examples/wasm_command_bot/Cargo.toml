@@ -9,6 +9,7 @@ publish = false
 
 [lib]
 crate-type = ["cdylib"]
+test = false
 
 [dependencies]
 url = "2.2.2"
