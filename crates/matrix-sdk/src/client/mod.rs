@@ -222,7 +222,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
-    pub async fn set_homeserver(&self, homeserver_url: Url) {
+    async fn set_homeserver(&self, homeserver_url: Url) {
         let mut homeserver = self.inner.homeserver.write().await;
         *homeserver = homeserver_url;
     }
@@ -2870,5 +2870,15 @@ pub(crate) mod tests {
             .await;
 
         client.devices().await.unwrap_err();
+    }
+
+    #[async_test]
+    async fn set_homeserver() {
+        let client = no_retry_test_client(Some("http://localhost".to_owned())).await;
+        assert_eq!(client.homeserver().await.as_ref(), "http://localhost/");
+
+        let homeserver = Url::parse("http://example.com/").unwrap();
+        client.set_homeserver(homeserver.clone()).await;
+        assert_eq!(client.homeserver().await, homeserver);
     }
 }
