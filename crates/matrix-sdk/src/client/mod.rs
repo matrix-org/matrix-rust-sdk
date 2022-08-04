@@ -1607,11 +1607,10 @@ impl Client {
 
         let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
 
-        self.add_room_event_handler(room_id, {
+        let handle = self.add_room_event_handler(room_id, {
             move |event: SyncStateEvent<RoomMemberEventContent>,
                   room: room::Room,
-                  client: Client,
-                  handle: EventHandlerHandle| {
+                  client: Client| {
                 let tx = tx.clone();
 
                 async move {
@@ -1619,8 +1618,6 @@ impl Client {
                         && event.state_key() == client.user_id().expect("user_id")
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
-
-                        client.remove_event_handler(handle).await;
 
                         let joined_result = if let room::Room::Joined(joined_room) = room {
                             Ok(joined_room)
@@ -1639,8 +1636,9 @@ impl Client {
                     }
                 }
             }
-        })
-        .await;
+        });
+
+        let _guard = self.event_handler_drop_guard(handle);
 
         self.send(request, None).await?;
 
@@ -1668,11 +1666,10 @@ impl Client {
         let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
         let (tx_room_id, rx_room_id) = watch::channel::<Option<OwnedRoomId>>(None);
 
-        self.add_event_handler({
+        let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>,
                   room: room::Room,
-                  client: Client,
-                  handle: EventHandlerHandle| {
+                  client: Client| {
                 let tx = tx.clone();
                 let mut rx_room_id = rx_room_id.clone();
 
@@ -1689,8 +1686,6 @@ impl Client {
                         && room.room_id() == room_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
-
-                        client.remove_event_handler(handle).await;
 
                         let joined_result = if let room::Room::Joined(joined_room) = room {
                             Ok(joined_room)
@@ -1709,8 +1704,9 @@ impl Client {
                     }
                 }
             }
-        })
-        .await;
+        });
+
+        let _guard = self.event_handler_drop_guard(handle);
 
         let response = self.send(request, None).await?;
         tx_room_id.send(Some(response.room_id)).expect("send error for room_id");
@@ -1801,11 +1797,10 @@ impl Client {
         let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
         let (tx_room_id, rx_room_id) = watch::channel::<Option<OwnedRoomId>>(None);
 
-        self.add_event_handler({
+        let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomCreateEventContent>,
                   room: room::Room,
-                  client: Client,
-                  handle: EventHandlerHandle| {
+                  client: Client| {
                 let tx = tx.clone();
                 let mut rx_room_id = rx_room_id.clone();
 
@@ -1820,8 +1815,9 @@ impl Client {
                     let event_content = if let Some(original_event) = event.as_original() {
                         &original_event.content
                     } else {
-                        // return from handler since the create room event we received is redacted
-                        // and not the one we are looking for
+                        // return from handler since the create room event we received is
+                        // redacted and not the one we are looking
+                        // for
                         return;
                     };
 
@@ -1832,8 +1828,6 @@ impl Client {
                             "received RoomCreateEvent corresponding \
                              to requested to create room"
                         );
-
-                        client.remove_event_handler(handle).await;
 
                         let joined_result = if let room::Room::Joined(joined_room) = room {
                             Ok(joined_room)
@@ -1852,8 +1846,9 @@ impl Client {
                     }
                 }
             }
-        })
-        .await;
+        });
+
+        let _guard = self.event_handler_drop_guard(handle);
 
         let response = self.send(request, None).await?;
         tx_room_id.send(Some(response.room_id)).expect("send error for room_id");

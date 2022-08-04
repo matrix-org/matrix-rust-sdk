@@ -109,41 +109,36 @@ impl Common {
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Result<Left>>();
 
-        self.client
-            .add_room_event_handler(self.room_id(), {
-                move |event: SyncStateEvent<RoomMemberEventContent>,
-                      room: Room,
-                      client: Client,
-                      handle: EventHandlerHandle| {
-                    let tx = tx.clone();
+        let handle = self.add_event_handler({
+            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room, client: Client| {
+                let tx = tx.clone();
 
-                    async move {
-                        if (event.membership() == &MembershipState::Leave)
-                            && (event.state_key() == client.user_id().expect("user_id"))
-                        {
-                            debug!("received RoomMemberEvent corresponding to requested leave");
+                async move {
+                    if (event.membership() == &MembershipState::Leave)
+                        && (event.state_key() == client.user_id().expect("user_id"))
+                    {
+                        debug!("received RoomMemberEvent corresponding to requested leave");
 
-                            client.remove_event_handler(handle).await;
+                        let left_result = if let Room::Left(left_room) = room {
+                            Ok(left_room)
+                        } else {
+                            warn!("Corresponding Room not in state: left");
+                            Err(Error::InconsistentState)
+                        };
 
-                            let left_result = if let Room::Left(left_room) = room {
-                                Ok(left_room)
-                            } else {
-                                warn!("Corresponding Room not in state: left");
-                                Err(Error::InconsistentState)
-                            };
-
-                            if let Err(e) = tx.send(left_result) {
-                                debug!(
-                                    "Sending event from event_handler failed, \
-                                     receiver already dropped: {}",
-                                    e
-                                );
-                            }
+                        if let Err(e) = tx.send(left_result) {
+                            debug!(
+                                "Sending event from event_handler failed, \
+                                    receiver already dropped: {}",
+                                e
+                            );
                         }
                     }
                 }
-            })
-            .await;
+            }
+        });
+
+        let _guard = self.client.event_handler_drop_guard(handle);
 
         self.client.send(request, None).await?;
 
