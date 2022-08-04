@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, future::Future, ops::Deref, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
 
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
@@ -8,7 +8,7 @@ use matrix_sdk_base::{
     deserialized_responses::{SyncRoomEvent, TimelineSlice},
     TimelineStreamError,
 };
-use matrix_sdk_common::{locks::Mutex, timeout::timeout};
+use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "experimental-timeline")]
 use ruma::api::client::filter::LazyLoadOptions;
 #[cfg(feature = "e2e-encryption")]
@@ -37,8 +37,8 @@ use ruma::{
         tag::{TagInfo, TagName},
         AnyRoomAccountDataEvent, AnyStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         RedactContent, RedactedEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEvent, StateEventContent, StateEventType,
-        StaticEventContent, SyncStateEvent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        SyncStateEvent,
     },
     serde::Raw,
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
@@ -107,19 +107,35 @@ impl Common {
     pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<(StateEvent<RoomMemberEventContent>, Room)>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<Result<Left>>();
 
-        let handle = self
-            .client
-            .add_event_handler({
-                move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+        self.client
+            .add_room_event_handler(self.room_id(), {
+                move |event: SyncStateEvent<RoomMemberEventContent>,
+                      room: Room,
+                      client: Client,
+                      handle: EventHandlerHandle| {
                     let tx = tx.clone();
 
                     async move {
                         let full_event = event.into_full_event(room.room_id().to_owned());
 
-                        if full_event.membership() == &MembershipState::Leave {
-                            if let Err(e) = tx.send((full_event, room)) {
+                        if full_event.membership() == &MembershipState::Leave
+                            && full_event.state_key().as_str()
+                                == client.user_id().expect("user_id").as_str()
+                        {
+                            debug!("received RoomMemberEvent corresponding to requested leave");
+
+                            client.remove_event_handler(handle).await;
+
+                            let left_result = if let Room::Left(left_room) = room {
+                                Ok(left_room)
+                            } else {
+                                warn!("Corresponding Room not in state: left");
+                                Err(Error::InconsistentState)
+                            };
+
+                            if let Err(e) = tx.send(left_result) {
                                 debug!(
                                     "Sending event from event_handler failed, \
                                      receiver already dropped: {}",
@@ -134,39 +150,7 @@ impl Common {
 
         self.client.send(request, None).await?;
 
-        debug!("waiting for RoomMemberEvent corresponding to requested leave");
-
-        let receive_event_future = timeout(
-            async move {
-                loop {
-                    let (event, room): (StateEvent<RoomMemberEventContent>, Room) =
-                        rx.recv().await.expect("receive event and room from event handler");
-
-                    if event.state_key().as_str()
-                        == self.client.user_id().expect("user_id").as_str()
-                        && event.room_id() == self.room_id()
-                    {
-                        debug!("received RoomMemberEvent corresponding to requested leave");
-                        self.client.remove_event_handler(handle).await;
-
-                        if let Room::Left(left_room) = room {
-                            return Ok(left_room);
-                        } else {
-                            warn!("Corresponding Room not in state: left");
-                            return Err(Error::InconsistentState);
-                        }
-                    } else {
-                        debug!(
-                            "received RoomMemberEvent not related \
-                             to requested leave, continue waiting"
-                        );
-                    }
-                }
-            },
-            Duration::from_secs(1),
-        );
-
-        return receive_event_future.await?;
+        return rx.recv().await.expect("receive joined room result from event handler");
     }
 
     /// Join this room.
