@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[[bin]]
+name = "sled-state-inspector"
+test = false
+
 [dependencies]
 atty = "0.2.14"
 clap = "3.2.4"

@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[[bin]]
+name = "example-autojoin"
+test = false
+
 [dependencies]
 tokio = { version = "1.20.1", features = ["full"] }
 anyhow = "1"

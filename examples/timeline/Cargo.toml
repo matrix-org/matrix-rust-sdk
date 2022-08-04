@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[[bin]]
+name = "example-timeline"
+test = false
+
 [dependencies]
 anyhow = "1"
 futures = "0.3"
