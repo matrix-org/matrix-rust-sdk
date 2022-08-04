@@ -19,10 +19,8 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     io::Read,
-    sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
-        Arc, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard,
-    },
+    pin::Pin,
+    sync::{atomic::AtomicU64, Arc, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard},
 };
 
 use anymap2::any::CloneAnySendSync;
@@ -76,7 +74,9 @@ use ruma::{
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
-use tracing::{debug, error, info, instrument, warn};
+#[cfg(feature = "e2e-encryption")]
+use tracing::error;
+use tracing::{debug, info, instrument};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -86,8 +86,8 @@ use crate::{
     config::RequestConfig,
     error::{HttpError, HttpResult},
     event_handler::{
-        EventHandler, EventHandlerFn, EventHandlerFut, EventHandlerHandle, EventHandlerKey,
-        EventHandlerResult, EventHandlerWrapper, SyncEvent,
+        EventHandler, EventHandlerHandle, EventHandlerKey, EventHandlerResult, EventHandlerWrapper,
+        SyncEvent,
     },
     http_client::HttpClient,
     room, Account, Error, RefreshTokenError, Result, RumaApiError,
@@ -110,7 +110,7 @@ const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
 
-type NotificationHandlerFut = EventHandlerFut;
+type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
 
@@ -159,12 +159,12 @@ pub(crate) struct ClientInner {
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
     /// Event handlers. See `add_event_handler`.
-    event_handlers: StdRwLock<EventHandlerMap>,
+    pub(crate) event_handlers: StdRwLock<EventHandlerMap>,
     /// Custom event handler context. See `add_event_handler_context`.
-    event_handler_data: StdRwLock<AnyMap>,
+    pub(crate) event_handler_data: StdRwLock<AnyMap>,
     /// When registering a event handler, the current value is used for the
     /// handlers identification, then the counter is incremented.
-    event_handler_counter: AtomicU64,
+    pub(crate) event_handler_counter: AtomicU64,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     /// Whether the client should operate in application service style mode.
@@ -611,56 +611,6 @@ impl Client {
         <H::Future as Future>::Output: EventHandlerResult,
     {
         self.add_event_handler_impl(handler, Some(room_id.to_owned()))
-    }
-
-    fn add_event_handler_impl<Ev, Ctx, H>(
-        &self,
-        handler: H,
-        room_id: Option<OwnedRoomId>,
-    ) -> EventHandlerHandle
-    where
-        Ev: SyncEvent + DeserializeOwned + Send + 'static,
-        H: EventHandler<Ev, Ctx>,
-        <H::Future as Future>::Output: EventHandlerResult,
-    {
-        let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
-            let maybe_fut = serde_json::from_str(data.raw.get())
-                .map(|ev| handler.clone().handle_event(ev, data));
-
-            Box::pin(async move {
-                match maybe_fut {
-                    Ok(Some(fut)) => {
-                        fut.await.print_error(Ev::TYPE);
-                    }
-                    Ok(None) => {
-                        error!(
-                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
-                            "Event handler has an invalid context argument",
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
-                            "Failed to deserialize event, skipping event handler.\n
-                             Deserialization error: {e}",
-                        );
-                    }
-                }
-            })
-        });
-
-        let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
-        let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
-
-        self.inner
-            .event_handlers
-            .write()
-            .unwrap()
-            .entry(key.clone())
-            .or_default()
-            .push(EventHandlerWrapper { handler_fn, handler_id });
-
-        EventHandlerHandle { key, handler_id }
     }
 
     #[allow(missing_docs)]
