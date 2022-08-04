@@ -40,18 +40,19 @@ use std::{
     iter,
     ops::Deref,
     pin::Pin,
+    sync::atomic::Ordering::SeqCst,
 };
 
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{room, Client};
 
-pub(crate) type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-pub(crate) type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
+type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -119,14 +120,14 @@ impl<'a> Borrow<EventHandlerKeyInner<'a>> for EventHandlerKey {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct EventHandlerKeyInner<'a> {
-    pub ev_kind: EventKind,
-    pub ev_type: &'a str,
-    pub room_id: Option<OwnedRoomId>,
+struct EventHandlerKeyInner<'a> {
+    ev_kind: EventKind,
+    ev_type: &'a str,
+    room_id: Option<OwnedRoomId>,
 }
 
 pub(crate) struct EventHandlerWrapper {
-    pub handler_fn: Box<EventHandlerFn>,
+    handler_fn: Box<EventHandlerFn>,
     pub handler_id: u64,
 }
 
@@ -195,11 +196,11 @@ pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct EventHandlerData<'a> {
-    pub client: Client,
-    pub room: Option<room::Room>,
-    pub raw: &'a RawJsonValue,
-    pub encryption_info: Option<&'a EncryptionInfo>,
-    pub handle: EventHandlerHandle,
+    client: Client,
+    room: Option<room::Room>,
+    raw: &'a RawJsonValue,
+    encryption_info: Option<&'a EncryptionInfo>,
+    handle: EventHandlerHandle,
 }
 
 /// Context for an event handler.
@@ -236,7 +237,7 @@ impl EventHandlerContext for room::Room {
 // FIXME: This could be made to not own the raw JSON value with some changes to
 //        the traits above, but only with GATs.
 #[derive(Clone, Debug)]
-pub struct RawEvent(pub Box<RawJsonValue>);
+pub struct RawEvent(Box<RawJsonValue>);
 
 impl Deref for RawEvent {
     type Target = RawJsonValue;
@@ -315,6 +316,56 @@ struct UnsignedDetails {
 
 /// Event handling internals.
 impl Client {
+    pub(crate) fn add_event_handler_impl<Ev, Ctx, H>(
+        &self,
+        handler: H,
+        room_id: Option<OwnedRoomId>,
+    ) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
+            let maybe_fut = serde_json::from_str(data.raw.get())
+                .map(|ev| handler.clone().handle_event(ev, data));
+
+            Box::pin(async move {
+                match maybe_fut {
+                    Ok(Some(fut)) => {
+                        fut.await.print_error(Ev::TYPE);
+                    }
+                    Ok(None) => {
+                        error!(
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Event handler has an invalid context argument",
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Failed to deserialize event, skipping event handler.\n
+                             Deserialization error: {e}",
+                        );
+                    }
+                }
+            })
+        });
+
+        let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
+        let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
+
+        self.inner
+            .event_handlers
+            .write()
+            .unwrap()
+            .entry(key.clone())
+            .or_default()
+            .push(EventHandlerWrapper { handler_fn, handler_id });
+
+        EventHandlerHandle { key, handler_id }
+    }
+
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: EventKind,
