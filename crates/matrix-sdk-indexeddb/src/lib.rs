@@ -9,10 +9,11 @@ mod safe_encode;
 mod state_store;
 
 #[cfg(feature = "e2e-encryption")]
-pub use crypto_store::IndexeddbCryptoStore;
-#[cfg(feature = "e2e-encryption")]
-use crypto_store::IndexeddbCryptoStoreError;
-pub use state_store::{IndexeddbStateStore, IndexeddbStateStoreBuilder, MigrationConflictStrategy};
+pub use crypto_store::{IndexeddbCryptoStore, IndexeddbCryptoStoreError};
+pub use state_store::{
+    IndexeddbStateStore, IndexeddbStateStoreBuilder, IndexeddbStateStoreError,
+    MigrationConflictStrategy,
+};
 
 /// Create a [`IndexeddbStateStore`] and a [`IndexeddbCryptoStore`] that use the
 /// same name and passphrase.
