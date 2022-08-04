@@ -2641,7 +2641,7 @@ pub(crate) mod tests {
         Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
     }
 
-    async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
+    pub(crate) async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
         test_client_builder(homeserver_url)
             .request_config(RequestConfig::new().disable_retry())
             .build()
