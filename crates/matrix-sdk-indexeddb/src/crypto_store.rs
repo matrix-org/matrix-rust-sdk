@@ -72,7 +72,7 @@ mod KEYS {
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
-pub struct IndexeddbStore {
+pub struct IndexeddbCryptoStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
     name: String,
     pub(crate) inner: IdbDatabase,
@@ -84,14 +84,14 @@ pub struct IndexeddbStore {
     users_for_key_query_cache: Arc<DashSet<OwnedUserId>>,
 }
 
-impl std::fmt::Debug for IndexeddbStore {
+impl std::fmt::Debug for IndexeddbCryptoStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IndexeddbStore").field("name", &self.name).finish()
+        f.debug_struct("IndexeddbCryptoStore").field("name", &self.name).finish()
     }
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum IndexeddbStoreError {
+pub enum IndexeddbCryptoStoreError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error("DomException {name} ({code}): {message}")]
@@ -107,9 +107,9 @@ pub enum IndexeddbStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
 }
 
-impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
-    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbStoreError {
-        IndexeddbStoreError::DomException {
+impl From<indexed_db_futures::web_sys::DomException> for IndexeddbCryptoStoreError {
+    fn from(frm: indexed_db_futures::web_sys::DomException) -> IndexeddbCryptoStoreError {
+        IndexeddbCryptoStoreError::DomException {
             name: frm.name(),
             message: frm.message(),
             code: frm.code(),
@@ -117,17 +117,17 @@ impl From<indexed_db_futures::web_sys::DomException> for IndexeddbStoreError {
     }
 }
 
-impl From<IndexeddbStoreError> for CryptoStoreError {
-    fn from(frm: IndexeddbStoreError) -> CryptoStoreError {
+impl From<IndexeddbCryptoStoreError> for CryptoStoreError {
+    fn from(frm: IndexeddbCryptoStoreError) -> CryptoStoreError {
         match frm {
-            IndexeddbStoreError::Json(e) => CryptoStoreError::Serialization(e),
-            IndexeddbStoreError::CryptoStoreError(e) => e,
+            IndexeddbCryptoStoreError::Json(e) => CryptoStoreError::Serialization(e),
+            IndexeddbCryptoStoreError::CryptoStoreError(e) => e,
             _ => CryptoStoreError::backend(frm),
         }
     }
 }
 
-type Result<A, E = IndexeddbStoreError> = std::result::Result<A, E>;
+type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
@@ -136,7 +136,7 @@ pub struct AccountInfo {
     identity_keys: Arc<IdentityKeys>,
 }
 
-impl IndexeddbStore {
+impl IndexeddbCryptoStore {
     pub(crate) async fn open_with_store_cipher(
         prefix: String,
         store_cipher: Option<Arc<StoreCipher>>,
@@ -183,9 +183,9 @@ impl IndexeddbStore {
         })
     }
 
-    /// Open a new IndexeddbStore with default name and no passphrase
+    /// Open a new `IndexeddbCryptoStore` with default name and no passphrase
     pub async fn open() -> Result<Self> {
-        IndexeddbStore::open_with_store_cipher("crypto".to_owned(), None).await
+        IndexeddbCryptoStore::open_with_store_cipher("crypto".to_owned(), None).await
     }
 
     fn encode_key<T>(&self, table_name: &str, key: T) -> JsValue
@@ -202,7 +202,7 @@ impl IndexeddbStore {
         &self,
         table_name: &str,
         key: T,
-    ) -> Result<IdbKeyRange, IndexeddbStoreError>
+    ) -> Result<IdbKeyRange, IndexeddbCryptoStoreError>
     where
         T: SafeEncode,
     {
@@ -210,14 +210,14 @@ impl IndexeddbStore {
             Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| IndexeddbStoreError::DomException {
+        .map_err(|e| IndexeddbCryptoStoreError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
             message: e,
         })
     }
 
-    /// Open a new IndexeddbStore with given name and passphrase
+    /// Open a new `IndexeddbCryptoStore` with given name and passphrase
     pub async fn open_with_passphrase(prefix: String, passphrase: &str) -> Result<Self> {
         let name = format!("{:0}::matrix-sdk-crypto-meta", prefix);
 
@@ -266,12 +266,12 @@ impl IndexeddbStore {
             }
         };
 
-        IndexeddbStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
+        IndexeddbCryptoStore::open_with_store_cipher(prefix, Some(store_cipher.into())).await
     }
 
-    /// Open a new IndexeddbStore with given name and no passphrase
+    /// Open a new `IndexeddbCryptoStore` with given name and no passphrase
     pub async fn open_with_name(name: String) -> Result<Self> {
-        IndexeddbStore::open_with_store_cipher(name, None).await
+        IndexeddbCryptoStore::open_with_store_cipher(name, None).await
     }
 
     fn serialize_value(&self, value: &impl Serialize) -> Result<JsValue, CryptoStoreError> {
@@ -628,12 +628,13 @@ impl IndexeddbStore {
         let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
-            let range =
-                sender_key.encode_to_range().map_err(|e| IndexeddbStoreError::DomException {
+            let range = sender_key.encode_to_range().map_err(|e| {
+                IndexeddbCryptoStoreError::DomException {
                     code: 0,
                     name: "IdbKeyRangeMakeError".to_owned(),
                     message: e,
-                })?;
+                }
+            })?;
             let sessions: Vec<Session> = self
                 .inner
                 .transaction_on_one_with_mode(KEYS::SESSION, IdbTransactionMode::Readonly)?
@@ -930,7 +931,7 @@ impl IndexeddbStore {
 
 #[cfg(target_arch = "wasm32")]
 #[async_trait(?Send)]
-impl CryptoStore for IndexeddbStore {
+impl CryptoStore for IndexeddbCryptoStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>, CryptoStoreError> {
         self.load_account().await.map_err(|e| e.into())
     }
@@ -1077,16 +1078,16 @@ impl CryptoStore for IndexeddbStore {
 mod tests {
     use matrix_sdk_crypto::cryptostore_integration_tests;
 
-    use super::IndexeddbStore;
+    use super::IndexeddbCryptoStore;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbStore {
+    async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbCryptoStore {
         match passphrase {
-            Some(pass) => IndexeddbStore::open_with_passphrase(name, pass)
+            Some(pass) => IndexeddbCryptoStore::open_with_passphrase(name, pass)
                 .await
                 .expect("Can't create a passphrase protected store"),
-            None => IndexeddbStore::open_with_name(name)
+            None => IndexeddbCryptoStore::open_with_name(name)
                 .await
                 .expect("Can't create store without passphrase"),
         }
@@ -1097,14 +1098,14 @@ mod tests {
 #[cfg(all(test, target_arch = "wasm32"))]
 #[rustfmt::skip]
 mod encrypted_tests {
-    use super::IndexeddbStore;
+    use super::IndexeddbCryptoStore;
     use matrix_sdk_crypto::cryptostore_integration_tests;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbStore {
+    async fn get_store(name: String, passphrase: Option<&str>) -> IndexeddbCryptoStore {
         let pass = passphrase.unwrap_or_else(|| name.as_str());
-        IndexeddbStore::open_with_passphrase(name.clone(), pass)
+        IndexeddbCryptoStore::open_with_passphrase(name.clone(), pass)
             .await
             .expect("Can't create a passphrase protected store")
     }

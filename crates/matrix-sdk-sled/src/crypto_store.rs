@@ -167,7 +167,7 @@ struct TrackedUser {
 ///
 /// [sled]: https://github.com/spacejam/sled#readme
 #[derive(Clone)]
-pub struct SledStore {
+pub struct SledCryptoStore {
     account_info: Arc<RwLock<Option<AccountInfo>>>,
     store_cipher: Option<Arc<StoreCipher>>,
     path: Option<PathBuf>,
@@ -195,17 +195,17 @@ pub struct SledStore {
     tracked_users: Tree,
 }
 
-impl std::fmt::Debug for SledStore {
+impl std::fmt::Debug for SledCryptoStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(path) = &self.path {
-            f.debug_struct("SledStore").field("path", &path).finish()
+            f.debug_struct("SledCryptoStore").field("path", &path).finish()
         } else {
-            f.debug_struct("SledStore").field("path", &"memory store").finish()
+            f.debug_struct("SledCryptoStore").field("path", &"memory store").finish()
         }
     }
 }
 
-impl SledStore {
+impl SledCryptoStore {
     /// Open the sled-based crypto store at the given path using the given
     /// passphrase to encrypt private data.
     pub fn open_with_passphrase(
@@ -222,7 +222,7 @@ impl SledStore {
             None
         };
 
-        SledStore::open_helper(db, Some(path), store_cipher)
+        SledCryptoStore::open_helper(db, Some(path), store_cipher)
     }
 
     /// Create a sled-based crypto store using the given sled database.
@@ -231,7 +231,7 @@ impl SledStore {
         db: Db,
         store_cipher: Option<Arc<StoreCipher>>,
     ) -> Result<Self, OpenStoreError> {
-        SledStore::open_helper(db, None, store_cipher)
+        SledCryptoStore::open_helper(db, None, store_cipher)
     }
 
     fn get_account_info(&self) -> Option<AccountInfo> {
@@ -680,7 +680,7 @@ impl SledStore {
 }
 
 #[async_trait]
-impl CryptoStore for SledStore {
+impl CryptoStore for SledCryptoStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         if let Some(pickle) =
             self.account.get("account".encode()).map_err(CryptoStoreError::backend)?
@@ -1022,15 +1022,16 @@ mod tests {
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
-    use super::SledStore;
+    use super::SledCryptoStore;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> SledStore {
+    async fn get_store(name: String, passphrase: Option<&str>) -> SledCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
-        let store = SledStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), passphrase)
-            .expect("Can't create a passphrase protected store");
+        let store =
+            SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), passphrase)
+                .expect("Can't create a passphrase protected store");
 
         store
     }
@@ -1044,16 +1045,17 @@ mod encrypted_tests {
     use once_cell::sync::Lazy;
     use tempfile::{tempdir, TempDir};
 
-    use super::SledStore;
+    use super::SledCryptoStore;
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: String, passphrase: Option<&str>) -> SledStore {
+    async fn get_store(name: String, passphrase: Option<&str>) -> SledCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
         let pass = passphrase.unwrap_or("default_test_password");
 
-        let store = SledStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), Some(pass))
-            .expect("Can't create a passphrase protected store");
+        let store =
+            SledCryptoStore::open_with_passphrase(tmpdir_path.to_str().unwrap(), Some(pass))
+                .expect("Can't create a passphrase protected store");
 
         store
     }
