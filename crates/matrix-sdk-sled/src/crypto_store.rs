@@ -216,21 +216,22 @@ impl SledCryptoStore {
         let db =
             Config::new().temporary(false).path(&path).open().map_err(CryptoStoreError::backend)?;
 
-        let store_cipher = if let Some(passphrase) = passphrase {
-            Some(Self::get_or_create_store_cipher(passphrase, &db)?.into())
-        } else {
-            None
-        };
+        let store_cipher = passphrase
+            .map(|p| Self::get_or_create_store_cipher(p, &db))
+            .transpose()?
+            .map(Into::into);
 
         SledCryptoStore::open_helper(db, Some(path), store_cipher)
     }
 
     /// Create a sled-based crypto store using the given sled database.
     /// The given passphrase will be used to encrypt private data.
-    pub fn open_with_database(
-        db: Db,
-        store_cipher: Option<Arc<StoreCipher>>,
-    ) -> Result<Self, OpenStoreError> {
+    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self, OpenStoreError> {
+        let store_cipher = passphrase
+            .map(|p| Self::get_or_create_store_cipher(p, &db))
+            .transpose()?
+            .map(Into::into);
+
         SledCryptoStore::open_helper(db, None, store_cipher)
     }
 
@@ -343,7 +344,7 @@ impl SledCryptoStore {
         Ok(key)
     }
 
-    fn open_helper(
+    pub(crate) fn open_helper(
         db: Db,
         path: Option<PathBuf>,
         store_cipher: Option<Arc<StoreCipher>>,
