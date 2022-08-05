@@ -398,13 +398,14 @@ async fn join_room_by_id() {
         .mount(&server)
         .await;
 
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
     let room_id = *test_json::DEFAULT_SYNC_ROOM_ID;
 
     let client_clone = client.clone();
 
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        mock_sync(&server, &*test_json::SYNC, None).await;
         client_clone.sync_once(SyncSettings::default()).await
     });
 
@@ -432,6 +433,8 @@ async fn join_room_by_id_or_alias() {
         .mount(&server)
         .await;
 
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
     let room_id_or_alias: &RoomOrAliasId =
         <&RoomOrAliasId>::try_from(*test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
@@ -439,7 +442,6 @@ async fn join_room_by_id_or_alias() {
 
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        mock_sync(&server, &*test_json::SYNC, None).await;
         client_clone.sync_once(SyncSettings::default()).await
     });
 
