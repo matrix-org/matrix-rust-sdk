@@ -34,7 +34,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{debug, error, info};
-use vodozemac::Curve25519PublicKey;
+use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
 pub use vodozemac::{
     megolm::{GroupSession, GroupSessionPickle, MegolmMessage, SessionKey},
     olm::IdentityKeys,
@@ -163,7 +163,7 @@ impl OutboundGroupSession {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> Self {
-        let session = GroupSession::new();
+        let session = GroupSession::new(SessionConfig::version_1());
         let session_id = session.session_id();
 
         OutboundGroupSession {

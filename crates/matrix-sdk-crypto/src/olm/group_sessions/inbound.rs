@@ -35,7 +35,7 @@ use serde_json::Value;
 use vodozemac::{
     megolm::{
         DecryptedMessage, DecryptionError, ExportedSessionKey, InboundGroupSession as InnerSession,
-        InboundGroupSessionPickle, MegolmMessage, SessionOrdering,
+        InboundGroupSessionPickle, MegolmMessage, SessionConfig, SessionOrdering,
     },
     Curve25519PublicKey, PickleError,
 };
@@ -102,7 +102,7 @@ impl InboundGroupSession {
         encryption_algorithm: EventEncryptionAlgorithm,
         history_visibility: Option<HistoryVisibility>,
     ) -> Self {
-        let session = InnerSession::new(session_key);
+        let session = InnerSession::new(session_key, SessionConfig::version_1());
         let session_id = session.session_id();
         let first_known_index = session.first_known_index();
 
@@ -140,7 +140,7 @@ impl InboundGroupSession {
         room_id: &RoomId,
         backup: BackedUpRoomKey,
     ) -> Result<Self, SessionCreationError> {
-        let session = InnerSession::import(&backup.session_key);
+        let session = InnerSession::import(&backup.session_key, SessionConfig::version_1());
         let session_id = session.session_id();
 
         Self::from_export(&ExportedRoomKey {
@@ -170,7 +170,7 @@ impl InboundGroupSession {
         let key = ExportedSessionKey::from_base64(&content.session_key)?;
         let algorithm = EventEncryptionAlgorithm::from(content.algorithm.as_str());
 
-        let session = InnerSession::import(&key);
+        let session = InnerSession::import(&key, SessionConfig::version_1());
 
         let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
@@ -469,7 +469,7 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
     type Error = SessionCreationError;
 
     fn try_from(key: &ExportedRoomKey) -> Result<Self, Self::Error> {
-        let session = InnerSession::import(&key.session_key);
+        let session = InnerSession::import(&key.session_key, SessionConfig::version_1());
         let first_known_index = session.first_known_index();
 
         Ok(InboundGroupSession {
