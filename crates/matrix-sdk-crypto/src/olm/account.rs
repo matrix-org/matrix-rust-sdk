@@ -38,7 +38,10 @@ use serde_json::{value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 use vodozemac::{
-    olm::{Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage},
+    olm::{
+        Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage,
+        SessionConfig,
+    },
     Curve25519PublicKey, Ed25519Signature, KeyId, PickleError,
 };
 
@@ -913,7 +916,11 @@ impl ReadOnlyAccount {
         one_time_key: Curve25519PublicKey,
         fallback_used: bool,
     ) -> Session {
-        let session = self.inner.lock().await.create_outbound_session(identity_key, one_time_key);
+        let session = self.inner.lock().await.create_outbound_session(
+            SessionConfig::version_1(),
+            identity_key,
+            one_time_key,
+        );
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = session.session_id();
