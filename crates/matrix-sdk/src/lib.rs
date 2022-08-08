@@ -54,3 +54,6 @@ pub use error::ImageError;
 pub use error::{Error, HttpError, HttpResult, RefreshTokenError, Result, RumaApiError};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
+
+#[cfg(test)]
+mod test_utils;
