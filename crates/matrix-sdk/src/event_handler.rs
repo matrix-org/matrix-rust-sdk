@@ -718,13 +718,17 @@ mod tests {
     };
     use serde_json::json;
 
-    use crate::{room, Client};
+    use crate::{
+        room::Room,
+        test_utils::{logged_in_client, no_retry_test_client},
+        Client,
+    };
 
     #[async_test]
     async fn add_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
-        let client = crate::client::tests::logged_in_client(None).await;
+        let client = logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
         let typing_count = Arc::new(AtomicU8::new(0));
@@ -733,7 +737,7 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -747,7 +751,7 @@ mod tests {
         });
         client.add_event_handler({
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
                 power_levels_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -820,7 +824,7 @@ mod tests {
     async fn add_room_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
-        let client = crate::client::tests::logged_in_client(None).await;
+        let client = logged_in_client(None).await;
 
         let room_id_a = room_id!("!foo:example.org");
         let room_id_b = room_id!("!bar:matrix.org");
@@ -831,14 +835,14 @@ mod tests {
         // Room event handlers for member events in both rooms
         client.add_room_event_handler(room_id_a, {
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
         });
         client.add_room_event_handler(room_id_b, {
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -847,7 +851,7 @@ mod tests {
         // Power levels event handlers for member events in room A
         client.add_room_event_handler(room_id_a, {
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: room::Room| {
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
                 power_levels_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -883,7 +887,7 @@ mod tests {
     async fn remove_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
-        let client = crate::client::tests::logged_in_client(None).await;
+        let client = logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
 
@@ -932,7 +936,7 @@ mod tests {
 
     #[async_test]
     async fn event_handler_drop_guard() {
-        let client = crate::client::tests::no_retry_test_client(None).await;
+        let client = no_retry_test_client(None).await;
 
         let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
         assert_eq!(client.event_handlers().len(), 1);

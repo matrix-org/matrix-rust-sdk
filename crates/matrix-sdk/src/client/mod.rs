@@ -2652,41 +2652,18 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::{api::MatrixVersion, device_id, user_id, UserId};
+    use ruma::UserId;
     use url::Url;
     use wiremock::{
         matchers::{header, method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::{Client, ClientBuilder, Session};
-    use crate::config::{RequestConfig, SyncSettings};
-
-    fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
-        let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
-        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
-    }
-
-    pub(crate) async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
-        test_client_builder(homeserver_url)
-            .request_config(RequestConfig::new().disable_retry())
-            .build()
-            .await
-            .unwrap()
-    }
-
-    pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
-        let session = Session {
-            access_token: "1234".to_owned(),
-            refresh_token: None,
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
-        };
-        let client = no_retry_test_client(homeserver_url).await;
-        client.restore_login(session).await.unwrap();
-
-        client
-    }
+    use super::Client;
+    use crate::{
+        config::{RequestConfig, SyncSettings},
+        test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
+    };
 
     #[async_test]
     async fn account_data() {
