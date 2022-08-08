@@ -32,7 +32,7 @@ use futures_signals::signal::Signal;
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
-    BaseClient, Session, SessionMeta, SessionTokens, StateStore,
+    BaseClient, FutureSendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
 };
 use matrix_sdk_common::{
     instant::{Duration, Instant},
@@ -110,7 +110,7 @@ const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
 
-type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+type NotificationHandlerFut = Pin<Box<dyn FutureSendOutsideWasm<Output = ()>>>;
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
 
