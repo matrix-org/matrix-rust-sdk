@@ -109,13 +109,20 @@ impl Common {
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Result<Left>>();
 
+        let user_id = if let Some(user_id) = self.client.user_id() {
+            user_id.to_owned()
+        } else {
+            return Err(Error::InconsistentState);
+        };
+
         let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room, client: Client| {
+            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
                 let tx = tx.clone();
+                let user_id = user_id.clone();
 
                 async move {
                     if (event.membership() == &MembershipState::Leave)
-                        && (event.state_key() == client.user_id().expect("user_id"))
+                        && (event.state_key() == &user_id)
                     {
                         debug!("received RoomMemberEvent corresponding to requested leave");
 

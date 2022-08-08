@@ -1607,15 +1607,19 @@ impl Client {
 
         let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
 
+        let user_id = if let Some(user_id) = self.user_id() {
+            user_id.to_owned()
+        } else {
+            return Err(Error::InconsistentState);
+        };
+
         let handle = self.add_room_event_handler(room_id, {
-            move |event: SyncStateEvent<RoomMemberEventContent>,
-                  room: room::Room,
-                  client: Client| {
+            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let tx = tx.clone();
+                let user_id = user_id.clone();
 
                 async move {
-                    if event.membership() == &MembershipState::Join
-                        && event.state_key() == client.user_id().expect("user_id")
+                    if event.membership() == &MembershipState::Join && event.state_key() == &user_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
 
@@ -1666,12 +1670,17 @@ impl Client {
         let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
         let (tx_room_id, rx_room_id) = watch::channel::<Option<OwnedRoomId>>(None);
 
+        let user_id = if let Some(user_id) = self.user_id() {
+            user_id.to_owned()
+        } else {
+            return Err(Error::InconsistentState);
+        };
+
         let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomMemberEventContent>,
-                  room: room::Room,
-                  client: Client| {
+            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
                 let tx = tx.clone();
                 let mut rx_room_id = rx_room_id.clone();
+                let user_id = user_id.clone();
 
                 async move {
                     while rx_room_id.borrow_and_update().is_none() {
@@ -1682,7 +1691,7 @@ impl Client {
                         rx_room_id.borrow().to_owned().expect("room_id not provided by channel");
 
                     if event.membership() == &MembershipState::Join
-                        && event.state_key() == client.user_id().expect("user_id")
+                        && event.state_key() == &user_id
                         && room.room_id() == room_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
@@ -1797,12 +1806,17 @@ impl Client {
         let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
         let (tx_room_id, rx_room_id) = watch::channel::<Option<OwnedRoomId>>(None);
 
+        let user_id = if let Some(user_id) = self.user_id() {
+            user_id.to_owned()
+        } else {
+            return Err(Error::InconsistentState);
+        };
+
         let handle = self.add_event_handler({
-            move |event: SyncStateEvent<RoomCreateEventContent>,
-                  room: room::Room,
-                  client: Client| {
+            move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
                 let tx = tx.clone();
                 let mut rx_room_id = rx_room_id.clone();
+                let user_id = user_id.clone();
 
                 async move {
                     while rx_room_id.borrow_and_update().is_none() {
@@ -1821,9 +1835,7 @@ impl Client {
                         return;
                     };
 
-                    if event_content.creator == client.user_id().expect("user_id")
-                        && room.room_id() == room_id
-                    {
+                    if event_content.creator == user_id && room.room_id() == room_id {
                         debug!(
                             "received RoomCreateEvent corresponding \
                              to requested to create room"
