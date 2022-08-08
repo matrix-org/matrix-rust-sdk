@@ -43,7 +43,10 @@ use std::{
     sync::atomic::Ordering::SeqCst,
 };
 
-use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
+use matrix_sdk_base::{
+    deserialized_responses::{EncryptionInfo, SyncRoomEvent},
+    FutureSendOutsideWasm, SendOutsideWasm,
+};
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
@@ -51,7 +54,7 @@ use tracing::{error, warn};
 
 use crate::{room, Client};
 
-type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+type EventHandlerFut = Pin<Box<dyn FutureSendOutsideWasm<Output = ()>>>;
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
 
 #[doc(hidden)]
@@ -181,7 +184,7 @@ impl EventHandlerContext for EventHandlerHandle {
 pub trait EventHandler<Ev, Ctx>: Send + Sync + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
-    type Future: Future + Send + 'static;
+    type Future: Future + SendOutsideWasm + 'static;
 
     /// Create a future for handling the given event.
     ///
@@ -540,7 +543,7 @@ macro_rules! impl_event_handler {
         where
             Ev: SyncEvent,
             Fun: Fn(Ev, $($ty),*) -> Fut + Send + Sync + 'static,
-            Fut: Future + Send + 'static,
+            Fut: Future + SendOutsideWasm + 'static,
             Fut::Output: EventHandlerResult,
             $($ty: EventHandlerContext),*
         {
@@ -948,5 +951,21 @@ mod tests {
         }
 
         assert_eq!(client.event_handlers().len(), 0);
+    }
+
+    #[async_test]
+    async fn use_client_in_handler() {
+        // This used to not work because we were requiring `Send` of event
+        // handler futures even on WASM, where practically all futures that do
+        // I/O aren't.
+        let client = no_retry_test_client(None).await;
+
+        client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent, client: Client| async move {
+            // All of Client's async methods that do network requests (and
+            // possibly some that don't) are `!Send` on wasm. We obviously want
+            // to be able to use them in event handlers.
+            let _caps = client.get_capabilities().await?;
+            anyhow::Ok(())
+        });
     }
 }
