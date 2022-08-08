@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
 
+use futures_channel::mpsc;
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
+use futures_util::{SinkExt, TryStreamExt};
 use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{
@@ -44,7 +46,6 @@ use ruma::{
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::{
@@ -107,17 +108,17 @@ impl Common {
     pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<Result<Left>>();
+        let (tx, mut rx) = mpsc::channel::<Result<Left>>(1);
 
         let user_id = if let Some(user_id) = self.client.user_id() {
             user_id.to_owned()
         } else {
-            return Err(Error::InconsistentState);
+            return Err(Error::AuthenticationRequired);
         };
 
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
-                let tx = tx.clone();
+                let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
@@ -133,10 +134,10 @@ impl Common {
                             Err(Error::InconsistentState)
                         };
 
-                        if let Err(e) = tx.send(left_result) {
+                        if let Err(e) = tx.send(left_result).await {
                             debug!(
                                 "Sending event from event_handler failed, \
-                                    receiver already dropped: {}",
+                                    receiver not ready: {}",
                                 e
                             );
                         }
@@ -149,7 +150,9 @@ impl Common {
 
         self.client.send(request, None).await?;
 
-        rx.recv().await.expect("receive joined room result from event handler")
+        let option = TryStreamExt::try_next(&mut rx).await?;
+
+        Ok(option.expect("receive joined room result from event handler"))
     }
 
     /// Join this room.

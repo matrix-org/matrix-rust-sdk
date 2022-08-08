@@ -27,8 +27,10 @@ use anymap2::any::CloneAnySendSync;
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
+use futures_channel::mpsc;
 use futures_core::stream::Stream;
 use futures_signals::signal::Signal;
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
@@ -81,7 +83,6 @@ use ruma::{
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
-use tokio::sync::{mpsc, watch};
 #[cfg(feature = "e2e-encryption")]
 use tracing::error;
 use tracing::{debug, info, instrument, warn};
@@ -1610,12 +1611,12 @@ impl Client {
         let user_id = if let Some(user_id) = self.user_id() {
             user_id.to_owned()
         } else {
-            return Err(Error::InconsistentState);
+            return Err(Error::AuthenticationRequired);
         };
 
         let handle = self.add_room_event_handler(room_id, {
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
-                let tx = tx.clone();
+                let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
@@ -1633,7 +1634,7 @@ impl Client {
                         if let Err(e) = tx.send(joined_result).await {
                             debug!(
                                 "Sending event from event_handler failed, \
-                                 receiver already dropped: {}",
+                                 receiver not ready: {}",
                                 e
                             );
                         }
@@ -1646,7 +1647,9 @@ impl Client {
 
         self.send(request, None).await?;
 
-        rx.recv().await.expect("receive joined room result from event handler")
+        let option = TryStreamExt::try_next(&mut rx).await?;
+
+        Ok(option.expect("receive joined room result from event handler"))
     }
 
     /// Join a room by `RoomId`.
@@ -1667,46 +1670,26 @@ impl Client {
             server_name: server_names,
         });
 
-        let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
-        let (tx_room_id, rx_room_id) = watch::channel::<Option<OwnedRoomId>>(None);
+        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
 
         let user_id = if let Some(user_id) = self.user_id() {
             user_id.to_owned()
         } else {
-            return Err(Error::InconsistentState);
+            return Err(Error::AuthenticationRequired);
         };
 
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
-                let tx = tx.clone();
-                let mut rx_room_id = rx_room_id.clone();
+                let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    while rx_room_id.borrow_and_update().is_none() {
-                        rx_room_id.changed().await.expect("receive error for room_id");
-                    }
-
-                    let room_id =
-                        rx_room_id.borrow().to_owned().expect("room_id not provided by channel");
-
-                    if event.membership() == &MembershipState::Join
-                        && event.state_key() == &user_id
-                        && room.room_id() == room_id
+                    if event.membership() == &MembershipState::Join && event.state_key() == &user_id
                     {
-                        debug!("received RoomMemberEvent corresponding to requested join");
-
-                        let joined_result = if let room::Room::Joined(joined_room) = room {
-                            Ok(joined_room)
-                        } else {
-                            warn!("Corresponding Room not in state: joined");
-                            Err(Error::InconsistentState)
-                        };
-
-                        if let Err(e) = tx.send(joined_result).await {
+                        if let Err(e) = tx.send(room).await {
                             debug!(
                                 "Sending event from event_handler failed, \
-                                 receiver already dropped: {}",
+                                 receiver not ready: {}",
                                 e
                             );
                         }
@@ -1718,9 +1701,26 @@ impl Client {
         let _guard = self.event_handler_drop_guard(handle);
 
         let response = self.send(request, None).await?;
-        tx_room_id.send(Some(response.room_id)).expect("send error for room_id");
+        let room_id = response.room_id;
 
-        rx.recv().await.expect("receive joined room result from event handler")
+        loop {
+            let room = StreamExt::next(&mut rx)
+                .await
+                .expect("receive joined room result from event handler");
+
+            if room.room_id() != room_id {
+                continue;
+            }
+
+            debug!("received RoomMemberEvent corresponding to requested join");
+
+            if let room::Room::Joined(joined_room) = room {
+                return Ok(joined_room);
+            } else {
+                warn!("Corresponding Room not in state: joined");
+                return Err(Error::InconsistentState);
+            };
+        }
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1803,29 +1803,20 @@ impl Client {
     ) -> Result<room::Joined> {
         let request = room.into();
 
-        let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
-        let (tx_room_id, rx_room_id) = watch::channel::<Option<OwnedRoomId>>(None);
+        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
 
         let user_id = if let Some(user_id) = self.user_id() {
             user_id.to_owned()
         } else {
-            return Err(Error::InconsistentState);
+            return Err(Error::AuthenticationRequired);
         };
 
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
-                let tx = tx.clone();
-                let mut rx_room_id = rx_room_id.clone();
+                let mut tx = tx.clone();
                 let user_id = user_id.clone();
 
                 async move {
-                    while rx_room_id.borrow_and_update().is_none() {
-                        rx_room_id.changed().await.expect("receive error for room_id");
-                    }
-
-                    let room_id =
-                        rx_room_id.borrow().to_owned().expect("room_id not provided by channel");
-
                     let event_content = if let Some(original_event) = event.as_original() {
                         &original_event.content
                     } else {
@@ -1835,23 +1826,11 @@ impl Client {
                         return;
                     };
 
-                    if event_content.creator == user_id && room.room_id() == room_id {
-                        debug!(
-                            "received RoomCreateEvent corresponding \
-                             to requested to create room"
-                        );
-
-                        let joined_result = if let room::Room::Joined(joined_room) = room {
-                            Ok(joined_room)
-                        } else {
-                            warn!("Corresponding Room not in state: joined");
-                            Err(Error::InconsistentState)
-                        };
-
-                        if let Err(e) = tx.send(joined_result).await {
+                    if event_content.creator == user_id {
+                        if let Err(e) = tx.send(room).await {
                             debug!(
                                 "Sending event from event_handler failed, \
-                                 receiver already dropped: {}",
+                                 receiver not ready: {}",
                                 e
                             );
                         }
@@ -1863,9 +1842,29 @@ impl Client {
         let _guard = self.event_handler_drop_guard(handle);
 
         let response = self.send(request, None).await?;
-        tx_room_id.send(Some(response.room_id)).expect("send error for room_id");
+        let room_id = response.room_id;
 
-        rx.recv().await.expect("receive joined room result from event handler")
+        loop {
+            let room = StreamExt::next(&mut rx)
+                .await
+                .expect("receive joined room result from event handler");
+
+            if room.room_id() != room_id {
+                continue;
+            }
+
+            debug!(
+                "received RoomCreateEvent corresponding \
+                 to requested to create room"
+            );
+
+            if let room::Room::Joined(joined_room) = room {
+                return Ok(joined_room);
+            } else {
+                warn!("Corresponding Room not in state: joined");
+                return Err(Error::InconsistentState);
+            };
+        }
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
