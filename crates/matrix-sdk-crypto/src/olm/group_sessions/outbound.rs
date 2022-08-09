@@ -283,7 +283,7 @@ impl OutboundGroupSession {
         });
 
         let plaintext = json_content.to_string();
-        let relates_to = content.get("relates_to").cloned();
+        let relates_to = content.get("m.relates_to").cloned();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
