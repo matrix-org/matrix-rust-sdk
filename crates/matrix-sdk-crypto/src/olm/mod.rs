@@ -49,11 +49,12 @@ pub(crate) mod tests {
         },
         room_id, user_id, DeviceId, UserId,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
     use vodozemac::{olm::OlmMessage, Curve25519PublicKey};
 
     use crate::{
         olm::{ExportedRoomKey, InboundGroupSession, ReadOnlyAccount, Session},
+        types::events::room::encrypted::EncryptedEvent,
         utilities::json_convert,
     };
 
@@ -238,6 +239,78 @@ pub(crate) mod tests {
         } else {
             panic!("Invalid event type")
         }
+    }
+
+    #[async_test]
+    async fn relates_to_decryption() {
+        let alice = ReadOnlyAccount::new(alice_id(), alice_device_id());
+        let room_id = room_id!("!test:localhost");
+        let event_id = event_id!("$1234adfad:asdf");
+
+        let relation_json = json!({
+            "rel_type": "m.reference",
+            "event_id": "$WUreEJERkFzO8i2dk6CmTex01cP1dZ4GWKhKCwkWHrQ"
+        });
+
+        let (outbound, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
+
+        // We first test that we're copying the relation from the content that
+        // will be encrypted to the content that will stay plaintext.
+        let content = json!({
+            "m.relates_to": relation_json,
+        });
+        let encrypted = outbound.encrypt(content, "m.dummy").await;
+
+        let event = json!({
+            "sender": alice.user_id(),
+            "event_id": event_id,
+            "origin_server_ts": 0u64,
+            "room_id": room_id,
+            "type": "m.room.encrypted",
+            "content": encrypted,
+        });
+        let event: EncryptedEvent = json_convert(&event).unwrap();
+
+        assert_eq!(
+            event.content.relates_to.as_ref(),
+            Some(&relation_json),
+            "The encrypted event should contain an unencrypted relation"
+        );
+
+        let (decrypted, _) = inbound.decrypt(&event).await.unwrap();
+
+        let decrypted: Value = json_convert(&decrypted).unwrap();
+        let relation = decrypted.get("content").and_then(|c| c.get("m.relates_to"));
+        assert_eq!(relation, Some(&relation_json), "The decrypted event should contain a relation");
+
+        let content = json!({});
+        let encrypted = outbound.encrypt(content, "m.dummy").await;
+        let mut encrypted: Value = json_convert(&encrypted).unwrap();
+        encrypted.as_object_mut().unwrap().insert("m.relates_to".to_owned(), relation_json.clone());
+
+        // Let's now test if we copy the correct relation if there is no
+        // relation in the encrypted content.
+        let event = json!({
+            "sender": alice.user_id(),
+            "event_id": event_id,
+            "origin_server_ts": 0u64,
+            "room_id": room_id,
+            "type": "m.room.encrypted",
+            "content": encrypted,
+        });
+        let event: EncryptedEvent = json_convert(&event).unwrap();
+
+        assert_eq!(
+            event.content.relates_to,
+            Some(relation_json),
+            "The encrypted event should contain an unencrypted relation"
+        );
+
+        let (decrypted, _) = inbound.decrypt(&event).await.unwrap();
+
+        let decrypted: Value = json_convert(&decrypted).unwrap();
+        let relation = decrypted.get("content").and_then(|c| c.get("m.relates_to"));
+        assert!(relation.is_some(), "The decrypted event should contain a relation");
     }
 
     #[async_test]
