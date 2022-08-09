@@ -57,6 +57,7 @@ impl Invited {
     }
 
     /// Accept the invitation.
+    #[doc = concat!("\n\n", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md")))]
     pub async fn accept_invitation(&self) -> Result<Joined> {
         self.inner.join().await
     }

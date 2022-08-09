@@ -1,0 +1,1 @@
+This method requires a running sync to complete.

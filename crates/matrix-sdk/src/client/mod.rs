@@ -1597,9 +1597,9 @@ impl Client {
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a `join_room_by_id::Response` consisting of the
-    /// joined rooms `RoomId`.
-    ///
+    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
+    /// if successful.
+    #[doc = concat!("\n\n", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md")))]
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
@@ -1654,9 +1654,9 @@ impl Client {
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
-    /// joined rooms `RoomId`.
-    ///
+    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
+    /// if successful.
+    #[doc = concat!("\n\n", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md")))]
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
@@ -1772,9 +1772,9 @@ impl Client {
 
     /// Create a room using the `RoomBuilder` and send the request.
     ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a
-    /// `create_room::Response`, this is an empty response.
-    ///
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a [`Result`]
+    /// containing an instance of [`Joined`][room::Joined] if successful.
+    #[doc = concat!("\n\n", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md")))]
     /// # Arguments
     ///
     /// * `room` - The easiest way to create this request is using the
