@@ -42,6 +42,8 @@ appservice = ["ruma/appservice-api-s"]
 image-proc = ["dep:image"]
 image-rayon = ["image-proc", "image?/jpeg_rayon"]
 
+experimental-timeline = []
+
 sliding-sync = [
     "matrix-sdk-base/sliding-sync",
     "anyhow",
@@ -70,6 +72,7 @@ futures-core = "0.3.21"
 futures-signals = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3.21", default-features = false }
 http = "0.2.6"
+indexmap = "1.9.1"
 matrix-sdk-base = { version = "0.6.0", path = "../matrix-sdk-base", default_features = false }
 matrix-sdk-common = { version = "0.6.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.2.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
@@ -107,7 +110,7 @@ features = [
 optional = true
 
 [dependencies.ruma]
-version = "0.7.0"
+version = "0.7.4"
 features = ["client-api-c", "compat", "rand", "unstable-msc2448", "unstable-msc2965"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -120,6 +123,7 @@ tokio = { version = "1.17.0", default-features = false, features = ["fs", "rt"] 
 
 [dev-dependencies]
 anyhow = "1.0.57"
+assert_matches = "1.5.0"
 dirs = "4.0.0"
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 matches = "0.1.9"

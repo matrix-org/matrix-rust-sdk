@@ -37,6 +37,8 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 
+#[cfg(feature = "experimental-timeline")]
+use super::timeline::Timeline;
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
     media::{MediaFormat, MediaRequest},
@@ -249,6 +251,16 @@ impl Common {
         <H::Future as Future>::Output: EventHandlerResult,
     {
         self.client.add_room_event_handler(self.room_id(), handler)
+    }
+
+    /// Get a [`Timeline`] for this room.
+    ///
+    /// This offers a higher-level API than event handlers, in treating things
+    /// like edits and reactions as updates of existing items rather than new
+    /// independent events.
+    #[cfg(feature = "experimental-timeline")]
+    pub fn timeline(&self) -> Timeline {
+        Timeline::new(self)
     }
 
     /// Fetch the event with the given `EventId` in this room.

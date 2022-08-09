@@ -1,5 +1,7 @@
 use std::{env, process::exit, sync::Mutex, time::Duration};
 
+use futures::StreamExt;
+use futures_signals::signal_vec::SignalVecExt;
 use matrix_sdk::{
     self,
     config::SyncSettings,
@@ -7,6 +9,7 @@ use matrix_sdk::{
     ruma::{
         api::client::filter::{FilterDefinition, LazyLoadOptions},
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
+        uint,
     },
     Client, LoopCtrl,
 };
@@ -44,8 +47,29 @@ fn _event_content(event: AnySyncTimelineEvent) -> Option<String> {
     }
 }
 
-async fn print_timeline(_room: Room) {
-    // TODO
+async fn print_timeline(room: Room) {
+    let timeline = room.timeline();
+    let mut timeline_stream = timeline.signal().to_stream();
+    tokio::spawn(async move {
+        while let Some(_diff) = timeline_stream.next().await {
+            // Is a straight-forward CLI example of dynamic timeline items
+            // possible?? let event = event.unwrap();
+            //if let Some(content) =
+            // event_content(event.event.deserialize().unwrap()) {
+            //    println!("{content}");
+            //}
+        }
+    });
+
+    loop {
+        match timeline.paginate_backwards(uint!(10)).await {
+            Ok(outcome) if !outcome.more_messages => break,
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("error paginating: {e}");
+            }
+        }
+    }
 }
 
 #[tokio::main]

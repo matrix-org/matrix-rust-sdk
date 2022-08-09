@@ -13,6 +13,16 @@ mod client;
 mod refresh_token;
 mod room;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[ctor::ctor]
+fn init_logging() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .init();
+}
+
 async fn test_client_builder() -> (ClientBuilder, MockServer) {
     let server = MockServer::start().await;
     let builder =
