@@ -153,6 +153,26 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
                                             .expect("Can't accept verification request");
                                     }
                                 }
+                                AnySyncMessageLikeEvent::KeyVerificationStart(
+                                    SyncMessageLikeEvent::Original(e),
+                                ) => {
+                                    if let Some(Verification::SasV1(sas)) = client
+                                        .encryption()
+                                        .get_verification(
+                                            &e.sender,
+                                            e.content.relates_to.event_id.as_str(),
+                                        )
+                                        .await
+                                    {
+                                        println!(
+                                            "Starting verification with {} {}",
+                                            &sas.other_device().user_id(),
+                                            &sas.other_device().device_id()
+                                        );
+                                        print_devices(&e.sender, client).await;
+                                        sas.accept().await.unwrap();
+                                    }
+                                }
                                 AnySyncMessageLikeEvent::KeyVerificationKey(
                                     SyncMessageLikeEvent::Original(e),
                                 ) => {
@@ -167,7 +187,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
                                         tokio::spawn(wait_for_confirmation((*client).clone(), sas));
                                     }
                                 }
-                                AnySyncMessageLikeEvent::KeyVerificationMac(
+                                AnySyncMessageLikeEvent::KeyVerificationDone(
                                     SyncMessageLikeEvent::Original(e),
                                 ) => {
                                     if let Some(Verification::SasV1(sas)) = client
