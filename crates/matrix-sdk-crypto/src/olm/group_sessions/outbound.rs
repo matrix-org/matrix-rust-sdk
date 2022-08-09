@@ -295,7 +295,7 @@ impl OutboundGroupSession {
         }
         .into();
 
-        let content = RoomEncryptedEventContent { scheme, relates_to };
+        let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
 
         Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
     }

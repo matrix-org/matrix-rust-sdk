@@ -128,8 +128,12 @@ pub struct RoomEncryptedEventContent {
     pub scheme: RoomEventEncryptionScheme,
 
     /// Information about related events.
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "m.relates_to", skip_serializing_if = "Option::is_none")]
     pub relates_to: Option<Value>,
+
+    /// The other data of the encryped content.
+    #[serde(flatten)]
+    pub(crate) other: BTreeMap<String, Value>,
 }
 
 impl RoomEncryptedEventContent {
@@ -331,7 +335,11 @@ pub(crate) mod test {
                 "ciphertext": "AwgAEiBQs2LgBD2CcB+RLH2bsgp9VadFUJhBXOtCmcJuttBD\
                                OeDNjL21d9z0AcVSfQFAh9huh4or7sWuNrHcvu9/sMbweTgc\
                                0UtdA5xFLheubHouXy4aewze+ShndWAaTbjWJMLsPSQDUMQH\
-                               BA"
+                               BA",
+                "m.relates_to": {
+                    "rel_type": "m.reference",
+                    "event_id": "$WUreEJERkFzO8i2dk6CmTex01cP1dZ4GWKhKCwkWHrQ"
+                },
             },
             "type": "m.room.encrypted",
             "origin_server_ts": 1632491098485u64,
@@ -370,6 +378,7 @@ pub(crate) mod test {
         let event: EncryptedEvent = serde_json::from_value(json.clone())?;
 
         assert_matches!(event.content.scheme, RoomEventEncryptionScheme::MegolmV1AesSha2(_));
+        assert!(event.content.relates_to.is_some());
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
 
@@ -392,6 +401,7 @@ pub(crate) mod test {
         let event: EncryptedToDeviceEvent = serde_json::from_value(json.clone())?;
 
         assert_matches!(event.content, ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(_));
+
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
 
