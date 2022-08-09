@@ -4,6 +4,7 @@
 Fo = "Fo"
 BA = "BA"
 UE = "UE"
+Ure = "Ure"
 
 [files]
 # Our json files contain a bunch of base64 encoded ed25519 keys which aren't
