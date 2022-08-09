@@ -180,6 +180,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_matches"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
+
+[[package]]
 name = "assign"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1364,6 +1370,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
+ "futures-signals",
  "matrix-sdk",
  "tokio",
  "tracing-subscriber",
@@ -2302,6 +2309,7 @@ version = "0.6.0"
 dependencies = [
  "anyhow",
  "anymap2",
+ "assert_matches",
  "async-once-cell",
  "async-stream",
  "async-trait",
@@ -2320,6 +2328,7 @@ dependencies = [
  "getrandom 0.2.7",
  "http",
  "image 0.24.3",
+ "indexmap",
  "matches",
  "matrix-sdk-base",
  "matrix-sdk-common",
@@ -3660,9 +3669,9 @@ dependencies = [
 
 [[package]]
 name = "ruma"
-version = "0.7.1"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3daa593bddbe225bc78760329afaba54d0c653e015f18ce6405fa723ec0f34d5"
+checksum = "8dc348e3a4a18abc4e97fffa5e2e623f6edd50ba3a1dd5f47eb249fea713b69f"
 dependencies = [
  "assign",
  "js_int",
@@ -3686,9 +3695,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-client-api"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2709c891d277ef94d56657c3ec92ed464779dbfff055e518425eedf11d9ecb7"
+checksum = "5bcfd3a3853ffdd151fc228441dd9c9e3d835ac85560dface7abda50b3888791"
 dependencies = [
  "assign",
  "bytes",
@@ -3703,9 +3712,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-common"
-version = "0.10.1"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67dab5e934f2e280875cf3a863c14d876265bda169e4fd18334058e7307142d6"
+checksum = "a1e629a01f359234798531a99ba83997abd4c15a65b5bcb8354c4171b59c25be"
 dependencies = [
  "base64",
  "bytes",
@@ -3756,9 +3765,9 @@ dependencies = [
 
 [[package]]
 name = "ruma-macros"
-version = "0.10.1"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b3e5a61180840ebfdeb4bcc4dc4a0d0c21aa22f587360b16b785c79058d99f3"
+checksum = "9f7cd8cf8771aaca36042fb7659f4647b05e74a2058d843474dde5e51a56cd85"
 dependencies = [
  "once_cell",
  "proc-macro-crate",

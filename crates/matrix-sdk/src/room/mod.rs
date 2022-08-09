@@ -9,6 +9,8 @@ mod invited;
 mod joined;
 mod left;
 mod member;
+#[cfg(feature = "experimental-timeline")]
+pub mod timeline;
 
 pub use self::{
     common::{Common, Messages, MessagesOptions},
