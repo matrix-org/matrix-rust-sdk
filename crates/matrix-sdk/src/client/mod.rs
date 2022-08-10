@@ -1608,11 +1608,7 @@ impl Client {
 
         let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
 
-        let user_id = if let Some(user_id) = self.user_id() {
-            user_id.to_owned()
-        } else {
-            return Err(Error::AuthenticationRequired);
-        };
+        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
         let handle = self.add_room_event_handler(room_id, {
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
@@ -1620,7 +1616,7 @@ impl Client {
                 let user_id = user_id.clone();
 
                 async move {
-                    if event.membership() == &MembershipState::Join && event.state_key() == &user_id
+                    if event.membership() == &MembershipState::Join && *event.state_key() == user_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
 
@@ -1672,11 +1668,7 @@ impl Client {
 
         let (tx, mut rx) = mpsc::channel::<room::Room>(1);
 
-        let user_id = if let Some(user_id) = self.user_id() {
-            user_id.to_owned()
-        } else {
-            return Err(Error::AuthenticationRequired);
-        };
+        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
@@ -1684,7 +1676,7 @@ impl Client {
                 let user_id = user_id.clone();
 
                 async move {
-                    if event.membership() == &MembershipState::Join && event.state_key() == &user_id
+                    if event.membership() == &MembershipState::Join && *event.state_key() == user_id
                     {
                         if let Err(e) = tx.send(room).await {
                             debug!(
@@ -1805,11 +1797,7 @@ impl Client {
 
         let (tx, mut rx) = mpsc::channel::<room::Room>(1);
 
-        let user_id = if let Some(user_id) = self.user_id() {
-            user_id.to_owned()
-        } else {
-            return Err(Error::AuthenticationRequired);
-        };
+        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {

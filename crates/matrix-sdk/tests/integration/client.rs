@@ -24,7 +24,7 @@ use ruma::{
     assign, device_id,
     directory::Filter,
     events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
-    mxc_uri, room_id, uint, user_id, RoomOrAliasId,
+    mxc_uri, room_id, server_name, uint, user_id, RoomOrAliasId,
 };
 use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
 use url::Url;
@@ -393,7 +393,7 @@ async fn join_room_by_id() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({"room_id":  *test_json::DEFAULT_SYNC_ROOM_ID})),
+                .set_body_json(json!({ "room_id": *test_json::DEFAULT_SYNC_ROOM_ID })),
         )
         .mount(&server)
         .await;
@@ -428,15 +428,14 @@ async fn join_room_by_id_or_alias() {
         .and(header("authorization", "Bearer 1234"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({"room_id":  *test_json::DEFAULT_SYNC_ROOM_ID})),
+                .set_body_json(json!({ "room_id": *test_json::DEFAULT_SYNC_ROOM_ID })),
         )
         .mount(&server)
         .await;
 
     mock_sync(&server, &*test_json::SYNC, None).await;
 
-    let room_id_or_alias: &RoomOrAliasId =
-        <&RoomOrAliasId>::try_from(*test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+    let room_id_or_alias = <&RoomOrAliasId>::try_from(*test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
     let client_clone = client.clone();
 
@@ -446,7 +445,7 @@ async fn join_room_by_id_or_alias() {
     });
 
     let joined = client
-        .join_room_by_id_or_alias(room_id_or_alias, &["server.com".try_into().unwrap()])
+        .join_room_by_id_or_alias(room_id_or_alias, &[server_name!("server.com").to_owned()])
         .await
         .unwrap();
 

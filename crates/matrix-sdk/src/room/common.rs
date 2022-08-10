@@ -113,11 +113,7 @@ impl Common {
 
         let (tx, mut rx) = mpsc::channel::<Result<Left>>(1);
 
-        let user_id = if let Some(user_id) = self.client.user_id() {
-            user_id.to_owned()
-        } else {
-            return Err(Error::AuthenticationRequired);
-        };
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
 
         let handle = self.add_event_handler({
             move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
@@ -125,8 +121,8 @@ impl Common {
                 let user_id = user_id.clone();
 
                 async move {
-                    if (event.membership() == &MembershipState::Leave)
-                        && (event.state_key() == &user_id)
+                    if event.membership() == &MembershipState::Leave
+                        && *event.state_key() == user_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested leave");
 
@@ -140,7 +136,7 @@ impl Common {
                         if let Err(e) = tx.send(left_result).await {
                             debug!(
                                 "Sending event from event_handler failed, \
-                                    receiver not ready: {}",
+                                 receiver not ready: {}",
                                 e
                             );
                         }
