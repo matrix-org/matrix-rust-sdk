@@ -121,7 +121,7 @@ impl Common {
                 let user_id = user_id.clone();
 
                 async move {
-                    if event.membership() == &MembershipState::Leave
+                    if *event.membership() == MembershipState::Leave
                         && *event.state_key() == user_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested leave");

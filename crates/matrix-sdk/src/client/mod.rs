@@ -1616,7 +1616,7 @@ impl Client {
                 let user_id = user_id.clone();
 
                 async move {
-                    if event.membership() == &MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
                     {
                         debug!("received RoomMemberEvent corresponding to requested join");
 
@@ -1676,7 +1676,7 @@ impl Client {
                 let user_id = user_id.clone();
 
                 async move {
-                    if event.membership() == &MembershipState::Join && *event.state_key() == user_id
+                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
                     {
                         if let Err(e) = tx.send(room).await {
                             debug!(
