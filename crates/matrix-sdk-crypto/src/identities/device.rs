@@ -264,7 +264,7 @@ impl Device {
 
     /// Encrypt the given inbound group session as a forwarded room key for this
     /// device.
-    pub async fn encrypt_session(
+    pub async fn encrypt_room_key_for_forwarding(
         &self,
         session: InboundGroupSession,
         message_index: Option<u32>,
@@ -275,18 +275,7 @@ impl Device {
             session.export().await
         };
 
-        let content: ForwardedRoomKeyContent = if let Ok(c) = export.try_into() {
-            c
-        } else {
-            // TODO remove this panic.
-            panic!(
-                "Can't share session {} with device {} {}, key export can't \
-                 be converted to a forwarded room key content",
-                session.session_id(),
-                self.user_id(),
-                self.device_id()
-            );
-        };
+        let content: ForwardedRoomKeyContent = export.try_into()?;
 
         let event_type = content.event_type();
         let content = serde_json::to_value(content)?;

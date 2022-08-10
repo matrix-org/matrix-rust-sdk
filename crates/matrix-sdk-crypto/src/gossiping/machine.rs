@@ -410,6 +410,18 @@ impl GossipMachine {
 
                             Ok(None)
                         }
+                        Err(OlmError::SessionExport(e)) => {
+                            warn!(
+                                user_id = device.user_id().as_str(),
+                                device_id = device.device_id().as_str(),
+                                session_id = key_info.session_id.as_str(),
+                                "Can't serve a room key request, the session \
+                                can't be exported into a forwarded room key: \
+                                {:?}",
+                                e
+                            );
+                            Ok(None)
+                        }
                         Err(e) => Err(e),
                     }
                 }
@@ -458,7 +470,7 @@ impl GossipMachine {
         message_index: Option<u32>,
     ) -> OlmResult<Session> {
         let (used_session, content) =
-            device.encrypt_session(session.clone(), message_index).await?;
+            device.encrypt_room_key_for_forwarding(session.clone(), message_index).await?;
 
         let request = ToDeviceRequest::new(
             device.user_id(),

@@ -28,8 +28,8 @@ pub use account::{OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub(crate) use group_sessions::ShareState;
 pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, OutboundGroupSession,
-    PickledInboundGroupSession, PickledOutboundGroupSession, SessionCreationError, SessionKey,
-    ShareInfo,
+    PickledInboundGroupSession, PickledOutboundGroupSession, SessionCreationError,
+    SessionExportError, SessionKey, ShareInfo,
 };
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};

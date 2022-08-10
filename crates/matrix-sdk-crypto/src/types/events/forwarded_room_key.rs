@@ -127,7 +127,7 @@ pub struct ForwardedMegolmV1AesSha2Content {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UnknownRoomKeyContent {
     /// The algorithm of the unknown room key.
-    algorithm: EventEncryptionAlgorithm,
+    pub algorithm: EventEncryptionAlgorithm,
     /// The other data of the unknown room key.
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
