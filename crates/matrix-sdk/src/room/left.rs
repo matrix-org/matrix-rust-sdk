@@ -35,7 +35,7 @@ impl Left {
     }
 
     /// Join this room.
-    #[doc = concat!("\n\n", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md")))]
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub async fn join(&self) -> Result<Joined> {
         self.inner.join().await
     }

@@ -107,7 +107,7 @@ impl Common {
     /// Returns a [`Result`] containing an instance of [`Left`] if successful.
     ///
     /// Only invited and joined rooms can be left
-    #[doc = concat!("\n\n", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md")))]
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
 
@@ -163,7 +163,7 @@ impl Common {
     /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
     /// if successful.
     /// Only invited and left rooms can be joined via this method
-    #[doc = concat!("\n\n", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md")))]
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     pub(crate) async fn join(&self) -> Result<Joined> {
         self.client.join_room_by_id(self.room_id()).await
     }
