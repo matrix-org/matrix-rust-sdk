@@ -32,7 +32,7 @@ use futures_signals::signal::Signal;
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
-    BaseClient, FutureSendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore,
+    BaseClient, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::{Duration, Instant},
@@ -110,9 +110,17 @@ const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
 
-type NotificationHandlerFut = Pin<Box<dyn FutureSendOutsideWasm<Output = ()>>>;
+#[cfg(not(target_arch = "wasm32"))]
+type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
+
+#[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
+#[cfg(target_arch = "wasm32")]
+type NotificationHandlerFn =
+    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut>;
 
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
 
@@ -798,8 +806,11 @@ impl Client {
     /// [`room::Room`], [`Client`] for now.
     pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
     where
-        H: Fn(Notification, room::Room, Client) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        H: Fn(Notification, room::Room, Client) -> Fut
+            + SendOutsideWasm
+            + SyncOutsideWasm
+            + 'static,
+        Fut: Future<Output = ()> + SendOutsideWasm + 'static,
     {
         self.inner.notification_handlers.write().await.push(Box::new(
             move |notification, room, client| Box::pin((handler)(notification, room, client)),

@@ -45,7 +45,7 @@ use std::{
 
 use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, SyncRoomEvent},
-    FutureSendOutsideWasm, SendOutsideWasm,
+    SendOutsideWasm, SyncOutsideWasm,
 };
 use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -54,8 +54,15 @@ use tracing::{error, warn};
 
 use crate::{room, Client};
 
-type EventHandlerFut = Pin<Box<dyn FutureSendOutsideWasm<Output = ()>>>;
+#[cfg(not(target_arch = "wasm32"))]
+type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
+
+#[cfg(not(target_arch = "wasm32"))]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
+#[cfg(target_arch = "wasm32")]
+type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -181,7 +188,7 @@ impl EventHandlerContext for EventHandlerHandle {
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
-pub trait EventHandler<Ev, Ctx>: Send + Sync + 'static {
+pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
     type Future: Future + SendOutsideWasm + 'static;
@@ -542,7 +549,7 @@ macro_rules! impl_event_handler {
         impl<Ev, Fun, Fut, $($ty),*> EventHandler<Ev, ($($ty,)*)> for Fun
         where
             Ev: SyncEvent,
-            Fun: Fn(Ev, $($ty),*) -> Fut + Send + Sync + 'static,
+            Fun: Fn(Ev, $($ty),*) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
             Fut: Future + SendOutsideWasm + 'static,
             Fut::Output: EventHandlerResult,
             $($ty: EventHandlerContext),*
