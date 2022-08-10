@@ -17,6 +17,7 @@ use serde_json::Error as SerdeError;
 use thiserror::Error;
 
 use super::store::CryptoStoreError;
+use crate::olm::SessionExportError;
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -40,6 +41,11 @@ pub enum OlmError {
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
     SessionCreation(#[from] SessionCreationError),
+
+    /// The room key that should be exported can't be converted into a
+    /// `m.forwarded_room_key` event.
+    #[error(transparent)]
+    SessionExport(#[from] SessionExportError),
 
     /// The storage layer returned an error.
     #[error("failed to read or write to the crypto store {0}")]
