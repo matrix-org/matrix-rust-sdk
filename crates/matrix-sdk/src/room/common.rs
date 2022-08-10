@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, future::Future, ops::Deref, sync::Arc};
 
+use futures_channel::mpsc;
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
+use futures_util::{SinkExt, TryStreamExt};
 use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{
@@ -20,7 +22,7 @@ use ruma::{
     api::client::{
         config::set_global_account_data,
         filter::RoomEventFilter,
-        membership::{get_member_events, join_room_by_id, leave_room},
+        membership::{get_member_events, leave_room},
         message::get_message_events::{self, v3::Direction},
         room::get_room_event,
         tag::{create_tag, delete_tag},
@@ -29,7 +31,9 @@ use ruma::{
     events::{
         direct::DirectEvent,
         room::{
-            history_visibility::HistoryVisibility, server_acl::RoomServerAclEventContent,
+            history_visibility::HistoryVisibility,
+            member::{MembershipState, RoomMemberEventContent},
+            server_acl::RoomServerAclEventContent,
             MediaSource,
         },
         tag::{TagInfo, TagName},
@@ -42,11 +46,12 @@ use ruma::{
     uint, EventId, MatrixToUri, MatrixUri, OwnedEventId, OwnedServerName, RoomId, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
+use tracing::{debug, warn};
 
 use crate::{
     event_handler::{EventHandler, EventHandlerHandle, EventHandlerResult, SyncEvent},
     media::{MediaFormat, MediaRequest},
-    room::RoomType,
+    room::{Joined, Left, Room, RoomType},
     BaseRoom, Client, Error, HttpError, HttpResult, Result, RoomMember,
 };
 
@@ -99,22 +104,64 @@ impl Common {
 
     /// Leave this room.
     ///
+    /// Returns a [`Result`] containing an instance of [`Left`] if successful.
+    ///
     /// Only invited and joined rooms can be left
-    pub(crate) async fn leave(&self) -> Result<()> {
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    pub(crate) async fn leave(&self) -> Result<Left> {
         let request = leave_room::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
 
-        Ok(())
+        let (tx, mut rx) = mpsc::channel::<Result<Left>>(1);
+
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
+
+        let handle = self.add_event_handler({
+            move |event: SyncStateEvent<RoomMemberEventContent>, room: Room| {
+                let mut tx = tx.clone();
+                let user_id = user_id.clone();
+
+                async move {
+                    if *event.membership() == MembershipState::Leave
+                        && *event.state_key() == user_id
+                    {
+                        debug!("received RoomMemberEvent corresponding to requested leave");
+
+                        let left_result = if let Room::Left(left_room) = room {
+                            Ok(left_room)
+                        } else {
+                            warn!("Corresponding Room not in state: left");
+                            Err(Error::InconsistentState)
+                        };
+
+                        if let Err(e) = tx.send(left_result).await {
+                            debug!(
+                                "Sending event from event_handler failed, \
+                                 receiver not ready: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        let _guard = self.client.event_handler_drop_guard(handle);
+
+        self.client.send(request, None).await?;
+
+        let option = TryStreamExt::try_next(&mut rx).await?;
+
+        Ok(option.expect("receive joined room result from event handler"))
     }
 
     /// Join this room.
     ///
+    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
+    /// if successful.
     /// Only invited and left rooms can be joined via this method
-    pub(crate) async fn join(&self) -> Result<()> {
-        let request = join_room_by_id::v3::Request::new(self.inner.room_id());
-        let _response = self.client.send(request, None).await?;
-
-        Ok(())
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    pub(crate) async fn join(&self) -> Result<Joined> {
+        self.client.join_room_by_id(self.room_id()).await
     }
 
     /// Gets the avatar of this room, if set.

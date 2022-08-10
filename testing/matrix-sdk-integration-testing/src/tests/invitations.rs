@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{bail, Result};
 use assign::assign;
 use matrix_sdk::{
@@ -18,12 +20,19 @@ async fn test_invitation_details() -> Result<()> {
         is_direct: true,
     });
 
-    let response = tamatoa.create_room(request).await?;
-    let room_id = response.room_id;
+    let tamatoa_clone = tamatoa.clone();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        tamatoa_clone.sync_once(Default::default()).await
+    });
+
+    let created_room = tamatoa.create_room(request).await?;
 
     // the actual test
     sebastian.sync_once(Default::default()).await?;
-    let room = sebastian.get_room(&room_id).expect("Sebstian doesn't know about the room");
+    let room =
+        sebastian.get_room(created_room.room_id()).expect("Sebstian doesn't know about the room");
 
     if let Room::Invited(iv) = room {
         let details = iv.invite_details().await?;

@@ -40,7 +40,7 @@ use crate::{attachment::generate_image_thumbnail, error::ImageError};
 use crate::{
     attachment::{AttachmentConfig, Thumbnail},
     error::HttpResult,
-    room::Common,
+    room::{Common, Left},
     BaseRoom, Client, Result, RoomType,
 };
 
@@ -83,7 +83,7 @@ impl Joined {
     }
 
     /// Leave this room.
-    pub async fn leave(&self) -> Result<()> {
+    pub async fn leave(&self) -> Result<Left> {
         self.inner.leave().await
     }
 
