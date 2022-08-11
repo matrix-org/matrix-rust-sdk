@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-
 use ruma::{encryption::KeyUsage, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
@@ -24,7 +22,7 @@ use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     olm::utility::SignJson,
-    types::{CrossSigningKey, DeviceKeys, Signatures},
+    types::{CrossSigningKey, DeviceKeys, Signatures, SigningKeys},
     utilities::{encode, DecodeError},
     ReadOnlyUserIdentity,
 };
@@ -298,7 +296,7 @@ impl Signing {
     }
 
     pub fn cross_signing_key(&self, user_id: OwnedUserId, usage: KeyUsage) -> CrossSigningKey {
-        let keys = BTreeMap::from([(
+        let keys = SigningKeys::from([(
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
                 self.public_key().to_base64().as_str().into(),
