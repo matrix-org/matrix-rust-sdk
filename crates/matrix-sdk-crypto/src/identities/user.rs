@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map::Iter, BTreeMap},
+    collections::btree_map::Iter,
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -38,7 +38,7 @@ use crate::{
     error::SignatureError,
     olm::VerifyJson,
     store::{Changes, IdentityChanges},
-    types::{CrossSigningKey, DeviceKeys, Signatures, SigningKey},
+    types::{CrossSigningKey, DeviceKeys, Signatures, SigningKey, SigningKeys},
     verification::VerificationMachine,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
@@ -392,7 +392,7 @@ impl MasterPubkey {
     }
 
     /// Get the keys map of containing the master keys.
-    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, SigningKey> {
+    pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
         &self.0.keys
     }
 
@@ -491,7 +491,7 @@ impl UserSigningPubkey {
     }
 
     /// Get the keys map of containing the user signing keys.
-    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, SigningKey> {
+    pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
         &self.0.keys
     }
 
@@ -534,7 +534,7 @@ impl SelfSigningPubkey {
     }
 
     /// Get the keys map of containing the self signing keys.
-    pub fn keys(&self) -> &BTreeMap<OwnedDeviceKeyId, SigningKey> {
+    pub fn keys(&self) -> &SigningKeys<OwnedDeviceKeyId> {
         &self.0.keys
     }
 

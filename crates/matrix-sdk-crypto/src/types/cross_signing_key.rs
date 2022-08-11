@@ -27,13 +27,12 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
-use vodozemac::Ed25519PublicKey;
+use vodozemac::{Ed25519PublicKey, KeyError};
 
-use super::Signatures;
+use super::{Signatures, SigningKeys};
 
 /// A cross signing key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(try_from = "CrossSigningKeyHelper", into = "CrossSigningKeyHelper")]
 pub struct CrossSigningKey {
     /// The ID of the user the key belongs to.
     pub user_id: OwnedUserId,
@@ -44,11 +43,12 @@ pub struct CrossSigningKey {
     /// The public key.
     ///
     /// The object must have exactly one property.
-    pub keys: BTreeMap<OwnedDeviceKeyId, SigningKey>,
+    pub keys: SigningKeys<OwnedDeviceKeyId>,
 
     /// Signatures of the key.
     ///
     /// Only optional for master key.
+    #[serde(default, skip_serializing_if = "Signatures::is_empty")]
     pub signatures: Signatures,
 
     #[serde(flatten)]
@@ -61,7 +61,7 @@ impl CrossSigningKey {
     pub fn new(
         user_id: OwnedUserId,
         usage: Vec<KeyUsage>,
-        keys: BTreeMap<OwnedDeviceKeyId, SigningKey>,
+        keys: SigningKeys<OwnedDeviceKeyId>,
         signatures: Signatures,
     ) -> Self {
         Self { user_id, usage, keys, signatures, other: BTreeMap::new() }
@@ -115,66 +115,20 @@ impl SigningKey {
             None
         }
     }
+
+    /// Try to create a `SigningKey` from an `DeviceKeyAlgorithm` and a string
+    /// containing the base64 encoded public key.
+    pub fn from_parts(algorithm: &DeviceKeyAlgorithm, key: String) -> Result<Self, KeyError> {
+        match algorithm {
+            DeviceKeyAlgorithm::Ed25519 => Ed25519PublicKey::from_base64(&key).map(|k| k.into()),
+            _ => Ok(Self::Unknown(key)),
+        }
+    }
 }
 
 impl From<Ed25519PublicKey> for SigningKey {
     fn from(val: Ed25519PublicKey) -> Self {
         SigningKey::Ed25519(val)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct CrossSigningKeyHelper {
-    pub user_id: OwnedUserId,
-    pub usage: Vec<KeyUsage>,
-    pub keys: BTreeMap<OwnedDeviceKeyId, String>,
-    #[serde(default, skip_serializing_if = "Signatures::is_empty")]
-    pub signatures: Signatures,
-    #[serde(flatten)]
-    other: BTreeMap<String, Value>,
-}
-
-impl TryFrom<CrossSigningKeyHelper> for CrossSigningKey {
-    type Error = vodozemac::KeyError;
-
-    fn try_from(value: CrossSigningKeyHelper) -> Result<Self, Self::Error> {
-        let keys: Result<BTreeMap<OwnedDeviceKeyId, SigningKey>, vodozemac::KeyError> = value
-            .keys
-            .into_iter()
-            .map(|(k, v)| {
-                let key = match k.algorithm() {
-                    DeviceKeyAlgorithm::Ed25519 => {
-                        SigningKey::Ed25519(Ed25519PublicKey::from_base64(&v)?)
-                    }
-                    _ => SigningKey::Unknown(v),
-                };
-
-                Ok((k, key))
-            })
-            .collect();
-
-        Ok(Self {
-            user_id: value.user_id,
-            usage: value.usage,
-            keys: keys?,
-            signatures: value.signatures,
-            other: value.other,
-        })
-    }
-}
-
-impl From<CrossSigningKey> for CrossSigningKeyHelper {
-    fn from(value: CrossSigningKey) -> Self {
-        let keys: BTreeMap<OwnedDeviceKeyId, String> =
-            value.keys.into_iter().map(|(k, v)| (k, v.to_base64())).collect();
-
-        Self {
-            user_id: value.user_id,
-            usage: value.usage,
-            keys,
-            signatures: value.signatures,
-            other: value.other,
-        }
     }
 }
 
