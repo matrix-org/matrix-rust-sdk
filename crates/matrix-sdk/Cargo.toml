@@ -126,6 +126,7 @@ default-features = false
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Upgrade once MSRV >= 1.61
 async-once-cell = "0.3.1"
 wasm-timer = "0.2.5"
 
