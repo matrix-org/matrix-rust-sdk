@@ -184,7 +184,7 @@ impl DeviceStore {
 mod tests {
     use matrix_sdk_test::async_test;
     use ruma::room_id;
-    use vodozemac::Curve25519PublicKey;
+    use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use crate::{
         identities::device::testing::get_device,
@@ -239,7 +239,7 @@ mod tests {
 
         let inbound = InboundGroupSession::new(
             Curve25519PublicKey::from_base64(curve_key).unwrap(),
-            "test_key",
+            Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap(),
             room_id,
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),

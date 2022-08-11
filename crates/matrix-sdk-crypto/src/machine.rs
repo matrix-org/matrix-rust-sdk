@@ -43,7 +43,7 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -551,7 +551,7 @@ impl OlmMachine {
     async fn add_room_key(
         &self,
         sender_key: Curve25519PublicKey,
-        signing_key: &str,
+        signing_key: Ed25519PublicKey,
         event: &RoomKeyEvent,
     ) -> OlmResult<Option<InboundGroupSession>> {
         let unsupported_warning = || {
@@ -739,7 +739,7 @@ impl OlmMachine {
         match event {
             ToDeviceEvents::RoomKey(e) => {
                 let session =
-                    self.add_room_key(decrypted.sender_key, &decrypted.signing_key, &e).await?;
+                    self.add_room_key(decrypted.sender_key, decrypted.signing_key, &e).await?;
                 decrypted.inbound_group_session = session;
             }
             ToDeviceEvents::ForwardedRoomKey(e) => {
@@ -1036,7 +1036,11 @@ impl OlmMachine {
             sender_device: device_id,
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: session.sender_key().to_base64(),
-                sender_claimed_keys: session.signing_keys().to_owned(),
+                sender_claimed_keys: session
+                    .signing_keys()
+                    .iter()
+                    .map(|(k, v)| (k.to_owned(), v.to_base64()))
+                    .collect(),
                 forwarding_curve25519_key_chain: session
                     .forwarding_key_chain()
                     .iter()

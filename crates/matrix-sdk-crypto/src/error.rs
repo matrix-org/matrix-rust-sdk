@@ -15,6 +15,7 @@
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
+use vodozemac::Ed25519PublicKey;
 
 use super::store::CryptoStoreError;
 use crate::olm::SessionExportError;
@@ -137,7 +138,7 @@ pub enum EventError {
         "the public that was part of the message doesn't match to the key we \
         have stored, expected {0}, got {0}"
     )]
-    MismatchedKeys(String, String),
+    MismatchedKeys(Box<Ed25519PublicKey>, Box<Ed25519PublicKey>),
 
     #[error(
         "the room id of the room key doesn't match the room id of the \
