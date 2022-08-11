@@ -26,6 +26,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine};
+use matrix_sdk_crypto::types::SigningKey;
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
@@ -259,7 +260,12 @@ pub fn migrate(
             signing_key: session
                 .signing_key
                 .into_iter()
-                .map(|(k, v)| Ok((DeviceKeyAlgorithm::try_from(k)?, v)))
+                .map(|(k, v)| {
+                    let algorithm = DeviceKeyAlgorithm::try_from(k)?;
+                    let key = SigningKey::from_parts(&algorithm, v)?;
+
+                    Ok((algorithm, key))
+                })
                 .collect::<anyhow::Result<_>>()?,
             room_id: RoomId::parse(session.room_id)?,
             forwarding_chains: forwarding_chains?,

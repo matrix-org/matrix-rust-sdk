@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-
 use ruma::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 
@@ -27,12 +25,12 @@ pub use outbound::{
 };
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
-use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey, Ed25519PublicKey};
+use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
 
 use crate::types::{
     deserialize_curve_key,
     events::forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
-    serialize_curve_key,
+    serialize_curve_key, SigningKey, SigningKeys,
 };
 
 /// An error type for the creation of group sessions.
@@ -55,9 +53,6 @@ pub enum SessionExportError {
     /// The provided algorithm is not supported.
     #[error("The provided algorithm is not supported: {0}")]
     Algorithm(EventEncryptionAlgorithm),
-    /// A public key could not be decoded, the key is invalid.
-    #[error(transparent)]
-    InvalidKey(#[from] vodozemac::KeyError),
     /// The session export is missing a claimed Ed25519 sender key.
     #[error("The provided room key export is missing a claimed Ed25519 sender key")]
     MissingEd25519Key,
@@ -87,7 +82,7 @@ pub struct ExportedRoomKey {
 
     /// The Ed25519 key of the device which initiated the session originally.
     #[serde(default)]
-    pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+    pub sender_claimed_keys: SigningKeys<DeviceKeyAlgorithm>,
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
@@ -112,7 +107,7 @@ pub struct BackedUpRoomKey {
     pub session_key: ExportedSessionKey,
 
     /// The Ed25519 key of the device which initiated the session originally.
-    pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+    pub sender_claimed_keys: SigningKeys<DeviceKeyAlgorithm>,
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
@@ -134,7 +129,7 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
         //
         // This isn't yet a problem since no other key types exist, but still
         // something that will need to be addressed sooner or later.
-        if let Some(claimed_ed25519_key) =
+        if let Some(SigningKey::Ed25519(claimed_ed25519_key)) =
             room_key.sender_claimed_keys.get(&DeviceKeyAlgorithm::Ed25519)
         {
             if room_key.algorithm == EventEncryptionAlgorithm::MegolmV1AesSha2 {
@@ -144,7 +139,7 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
                         session_id: room_key.session_id,
                         session_key: room_key.session_key,
                         claimed_sender_key: room_key.sender_key,
-                        claimed_ed25519_key: Ed25519PublicKey::from_base64(claimed_ed25519_key)?,
+                        claimed_ed25519_key: *claimed_ed25519_key,
                         forwarding_curve25519_key_chain: room_key
                             .forwarding_curve25519_key_chain
                             .clone(),
@@ -180,9 +175,9 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
     fn try_from(forwarded_key: ForwardedRoomKeyContent) -> Result<Self, Self::Error> {
         match forwarded_key {
             ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
-                let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
+                let mut sender_claimed_keys = SigningKeys::new();
                 sender_claimed_keys
-                    .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.to_base64());
+                    .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
 
                 Ok(Self {
                     algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,

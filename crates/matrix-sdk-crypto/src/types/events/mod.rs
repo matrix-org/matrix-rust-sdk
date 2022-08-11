@@ -19,11 +19,13 @@
 //! the type is dropped.
 
 pub mod forwarded_room_key;
+mod olm_v1;
 pub mod room;
 pub mod room_key;
 pub mod secret_send;
 mod to_device;
 
+pub use olm_v1::DecryptedOlmV1Event;
 use ruma::serde::Raw;
 pub use to_device::{ToDeviceCustomEvent, ToDeviceEvent, ToDeviceEvents};
 
