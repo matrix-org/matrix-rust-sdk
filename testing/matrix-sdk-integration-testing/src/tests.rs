@@ -2,18 +2,16 @@ use std::{collections::HashMap, option_env};
 
 use anyhow::Result;
 use assign::assign;
-use lazy_static::lazy_static;
 use matrix_sdk::{
     ruma::api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
     store::make_store_config,
     Client,
 };
+use once_cell::sync::Lazy;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::Mutex;
 
-lazy_static! {
-    static ref USERS: Mutex<HashMap<String, (Client, TempDir)>> = Mutex::new(HashMap::new());
-}
+static USERS: Lazy<Mutex<HashMap<String, (Client, TempDir)>>> = Lazy::new(Mutex::default);
 
 /// read the test configuration from the environment
 pub fn test_server_conf() -> (String, String) {
