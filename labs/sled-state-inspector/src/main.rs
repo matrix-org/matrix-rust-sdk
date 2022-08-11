@@ -12,7 +12,7 @@ use rustyline::{
     highlight::{Highlighter, MatchingBracketHighlighter},
     hint::{Hinter, HistoryHinter},
     validate::{MatchingBracketValidator, Validator},
-    CompletionType, Config, Context, EditMode, Editor, OutputStreamType,
+    CompletionType, Config, Context, EditMode, Editor,
 };
 use rustyline_derive::Helper;
 use serde::Serialize;
@@ -185,7 +185,8 @@ impl Printer {
             let mut h = HighlightLines::new(syntax, &self.ts.themes["Forest Night"]);
 
             for line in LinesWithEndings::from(&data) {
-                let ranges: Vec<(Style, &str)> = h.highlight(line, &self.ps);
+                let ranges: Vec<(Style, &str)> =
+                    h.highlight_line(line, &self.ps).expect("Failed to highlight line");
                 let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
                 print!("{escaped}");
             }
@@ -348,12 +349,12 @@ fn main() {
             .history_ignore_space(true)
             .completion_type(CompletionType::List)
             .edit_mode(EditMode::Emacs)
-            .output_stream(OutputStreamType::Stdout)
             .build();
 
         let helper = InspectorHelper::new(inspector.store.clone());
 
-        let mut rl = Editor::<InspectorHelper>::with_config(config);
+        let mut rl =
+            Editor::<InspectorHelper>::with_config(config).expect("Failed to create Editor");
         rl.set_helper(Some(helper));
 
         while let Ok(input) = rl.readline(">> ") {
