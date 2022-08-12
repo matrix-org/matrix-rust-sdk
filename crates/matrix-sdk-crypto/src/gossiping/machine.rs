@@ -828,7 +828,7 @@ impl GossipMachine {
         );
 
         if let Some(device) =
-            self.store.get_device_from_curve_key(&event.sender, &sender_key.to_base64()).await?
+            self.store.get_device_from_curve_key(&event.sender, sender_key).await?
         {
             // Only accept secrets from one of our own trusted devices.
             if device.user_id() == self.user_id() && device.verified() {

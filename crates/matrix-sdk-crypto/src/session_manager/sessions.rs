@@ -29,6 +29,7 @@ use ruma::{
     OwnedUserId, SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use tracing::{debug, error, info, warn};
+use vodozemac::Curve25519PublicKey;
 
 use crate::{
     error::OlmResult,
@@ -84,7 +85,11 @@ impl SessionManager {
         self.outgoing_to_device_requests.remove(id);
     }
 
-    pub async fn mark_device_as_wedged(&self, sender: &UserId, curve_key: &str) -> StoreResult<()> {
+    pub async fn mark_device_as_wedged(
+        &self,
+        sender: &UserId,
+        curve_key: Curve25519PublicKey,
+    ) -> StoreResult<()> {
         if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await? {
             let sessions = device.get_sessions().await?;
 
@@ -97,7 +102,7 @@ impl SessionManager {
                 if let Some(session) = session {
                     info!(
                         sender = sender.as_str(),
-                        sender_key = curve_key,
+                        sender_key = %curve_key,
                         "Marking session to be unwedged"
                     );
 
@@ -477,7 +482,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     async fn session_unwedging() {
         use matrix_sdk_common::instant::{Duration, SystemTime};
-        use ruma::{DeviceKeyAlgorithm, SecondsSinceUnixEpoch};
+        use ruma::SecondsSinceUnixEpoch;
 
         let manager = session_manager().await;
         let bob = bob_account();
@@ -492,11 +497,11 @@ mod tests {
 
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
 
-        let curve_key = bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap();
+        let curve_key = bob_device.curve25519_key().unwrap();
 
         assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
-        manager.mark_device_as_wedged(bob_device.user_id(), &curve_key.to_base64()).await.unwrap();
+        manager.mark_device_as_wedged(bob_device.user_id(), curve_key).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
 
