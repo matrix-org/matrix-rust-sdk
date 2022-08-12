@@ -894,7 +894,7 @@ impl OlmMachine {
                             if let OlmError::SessionWedged(sender, curve_key) = err {
                                 if let Err(e) = self
                                     .session_manager
-                                    .mark_device_as_wedged(&sender, &curve_key)
+                                    .mark_device_as_wedged(&sender, curve_key)
                                     .await
                                 {
                                     error!(

@@ -375,15 +375,11 @@ impl Store {
     pub async fn get_device_from_curve_key(
         &self,
         user_id: &UserId,
-        curve_key: &str,
+        curve_key: Curve25519PublicKey,
     ) -> Result<Option<Device>> {
-        if let Ok(curve_key) = Curve25519PublicKey::from_base64(curve_key) {
-            self.get_user_devices(user_id)
-                .await
-                .map(|d| d.devices().find(|d| d.curve25519_key().map_or(false, |k| k == curve_key)))
-        } else {
-            Ok(None)
-        }
+        self.get_user_devices(user_id)
+            .await
+            .map(|d| d.devices().find(|d| d.curve25519_key().map_or(false, |k| k == curve_key)))
     }
 
     /// Get all devices associated with the given `user_id`
