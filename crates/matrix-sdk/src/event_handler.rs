@@ -77,7 +77,6 @@ pub enum EventKind {
     OriginalState,
     RedactedState,
     StrippedState,
-    InitialState,
     ToDevice,
     Presence,
 }
@@ -678,14 +677,6 @@ mod static_events {
         C: StaticEventContent + StateEventContent,
     {
         const KIND: EventKind = EventKind::StrippedState;
-        const TYPE: &'static str = C::TYPE;
-    }
-
-    impl<C> SyncEvent for events::InitialStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent,
-    {
-        const KIND: EventKind = EventKind::InitialState;
         const TYPE: &'static str = C::TYPE;
     }
 
