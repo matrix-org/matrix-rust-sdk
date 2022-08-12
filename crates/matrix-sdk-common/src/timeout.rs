@@ -46,7 +46,7 @@ where
             Result::<T, ElapsedError>::Ok(output)
         };
 
-        return try_future.timeout(duration).await;
+        try_future.timeout(duration).await
     }
 }
 
