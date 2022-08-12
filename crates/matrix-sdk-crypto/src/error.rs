@@ -130,13 +130,13 @@ pub enum EventError {
 
     #[error(
         "the sender of the plaintext doesn't match the sender of the encrypted \
-        message, got {0}, expected {0}"
+        message, got {0}, expected {1}"
     )]
     MismatchedSender(OwnedUserId, OwnedUserId),
 
     #[error(
         "the public that was part of the message doesn't match to the key we \
-        have stored, expected {0}, got {0}"
+        have stored, expected {0}, got {1}"
     )]
     MismatchedKeys(Box<Ed25519PublicKey>, Box<Ed25519PublicKey>),
 
