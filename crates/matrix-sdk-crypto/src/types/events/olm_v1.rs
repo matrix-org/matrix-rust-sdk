@@ -12,15 +12,134 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::OwnedUserId;
+//! Module containing specialized event types that were decrypted using the Olm
+//! protocol
+
+use std::fmt::Debug;
+
+use ruma::{OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use vodozemac::Ed25519PublicKey;
 
-use crate::types::{deserialize_ed25519_key, serialize_ed25519_key};
+use super::{
+    forwarded_room_key::ForwardedRoomKeyContent, room_key::RoomKeyContent,
+    secret_send::SecretSendContent, EventType,
+};
+use crate::types::{deserialize_ed25519_key, events::from_str, serialize_ed25519_key};
+
+/// An `m.room_key` event that was decrypted using the
+/// `m.olm.v1.curve25519-aes-sha2` algorithm
+pub type DecryptedRoomKeyEvent = DecryptedOlmV1Event<RoomKeyContent>;
+
+/// An `m.forwarded_room_key` event that was decrypted using the
+/// `m.olm.v1.curve25519-aes-sha2` algorithm
+pub type DecryptedForwardedRoomKeyEvent = DecryptedOlmV1Event<ForwardedRoomKeyContent>;
+
+/// An `m.secret.send` event that was decrypted using the
+/// `m.olm.v1.curve25519-aes-sha2` algorithm
+pub type DecryptedSecretSendEvent = DecryptedOlmV1Event<SecretSendContent>;
+
+/// An enum over the various events that were decrypted using the
+/// `m.olm.v1.curve25519-aes-sha2` algorithm.
+#[derive(Debug)]
+pub enum AnyDecryptedOlmEvent {
+    /// The `m.room_key` decrypted to-device event.
+    RoomKey(DecryptedRoomKeyEvent),
+    /// The `m.forwarded_room_key` decrypted to-device event.
+    ForwardedRoomKey(DecryptedForwardedRoomKeyEvent),
+    /// The `m.secret.send` decrypted to-device event.
+    SecretSend(DecryptedSecretSendEvent),
+    /// A decrypted to-device event of an unknown or custom type.
+    Custom(ToDeviceCustomEvent),
+}
+
+impl AnyDecryptedOlmEvent {
+    /// The sender of the event, as set by the sender of the event.
+    pub fn sender(&self) -> &UserId {
+        match self {
+            AnyDecryptedOlmEvent::RoomKey(e) => &e.sender,
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.sender,
+            AnyDecryptedOlmEvent::SecretSend(e) => &e.sender,
+            AnyDecryptedOlmEvent::Custom(e) => &e.sender,
+        }
+    }
+
+    /// The intended recipient of the event, as set by the sender of the event.
+    pub fn recipient(&self) -> &UserId {
+        match self {
+            AnyDecryptedOlmEvent::RoomKey(e) => &e.recipient,
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.recipient,
+            AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient,
+            AnyDecryptedOlmEvent::Custom(e) => &e.recipient,
+        }
+    }
+
+    /// The sender's signing keys of the encrypted event.
+    pub fn keys(&self) -> &OlmV1Keys {
+        match self {
+            AnyDecryptedOlmEvent::RoomKey(e) => &e.keys,
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.keys,
+            AnyDecryptedOlmEvent::SecretSend(e) => &e.keys,
+            AnyDecryptedOlmEvent::Custom(e) => &e.keys,
+        }
+    }
+
+    /// The recipient's signing keys of the encrypted event.
+    pub fn recipient_keys(&self) -> &OlmV1Keys {
+        match self {
+            AnyDecryptedOlmEvent::RoomKey(e) => &e.recipient_keys,
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => &e.recipient_keys,
+            AnyDecryptedOlmEvent::SecretSend(e) => &e.recipient_keys,
+            AnyDecryptedOlmEvent::Custom(e) => &e.recipient_keys,
+        }
+    }
+
+    /// The event type of the encrypted event.
+    pub fn event_type(&self) -> &str {
+        match self {
+            AnyDecryptedOlmEvent::Custom(e) => &e.event_type,
+            AnyDecryptedOlmEvent::RoomKey(e) => e.content.event_type(),
+            AnyDecryptedOlmEvent::ForwardedRoomKey(e) => e.content.event_type(),
+            AnyDecryptedOlmEvent::SecretSend(e) => e.content.event_type(),
+        }
+    }
+}
 
 /// An `m.olm.v1.curve25519-aes-sha2` decrypted to-device event.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct DecryptedOlmV1Event {
+pub struct DecryptedOlmV1Event<C>
+where
+    C: EventType + Debug + Sized + Serialize,
+{
+    /// The sender of the event, as set by the sender of the event.
+    pub sender: OwnedUserId,
+    /// The intended recipient of the event, as set by the sender of the event.
+    pub recipient: OwnedUserId,
+    /// The sender's signing keys of the encrypted event.
+    pub keys: OlmV1Keys,
+    /// The recipient's signing keys of the encrypted event.
+    pub recipient_keys: OlmV1Keys,
+    /// The type of the event.
+    pub content: C,
+}
+
+impl<C: EventType + Debug + Sized + Serialize> DecryptedOlmV1Event<C> {
+    #[cfg(test)]
+    pub fn new(sender: &UserId, recipient: &UserId, key: Ed25519PublicKey, content: C) -> Self {
+        Self {
+            sender: sender.to_owned(),
+            recipient: recipient.to_owned(),
+            keys: OlmV1Keys { ed25519: key },
+            recipient_keys: OlmV1Keys { ed25519: key },
+            content,
+        }
+    }
+}
+
+/// A decrypted to-device event with an unknown type and content.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ToDeviceCustomEvent {
     /// The sender of the encrypted to-device event.
     pub sender: OwnedUserId,
     /// The recipient of the encrypted to-device event.
@@ -43,4 +162,31 @@ pub struct OlmV1Keys {
         serialize_with = "serialize_ed25519_key"
     )]
     pub ed25519: Ed25519PublicKey,
+}
+
+impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Debug, Deserialize)]
+        struct Helper<'a> {
+            #[serde(rename = "type")]
+            event_type: &'a str,
+        }
+
+        let json = Box::<RawValue>::deserialize(deserializer)?;
+        let helper: Helper<'_> =
+            serde_json::from_str(json.get()).map_err(serde::de::Error::custom)?;
+
+        let json = json.get();
+
+        Ok(match helper.event_type {
+            "m.room_key" => AnyDecryptedOlmEvent::RoomKey(from_str(json)?),
+            "m.forwarded_room_key" => AnyDecryptedOlmEvent::ForwardedRoomKey(from_str(json)?),
+            "m.secret.send" => AnyDecryptedOlmEvent::SecretSend(from_str(json)?),
+
+            _ => AnyDecryptedOlmEvent::Custom(from_str(json)?),
+        })
+    }
 }

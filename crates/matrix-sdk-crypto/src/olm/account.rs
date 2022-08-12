@@ -42,7 +42,7 @@ use vodozemac::{
         Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage,
         SessionConfig,
     },
-    Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyId, PickleError,
+    Curve25519PublicKey, Ed25519Signature, KeyId, PickleError,
 };
 
 use super::{
@@ -56,11 +56,11 @@ use crate::{
     store::{Changes, Store},
     types::{
         events::{
+            olm_v1::AnyDecryptedOlmEvent,
             room::encrypted::{
                 EncryptedToDeviceEvent, OlmV1Curve25519AesSha2Content,
                 ToDeviceEncryptedEventContent,
             },
-            DecryptedOlmV1Event,
         },
         CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey,
     },
@@ -101,15 +101,20 @@ impl SessionType {
 ///
 /// Contains the decrypted event plaintext along with some associated metadata,
 /// such as the identity (Curve25519) key of the to-device event sender.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct OlmDecryptionInfo {
     pub sender: OwnedUserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
-    pub event: Raw<AnyToDeviceEvent>,
-    pub signing_key: Ed25519PublicKey,
-    pub sender_key: Curve25519PublicKey,
     pub inbound_group_session: Option<InboundGroupSession>,
+    pub result: DecryptionResult,
+}
+
+#[derive(Debug)]
+pub(crate) struct DecryptionResult {
+    pub event: AnyDecryptedOlmEvent,
+    pub raw_event: Raw<AnyToDeviceEvent>,
+    pub sender_key: Curve25519PublicKey,
 }
 
 /// A hash of a successfully decrypted Olm message.
@@ -160,13 +165,11 @@ impl Account {
         let message_hash = OlmMessageHash::new(sender_key, ciphertext);
 
         match self.decrypt_olm_message(sender, sender_key, ciphertext).await {
-            Ok((session, event, signing_key)) => Ok(OlmDecryptionInfo {
+            Ok((session, result)) => Ok(OlmDecryptionInfo {
                 sender: sender.to_owned(),
                 session,
                 message_hash,
-                event,
-                signing_key,
-                sender_key,
+                result,
                 inbound_group_session: None,
             }),
             Err(OlmError::SessionWedged(user_id, sender_key)) => {
@@ -290,7 +293,7 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
-    ) -> OlmResult<(SessionType, Raw<AnyToDeviceEvent>, Ed25519PublicKey)> {
+    ) -> OlmResult<(SessionType, DecryptionResult)> {
         // First try to decrypt using an existing session.
         let (session, plaintext) = if let Some(d) =
             self.decrypt_with_existing_sessions(sender_key, message).await?
@@ -355,8 +358,8 @@ impl Account {
             "Successfully decrypted an Olm message"
         );
 
-        match self.parse_decrypted_to_device_event(sender, plaintext) {
-            Ok((event, signing_key)) => Ok((session, event, signing_key)),
+        match self.parse_decrypted_to_device_event(sender, sender_key, plaintext) {
+            Ok(result) => Ok((session, result)),
             Err(e) => {
                 // We might created a new session but decryption might still
                 // have failed, store it for the error case here, this is fine
@@ -393,23 +396,32 @@ impl Account {
     fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
+        sender_key: Curve25519PublicKey,
         plaintext: String,
-    ) -> OlmResult<(Raw<AnyToDeviceEvent>, Ed25519PublicKey)> {
-        let event: DecryptedOlmV1Event = serde_json::from_str(&plaintext)?;
+    ) -> OlmResult<DecryptionResult> {
+        let event: AnyDecryptedOlmEvent = serde_json::from_str(&plaintext)?;
         let identity_keys = self.inner.identity_keys();
 
-        if event.recipient != self.user_id() {
-            Err(EventError::MismatchedSender(event.recipient, self.user_id().to_owned()).into())
-        } else if event.sender != sender {
-            Err(EventError::MismatchedSender(event.sender, sender.to_owned()).into())
-        } else if identity_keys.ed25519 != event.recipient_keys.ed25519 {
+        if event.recipient() != self.user_id() {
+            Err(EventError::MismatchedSender(
+                event.recipient().to_owned(),
+                self.user_id().to_owned(),
+            )
+            .into())
+        } else if event.sender() != sender {
+            Err(EventError::MismatchedSender(event.sender().to_owned(), sender.to_owned()).into())
+        } else if identity_keys.ed25519 != event.recipient_keys().ed25519 {
             Err(EventError::MismatchedKeys(
                 identity_keys.ed25519.into(),
-                event.recipient_keys.ed25519.into(),
+                event.recipient_keys().ed25519.into(),
             )
             .into())
         } else {
-            Ok((Raw::from_json(RawJsonValue::from_string(plaintext)?), event.keys.ed25519))
+            Ok(DecryptionResult {
+                event,
+                raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
+                sender_key,
+            })
         }
     }
 }
