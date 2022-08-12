@@ -45,10 +45,9 @@ use crate::{
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
     types::events::{
-        forwarded_room_key::{
-            ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent, ForwardedRoomKeyEvent,
-        },
-        secret_send::{SecretSendContent, SecretSendEvent},
+        forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
+        olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
+        secret_send::SecretSendContent,
         EventType,
     },
     Device,
@@ -779,7 +778,7 @@ impl GossipMachine {
 
     async fn accept_secret(
         &self,
-        event: &mut SecretSendEvent,
+        event: &DecryptedSecretSendEvent,
         request: &GossipRequest,
         secret_name: &SecretName,
     ) -> Result<(), CryptoStoreError> {
@@ -817,14 +816,10 @@ impl GossipMachine {
     async fn receive_secret(
         &self,
         sender_key: Curve25519PublicKey,
-        event: &mut SecretSendEvent,
+        event: &DecryptedSecretSendEvent,
         request: &GossipRequest,
         secret_name: &SecretName,
     ) -> Result<(), CryptoStoreError> {
-        // Set the secret name so other consumers of the event know
-        // what this event is about.
-        event.content.secret_name = Some(secret_name.to_owned());
-
         debug!(
             sender = event.sender.as_str(),
             request_id = event.content.request_id.as_str(),
@@ -863,8 +858,8 @@ impl GossipMachine {
     pub async fn receive_secret_event(
         &self,
         sender_key: Curve25519PublicKey,
-        event: &mut SecretSendEvent,
-    ) -> Result<(), CryptoStoreError> {
+        event: &DecryptedSecretSendEvent,
+    ) -> Result<Option<SecretName>, CryptoStoreError> {
         debug!(
             sender = event.sender.as_str(),
             request_id = event.content.request_id.as_str(),
@@ -873,7 +868,7 @@ impl GossipMachine {
 
         let request_id = <&TransactionId>::from(event.content.request_id.as_str());
 
-        if let Some(request) = self.store.get_outgoing_secret_requests(request_id).await? {
+        Ok(if let Some(request) = self.store.get_outgoing_secret_requests(request_id).await? {
             match &request.info {
                 SecretInfo::KeyRequest(_) => {
                     warn!(
@@ -881,14 +876,18 @@ impl GossipMachine {
                         request_id = event.content.request_id.as_str(),
                         "Received a m.secret.send event but the request was for a room key"
                     );
+
+                    None
                 }
                 SecretInfo::SecretRequest(secret_name) => {
                     self.receive_secret(sender_key, event, &request, secret_name).await?;
+
+                    Some(secret_name.to_owned())
                 }
             }
-        }
-
-        Ok(())
+        } else {
+            None
+        })
     }
 
     async fn accept_forwarded_room_key(
@@ -965,7 +964,7 @@ impl GossipMachine {
     pub async fn receive_forwarded_room_key(
         &self,
         sender_key: Curve25519PublicKey,
-        event: &ForwardedRoomKeyEvent,
+        event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         match &event.content {
             ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
@@ -978,7 +977,7 @@ impl GossipMachine {
                         room_id = content.room_id.as_str(),
                         session_id = content.session_id.as_str(),
                         claimed_sender_key = content.claimed_sender_key.to_base64(),
-                        algorithm = %event.algorithm(),
+                        algorithm = %event.content.algorithm(),
                         "Received a forwarded room key that we didn't request",
                     );
 
@@ -989,7 +988,7 @@ impl GossipMachine {
                 warn!(
                     sender = event.sender.as_str(),
                     sender_key = sender_key.to_base64(),
-                    algorithm = %event.algorithm(),
+                    algorithm = %event.content.algorithm(),
                     "Received a forwarded room key with an unsupported algorithm",
                 );
 
@@ -1025,7 +1024,8 @@ mod tests {
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStore, MemoryStore, Store},
         types::events::{
-            forwarded_room_key::ForwardedRoomKeyContent, ToDeviceEvent, ToDeviceEvents,
+            forwarded_room_key::ForwardedRoomKeyContent,
+            olm_v1::{AnyDecryptedOlmEvent, DecryptedOlmV1Event},
         },
         utilities::json_convert,
         verification::VerificationMachine,
@@ -1319,8 +1319,12 @@ mod tests {
 
         let content: ForwardedRoomKeyContent = export.try_into().unwrap();
 
-        let event =
-            ToDeviceEvent { sender: alice_id().to_owned(), content, other: Default::default() };
+        let event = DecryptedOlmV1Event::new(
+            alice_id(),
+            alice_id(),
+            alice_device.ed25519_key().unwrap(),
+            content,
+        );
 
         assert!(machine
             .store
@@ -1368,8 +1372,12 @@ mod tests {
 
         let content: ForwardedRoomKeyContent = export.try_into().unwrap();
 
-        let event =
-            ToDeviceEvent { sender: alice_id().to_owned(), content, other: Default::default() };
+        let event = DecryptedOlmV1Event::new(
+            alice_id(),
+            alice_id(),
+            alice_device.ed25519_key().unwrap(),
+            content,
+        );
 
         let second_session = machine
             .receive_forwarded_room_key(alice_device.curve25519_key().unwrap(), &event)
@@ -1382,8 +1390,12 @@ mod tests {
 
         let content: ForwardedRoomKeyContent = export.try_into().unwrap();
 
-        let event =
-            ToDeviceEvent { sender: alice_id().to_owned(), content, other: Default::default() };
+        let event = DecryptedOlmV1Event::new(
+            alice_id(),
+            alice_id(),
+            alice_device.ed25519_key().unwrap(),
+            content,
+        );
 
         let second_session = machine
             .receive_forwarded_room_key(alice_device.curve25519_key().unwrap(), &event)
@@ -1552,9 +1564,11 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let ToDeviceEvents::ForwardedRoomKey(e) = decrypted.event.deserialize_as().unwrap() {
-            let session =
-                alice_machine.receive_forwarded_room_key(decrypted.sender_key, &e).await.unwrap();
+        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
+            let session = alice_machine
+                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
+                .await
+                .unwrap();
             alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
         } else {
             panic!("Invalid decrypted event type");
@@ -1565,7 +1579,7 @@ mod tests {
             .store
             .get_inbound_group_session(
                 room_id(),
-                &decrypted.sender_key.to_base64(),
+                &decrypted.result.sender_key.to_base64(),
                 group_session.session_id(),
             )
             .await
@@ -1710,9 +1724,11 @@ mod tests {
 
         let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let ToDeviceEvents::ForwardedRoomKey(e) = decrypted.event.deserialize_as().unwrap() {
-            let session =
-                alice_machine.receive_forwarded_room_key(decrypted.sender_key, &e).await.unwrap();
+        if let AnyDecryptedOlmEvent::ForwardedRoomKey(e) = decrypted.result.event {
+            let session = alice_machine
+                .receive_forwarded_room_key(decrypted.result.sender_key, &e)
+                .await
+                .unwrap();
             alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
         } else {
             panic!("Invalid decrypted event type");
@@ -1723,7 +1739,7 @@ mod tests {
             .store
             .get_inbound_group_session(
                 room_id(),
-                &decrypted.sender_key.to_base64(),
+                &decrypted.result.sender_key.to_base64(),
                 group_session.session_id(),
             )
             .await
