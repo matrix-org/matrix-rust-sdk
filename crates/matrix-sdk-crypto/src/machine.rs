@@ -746,7 +746,7 @@ impl OlmMachine {
                     decrypted.result.raw_event.deserialize_as()
                 {
                     e.content.secret_name = name;
-                    decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?)
+                    decrypted.result.raw_event = Raw::from_json(to_raw_value(&e)?);
                 }
             }
             AnyDecryptedOlmEvent::Custom(e) => {
