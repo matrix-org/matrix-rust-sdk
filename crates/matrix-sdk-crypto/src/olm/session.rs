@@ -184,7 +184,7 @@ impl Session {
     ///
     /// * `device_id` - Our own device ID that the session belongs to.
     ///
-    /// * `our_idenity_keys` - An clone of the Arc to our own identity keys.
+    /// * `our_identity_keys` - An clone of the Arc to our own identity keys.
     ///
     /// * `pickle` - The pickled version of the `Session`.
     ///
