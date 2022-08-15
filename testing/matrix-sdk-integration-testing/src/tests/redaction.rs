@@ -34,7 +34,14 @@ async fn test_redaction() -> Result<()> {
 
     room.send_state_event(content, "").await?;
     // sync up.
-    tamatoa.sync_once(Default::default()).await?;
+    for _ in 0..=100 {
+        // we call sync up to three times to give the server time to flush other
+        // messages over and send us the new state event
+        tamatoa.sync_once(Default::default()).await?;
+        if room.get_state_event(StateEventType::RoomAvatar, "").await?.is_some() {
+            break;
+        }
+    }
 
     // check state event.
 
@@ -82,7 +89,14 @@ async fn test_redaction_static() -> Result<()> {
 
     room.send_state_event(content, "").await?;
     // sync up.
-    tamatoa.sync_once(Default::default()).await?;
+    for _ in 0..=100 {
+        // we call sync up to three times to give the server time to flush other
+        // messages over and send us the new state event
+        tamatoa.sync_once(Default::default()).await?;
+        if room.get_state_event_static::<RoomAvatarEventContent>("").await?.is_some() {
+            break;
+        }
+    }
 
     // check state event.
 
