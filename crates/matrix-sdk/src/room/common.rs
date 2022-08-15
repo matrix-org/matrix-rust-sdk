@@ -4,7 +4,10 @@ use futures_channel::mpsc;
 #[cfg(feature = "experimental-timeline")]
 use futures_core::stream::Stream;
 use futures_util::{SinkExt, TryStreamExt};
-use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
+use matrix_sdk_base::{
+    deserialized_responses::{MembersResponse, RoomEvent},
+    store::StateStoreExt,
+};
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_base::{
     deserialized_responses::{SyncRoomEvent, TimelineSlice},
@@ -790,8 +793,7 @@ impl Common {
         C: StaticEventContent + StateEventContent + RedactContent,
         C::Redacted: StateEventContent + RedactedEventContent,
     {
-        // FIXME: Could be more efficient, if we had streaming store accessor functions
-        Ok(self.get_state_events(C::TYPE.into()).await?.into_iter().map(Raw::cast).collect())
+        Ok(self.client.store().get_state_events_static(self.room_id()).await?)
     }
 
     /// Get a specific state event in this room.
@@ -832,7 +834,7 @@ impl Common {
         C: StaticEventContent + StateEventContent + RedactContent,
         C::Redacted: StateEventContent + RedactedEventContent,
     {
-        Ok(self.get_state_event(C::TYPE.into(), state_key).await?.map(Raw::cast))
+        Ok(self.client.store().get_state_event_static(self.room_id(), state_key).await?)
     }
 
     /// Get account data in this room.
