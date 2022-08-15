@@ -28,7 +28,7 @@ async fn test_redaction() -> Result<()> {
     // the actual test
     tamatoa.sync_once(Default::default()).await?;
     let room = if let Room::Joined(r) =
-        tamatoa.get_room(&room_id).expect("Tamtoa doesn't know about the room")
+        tamatoa.get_room(room_id).expect("Tamtoa doesn't know about the room")
     {
         r
     } else {
@@ -83,7 +83,7 @@ async fn test_redaction_static() -> Result<()> {
     // the actual test
     tamatoa.sync_once(Default::default()).await?;
     let room = if let Room::Joined(r) =
-        tamatoa.get_room(&room_id).expect("Tamtoa doesn't know about the room")
+        tamatoa.get_room(room_id).expect("Tamtoa doesn't know about the room")
     {
         r
     } else {
