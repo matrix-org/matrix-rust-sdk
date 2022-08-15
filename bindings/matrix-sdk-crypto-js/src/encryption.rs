@@ -41,7 +41,7 @@ impl Default for EncryptionSettings {
         let default = matrix_sdk_crypto::olm::EncryptionSettings::default();
 
         Self {
-            algorithm: ruma::EventEncryptionAlgorithm::from(default.algorithm.as_str()).into(),
+            algorithm: default.algorithm.into(),
             rotation_period: default.rotation_period.as_micros().try_into().unwrap(),
             rotation_period_messages: default.rotation_period_msgs,
             history_visibility: default.history_visibility.into(),
@@ -61,11 +61,10 @@ impl EncryptionSettings {
 
 impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
     fn from(value: &EncryptionSettings) -> Self {
-        let algorithm: ruma::EventEncryptionAlgorithm = value.algorithm.clone().into();
+        let algorithm = value.algorithm.clone().into();
 
         Self {
-            algorithm: matrix_sdk_crypto::types::EventEncryptionAlgorithm::from(algorithm.as_str())
-                .into(),
+            algorithm,
             rotation_period: Duration::from_micros(value.rotation_period),
             rotation_period_msgs: value.rotation_period_messages,
             history_visibility: value.history_visibility.clone().into(),
@@ -86,7 +85,7 @@ pub enum EncryptionAlgorithm {
     MegolmV1AesSha2,
 }
 
-impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
+impl From<EncryptionAlgorithm> for matrix_sdk_crypto::types::EventEncryptionAlgorithm {
     fn from(value: EncryptionAlgorithm) -> Self {
         use EncryptionAlgorithm::*;
 
@@ -97,9 +96,9 @@ impl From<EncryptionAlgorithm> for ruma::EventEncryptionAlgorithm {
     }
 }
 
-impl From<ruma::EventEncryptionAlgorithm> for EncryptionAlgorithm {
-    fn from(value: ruma::EventEncryptionAlgorithm) -> Self {
-        use ruma::EventEncryptionAlgorithm::*;
+impl From<matrix_sdk_crypto::types::EventEncryptionAlgorithm> for EncryptionAlgorithm {
+    fn from(value: matrix_sdk_crypto::types::EventEncryptionAlgorithm) -> Self {
+        use matrix_sdk_crypto::types::EventEncryptionAlgorithm::*;
 
         match value {
             OlmV1Curve25519AesSha2 => Self::OlmV1Curve25519AesSha2,
