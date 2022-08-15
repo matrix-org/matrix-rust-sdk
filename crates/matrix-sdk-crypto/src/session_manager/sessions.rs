@@ -300,7 +300,6 @@ impl SessionManager {
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
         debug!(failures = ?response.failures, "Received a `/keys/claim` response");
 
-        #[allow(dead_code)]
         struct SessionInfo {
             session_id: String,
             algorithm: EventEncryptionAlgorithm,
