@@ -46,8 +46,11 @@ use ruma::events::{
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
-        push_rules::PushRulesEvent,
-        room::member::{MembershipState, SyncRoomMemberEvent},
+        push_rules::PushRulesEventContent,
+        room::{
+            member::{MembershipState, SyncRoomMemberEvent},
+            power_levels::RoomPowerLevelsEventContent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         StateEventType,
@@ -64,7 +67,8 @@ use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
     store::{
-        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store, StoreConfig,
+        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
+        StoreConfig,
     },
     Session, SessionMeta, SessionTokens, StateStore,
 };
@@ -1019,10 +1023,9 @@ impl BaseClient {
             Ok(event.content.global)
         } else if let Some(event) = self
             .store
-            .get_account_data_event(GlobalAccountDataEventType::PushRules)
+            .get_account_data_event_static::<PushRulesEventContent>()
             .await?
-            .map(|e| e.deserialize_as::<PushRulesEvent>())
-            .transpose()?
+            .and_then(|ev| ev.deserialize().ok())
         {
             Ok(event.content.global)
         } else if let Some(session_meta) = self.store.session_meta() {
@@ -1071,9 +1074,9 @@ impl BaseClient {
             .and_then(|e| e.deserialize().ok())
         {
             event.power_levels()
-        } else if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = self
+        } else if let Some(event) = self
             .store
-            .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
+            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id, "")
             .await?
             .and_then(|e| e.deserialize().ok())
         {
