@@ -311,7 +311,7 @@ impl Account {
                             sender = sender.as_str(),
                             sender_key = sender_key.to_base64(),
                             "Failed to decrypt a non-pre-key message with all \
-                        available sessions",
+                            available sessions",
                         );
 
                         return Err(OlmError::SessionWedged(sender.to_owned(), sender_key));
