@@ -46,9 +46,8 @@ use crate::{
         events::{
             forwarded_room_key::ForwardedMegolmV1AesSha2Content,
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
-            EventEncryptionAlgorithm,
         },
-        serialize_curve_key, SigningKeys,
+        serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
     },
 };
 

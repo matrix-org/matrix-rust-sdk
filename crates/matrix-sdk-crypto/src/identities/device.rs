@@ -45,9 +45,9 @@ use crate::{
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
-            room::encrypted::ToDeviceEncryptedEventContent, EventEncryptionAlgorithm, EventType,
+            room::encrypted::ToDeviceEncryptedEventContent, EventType,
         },
-        DeviceKey, DeviceKeys, Signatures, SignedKey, SigningKey,
+        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey, SigningKey,
     },
     verification::VerificationMachine,
     OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,

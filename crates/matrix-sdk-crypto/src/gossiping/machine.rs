@@ -44,11 +44,14 @@ use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, SecretImportError, Store},
-    types::events::{
-        forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
-        olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
-        secret_send::SecretSendContent,
-        EventEncryptionAlgorithm, EventType,
+    types::{
+        events::{
+            forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
+            olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
+            secret_send::SecretSendContent,
+            EventType,
+        },
+        EventEncryptionAlgorithm,
     },
     Device,
 };

@@ -26,8 +26,8 @@ use vodozemac::{
 use super::IdentityKeys;
 use crate::{
     error::{EventError, OlmResult},
-    types::events::{
-        room::encrypted::{
+    types::{
+        events::room::encrypted::{
             OlmV1Curve25519AesSha2Content, OlmV2Curve25519AesSha2Content,
             ToDeviceEncryptedEventContent,
         },

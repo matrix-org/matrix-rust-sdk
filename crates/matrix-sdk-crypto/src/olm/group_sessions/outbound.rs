@@ -43,12 +43,14 @@ pub use vodozemac::{
 
 use super::SessionCreationError;
 use crate::{
-    types::events::{
-        room::encrypted::{
-            MegolmV1AesSha2Content, MegolmV2AesSha2Content, RoomEncryptedEventContent,
-            RoomEventEncryptionScheme,
+    types::{
+        events::{
+            room::encrypted::{
+                MegolmV1AesSha2Content, MegolmV2AesSha2Content, RoomEncryptedEventContent,
+                RoomEventEncryptionScheme,
+            },
+            room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
         },
-        room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
         EventEncryptionAlgorithm,
     },
     Device, ToDeviceRequest,

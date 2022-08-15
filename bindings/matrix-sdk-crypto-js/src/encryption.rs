@@ -64,10 +64,8 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
         let algorithm: ruma::EventEncryptionAlgorithm = value.algorithm.clone().into();
 
         Self {
-            algorithm: matrix_sdk_crypto::types::events::EventEncryptionAlgorithm::from(
-                algorithm.as_str(),
-            )
-            .into(),
+            algorithm: matrix_sdk_crypto::types::EventEncryptionAlgorithm::from(algorithm.as_str())
+                .into(),
             rotation_period: Duration::from_micros(value.rotation_period),
             rotation_period_msgs: value.rotation_period_messages,
             history_visibility: value.history_visibility.clone().into(),

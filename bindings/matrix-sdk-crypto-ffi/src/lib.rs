@@ -26,7 +26,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine};
-use matrix_sdk_crypto::types::{events::EventEncryptionAlgorithm, SigningKey};
+use matrix_sdk_crypto::types::{EventEncryptionAlgorithm, SigningKey};
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
