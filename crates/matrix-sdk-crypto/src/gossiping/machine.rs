@@ -975,7 +975,7 @@ impl GossipMachine {
         algorithm: EventEncryptionAlgorithm,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
         if let Some(info) = self.get_key_info(content).await? {
-            self.accept_forwarded_room_key(&info, &sender, sender_key, algorithm, content).await
+            self.accept_forwarded_room_key(&info, sender, sender_key, algorithm, content).await
         } else {
             warn!(
                 sender = %sender,
