@@ -49,6 +49,8 @@ use super::{
     utility::SignJson, EncryptionSettings, InboundGroupSession, OutboundGroupSession,
     PrivateCrossSigningIdentity, Session, SessionCreationError as MegolmSessionCreationError,
 };
+#[cfg(feature = "experimental-algorithms")]
+use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::{MasterPubkey, ReadOnlyDevice},
@@ -59,7 +61,7 @@ use crate::{
             olm_v1::AnyDecryptedOlmEvent,
             room::encrypted::{
                 EncryptedToDeviceEvent, OlmV1Curve25519AesSha2Content,
-                OlmV2Curve25519AesSha2Content, ToDeviceEncryptedEventContent,
+                ToDeviceEncryptedEventContent,
             },
         },
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, OneTimeKey, SignedKey,
@@ -188,6 +190,7 @@ impl Account {
         }
     }
 
+    #[cfg(feature = "experimental-algorithms")]
     async fn decrypt_olm_v2(
         &self,
         sender: &UserId,
@@ -228,6 +231,7 @@ impl Account {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
                 self.decrypt_olm_v1(&event.sender, c).await
             }
+            #[cfg(feature = "experimental-algorithms")]
             ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) => {
                 self.decrypt_olm_v2(&event.sender, c).await
             }
@@ -519,6 +523,7 @@ impl fmt::Debug for ReadOnlyAccount {
 impl ReadOnlyAccount {
     const ALGORITHMS: &'static [&'static EventEncryptionAlgorithm] = &[
         &EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+        #[cfg(feature = "experimental-algorithms")]
         &EventEncryptionAlgorithm::OlmV2Curve25519AesSha2,
         &EventEncryptionAlgorithm::MegolmV1AesSha2,
         &EventEncryptionAlgorithm::MegolmV2AesSha2,
@@ -1184,7 +1189,16 @@ impl ReadOnlyAccount {
             .unwrap()
             .deserialize()
             .unwrap();
+
+        #[cfg(feature = "experimental-algorithms")]
         let content = if let ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) = message {
+            c
+        } else {
+            panic!("Invalid encrypted event algorithm {}", message.algorithm());
+        };
+
+        #[cfg(not(feature = "experimental-algorithms"))]
+        let content = if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
             c
         } else {
             panic!("Invalid encrypted event algorithm {}", message.algorithm());

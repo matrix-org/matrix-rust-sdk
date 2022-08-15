@@ -343,6 +343,7 @@ pub enum EventEncryptionAlgorithm {
     OlmV1Curve25519AesSha2,
 
     /// Olm version 2 using Curve25519, AES-256, and SHA-256.
+    #[cfg(feature = "experimental-algorithms")]
     #[ruma_enum(rename = "m.olm.v2.curve25519-aes-sha2")]
     OlmV2Curve25519AesSha2,
 
