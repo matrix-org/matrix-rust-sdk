@@ -327,6 +327,12 @@ impl InboundGroupSession {
         self.first_known_index
     }
 
+    /// Has the session been imported from a file, or backup, or has it been
+    /// directly received as an `m.room_key` event.
+    pub fn has_been_imported(&self) -> bool {
+        self.imported
+    }
+
     /// Check if the `InboundGroupSession` is better than the given other
     /// `InboundGroupSession`
     pub async fn compare(&self, other: &InboundGroupSession) -> SessionOrdering {
