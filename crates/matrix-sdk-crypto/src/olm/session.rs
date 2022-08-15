@@ -24,13 +24,12 @@ use vodozemac::{
 };
 
 use super::IdentityKeys;
+#[cfg(feature = "experimental-algorithms")]
+use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
     error::{EventError, OlmResult},
     types::{
-        events::room::encrypted::{
-            OlmV1Curve25519AesSha2Content, OlmV2Curve25519AesSha2Content,
-            ToDeviceEncryptedEventContent,
-        },
+        events::room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
         EventEncryptionAlgorithm,
     },
     ReadOnlyDevice,
@@ -96,11 +95,15 @@ impl Session {
     }
 
     pub async fn algorithm(&self) -> EventEncryptionAlgorithm {
+        #[cfg(feature = "experimental-algorithms")]
         if self.session_config().await.version() == 2 {
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2
         } else {
             EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
         }
+
+        #[cfg(not(feature = "experimental-algorithms"))]
+        EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
     }
 
     /// Encrypt the given plaintext as a OlmMessage.
@@ -161,6 +164,7 @@ impl Session {
                 sender_key: self.our_identity_keys.curve25519,
             }
             .into(),
+            #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content {
                 ciphertext,
                 sender_key: self.our_identity_keys.curve25519,

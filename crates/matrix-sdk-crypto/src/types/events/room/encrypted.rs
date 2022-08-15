@@ -50,6 +50,7 @@ pub enum ToDeviceEncryptedEventContent {
     OlmV1Curve25519AesSha2(Box<OlmV1Curve25519AesSha2Content>),
     /// The event content for events encrypted with the m.olm.v2.aes-sha2
     /// algorithm.
+    #[cfg(feature = "experimental-algorithms")]
     OlmV2Curve25519AesSha2(Box<OlmV2Curve25519AesSha2Content>),
     /// An event content that was encrypted with an unknown encryption
     /// algorithm.
@@ -67,6 +68,7 @@ impl ToDeviceEncryptedEventContent {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(_) => {
                 EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
             }
+            #[cfg(feature = "experimental-algorithms")]
             ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(_) => {
                 EventEncryptionAlgorithm::OlmV2Curve25519AesSha2
             }
@@ -92,6 +94,7 @@ pub struct OlmV1Curve25519AesSha2Content {
 
 /// The event content for events encrypted with the m.olm.v2.curve25519-aes-sha2
 /// algorithm.
+#[cfg(feature = "experimental-algorithms")]
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct OlmV2Curve25519AesSha2Content {
     /// The encrypted content of the event.
@@ -362,10 +365,17 @@ scheme_serialization!(
     MegolmV2AesSha2 => MegolmV2AesSha2Content
 );
 
+#[cfg(feature = "experimental-algorithms")]
 scheme_serialization!(
     ToDeviceEncryptedEventContent,
     OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content,
     OlmV2Curve25519AesSha2 => OlmV2Curve25519AesSha2Content,
+);
+
+#[cfg(not(feature = "experimental-algorithms"))]
+scheme_serialization!(
+    ToDeviceEncryptedEventContent,
+    OlmV1Curve25519AesSha2 => OlmV1Curve25519AesSha2Content,
 );
 
 #[cfg(test)]
