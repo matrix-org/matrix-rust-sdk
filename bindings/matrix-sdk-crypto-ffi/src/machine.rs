@@ -1240,10 +1240,7 @@ impl OlmMachine {
     ) -> Option<OutgoingVerificationRequest> {
         let user_id = UserId::parse(user_id).ok()?;
 
-        self.inner
-            .get_verification(&user_id, flow_id)
-            .and_then(|s| s.sas_v1())
-            .and_then(|s| s.accept().map(|r| r.into()))
+        self.inner.get_verification(&user_id, flow_id)?.sas_v1()?.accept().map(|r| r.into())
     }
 
     /// Get a list of emoji indices of the emoji representation of the short
