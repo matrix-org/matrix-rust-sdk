@@ -11,6 +11,9 @@ use matrix_sdk::{
 use tempfile::{tempdir, TempDir};
 use tokio::sync::Mutex;
 
+mod invitations;
+mod redaction;
+
 lazy_static! {
     static ref USERS: Mutex<HashMap<String, (Client, TempDir)>> = Mutex::new(HashMap::new());
 }
@@ -59,5 +62,3 @@ pub async fn get_client_for_user(username: String) -> Result<Client> {
 
     Ok(client)
 }
-
-mod invitations;
