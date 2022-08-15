@@ -637,9 +637,7 @@ mod tests {
     };
     use serde_json::{json, Value};
 
-    use crate::{
-        types::events::EventEncryptionAlgorithm, EncryptionSettings, LocalTrust, OlmMachine,
-    };
+    use crate::{types::EventEncryptionAlgorithm, EncryptionSettings, LocalTrust, OlmMachine};
 
     fn alice_id() -> &'static UserId {
         user_id!("@alice:example.org")

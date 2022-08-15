@@ -21,7 +21,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::megolm::SessionKey;
 
-use super::{EventEncryptionAlgorithm, EventType, ToDeviceEvent};
+use super::{EventType, ToDeviceEvent};
+use crate::types::EventEncryptionAlgorithm;
 
 /// The `m.room_key` to-device event.
 pub type RoomKeyEvent = ToDeviceEvent<RoomKeyContent>;

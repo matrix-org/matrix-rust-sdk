@@ -24,8 +24,8 @@ use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
 use super::Event;
 use crate::types::{
     deserialize_curve_key,
-    events::{EventEncryptionAlgorithm, EventType, ToDeviceEvent},
-    serialize_curve_key,
+    events::{EventType, ToDeviceEvent},
+    serialize_curve_key, EventEncryptionAlgorithm,
 };
 
 /// An m.room.encrypted room event.

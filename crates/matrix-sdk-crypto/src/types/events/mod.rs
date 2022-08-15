@@ -25,7 +25,7 @@ pub mod room_key;
 pub mod secret_send;
 mod to_device;
 
-use ruma::serde::{Raw, StringEnum};
+use ruma::serde::Raw;
 pub use to_device::{ToDeviceCustomEvent, ToDeviceEvent, ToDeviceEvents};
 
 /// A trait for event contents to define their event type.
@@ -52,41 +52,4 @@ where
     E: serde::de::Error,
 {
     serde_json::from_str(string).map_err(serde::de::Error::custom)
-}
-
-// Wrapper around `Box<str>` that cannot be used in a meaningful way outside of
-// this crate. Used for string enums because their `_Custom` variant can't be
-// truly private (only `#[doc(hidden)]`).
-#[doc(hidden)]
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PrivOwnedStr(Box<str>);
-
-impl std::fmt::Debug for PrivOwnedStr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-/// An encryption algorithm to be used to encrypt messages sent to a room.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
-#[non_exhaustive]
-pub enum EventEncryptionAlgorithm {
-    /// Olm version 1 using Curve25519, AES-256, and SHA-256.
-    #[ruma_enum(rename = "m.olm.v1.curve25519-aes-sha2")]
-    OlmV1Curve25519AesSha2,
-
-    /// Olm version 2 using Curve25519, AES-256, and SHA-256.
-    #[ruma_enum(rename = "m.olm.v2.curve25519-aes-sha2")]
-    OlmV2Curve25519AesSha2,
-
-    /// Megolm version 1 using AES-256 and SHA-256.
-    #[ruma_enum(rename = "m.megolm.v1.aes-sha2")]
-    MegolmV1AesSha2,
-
-    /// Megolm version 2 using AES-256 and SHA-256.
-    #[ruma_enum(rename = "m.megolm.v2.aes-sha2")]
-    MegolmV2AesSha2,
-
-    #[doc(hidden)]
-    _Custom(PrivOwnedStr),
 }
