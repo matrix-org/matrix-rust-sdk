@@ -18,6 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 qrcode = ["dep:matrix-sdk-qrcode"]
 backups_v1 = ["dep:olm-rs", "dep:bs58"]
+experimental-algorithms = []
 
 # Testing helpers for implementations based upon this
 testing = ["dep:http"]

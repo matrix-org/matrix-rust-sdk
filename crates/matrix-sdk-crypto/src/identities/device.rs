@@ -492,23 +492,36 @@ impl ReadOnlyDevice {
 
     /// Does this device support any of our known Olm encryption algorithms.
     pub fn supports_olm(&self) -> bool {
-        self.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
-            || self.algorithms().contains(&EventEncryptionAlgorithm::OlmV2Curve25519AesSha2)
+        #[cfg(feature = "experimental-algorithms")]
+        {
+            self.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
+                || self.algorithms().contains(&EventEncryptionAlgorithm::OlmV2Curve25519AesSha2)
+        }
+
+        #[cfg(not(feature = "experimental-algorithms"))]
+        {
+            self.algorithms().contains(&EventEncryptionAlgorithm::OlmV1Curve25519AesSha2)
+        }
     }
 
     /// Does this device support the olm.v2.curve25519-aes-sha2 encryption
     /// algorithm.
+    #[cfg(feature = "experimental-algorithms")]
     pub fn supports_olm_v2(&self) -> bool {
         self.algorithms().contains(&EventEncryptionAlgorithm::OlmV2Curve25519AesSha2)
     }
 
     /// Get the optimal `SessionConfig` for this device.
     pub fn olm_session_config(&self) -> SessionConfig {
+        #[cfg(feature = "experimental-algorithms")]
         if self.supports_olm_v2() {
             SessionConfig::version_2()
         } else {
             SessionConfig::version_1()
         }
+
+        #[cfg(not(feature = "experimental-algorithms"))]
+        SessionConfig::version_1()
     }
 
     /// Is the device deleted.
