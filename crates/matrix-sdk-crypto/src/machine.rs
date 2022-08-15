@@ -43,7 +43,7 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tracing::{debug, error, info, trace, warn};
-use vodozemac::{Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey, Ed25519Signature};
 
 #[cfg(feature = "backups_v1")]
 use crate::backups::BackupMachine;
@@ -1330,45 +1330,18 @@ impl OlmMachine {
         #[allow(unused_variables)] from_backup: bool,
         progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<RoomKeyImportResult> {
-        type SessionIdToIndexMap = BTreeMap<Arc<str>, u32>;
-
-        #[derive(Debug)]
-        struct ShallowSessions {
-            inner: BTreeMap<Arc<RoomId>, BTreeMap<String, SessionIdToIndexMap>>,
-        }
-
-        impl ShallowSessions {
-            fn has_better_session(&self, session: &InboundGroupSession) -> bool {
-                self.inner
-                    .get(&session.room_id)
-                    .and_then(|m| {
-                        m.get(&session.sender_key.to_base64()).and_then(|m| {
-                            m.get(&session.session_id)
-                                .map(|existing| existing <= &session.first_known_index())
-                        })
-                    })
-                    .unwrap_or(false)
-            }
-        }
-
         let mut sessions = Vec::new();
 
-        let existing_sessions = ShallowSessions {
-            inner: self.store.get_inbound_group_sessions().await?.into_iter().fold(
-                BTreeMap::new(),
-                |mut acc, s| {
-                    let index = s.first_known_index();
-
-                    acc.entry(s.room_id)
-                        .or_default()
-                        .entry(s.sender_key.to_base64())
-                        .or_default()
-                        .insert(s.session_id, index);
-
-                    acc
-                },
-            ),
-        };
+        async fn new_session_better(
+            session: &InboundGroupSession,
+            old_session: Option<InboundGroupSession>,
+        ) -> bool {
+            if let Some(old_session) = &old_session {
+                session.compare(old_session).await == SessionOrdering::Better
+            } else {
+                true
+            }
+        }
 
         let total_count = exported_keys.len();
         let mut keys = BTreeMap::new();
@@ -1376,10 +1349,18 @@ impl OlmMachine {
         for (i, key) in exported_keys.into_iter().enumerate() {
             match InboundGroupSession::from_export(&key) {
                 Ok(session) => {
-                    // Only import the session if we didn't have this session or if it's
-                    // a better version of the same session, that is the first known
-                    // index is lower.
-                    if !existing_sessions.has_better_session(&session) {
+                    let old_session = self
+                        .store
+                        .get_inbound_group_session(
+                            session.room_id(),
+                            &session.sender_key.to_base64(),
+                            session.session_id(),
+                        )
+                        .await?;
+
+                    // Only import the session if we didn't have this session or
+                    // if it's a better version of the same session.
+                    if new_session_better(&session, old_session).await {
                         #[cfg(feature = "backups_v1")]
                         if from_backup {
                             session.mark_as_backed_up();

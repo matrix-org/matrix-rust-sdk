@@ -36,7 +36,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["t
 
 [dependencies.vodozemac]
 git = "https://github.com/matrix-org/vodozemac/"
-rev = "18bcbc3359298894415931547ea41abb75af2d4a"
+rev = "779e85258ec83b10ae62ec4d848188b188aa7b42"
 features = ["js"]
 
 [build-dependencies]
