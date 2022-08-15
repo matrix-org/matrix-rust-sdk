@@ -355,7 +355,7 @@ impl Account {
             "Successfully decrypted an Olm message"
         );
 
-        match self.parse_decrypted_to_device_event(sender, sender_key, plaintext) {
+        match self.parse_decrypted_to_device_event(sender, sender_key, plaintext).await {
             Ok(result) => Ok((session, result)),
             Err(e) => {
                 // We might created a new session but decryption might still
@@ -388,9 +388,16 @@ impl Account {
         }
     }
 
-    /// Parse a decrypted Olm message, check that the plaintext and encrypted
-    /// senders match and that the message was meant for us.
-    fn parse_decrypted_to_device_event(
+    /// Parse the decrypted plaintext as JSON and verify that it wasn't
+    /// forwarded by a third party.
+    ///
+    /// These checks are mandated by the spec[1]:
+    ///     Other properties are included in order to prevent an attacker from
+    ///     publishing someone else’s Curve25519 keys as their own and
+    ///     subsequently claiming to have sent messages which they didn’t.
+    ///     sender must correspond to the user who sent the event, recipient to
+    ///     the local user, and recipient_keys to the local Ed25519 key.
+    async fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
         sender_key: Curve25519PublicKey,
@@ -414,6 +421,30 @@ impl Account {
             )
             .into())
         } else {
+            // If this event is an `m.room_key` event, deffer the check for the
+            // Ed25519 key of the sender until we decrypt room events. This
+            // ensures that we receive the room key even if we don't have access
+            // to the device.
+            if !matches!(event, AnyDecryptedOlmEvent::RoomKey(_)) {
+                if let Some(device) =
+                    self.store.get_device_from_curve_key(event.sender(), sender_key).await?
+                {
+                    if let Some(key) = device.ed25519_key() {
+                        if key != event.keys().ed25519 {
+                            return Err(EventError::MismatchedKeys(
+                                key.into(),
+                                event.keys().ed25519.into(),
+                            )
+                            .into());
+                        }
+                    } else {
+                        return Err(EventError::MissingSigningKey.into());
+                    }
+                } else {
+                    return Err(EventError::MissingSigningKey.into());
+                }
+            }
+
             Ok(DecryptionResult {
                 event,
                 raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
