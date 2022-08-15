@@ -175,23 +175,26 @@ impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
     fn try_from(forwarded_key: ForwardedRoomKeyContent) -> Result<Self, Self::Error> {
         let algorithm = forwarded_key.algorithm();
 
-        match forwarded_key {
-            ForwardedRoomKeyContent::MegolmV1AesSha2(content)
-            | ForwardedRoomKeyContent::MegolmV2AesSha2(content) => {
-                let mut sender_claimed_keys = SigningKeys::new();
-                sender_claimed_keys
-                    .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
+        let handle_key = |content: Box<ForwardedMegolmV1AesSha2Content>| {
+            let mut sender_claimed_keys = SigningKeys::new();
+            sender_claimed_keys
+                .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
 
-                Ok(Self {
-                    algorithm,
-                    room_id: content.room_id,
-                    session_id: content.session_id,
-                    forwarding_curve25519_key_chain: content.forwarding_curve25519_key_chain,
-                    sender_claimed_keys,
-                    sender_key: content.claimed_sender_key,
-                    session_key: content.session_key,
-                })
-            }
+            Ok(Self {
+                algorithm,
+                room_id: content.room_id,
+                session_id: content.session_id,
+                forwarding_curve25519_key_chain: content.forwarding_curve25519_key_chain,
+                sender_claimed_keys,
+                sender_key: content.claimed_sender_key,
+                session_key: content.session_key,
+            })
+        };
+
+        match forwarded_key {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(content) => handle_key(content),
+            #[cfg(feature = "experimental-algorithms")]
+            ForwardedRoomKeyContent::MegolmV2AesSha2(content) => handle_key(content),
             ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
         }
     }

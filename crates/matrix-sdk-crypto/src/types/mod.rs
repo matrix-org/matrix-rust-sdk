@@ -352,6 +352,7 @@ pub enum EventEncryptionAlgorithm {
     MegolmV1AesSha2,
 
     /// Megolm version 2 using AES-256 and SHA-256.
+    #[cfg(feature = "experimental-algorithms")]
     #[ruma_enum(rename = "m.megolm.v2.aes-sha2")]
     MegolmV2AesSha2,
 

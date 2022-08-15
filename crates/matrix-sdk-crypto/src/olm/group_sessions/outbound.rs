@@ -42,12 +42,13 @@ pub use vodozemac::{
 };
 
 use super::SessionCreationError;
+#[cfg(feature = "experimental-algorithms")]
+use crate::types::events::room::encrypted::MegolmV2AesSha2Content;
 use crate::{
     types::{
         events::{
             room::encrypted::{
-                MegolmV1AesSha2Content, MegolmV2AesSha2Content, RoomEncryptedEventContent,
-                RoomEventEncryptionScheme,
+                MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
             },
             room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
         },
@@ -163,6 +164,7 @@ impl OutboundGroupSession {
     ) -> Result<SessionConfig, SessionCreationError> {
         match algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => Ok(SessionConfig::version_1()),
+            #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::MegolmV2AesSha2 => Ok(SessionConfig::version_2()),
             _ => Err(SessionCreationError::Algorithm(algorithm.to_owned())),
         }
@@ -322,6 +324,7 @@ impl OutboundGroupSession {
                 device_id: (*self.device_id).to_owned(),
             }
             .into(),
+            #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::MegolmV2AesSha2 => MegolmV2AesSha2Content {
                 ciphertext,
                 session_id: self.session_id().to_owned(),

@@ -967,37 +967,45 @@ impl GossipMachine {
         }
     }
 
+    async fn receive_supported_keys(
+        &self,
+        sender: &UserId,
+        sender_key: Curve25519PublicKey,
+        content: &ForwardedMegolmV1AesSha2Content,
+        algorithm: EventEncryptionAlgorithm,
+    ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
+        if let Some(info) = self.get_key_info(content).await? {
+            self.accept_forwarded_room_key(&info, &sender, sender_key, algorithm, content).await
+        } else {
+            warn!(
+                sender = %sender,
+                sender_key = %sender_key,
+                room_id = %content.room_id,
+                session_id = content.session_id.as_str(),
+                claimed_sender_key = %content.claimed_sender_key,
+                algorithm = %algorithm,
+                "Received a forwarded room key that we didn't request",
+            );
+
+            Ok(None)
+        }
+    }
+
     /// Receive a forwarded room key event.
     pub async fn receive_forwarded_room_key(
         &self,
         sender_key: Curve25519PublicKey,
         event: &DecryptedForwardedRoomKeyEvent,
     ) -> Result<Option<InboundGroupSession>, CryptoStoreError> {
-        match &event.content {
-            ForwardedRoomKeyContent::MegolmV1AesSha2(content)
-            | ForwardedRoomKeyContent::MegolmV2AesSha2(content) => {
-                if let Some(info) = self.get_key_info(content).await? {
-                    self.accept_forwarded_room_key(
-                        &info,
-                        &event.sender,
-                        sender_key,
-                        event.content.algorithm(),
-                        content,
-                    )
-                    .await
-                } else {
-                    warn!(
-                        sender = event.sender.as_str(),
-                        sender_key = sender_key.to_base64(),
-                        room_id = content.room_id.as_str(),
-                        session_id = content.session_id.as_str(),
-                        claimed_sender_key = content.claimed_sender_key.to_base64(),
-                        algorithm = %event.content.algorithm(),
-                        "Received a forwarded room key that we didn't request",
-                    );
+        let algorithm = event.content.algorithm();
 
-                    Ok(None)
-                }
+        match &event.content {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
+                self.receive_supported_keys(&event.sender, sender_key, content, algorithm).await
+            }
+            #[cfg(feature = "experimental-algorithms")]
+            ForwardedRoomKeyContent::MegolmV2AesSha2(content) => {
+                self.receive_supported_keys(&event.sender, sender_key, content, algorithm).await
             }
             ForwardedRoomKeyContent::Unknown(_) => {
                 warn!(

@@ -69,7 +69,7 @@ use crate::{
                 EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
                 RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
             },
-            room_key::RoomKeyContent,
+            room_key::{MegolmV1AesSha2Content, RoomKeyContent},
             ToDeviceEvents,
         },
         Signatures,
@@ -563,33 +563,37 @@ impl OlmMachine {
             );
         };
 
-        match &event.content {
-            RoomKeyContent::MegolmV1AesSha2(content) | RoomKeyContent::MegolmV2AesSha2(content) => {
-                let session = InboundGroupSession::new(
-                    sender_key,
-                    event.keys.ed25519,
-                    &content.room_id,
-                    &content.session_key,
-                    event.content.algorithm(),
-                    None,
+        let handle_key = |content: &MegolmV1AesSha2Content| {
+            let session = InboundGroupSession::new(
+                sender_key,
+                event.keys.ed25519,
+                &content.room_id,
+                &content.session_key,
+                event.content.algorithm(),
+                None,
+            );
+
+            if let Ok(session) = session {
+                info!(
+                    sender = %event.sender,
+                    sender_key = sender_key.to_base64(),
+                    room_id = %content.room_id,
+                    session_id = session.session_id(),
+                    algorithm = %event.content.algorithm(),
+                    "Received a new megolm room key",
                 );
 
-                if let Ok(session) = session {
-                    info!(
-                        sender = %event.sender,
-                        sender_key = sender_key.to_base64(),
-                        room_id = %content.room_id,
-                        session_id = session.session_id(),
-                        algorithm = %event.content.algorithm(),
-                        "Received a new megolm room key",
-                    );
-
-                    Ok(Some(session))
-                } else {
-                    unsupported_warning();
-                    Ok(None)
-                }
+                Ok(Some(session))
+            } else {
+                unsupported_warning();
+                Ok(None)
             }
+        };
+
+        match &event.content {
+            RoomKeyContent::MegolmV1AesSha2(content) => handle_key(content),
+            #[cfg(feature = "experimental-algorithms")]
+            RoomKeyContent::MegolmV2AesSha2(content) => handle_key(content),
             RoomKeyContent::Unknown(_) => {
                 unsupported_warning();
                 Ok(None)
@@ -1001,6 +1005,7 @@ impl OlmMachine {
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            #[cfg(feature = "experimental-algorithms")]
             RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
@@ -1180,6 +1185,7 @@ impl OlmMachine {
 
         let content = match &event.content.scheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => c.into(),
+            #[cfg(feature = "experimental-algorithms")]
             RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
             RoomEventEncryptionScheme::Unknown(c) => {
                 warn!(

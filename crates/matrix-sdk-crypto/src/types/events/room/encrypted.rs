@@ -177,6 +177,7 @@ pub enum RoomEventEncryptionScheme {
     MegolmV1AesSha2(MegolmV1AesSha2Content),
     /// The event content for events encrypted with the m.megolm.v2.aes-sha2
     /// algorithm.
+    #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(MegolmV2AesSha2Content),
     /// An event content that was encrypted with an unknown encryption
     /// algorithm.
@@ -190,6 +191,7 @@ impl RoomEventEncryptionScheme {
             RoomEventEncryptionScheme::MegolmV1AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV1AesSha2
             }
+            #[cfg(feature = "experimental-algorithms")]
             RoomEventEncryptionScheme::MegolmV2AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV2AesSha2
             }
@@ -200,6 +202,7 @@ impl RoomEventEncryptionScheme {
 
 pub(crate) enum SupportedEventEncryptionSchemes<'a> {
     MegolmV1AesSha2(&'a MegolmV1AesSha2Content),
+    #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(&'a MegolmV2AesSha2Content),
 }
 
@@ -208,6 +211,7 @@ impl SupportedEventEncryptionSchemes<'_> {
     pub fn sender_key(&self) -> Curve25519PublicKey {
         match self {
             SupportedEventEncryptionSchemes::MegolmV1AesSha2(c) => c.sender_key,
+            #[cfg(feature = "experimental-algorithms")]
             SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => c.sender_key,
         }
     }
@@ -216,6 +220,7 @@ impl SupportedEventEncryptionSchemes<'_> {
     pub fn session_id(&self) -> &str {
         match self {
             SupportedEventEncryptionSchemes::MegolmV1AesSha2(c) => &c.session_id,
+            #[cfg(feature = "experimental-algorithms")]
             SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => &c.session_id,
         }
     }
@@ -224,6 +229,7 @@ impl SupportedEventEncryptionSchemes<'_> {
     pub fn device_id(&self) -> &DeviceId {
         match self {
             SupportedEventEncryptionSchemes::MegolmV1AesSha2(c) => &c.device_id,
+            #[cfg(feature = "experimental-algorithms")]
             SupportedEventEncryptionSchemes::MegolmV2AesSha2(c) => &c.device_id,
         }
     }
@@ -234,6 +240,7 @@ impl SupportedEventEncryptionSchemes<'_> {
             SupportedEventEncryptionSchemes::MegolmV1AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV1AesSha2
             }
+            #[cfg(feature = "experimental-algorithms")]
             SupportedEventEncryptionSchemes::MegolmV2AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV2AesSha2
             }
@@ -247,6 +254,7 @@ impl<'a> From<&'a MegolmV1AesSha2Content> for SupportedEventEncryptionSchemes<'a
     }
 }
 
+#[cfg(feature = "experimental-algorithms")]
 impl<'a> From<&'a MegolmV2AesSha2Content> for SupportedEventEncryptionSchemes<'a> {
     fn from(c: &'a MegolmV2AesSha2Content) -> Self {
         Self::MegolmV2AesSha2(c)
@@ -273,6 +281,7 @@ pub struct MegolmV1AesSha2Content {
 
 /// The event content for events encrypted with the m.megolm.v2.aes-sha2
 /// algorithm.
+#[cfg(feature = "experimental-algorithms")]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MegolmV2AesSha2Content {
     /// The encrypted content of the event.
@@ -359,10 +368,17 @@ macro_rules! scheme_serialization {
     };
 }
 
+#[cfg(feature = "experimental-algorithms")]
 scheme_serialization!(
     RoomEventEncryptionScheme,
     MegolmV1AesSha2 => MegolmV1AesSha2Content,
     MegolmV2AesSha2 => MegolmV2AesSha2Content
+);
+
+#[cfg(not(feature = "experimental-algorithms"))]
+scheme_serialization!(
+    RoomEventEncryptionScheme,
+    MegolmV1AesSha2 => MegolmV1AesSha2Content,
 );
 
 #[cfg(feature = "experimental-algorithms")]

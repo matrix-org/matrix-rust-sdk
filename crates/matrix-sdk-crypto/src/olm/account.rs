@@ -526,6 +526,7 @@ impl ReadOnlyAccount {
         #[cfg(feature = "experimental-algorithms")]
         &EventEncryptionAlgorithm::OlmV2Curve25519AesSha2,
         &EventEncryptionAlgorithm::MegolmV1AesSha2,
+        #[cfg(feature = "experimental-algorithms")]
         &EventEncryptionAlgorithm::MegolmV2AesSha2,
     ];
 
