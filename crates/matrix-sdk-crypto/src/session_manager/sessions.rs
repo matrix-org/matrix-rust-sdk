@@ -38,7 +38,7 @@ use crate::{
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
-    types::events::{EventEncryptionAlgorithm, EventType},
+    types::{events::EventType, EventEncryptionAlgorithm},
     ReadOnlyDevice,
 };
 

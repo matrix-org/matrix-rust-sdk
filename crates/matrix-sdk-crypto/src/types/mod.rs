@@ -41,7 +41,9 @@ pub use backup::*;
 pub use cross_signing_key::*;
 pub use device_keys::*;
 pub use one_time_keys::*;
-use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
+use ruma::{
+    serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
+};
 use serde::{Deserialize, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 
@@ -317,6 +319,43 @@ impl Algorithm for DeviceKeyAlgorithm {
     fn algorithm(&self) -> DeviceKeyAlgorithm {
         self.to_owned()
     }
+}
+
+// Wrapper around `Box<str>` that cannot be used in a meaningful way outside of
+// this crate. Used for string enums because their `_Custom` variant can't be
+// truly private (only `#[doc(hidden)]`).
+#[doc(hidden)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PrivOwnedStr(Box<str>);
+
+impl std::fmt::Debug for PrivOwnedStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// An encryption algorithm to be used to encrypt messages sent to a room.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
+#[non_exhaustive]
+pub enum EventEncryptionAlgorithm {
+    /// Olm version 1 using Curve25519, AES-256, and SHA-256.
+    #[ruma_enum(rename = "m.olm.v1.curve25519-aes-sha2")]
+    OlmV1Curve25519AesSha2,
+
+    /// Olm version 2 using Curve25519, AES-256, and SHA-256.
+    #[ruma_enum(rename = "m.olm.v2.curve25519-aes-sha2")]
+    OlmV2Curve25519AesSha2,
+
+    /// Megolm version 1 using AES-256 and SHA-256.
+    #[ruma_enum(rename = "m.megolm.v1.aes-sha2")]
+    MegolmV1AesSha2,
+
+    /// Megolm version 2 using AES-256 and SHA-256.
+    #[ruma_enum(rename = "m.megolm.v2.aes-sha2")]
+    MegolmV2AesSha2,
+
+    #[doc(hidden)]
+    _Custom(PrivOwnedStr),
 }
 
 impl<T: Ord + Serialize> Serialize for SigningKeys<T> {

@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
-use super::{events::EventEncryptionAlgorithm, Signatures};
+use super::{EventEncryptionAlgorithm, Signatures};
 
 /// Identity keys for a device.
 #[derive(Clone, Debug, Deserialize, Serialize)]
