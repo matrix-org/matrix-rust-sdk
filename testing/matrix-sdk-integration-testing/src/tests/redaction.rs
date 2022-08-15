@@ -1,15 +1,12 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use assign::assign;
-use matrix_sdk::{
-    room::Room,
-    ruma::{
-        api::client::room::create_room::v3::Request as CreateRoomRequest,
-        events::{
-            room::avatar::{RoomAvatarEventContent, SyncRoomAvatarEvent},
-            StateEventType,
-        },
-        mxc_uri,
+use matrix_sdk::ruma::{
+    api::client::room::create_room::v3::Request as CreateRoomRequest,
+    events::{
+        room::avatar::{RoomAvatarEventContent, SyncRoomAvatarEvent},
+        StateEventType,
     },
+    mxc_uri,
 };
 
 use super::get_client_for_user;
@@ -17,24 +14,17 @@ use super::get_client_for_user;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redaction() -> Result<()> {
     let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
-    // create a room and invite sebastian;
+    // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
     });
 
-    let response = tamatoa.create_room(request).await?;
-    let room_id = response.room_id();
+    // we need a background sync for `create_room`
+    let bg_sync = tamatoa.clone();
+    let bg_syncer = tokio::spawn(async move { bg_sync.sync(Default::default()).await });
 
-    // the actual test
-    tamatoa.sync_once(Default::default()).await?;
-    let room = if let Room::Joined(r) =
-        tamatoa.get_room(room_id).expect("Tamtoa doesn't know about the room")
-    {
-        r
-    } else {
-        bail!("The room tamatoa isn't in the new room");
-    };
-
+    let room = tamatoa.create_room(request).await?;
+    bg_syncer.abort();
     // let's send a specific state event
 
     let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
@@ -72,26 +62,19 @@ async fn test_redaction() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redaction_static() -> Result<()> {
     let tamatoa = get_client_for_user("tamatoa".to_owned()).await?;
-    // create a room and invite sebastian;
+    // create a room
     let request = assign!(CreateRoomRequest::new(), {
         is_direct: true,
     });
 
-    let response = tamatoa.create_room(request).await?;
-    let room_id = response.room_id();
+    // we need a background sync for `create_room`
+    let bg_sync = tamatoa.clone();
+    let bg_syncer = tokio::spawn(async move { bg_sync.sync(Default::default()).await });
 
-    // the actual test
-    tamatoa.sync_once(Default::default()).await?;
-    let room = if let Room::Joined(r) =
-        tamatoa.get_room(room_id).expect("Tamtoa doesn't know about the room")
-    {
-        r
-    } else {
-        bail!("The room tamatoa isn't in the new room");
-    };
+    let room = tamatoa.create_room(request).await?;
+    bg_syncer.abort();
 
     // let's send a specific state event
-
     let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
     let content = assign!(RoomAvatarEventContent::new(), {
         url: Some(avatar_url),
