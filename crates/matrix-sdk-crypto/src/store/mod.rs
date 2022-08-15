@@ -379,7 +379,7 @@ impl Store {
     ) -> Result<Option<Device>> {
         self.get_user_devices(user_id)
             .await
-            .map(|d| d.devices().find(|d| d.curve25519_key().map_or(false, |k| k == curve_key)))
+            .map(|d| d.devices().find(|d| d.curve25519_key() == Some(curve_key)))
     }
 
     /// Get all devices associated with the given `user_id`
