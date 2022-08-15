@@ -1002,27 +1002,52 @@ impl OlmMachine {
             .await?)
     }
 
+    async fn get_verification_state(
+        &self,
+        session: &InboundGroupSession,
+        sender: &UserId,
+        device_id: &DeviceId,
+    ) -> StoreResult<VerificationState> {
+        Ok(
+            // First find the device from the Curve25519 key that was recorded
+            // when we decrypted the room_key.
+            if let Some(device) = self
+                .get_device(sender, device_id, None)
+                .await?
+                .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
+            {
+                // If the `Device` is confirmed to be the owner of the
+                // `InboundGroupSession` we will consider the room key, and by
+                // extension any events that are encrypted using this room key,
+                // to be trusted if:
+                //     a) This is our own device
+                //     b) The device itself is considered to be trusted
+                if device.is_owner_of_session(session)
+                    && (device.is_our_own_device() || device.verified())
+                {
+                    VerificationState::Trusted
+                } else {
+                    VerificationState::Untrusted
+                }
+            } else {
+                // We didn't find a device, no way to know if we should trust
+                // the `InboundGroupSession` or not.
+                VerificationState::UnknownDevice
+            },
+        )
+    }
+
+    /// Get the `EncryptionInfo` of an `InboundGroupSession`.
+    ///
+    /// This determines if the events that a given `InboundGroupSession`
+    /// decrypts are considered to be trusted.
     async fn get_encryption_info(
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
         device_id: &DeviceId,
     ) -> StoreResult<EncryptionInfo> {
-        let verification_state = if let Some(device) = self
-            .get_device(sender, device_id, None)
-            .await?
-            .filter(|d| d.curve25519_key().map(|k| k == session.sender_key()).unwrap_or(false))
-        {
-            if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
-                || device.verified()
-            {
-                VerificationState::Trusted
-            } else {
-                VerificationState::Untrusted
-            }
-        } else {
-            VerificationState::UnknownDevice
-        };
+        let verification_state = self.get_verification_state(session, sender, device_id).await?;
 
         let sender = sender.to_owned();
         let device_id = device_id.to_owned();

@@ -47,7 +47,7 @@ use crate::{
             forwarded_room_key::ForwardedRoomKeyContent,
             room::encrypted::ToDeviceEncryptedEventContent, EventType,
         },
-        DeviceKey, DeviceKeys, Signatures, SignedKey,
+        DeviceKey, DeviceKeys, Signatures, SignedKey, SigningKey,
     },
     verification::VerificationMachine,
     OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
@@ -138,6 +138,35 @@ impl Device {
             Ok((sas, r))
         } else {
             panic!("Invalid verification request type");
+        }
+    }
+
+    /// Is this our own device.
+    pub fn is_our_own_device(&self) -> bool {
+        let own_ed25519_key = self.verification_machine.store.account.identity_keys().ed25519;
+        let own_curve25519_key = self.verification_machine.store.account.identity_keys().curve25519;
+
+        self.user_id() == self.verification_machine.own_user_id()
+            && self.device_id() == self.verification_machine.own_device_id()
+            && self.ed25519_key().map(|k| k == own_ed25519_key).unwrap_or(false)
+            && self.curve25519_key().map(|k| k == own_curve25519_key).unwrap_or(false)
+    }
+
+    /// Does the given `InboundGroupSession` belong to this device.
+    ///
+    /// An `InboundGroupSession` is exchanged between devices as an Olm
+    /// encrypted `m.room_key` event. This method determines if this `Device`
+    /// can be confirmed as the creator and owner of the `m.room_key`.
+    pub fn is_owner_of_session(&self, session: &InboundGroupSession) -> bool {
+        if session.has_been_imported() {
+            false
+        } else if let Some(SigningKey::Ed25519(key)) =
+            session.signing_keys.get(&DeviceKeyAlgorithm::Ed25519)
+        {
+            self.ed25519_key().map(|k| k == *key).unwrap_or(false)
+                && self.curve25519_key().map(|k| k == session.sender_key).unwrap_or(false)
+        } else {
+            false
         }
     }
 
