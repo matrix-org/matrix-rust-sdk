@@ -382,6 +382,7 @@ impl InboundGroupSession {
             RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
                 self.decrypt_helper(&c.ciphertext).await?
             }
+            #[cfg(feature = "experimental-algorithms")]
             RoomEventEncryptionScheme::MegolmV2AesSha2(c) => {
                 self.decrypt_helper(&c.ciphertext).await?
             }

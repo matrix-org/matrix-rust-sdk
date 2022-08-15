@@ -52,6 +52,7 @@ pub enum ForwardedRoomKeyContent {
     MegolmV1AesSha2(Box<ForwardedMegolmV1AesSha2Content>),
     /// The `m.megolm.v2.aes-sha2` variant of the `m.forwarded_room_key`
     /// content.
+    #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(Box<ForwardedMegolmV1AesSha2Content>),
     /// An unknown and unsupported variant of the `m.forwarded_room_key`
     /// content.
@@ -65,6 +66,7 @@ impl ForwardedRoomKeyContent {
             ForwardedRoomKeyContent::MegolmV1AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV1AesSha2
             }
+            #[cfg(feature = "experimental-algorithms")]
             ForwardedRoomKeyContent::MegolmV2AesSha2(_) => {
                 EventEncryptionAlgorithm::MegolmV2AesSha2
             }
@@ -167,6 +169,7 @@ impl TryFrom<RoomKeyHelper> for ForwardedRoomKeyContent {
                 let content: ForwardedMegolmV1AesSha2Content = serde_json::from_value(value.other)?;
                 Self::MegolmV1AesSha2(content.into())
             }
+            #[cfg(feature = "experimental-algorithms")]
             EventEncryptionAlgorithm::MegolmV2AesSha2 => {
                 let content: ForwardedMegolmV1AesSha2Content = serde_json::from_value(value.other)?;
                 Self::MegolmV2AesSha2(content.into())
@@ -189,6 +192,7 @@ impl Serialize for ForwardedRoomKeyContent {
                 algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
                 other: serde_json::to_value(r).map_err(serde::ser::Error::custom)?,
             },
+            #[cfg(feature = "experimental-algorithms")]
             Self::MegolmV2AesSha2(r) => RoomKeyHelper {
                 algorithm: EventEncryptionAlgorithm::MegolmV2AesSha2,
                 other: serde_json::to_value(r).map_err(serde::ser::Error::custom)?,
