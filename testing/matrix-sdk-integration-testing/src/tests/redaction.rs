@@ -23,7 +23,7 @@ async fn test_redaction() -> Result<()> {
     });
 
     let response = tamatoa.create_room(request).await?;
-    let room_id = response.room_id;
+    let room_id = response.room_id();
 
     // the actual test
     tamatoa.sync_once(Default::default()).await?;
@@ -78,7 +78,7 @@ async fn test_redaction_static() -> Result<()> {
     });
 
     let response = tamatoa.create_room(request).await?;
-    let room_id = response.room_id;
+    let room_id = response.room_id();
 
     // the actual test
     tamatoa.sync_once(Default::default()).await?;

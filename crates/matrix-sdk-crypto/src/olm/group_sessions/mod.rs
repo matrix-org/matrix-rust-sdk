@@ -12,14 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-
-use ruma::{
-    events::forwarded_room_key::{
-        ToDeviceForwardedRoomKeyEventContent, ToDeviceForwardedRoomKeyEventContentInit,
-    },
-    DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId,
-};
+use ruma::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 
 mod inbound;
@@ -33,9 +26,12 @@ pub use outbound::{
 use thiserror::Error;
 pub use vodozemac::megolm::{ExportedSessionKey, SessionKey};
 use vodozemac::{megolm::SessionKeyDecodeError, Curve25519PublicKey};
-use zeroize::Zeroize;
 
-use crate::types::{deserialize_curve_key, serialize_curve_key};
+use crate::types::{
+    deserialize_curve_key,
+    events::forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
+    serialize_curve_key, SigningKey, SigningKeys,
+};
 
 /// An error type for the creation of group sessions.
 #[derive(Debug, Error)]
@@ -46,6 +42,20 @@ pub enum SessionCreationError {
     /// The room key key couldn't be decoded.
     #[error(transparent)]
     Decode(#[from] SessionKeyDecodeError),
+}
+
+/// An error type for the export of inbound group sessions.
+///
+/// Exported inbound group sessions will be either uploaded as backups, sent as
+/// `m.forwarded_room_key`s, or exported into a file backup.
+#[derive(Debug, Error)]
+pub enum SessionExportError {
+    /// The provided algorithm is not supported.
+    #[error("The provided algorithm is not supported: {0}")]
+    Algorithm(EventEncryptionAlgorithm),
+    /// The session export is missing a claimed Ed25519 sender key.
+    #[error("The provided room key export is missing a claimed Ed25519 sender key")]
+    MissingEd25519Key,
 }
 
 /// An exported version of an `InboundGroupSession`
@@ -72,12 +82,12 @@ pub struct ExportedRoomKey {
 
     /// The Ed25519 key of the device which initiated the session originally.
     #[serde(default)]
-    pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+    pub sender_claimed_keys: SigningKeys<DeviceKeyAlgorithm>,
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
     #[serde(default)]
-    pub forwarding_curve25519_key_chain: Vec<String>,
+    pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 }
 
 /// A backed up version of an `InboundGroupSession`
@@ -97,42 +107,51 @@ pub struct BackedUpRoomKey {
     pub session_key: ExportedSessionKey,
 
     /// The Ed25519 key of the device which initiated the session originally.
-    pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+    pub sender_claimed_keys: SigningKeys<DeviceKeyAlgorithm>,
 
     /// Chain of Curve25519 keys through which this session was forwarded, via
     /// m.forwarded_room_key events.
-    pub forwarding_curve25519_key_chain: Vec<String>,
+    pub forwarding_curve25519_key_chain: Vec<Curve25519PublicKey>,
 }
 
-impl TryInto<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
-    type Error = ();
+impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
+    type Error = SessionExportError;
 
     /// Convert an exported room key into a content for a forwarded room key
     /// event.
     ///
-    /// This will fail if the exported room key has multiple sender claimed keys
-    /// or if the algorithm of the claimed sender key isn't
-    /// `DeviceKeyAlgorithm::Ed25519`.
-    fn try_into(self) -> Result<ToDeviceForwardedRoomKeyEventContent, Self::Error> {
-        if self.sender_claimed_keys.len() != 1 {
-            Err(())
+    /// This will fail if the exported room key doesn't contain an Ed25519
+    /// claimed sender key.
+    fn try_from(room_key: ExportedRoomKey) -> Result<ForwardedRoomKeyContent, Self::Error> {
+        // The forwarded room key content only supports a single claimed sender
+        // key and it requires it to be a Ed25519 key. This here will be lossy
+        // conversion since we're dropping all other key types.
+        //
+        // This isn't yet a problem since no other key types exist, but still
+        // something that will need to be addressed sooner or later.
+        if let Some(SigningKey::Ed25519(claimed_ed25519_key)) =
+            room_key.sender_claimed_keys.get(&DeviceKeyAlgorithm::Ed25519)
+        {
+            if room_key.algorithm == EventEncryptionAlgorithm::MegolmV1AesSha2 {
+                Ok(ForwardedRoomKeyContent::MegolmV1AesSha2(
+                    ForwardedMegolmV1AesSha2Content {
+                        room_id: room_key.room_id,
+                        session_id: room_key.session_id,
+                        session_key: room_key.session_key,
+                        claimed_sender_key: room_key.sender_key,
+                        claimed_ed25519_key: *claimed_ed25519_key,
+                        forwarding_curve25519_key_chain: room_key
+                            .forwarding_curve25519_key_chain
+                            .clone(),
+                        other: Default::default(),
+                    }
+                    .into(),
+                ))
+            } else {
+                Err(SessionExportError::MissingEd25519Key)
+            }
         } else {
-            let (algorithm, claimed_key) = self.sender_claimed_keys.iter().next().ok_or(())?;
-
-            if algorithm != &DeviceKeyAlgorithm::Ed25519 {
-                return Err(());
-            }
-
-            Ok(ToDeviceForwardedRoomKeyEventContentInit {
-                algorithm: self.algorithm,
-                room_id: self.room_id,
-                sender_key: self.sender_key.to_base64(),
-                session_id: self.session_id,
-                session_key: self.session_key.to_base64(),
-                sender_claimed_ed25519_key: claimed_key.to_owned(),
-                forwarding_curve25519_key_chain: self.forwarding_curve25519_key_chain,
-            }
-            .into())
+            Err(SessionExportError::Algorithm(room_key.algorithm))
         }
     }
 }
@@ -149,29 +168,28 @@ impl From<ExportedRoomKey> for BackedUpRoomKey {
     }
 }
 
-impl TryFrom<ToDeviceForwardedRoomKeyEventContent> for ExportedRoomKey {
-    type Error = SessionKeyDecodeError;
+impl TryFrom<ForwardedRoomKeyContent> for ExportedRoomKey {
+    type Error = SessionExportError;
 
     /// Convert the content of a forwarded room key into a exported room key.
-    fn try_from(
-        mut forwarded_key: ToDeviceForwardedRoomKeyEventContent,
-    ) -> Result<Self, Self::Error> {
-        let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
-        sender_claimed_keys
-            .insert(DeviceKeyAlgorithm::Ed25519, forwarded_key.sender_claimed_ed25519_key);
+    fn try_from(forwarded_key: ForwardedRoomKeyContent) -> Result<Self, Self::Error> {
+        match forwarded_key {
+            ForwardedRoomKeyContent::MegolmV1AesSha2(content) => {
+                let mut sender_claimed_keys = SigningKeys::new();
+                sender_claimed_keys
+                    .insert(DeviceKeyAlgorithm::Ed25519, content.claimed_ed25519_key.into());
 
-        let session_key = ExportedSessionKey::from_base64(&forwarded_key.session_key)?;
-        forwarded_key.session_key.zeroize();
-        let sender_key = Curve25519PublicKey::from_base64(&forwarded_key.sender_key)?;
-
-        Ok(Self {
-            algorithm: forwarded_key.algorithm,
-            room_id: forwarded_key.room_id,
-            session_id: forwarded_key.session_id,
-            forwarding_curve25519_key_chain: forwarded_key.forwarding_curve25519_key_chain,
-            sender_claimed_keys,
-            sender_key,
-            session_key,
-        })
+                Ok(Self {
+                    algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    room_id: content.room_id,
+                    session_id: content.session_id,
+                    forwarding_curve25519_key_chain: content.forwarding_curve25519_key_chain,
+                    sender_claimed_keys,
+                    sender_key: content.claimed_sender_key,
+                    session_key: content.session_key,
+                })
+            }
+            ForwardedRoomKeyContent::Unknown(c) => Err(SessionExportError::Algorithm(c.algorithm)),
+        }
     }
 }

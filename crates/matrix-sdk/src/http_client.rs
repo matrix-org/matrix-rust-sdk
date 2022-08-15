@@ -19,13 +19,16 @@ use bytes::{Bytes, BytesMut};
 use http::Response as HttpResponse;
 use matrix_sdk_common::AsyncTraitDeps;
 use reqwest::Response;
-use ruma::api::{
-    error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
-    OutgoingRequestAppserviceExt, SendAccessToken,
+use ruma::{
+    api::{
+        error::FromHttpResponseError, AuthScheme, IncomingResponse, MatrixVersion, OutgoingRequest,
+        OutgoingRequestAppserviceExt, SendAccessToken,
+    },
+    UserId,
 };
 use tracing::trace;
 
-use crate::{config::RequestConfig, error::HttpError, Session};
+use crate::{config::RequestConfig, error::HttpError};
 
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -108,7 +111,8 @@ impl HttpClient {
         request: Request,
         config: Option<RequestConfig>,
         homeserver: String,
-        session: Option<&Session>,
+        access_token: Option<&str>,
+        user_id: Option<&UserId>,
         server_versions: &[MatrixVersion],
     ) -> Result<Request::IncomingResponse, HttpError>
     where
@@ -126,35 +130,31 @@ impl HttpClient {
         }
 
         trace!("Serializing request");
-        // We can't assert the identity without a session.
-        let request = if !config.assert_identity || session.is_none() {
-            let send_access_token = if auth_scheme == AuthScheme::None && !config.force_auth {
-                // Small optimization: Don't take the session lock if we know the auth token
-                // isn't going to be used anyways.
-                SendAccessToken::None
-            } else {
-                match session {
-                    Some(sess) => {
-                        if config.force_auth {
-                            SendAccessToken::Always(&sess.access_token)
-                        } else {
-                            SendAccessToken::IfRequired(&sess.access_token)
-                        }
+        // We can't assert the identity without a user_id.
+        let request = if let Some((access_token, user_id)) =
+            access_token.filter(|_| config.assert_identity).zip(user_id)
+        {
+            request.try_into_http_request_with_user_id::<BytesMut>(
+                &homeserver,
+                SendAccessToken::Always(access_token),
+                user_id,
+                server_versions,
+            )?
+        } else {
+            let send_access_token = match access_token {
+                Some(access_token) => {
+                    if config.force_auth {
+                        SendAccessToken::Always(access_token)
+                    } else {
+                        SendAccessToken::IfRequired(access_token)
                     }
-                    None => SendAccessToken::None,
                 }
+                None => SendAccessToken::None,
             };
 
             request.try_into_http_request::<BytesMut>(
                 &homeserver,
                 send_access_token,
-                server_versions,
-            )?
-        } else {
-            request.try_into_http_request_with_user_id::<BytesMut>(
-                &homeserver,
-                SendAccessToken::Always(&session.ok_or(HttpError::UserIdRequired)?.access_token),
-                &session.ok_or(HttpError::UserIdRequired)?.user_id,
                 server_versions,
             )?
         };

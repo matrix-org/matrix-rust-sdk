@@ -58,6 +58,10 @@ pub struct EncryptionSettings {
     /// The history visibility of the room when the session was
     /// created.
     pub history_visibility: events::HistoryVisibility,
+
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    pub only_allow_trusted_devices: bool,
 }
 
 impl Default for EncryptionSettings {
@@ -77,6 +81,7 @@ impl Default for EncryptionSettings {
                 n.into()
             },
             history_visibility: default.history_visibility.into(),
+            only_allow_trusted_devices: default.only_allow_trusted_devices,
         }
     }
 }
@@ -97,6 +102,7 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
             rotation_period: Duration::from_micros(value.rotation_period.get_u64().1),
             rotation_period_msgs: value.rotation_period_messages.get_u64().1,
             history_visibility: value.history_visibility.into(),
+            only_allow_trusted_devices: value.only_allow_trusted_devices,
         }
     }
 }

@@ -109,6 +109,8 @@ impl Session {
     ///   encrypted, this needs to be the device that was used to create this
     ///   session with.
     ///
+    /// * `event_type` - The type of the event content.
+    ///
     /// * `content` - The content of the event.
     pub async fn encrypt(
         &mut self,
@@ -182,7 +184,7 @@ impl Session {
     ///
     /// * `device_id` - Our own device ID that the session belongs to.
     ///
-    /// * `our_idenity_keys` - An clone of the Arc to our own identity keys.
+    /// * `our_identity_keys` - An clone of the Arc to our own identity keys.
     ///
     /// * `pickle` - The pickled version of the `Session`.
     ///

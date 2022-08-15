@@ -18,6 +18,8 @@
 //! types. Once deserialized they aim to zeroize all the secret material once
 //! the type is dropped.
 
+pub mod forwarded_room_key;
+pub mod olm_v1;
 pub mod room;
 pub mod room_key;
 pub mod secret_send;

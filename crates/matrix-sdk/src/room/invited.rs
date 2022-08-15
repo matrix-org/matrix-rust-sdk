@@ -2,7 +2,10 @@ use std::ops::Deref;
 
 use thiserror::Error;
 
-use crate::{room::Common, BaseRoom, Client, Error, Result, RoomMember, RoomType};
+use crate::{
+    room::{Common, Joined, Left},
+    BaseRoom, Client, Error, Result, RoomMember, RoomType,
+};
 /// A room in the invited state.
 ///
 /// This struct contains all methods specific to a `Room` with type
@@ -49,12 +52,13 @@ impl Invited {
     }
 
     /// Reject the invitation.
-    pub async fn reject_invitation(&self) -> Result<()> {
+    pub async fn reject_invitation(&self) -> Result<Left> {
         self.inner.leave().await
     }
 
     /// Accept the invitation.
-    pub async fn accept_invitation(&self) -> Result<()> {
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    pub async fn accept_invitation(&self) -> Result<Joined> {
         self.inner.join().await
     }
 

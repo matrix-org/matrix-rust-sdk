@@ -29,7 +29,10 @@
 //! [`StoreConfig`]: crate::config::StoreConfig
 //! [`ClientBuilder::store_config()`]: crate::ClientBuilder::store_config
 
-#[cfg(feature = "indexeddb")]
+// indexeddb and sled are mutably exclusive and though that is already checked
+// before, both using `*`-glob exports confuses the compiler. so we exclude
+// them. see https://github.com/rust-lang/rfcs/issues/553#issuecomment-325034618
+#[cfg(all(feature = "indexeddb", not(feature = "sled")))]
 pub use matrix_sdk_indexeddb::*;
 #[cfg(feature = "sled")]
 pub use matrix_sdk_sled::*;

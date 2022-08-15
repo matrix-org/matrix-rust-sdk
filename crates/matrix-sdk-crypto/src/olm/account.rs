@@ -28,7 +28,7 @@ use ruma::{
         upload_keys,
         upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     },
-    events::{AnyToDeviceEvent, OlmV1Keys},
+    events::AnyToDeviceEvent,
     serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
     OwnedDeviceKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
@@ -38,7 +38,10 @@ use serde_json::{value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, trace, warn};
 use vodozemac::{
-    olm::{Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage},
+    olm::{
+        Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage, PreKeyMessage,
+        SessionConfig,
+    },
     Curve25519PublicKey, Ed25519Signature, KeyId, PickleError,
 };
 
@@ -52,8 +55,12 @@ use crate::{
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
     types::{
-        events::room::encrypted::{
-            EncryptedToDeviceEvent, OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent,
+        events::{
+            olm_v1::AnyDecryptedOlmEvent,
+            room::encrypted::{
+                EncryptedToDeviceEvent, OlmV1Curve25519AesSha2Content,
+                ToDeviceEncryptedEventContent,
+            },
         },
         CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey,
     },
@@ -94,15 +101,20 @@ impl SessionType {
 ///
 /// Contains the decrypted event plaintext along with some associated metadata,
 /// such as the identity (Curve25519) key of the to-device event sender.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct OlmDecryptionInfo {
     pub sender: OwnedUserId,
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
-    pub event: Raw<AnyToDeviceEvent>,
-    pub signing_key: String,
-    pub sender_key: Curve25519PublicKey,
     pub inbound_group_session: Option<InboundGroupSession>,
+    pub result: DecryptionResult,
+}
+
+#[derive(Debug)]
+pub(crate) struct DecryptionResult {
+    pub event: AnyDecryptedOlmEvent,
+    pub raw_event: Raw<AnyToDeviceEvent>,
+    pub sender_key: Curve25519PublicKey,
 }
 
 /// A hash of a successfully decrypted Olm message.
@@ -153,13 +165,11 @@ impl Account {
         let message_hash = OlmMessageHash::new(sender_key, ciphertext);
 
         match self.decrypt_olm_message(sender, sender_key, ciphertext).await {
-            Ok((session, event, signing_key)) => Ok(OlmDecryptionInfo {
+            Ok((session, result)) => Ok(OlmDecryptionInfo {
                 sender: sender.to_owned(),
                 session,
                 message_hash,
-                event,
-                signing_key,
-                sender_key,
+                result,
                 inbound_group_session: None,
             }),
             Err(OlmError::SessionWedged(user_id, sender_key)) => {
@@ -283,7 +293,7 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
-    ) -> OlmResult<(SessionType, Raw<AnyToDeviceEvent>, String)> {
+    ) -> OlmResult<(SessionType, DecryptionResult)> {
         // First try to decrypt using an existing session.
         let (session, plaintext) = if let Some(d) =
             self.decrypt_with_existing_sessions(sender_key, message).await?
@@ -348,8 +358,8 @@ impl Account {
             "Successfully decrypted an Olm message"
         );
 
-        match self.parse_decrypted_to_device_event(sender, plaintext) {
-            Ok((event, signing_key)) => Ok((session, event, signing_key)),
+        match self.parse_decrypted_to_device_event(sender, sender_key, plaintext) {
+            Ok(result) => Ok((session, result)),
             Err(e) => {
                 // We might created a new session but decryption might still
                 // have failed, store it for the error case here, this is fine
@@ -386,31 +396,32 @@ impl Account {
     fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
+        sender_key: Curve25519PublicKey,
         plaintext: String,
-    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
-        #[derive(Deserialize)]
-        struct DecryptedEvent {
-            sender: OwnedUserId,
-            recipient: OwnedUserId,
-            recipient_keys: OlmV1Keys,
-            keys: OlmV1Keys,
-        }
-
-        let event: DecryptedEvent = serde_json::from_str(&plaintext)?;
+    ) -> OlmResult<DecryptionResult> {
+        let event: AnyDecryptedOlmEvent = serde_json::from_str(&plaintext)?;
         let identity_keys = self.inner.identity_keys();
 
-        if event.recipient != self.user_id() {
-            Err(EventError::MismatchedSender(event.recipient, self.user_id().to_owned()).into())
-        } else if event.sender != sender {
-            Err(EventError::MismatchedSender(event.sender, sender.to_owned()).into())
-        } else if identity_keys.ed25519.to_base64() != event.recipient_keys.ed25519 {
+        if event.recipient() != self.user_id() {
+            Err(EventError::MismatchedSender(
+                event.recipient().to_owned(),
+                self.user_id().to_owned(),
+            )
+            .into())
+        } else if event.sender() != sender {
+            Err(EventError::MismatchedSender(event.sender().to_owned(), sender.to_owned()).into())
+        } else if identity_keys.ed25519 != event.recipient_keys().ed25519 {
             Err(EventError::MismatchedKeys(
-                identity_keys.ed25519.to_base64(),
-                event.recipient_keys.ed25519,
+                identity_keys.ed25519.into(),
+                event.recipient_keys().ed25519.into(),
             )
             .into())
         } else {
-            Ok((Raw::from_json(RawJsonValue::from_string(plaintext)?), event.keys.ed25519))
+            Ok(DecryptionResult {
+                event,
+                raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
+                sender_key,
+            })
         }
     }
 }
@@ -913,7 +924,11 @@ impl ReadOnlyAccount {
         one_time_key: Curve25519PublicKey,
         fallback_used: bool,
     ) -> Session {
-        let session = self.inner.lock().await.create_outbound_session(identity_key, one_time_key);
+        let session = self.inner.lock().await.create_outbound_session(
+            SessionConfig::version_1(),
+            identity_key,
+            one_time_key,
+        );
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = session.session_id();
@@ -1063,11 +1078,11 @@ impl ReadOnlyAccount {
         let identity_keys = self.identity_keys();
 
         let sender_key = identity_keys.curve25519;
-        let signing_key = identity_keys.ed25519.to_base64();
+        let signing_key = identity_keys.ed25519;
 
         let inbound = InboundGroupSession::new(
             sender_key,
-            &signing_key,
+            signing_key,
             room_id,
             &outbound.session_key().await,
             outbound.settings().algorithm.to_owned(),

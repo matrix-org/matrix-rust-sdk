@@ -64,9 +64,10 @@ bytes = "1.1.0"
 dashmap = "5.2.0"
 event-listener = "2.5.2"
 eyre = { version = "0.6.8", optional = true }
+futures-channel = { version = "0.3.21", features = ["sink"] }
 futures-core = "0.3.21"
 futures-signals = { version = "0.3.30", default-features = false }
-futures-util = { version = "0.3.21", default-features = false }
+futures-util = { version = "0.3.21", default-features = false, features = ["sink"] }
 http = "0.2.6"
 matrix-sdk-common = { version = "0.5.0", path = "../matrix-sdk-common" }
 matrix-sdk-indexeddb = { version = "0.1.0", path = "../matrix-sdk-indexeddb", default-features = false, optional = true }
@@ -125,6 +126,7 @@ default-features = false
 optional = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Upgrade once MSRV >= 1.61
 async-once-cell = "0.3.1"
 wasm-timer = "0.2.5"
 
@@ -150,15 +152,3 @@ wasm-bindgen-test = "0.3.30"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread", "macros"] }
 wiremock = "0.5.13"
-
-[[example]]
-name = "cross_signing_bootstrap"
-required-features = ["e2e-encryption"]
-
-[[example]]
-name = "emoji_verification"
-required-features = ["e2e-encryption"]
-
-[[example]]
-name = "timeline"
-required-features = ["sled", "experimental-timeline"]

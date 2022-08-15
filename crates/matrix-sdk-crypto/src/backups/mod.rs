@@ -698,7 +698,7 @@ mod tests {
         machine
             .bootstrap_cross_signing(true)
             .await
-            .expect("Bootstraping a new identity always works");
+            .expect("Bootstrapping a new identity always works");
 
         let signatures = machine.sign(&serialized).await;
 

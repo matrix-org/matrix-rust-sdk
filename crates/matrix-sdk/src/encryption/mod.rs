@@ -880,7 +880,7 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::client::tests::logged_in_client;
+    use crate::test_utils::logged_in_client;
 
     #[async_test]
     async fn test_reaction_sending() {

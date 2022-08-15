@@ -15,8 +15,10 @@
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
+use vodozemac::Ed25519PublicKey;
 
 use super::store::CryptoStoreError;
+use crate::olm::SessionExportError;
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -40,6 +42,11 @@ pub enum OlmError {
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
     SessionCreation(#[from] SessionCreationError),
+
+    /// The room key that should be exported can't be converted into a
+    /// `m.forwarded_room_key` event.
+    #[error(transparent)]
+    SessionExport(#[from] SessionExportError),
 
     /// The storage layer returned an error.
     #[error("failed to read or write to the crypto store {0}")]
@@ -131,7 +138,7 @@ pub enum EventError {
         "the public that was part of the message doesn't match to the key we \
         have stored, expected {0}, got {0}"
     )]
-    MismatchedKeys(String, String),
+    MismatchedKeys(Box<Ed25519PublicKey>, Box<Ed25519PublicKey>),
 
     #[error(
         "the room id of the room key doesn't match the room id of the \

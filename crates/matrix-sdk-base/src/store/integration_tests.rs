@@ -1,4 +1,4 @@
-//! Macro of integration tests for StateStore implementions.
+//! Macro of integration tests for StateStore implementations.
 
 /// Macro building to allow your StateStore implementation to run the entire
 /// tests suite locally.

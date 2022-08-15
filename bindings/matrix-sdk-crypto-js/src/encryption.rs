@@ -29,6 +29,11 @@ pub struct EncryptionSettings {
     /// created.
     #[wasm_bindgen(js_name = "historyVisibility")]
     pub history_visibility: events::HistoryVisibility,
+
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    #[wasm_bindgen(js_name = "onlyAllowTrustedDevices")]
+    pub only_allow_trusted_devices: bool,
 }
 
 impl Default for EncryptionSettings {
@@ -40,6 +45,7 @@ impl Default for EncryptionSettings {
             rotation_period: default.rotation_period.as_micros().try_into().unwrap(),
             rotation_period_messages: default.rotation_period_msgs,
             history_visibility: default.history_visibility.into(),
+            only_allow_trusted_devices: default.only_allow_trusted_devices,
         }
     }
 }
@@ -60,6 +66,7 @@ impl From<&EncryptionSettings> for matrix_sdk_crypto::olm::EncryptionSettings {
             rotation_period: Duration::from_micros(value.rotation_period),
             rotation_period_msgs: value.rotation_period_messages,
             history_visibility: value.history_visibility.clone().into(),
+            only_allow_trusted_devices: value.only_allow_trusted_devices,
         }
     }
 }

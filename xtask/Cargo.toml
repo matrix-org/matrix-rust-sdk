@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[[bin]]
+name = "xtask"
+test = false
+
 [dependencies]
 clap = { version = "3.2.4", features = ["derive"] }
 serde = { version = "1.0.136", features = ["derive"] }

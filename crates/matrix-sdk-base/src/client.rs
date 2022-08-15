@@ -982,7 +982,7 @@ impl BaseClient {
                 };
 
                 let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
-                let settings = EncryptionSettings::new(settings, history_visibility);
+                let settings = EncryptionSettings::new(settings, history_visibility, false);
 
                 Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
             }

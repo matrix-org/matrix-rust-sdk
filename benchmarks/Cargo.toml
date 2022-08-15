@@ -18,7 +18,7 @@ tempfile = "3.3.0"
 tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-pprof = { version = "0.8.0", features = ["flamegraph", "criterion"] }
+pprof = { version = "0.10.0", features = ["flamegraph", "criterion"] }
 
 [[bench]]
 name = "crypto_bench"

@@ -17,7 +17,6 @@ use std::{collections::BTreeMap, fmt::Debug};
 use ruma::{
     events::{
         dummy::ToDeviceDummyEvent,
-        forwarded_room_key::ToDeviceForwardedRoomKeyEvent,
         key::verification::{
             accept::ToDeviceKeyVerificationAcceptEvent, cancel::ToDeviceKeyVerificationCancelEvent,
             done::ToDeviceKeyVerificationDoneEvent, key::ToDeviceKeyVerificationKeyEvent,
@@ -39,7 +38,10 @@ use serde_json::{
 use zeroize::Zeroize;
 
 use super::{
-    room::encrypted::EncryptedToDeviceEvent, room_key::RoomKeyEvent, secret_send::SecretSendEvent,
+    forwarded_room_key::{ForwardedRoomKeyContent, ForwardedRoomKeyEvent},
+    room::encrypted::EncryptedToDeviceEvent,
+    room_key::RoomKeyEvent,
+    secret_send::SecretSendEvent,
     EventType,
 };
 use crate::types::events::from_str;
@@ -76,7 +78,7 @@ pub enum ToDeviceEvents {
     /// The `m.room_key_request` to-device event.
     RoomKeyRequest(ToDeviceRoomKeyRequestEvent),
     /// The `m.forwarded_room_key` to-device event.
-    ForwardedRoomKey(ToDeviceForwardedRoomKeyEvent),
+    ForwardedRoomKey(Box<ForwardedRoomKeyEvent>),
     /// The `m.secret.send` to-device event.
     SecretSend(SecretSendEvent),
     /// The `m.secret.request` to-device event.
@@ -127,7 +129,7 @@ impl ToDeviceEvents {
             ToDeviceEvents::RoomEncrypted(_) => ToDeviceEventType::RoomEncrypted,
             ToDeviceEvents::RoomKey(_) => ToDeviceEventType::RoomKey,
             ToDeviceEvents::RoomKeyRequest(e) => e.content.event_type(),
-            ToDeviceEvents::ForwardedRoomKey(e) => e.content.event_type(),
+            ToDeviceEvents::ForwardedRoomKey(_) => ToDeviceEventType::ForwardedRoomKey,
 
             ToDeviceEvents::SecretSend(_) => ToDeviceEventType::SecretSend,
             ToDeviceEvents::SecretRequest(e) => e.content.event_type(),
@@ -197,7 +199,11 @@ impl ToDeviceEvents {
                 Raw::from_json(raw_value)
             }
             ToDeviceEvents::ForwardedRoomKey(mut e) => {
-                e.content.session_key.zeroize();
+                match &mut e.content {
+                    ForwardedRoomKeyContent::MegolmV1AesSha2(c) => c.session_key.zeroize(),
+                    ForwardedRoomKeyContent::Unknown(_) => (),
+                }
+
                 Raw::from_json(to_raw_value(&e)?)
             }
             ToDeviceEvents::SecretSend(mut e) => {
@@ -410,7 +416,11 @@ mod test {
             "sender_claimed_ed25519_key": "aj40p+aw64yPIdsxoog8jhPu9i7l7NcFRecuOQblE3Y",
             "sender_key": "RF3s+E7RkTQTGF2d8Deol0FkQvgII2aJDf3/Jp5mxVU",
             "session_id": "X3lUlvLELLYxeTx4yOVu6UDpasGEVO0Jbu+QFnm0cKQ",
-            "session_key": "AgAAAADxKHa9uFxcXzwYoNueL5Xqi69IkD4sni8Llf..."
+            "session_key": "AQAAAAq2JpkMceK5f6JrZPJWwzQTn59zliuIv0F7apVLXDcZCCT\
+                            3LqBjD21sULYEO5YTKdpMVhi9i6ZSZhdvZvp//tzRpDT7wpWVWI\
+                            00Y3EPEjmpm/HfZ4MMAKpk+tzJVuuvfAcHBZgpnxBGzYOc/DAqa\
+                            pK7Tk3t3QJ1UMSD94HfAqlb1JF5QBPwoh0fOvD8pJdanB8zxz05\
+                            tKFdR73/vo2Q/zE3"
             },
             "type": "m.forwarded_room_key"
         })

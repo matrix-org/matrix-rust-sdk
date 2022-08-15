@@ -24,6 +24,7 @@ use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
 use matrix_sdk_base::{Error as SdkBaseError, StoreError};
+use matrix_sdk_common::timeout::ElapsedError;
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
@@ -97,10 +98,6 @@ pub enum HttpError {
     /// The given request can't be cloned and thus can't be retried.
     #[error("The request cannot be cloned")]
     UnableToCloneRequest,
-
-    /// Tried to send a request without `user_id` in the `Session`
-    #[error("missing user_id in session")]
-    UserIdRequired,
 
     /// An error occurred while refreshing the access token.
     #[error(transparent)]
@@ -184,6 +181,15 @@ pub enum Error {
     #[cfg(feature = "image-proc")]
     #[error(transparent)]
     ImageError(#[from] ImageError),
+
+    /// An error raised because a Future timed out.
+    #[error(transparent)]
+    ElapsedError(#[from] ElapsedError),
+
+    /// An error encountered when comparing the SDK's state
+    /// with the expected state after an API request.
+    #[error("The SDK's state does not reflect the API response")]
+    InconsistentState,
 
     /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate

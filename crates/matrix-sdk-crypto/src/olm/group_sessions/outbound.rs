@@ -24,7 +24,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::locks::RwLock;
 use ruma::{
     events::room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     serde::Raw,
@@ -34,7 +34,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{debug, error, info};
-use vodozemac::Curve25519PublicKey;
+use vodozemac::{megolm::SessionConfig, Curve25519PublicKey};
 pub use vodozemac::{
     megolm::{GroupSession, GroupSessionPickle, MegolmMessage, SessionKey},
     olm::IdentityKeys,
@@ -74,6 +74,10 @@ pub struct EncryptionSettings {
     pub rotation_period_msgs: u64,
     /// The history visibility of the room when the session was created.
     pub history_visibility: HistoryVisibility,
+    /// Should untrusted devices receive the room key, or should they be
+    /// excluded from the conversation.
+    #[serde(default)]
+    pub only_allow_trusted_devices: bool,
 }
 
 impl Default for EncryptionSettings {
@@ -83,14 +87,20 @@ impl Default for EncryptionSettings {
             rotation_period: ROTATION_PERIOD,
             rotation_period_msgs: ROTATION_MESSAGES,
             history_visibility: HistoryVisibility::Shared,
+            only_allow_trusted_devices: false,
         }
     }
 }
 
 impl EncryptionSettings {
-    /// Create new encryption settings using an `RoomEncryptionEventContent` and
-    /// a history visibility.
-    pub fn new(content: RoomEncryptionEventContent, history_visibility: HistoryVisibility) -> Self {
+    /// Create new encryption settings using an `RoomEncryptionEventContent`,
+    /// a history visibility, and setting if only trusted devices should receive
+    /// a room key.
+    pub fn new(
+        content: RoomEncryptionEventContent,
+        history_visibility: HistoryVisibility,
+        only_allow_trusted_devices: bool,
+    ) -> Self {
         let rotation_period: Duration =
             content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
         let rotation_period_msgs: u64 =
@@ -101,6 +111,7 @@ impl EncryptionSettings {
             rotation_period,
             rotation_period_msgs,
             history_visibility,
+            only_allow_trusted_devices,
         }
     }
 }
@@ -112,7 +123,7 @@ impl EncryptionSettings {
 /// messages.
 #[derive(Clone)]
 pub struct OutboundGroupSession {
-    inner: Arc<Mutex<GroupSession>>,
+    inner: Arc<RwLock<GroupSession>>,
     device_id: Arc<DeviceId>,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
@@ -163,11 +174,11 @@ impl OutboundGroupSession {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> Self {
-        let session = GroupSession::new();
+        let session = GroupSession::new(SessionConfig::version_1());
         let session_id = session.session_id();
 
         OutboundGroupSession {
-            inner: Arc::new(Mutex::new(session)),
+            inner: RwLock::new(session).into(),
             room_id: room_id.into(),
             device_id,
             account_identity_keys: identity_keys,
@@ -250,7 +261,7 @@ impl OutboundGroupSession {
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
     pub(crate) async fn encrypt_helper(&self, plaintext: String) -> MegolmMessage {
-        let mut session = self.inner.lock().await;
+        let mut session = self.inner.write().await;
         self.message_count.fetch_add(1, Ordering::SeqCst);
         session.encrypt(&plaintext)
     }
@@ -283,7 +294,7 @@ impl OutboundGroupSession {
         });
 
         let plaintext = json_content.to_string();
-        let relates_to = content.get("relates_to").cloned();
+        let relates_to = content.get("m.relates_to").cloned();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
@@ -295,7 +306,7 @@ impl OutboundGroupSession {
         }
         .into();
 
-        let content = RoomEncryptedEventContent { scheme, relates_to };
+        let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
 
         Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
     }
@@ -350,7 +361,7 @@ impl OutboundGroupSession {
     ///
     /// A session key can be used to to create an `InboundGroupSession`.
     pub async fn session_key(&self) -> SessionKey {
-        let session = self.inner.lock().await;
+        let session = self.inner.read().await;
         session.session_key()
     }
 
@@ -369,7 +380,7 @@ impl OutboundGroupSession {
     /// Each message is sent with an increasing index. This returns the
     /// message index that will be used for the next encrypted message.
     pub async fn message_index(&self) -> u32 {
-        let session = self.inner.lock().await;
+        let session = self.inner.read().await;
         session.message_index()
     }
 
@@ -493,7 +504,7 @@ impl OutboundGroupSession {
         let session_id = inner.session_id();
 
         Ok(Self {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: Arc::new(RwLock::new(inner)),
             device_id,
             account_identity_keys: identity_keys,
             session_id: session_id.into(),
@@ -523,7 +534,7 @@ impl OutboundGroupSession {
     ///   session,
     /// either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledOutboundGroupSession {
-        let pickle = self.inner.lock().await.pickle();
+        let pickle = self.inner.read().await.pickle();
 
         PickledOutboundGroupSession {
             pickle,
@@ -622,7 +633,7 @@ mod tests {
     fn encryption_settings_conversion() {
         let mut content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-        let settings = EncryptionSettings::new(content.clone(), HistoryVisibility::Joined);
+        let settings = EncryptionSettings::new(content.clone(), HistoryVisibility::Joined, false);
 
         assert_eq!(settings.rotation_period, ROTATION_PERIOD);
         assert_eq!(settings.rotation_period_msgs, ROTATION_MESSAGES);
@@ -630,7 +641,7 @@ mod tests {
         content.rotation_period_ms = Some(uint!(3600));
         content.rotation_period_msgs = Some(uint!(500));
 
-        let settings = EncryptionSettings::new(content, HistoryVisibility::Shared);
+        let settings = EncryptionSettings::new(content, HistoryVisibility::Shared, false);
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);
