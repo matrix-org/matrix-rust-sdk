@@ -173,7 +173,7 @@ impl InboundGroupSession {
         algorithm: &EventEncryptionAlgorithm,
         content: &ForwardedMegolmV1AesSha2Content,
     ) -> Result<Self, SessionCreationError> {
-        let config = OutboundGroupSession::session_config(&algorithm)?;
+        let config = OutboundGroupSession::session_config(algorithm)?;
 
         let session = InnerSession::import(&content.session_key, config);
 
