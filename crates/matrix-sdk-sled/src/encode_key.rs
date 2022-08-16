@@ -14,6 +14,7 @@ use ruma::{
 /// without checking for the existence of `ENCODE_SEPARATOR` within
 pub struct EncodeUnchecked<'a>(&'a [u8]);
 
+#[cfg(feature = "state-store")]
 impl<'a> EncodeUnchecked<'a> {
     /// Wrap any `[u8]`
     pub fn from(bytes: &'a [u8]) -> Self {
