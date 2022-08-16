@@ -1430,7 +1430,7 @@ impl Client {
                 .as_ref()
                 .ok_or(RefreshTokenError::RefreshTokenRequired)?
                 .clone();
-            let request = refresh_token::v3::Request::new(refresh_token);
+            let request = refresh_token::v3::Request::new(&refresh_token);
 
             let res = self
                 .inner
