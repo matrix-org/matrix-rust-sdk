@@ -133,6 +133,7 @@ impl DeviceKeyId {
 
 /// The basic key algorithms in the specification.
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct DeviceKeyAlgorithm {
     inner: ruma::DeviceKeyAlgorithm,
 }
@@ -163,6 +164,7 @@ impl DeviceKeyAlgorithm {
 
 /// The basic key algorithm names in the specification.
 #[wasm_bindgen]
+#[derive(Debug)]
 pub enum DeviceKeyAlgorithmName {
     /// The Ed25519 signature algorithm.
     Ed25519,
