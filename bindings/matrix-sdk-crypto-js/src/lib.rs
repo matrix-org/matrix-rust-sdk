@@ -17,6 +17,7 @@
 #![warn(missing_docs, missing_debug_implementations)]
 #![allow(clippy::drop_non_drop)] // triggered by wasm_bindgen code
 
+pub mod attachment;
 pub mod encryption;
 pub mod events;
 mod future;
