@@ -1,3 +1,5 @@
+//! Extra types, like `Signatures`.
+
 use js_sys::Map;
 use wasm_bindgen::prelude::*;
 
