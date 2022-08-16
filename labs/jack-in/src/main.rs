@@ -157,7 +157,12 @@ async fn main() -> Result<()> {
     }
 
     let client = Client::builder().user_id(&user_id).build().await?;
-    let session = Session { access_token: opt.token.clone(), refresh_token: None, user_id: user_id.clone(), device_id };
+    let session = Session {
+        access_token: opt.token.clone(),
+        refresh_token: None,
+        user_id: user_id.clone(),
+        device_id,
+    };
     client.restore_login(session).await?;
     let sliding_client = client.clone();
     let proxy = opt.sliding_sync_proxy.clone();
