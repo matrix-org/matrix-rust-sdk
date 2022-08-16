@@ -26,6 +26,7 @@ pub mod olm;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;
+pub mod vodozemac;
 mod tracing;
 
 use js_sys::{Object, Reflect};
