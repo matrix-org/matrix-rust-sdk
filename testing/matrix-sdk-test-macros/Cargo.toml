@@ -1,0 +1,23 @@
+[package]
+authors = ["stoically <stoically@protonmail.com>"]
+description = "Helper macros to write tests for the Matrix SDK"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma"]
+license = "Apache-2.0"
+name = "matrix-sdk-test-macros"
+readme = "README.md"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version = "1.60"
+version = "0.2.0"
+publish = false
+
+[lib]
+proc-macro = true
+test = false
+doctest = false
+
+[dependencies]
+proc-macro2 = "1.0.37"
+quote = "1.0.18"
+syn = { version = "1.0.91", features = ["full", "extra-traits"] }

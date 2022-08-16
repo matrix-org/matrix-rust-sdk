@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::convert::TryInto;
-
 #[cfg(feature = "decode_image")]
 use image::{GenericImage, GenericImageView, Luma};
 use qrcode::{bits::Bits, EcLevel, QrCode, Version};

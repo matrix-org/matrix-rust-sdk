@@ -22,7 +22,7 @@ sliding-sync = [
 ]
 
 [build-dependencies]
-uniffi_build = { version = "0.18.0", features = ["builtin-bindgen"] }
+uniffi_build = { git = "https://github.com/mozilla/uniffi-rs", rev = "dc524271245c5f1e6b6113e6c201acb5e21da111", features = ["builtin-bindgen"] }
 
 [dependencies]
 anyhow = "1.0.51"
@@ -40,9 +40,10 @@ thiserror = "1.0.30"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.8"
 tracing = "0.1.32"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-crypto-ffi, and uniffi_bindgen in ffi CI job
-uniffi = "0.18.0"
-uniffi_macros = "0.18.0"
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "dc524271245c5f1e6b6113e6c201acb5e21da111" }
+uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "dc524271245c5f1e6b6113e6c201acb5e21da111" }
 futures-signals = { version = "0.3.28", optional = true }
 ruma = { version = "0.6.2", optional = true }
 assign = { version = "1.1.1", optional = true }

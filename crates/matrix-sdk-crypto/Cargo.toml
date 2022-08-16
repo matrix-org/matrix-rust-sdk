@@ -12,14 +12,12 @@ rust-version = "1.60"
 version = "0.5.0"
 
 [package.metadata.docs.rs]
-features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
 qrcode = ["dep:matrix-sdk-qrcode"]
 backups_v1 = ["dep:olm-rs", "dep:bs58"]
-docsrs = []
 
 # Testing helpers for implementations based upon this
 testing = ["dep:http"]
@@ -51,19 +49,32 @@ zeroize = { version = "1.3.0", features = ["zeroize_derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.18", default-features = false, features = ["time"] }
-ruma = { git = "https://github.com/ruma/ruma", rev = "da5def6731efd698c63fd2ffdef5f3e1836bff94", features = ["client-api-c", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd" }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-ruma = { git = "https://github.com/ruma/ruma", rev = "da5def6731efd698c63fd2ffdef5f3e1836bff94", features = ["client-api-c", "js", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"] }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "2404f83f7d3a3779c1f518e4d949f7da9677c3dd", features = ["js"] }
+[target.'cfg(target_arch = "wasm32")'.dependencies.ruma]
+git = "https://github.com/ruma/ruma"
+rev = "ca8c66c885241a7ba3805399604eda4a38979f6b"
+features = ["client-api-c", "js", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.ruma]
+git = "https://github.com/ruma/ruma"
+rev = "ca8c66c885241a7ba3805399604eda4a38979f6b"
+features = ["client-api-c", "rand", "canonical-json", "unstable-msc2676", "unstable-msc2677"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac/"
+rev = "ad1f098aff2a0b69aa5822c4e0679089a9fa4a86"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.vodozemac]
+git = "https://github.com/matrix-org/vodozemac/"
+rev = "ad1f098aff2a0b69aa5822c4e0679089a9fa4a86"
+features = ["js"]
 
 [dev-dependencies]
 futures = { version = "0.3.21", default-features = false, features = ["executor"] }
 http = "0.2.6"
 indoc = "1.0.4"
 matches = "0.1.9"
-matrix-sdk-test = { version = "0.5.0", path = "../matrix-sdk-test" }
+matrix-sdk-test = { version = "0.5.0", path = "../../testing/matrix-sdk-test" }
 proptest = { version = "1.0.0", default-features = false, features = ["std"] }
 # required for async_test macro
 tokio = { version = "1.7.0", default-features = false, features = ["macros", "rt-multi-thread"] }

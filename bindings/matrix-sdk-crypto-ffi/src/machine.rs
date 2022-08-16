@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    convert::TryInto,
     io::Cursor,
     ops::Deref,
     sync::Arc,
@@ -32,10 +31,8 @@ use ruma::{
         },
         IncomingResponse,
     },
-    events::{
-        key::verification::VerificationMethod, room::encrypted::OriginalSyncRoomEncryptedEvent,
-        AnySyncMessageLikeEvent,
-    },
+    events::{key::verification::VerificationMethod, AnySyncMessageLikeEvent},
+    serde::Raw,
     DeviceKeyAlgorithm, EventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -95,7 +92,7 @@ impl OlmMachine {
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = Arc::new(
-            matrix_sdk_sled::CryptoStore::open_with_passphrase(path, passphrase.as_deref())
+            matrix_sdk_sled::SledCryptoStore::open_with_passphrase(path, passphrase.as_deref())
                 .map_err(|e| {
                     match e {
                         // This is a bit of an error in the sled store, the
@@ -602,7 +599,7 @@ impl OlmMachine {
             content: &'a RawValue,
         }
 
-        let event: OriginalSyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let event: Raw<_> = serde_json::from_str(event)?;
         let room_id = RoomId::parse(room_id)?;
 
         let decrypted = self.runtime.block_on(self.inner.decrypt_room_event(&event, &room_id))?;
@@ -640,7 +637,7 @@ impl OlmMachine {
         event: &str,
         room_id: &str,
     ) -> Result<KeyRequestPair, DecryptionError> {
-        let event: OriginalSyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let event: Raw<_> = serde_json::from_str(event)?;
         let room_id = RoomId::parse(room_id)?;
 
         let (cancel, request) =
@@ -1243,10 +1240,7 @@ impl OlmMachine {
     ) -> Option<OutgoingVerificationRequest> {
         let user_id = UserId::parse(user_id).ok()?;
 
-        self.inner
-            .get_verification(&user_id, flow_id)
-            .and_then(|s| s.sas_v1())
-            .and_then(|s| s.accept().map(|r| r.into()))
+        self.inner.get_verification(&user_id, flow_id)?.sas_v1()?.accept().map(|r| r.into())
     }
 
     /// Get a list of emoji indices of the emoji representation of the short

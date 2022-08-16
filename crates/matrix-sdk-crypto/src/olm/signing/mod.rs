@@ -715,15 +715,15 @@ mod tests {
         let master_key = identity.master_key.lock().await;
         let master_key = master_key.as_ref().unwrap();
 
-        assert!(master_key
+        master_key
             .public_key
-            .verify_subkey(&identity.self_signing_key.lock().await.as_ref().unwrap().public_key,)
-            .is_ok());
+            .verify_subkey(&identity.self_signing_key.lock().await.as_ref().unwrap().public_key)
+            .unwrap();
 
-        assert!(master_key
+        master_key
             .public_key
-            .verify_subkey(&identity.user_signing_key.lock().await.as_ref().unwrap().public_key,)
-            .is_ok());
+            .verify_subkey(&identity.user_signing_key.lock().await.as_ref().unwrap().public_key)
+            .unwrap();
     }
 
     #[async_test]

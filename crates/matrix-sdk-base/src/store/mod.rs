@@ -28,6 +28,7 @@ use std::{
     sync::Arc,
 };
 
+use futures_signals::signal::{Mutable, ReadOnlyMutable};
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -46,7 +47,10 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent, ReceiptType},
         room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        AnySyncStateEvent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
+        GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
+        StaticEventContent, SyncStateEvent,
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -61,7 +65,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
-    MinimalRoomMemberEvent, Room, Session,
+    MinimalRoomMemberEvent, Room, Session, SessionMeta, SessionTokens,
 };
 
 pub(crate) mod ambiguity_map;
@@ -374,6 +378,81 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>>;
 }
 
+/// Convenience functionality for state stores.
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait StateStoreExt: StateStore {
+    /// Get a specific state event of statically-known type.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room the state event was received for.
+    async fn get_state_event_static<C>(
+        &self,
+        room_id: &RoomId,
+        state_key: &str,
+    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
+    {
+        Ok(self.get_state_event(room_id, C::TYPE.into(), state_key).await?.map(Raw::cast))
+    }
+
+    /// Get a list of state events of a statically-known type for a given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room to find events for.
+    async fn get_state_events_static<C>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
+    {
+        // FIXME: Could be more efficient, if we had streaming store accessor functions
+        Ok(self
+            .get_state_events(room_id, C::TYPE.into())
+            .await?
+            .into_iter()
+            .map(Raw::cast)
+            .collect())
+    }
+
+    /// Get an event of a statically-known type from the account data store.
+    async fn get_account_data_event_static<C>(
+        &self,
+    ) -> Result<Option<Raw<GlobalAccountDataEvent<C>>>>
+    where
+        C: StaticEventContent + GlobalAccountDataEventContent,
+    {
+        Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast))
+    }
+
+    /// Get an event of a statically-known type from the room account data
+    /// store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the room account data event
+    ///   should be fetched.
+    async fn get_room_account_data_event_static<C>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<Raw<RoomAccountDataEvent<C>>>>
+    where
+        C: StaticEventContent + RoomAccountDataEventContent,
+    {
+        Ok(self.get_room_account_data_event(room_id, C::TYPE.into()).await?.map(Raw::cast))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl<T: StateStore + ?Sized> StateStoreExt for T {}
+
 /// A type that can be type-erased into `Arc<dyn StateStore>`.
 ///
 /// This trait is not meant to be implemented directly outside
@@ -407,9 +486,10 @@ where
 /// This adds additional higher level store functionality on top of a
 /// `StateStore` implementation.
 #[derive(Debug, Clone)]
-pub struct Store {
+pub(crate) struct Store {
     pub(super) inner: Arc<dyn StateStore>,
-    session: Arc<OnceCell<Session>>,
+    session_meta: Arc<OnceCell<SessionMeta>>,
+    pub(super) session_tokens: Mutable<Option<SessionTokens>>,
     /// The current sync token that should be used for the next sync call.
     pub(super) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<OwnedRoomId, Room>>,
@@ -430,7 +510,8 @@ impl Store {
     pub fn new(inner: Arc<dyn StateStore>) -> Self {
         Self {
             inner,
-            session: Default::default(),
+            session_meta: Default::default(),
+            session_tokens: Default::default(),
             sync_token: Default::default(),
             rooms: Default::default(),
             stripped_rooms: Default::default(),
@@ -451,17 +532,37 @@ impl Store {
         }
 
         let token = self.get_sync_token().await?;
-
         *self.sync_token.write().await = token;
-        self.session.set(session).expect("A session was already set");
+
+        let (session_meta, session_tokens) = session.into_parts();
+        self.session_meta.set(session_meta).expect("Session IDs were already set");
+        self.session_tokens.set(Some(session_tokens));
 
         Ok(())
     }
 
-    /// The current [`Session`] containing our user id, device ID and access
-    /// token.
-    pub fn session(&self) -> Option<&Session> {
-        self.session.get()
+    /// The current [`SessionMeta`] containing our user ID and device ID.
+    pub fn session_meta(&self) -> Option<&SessionMeta> {
+        self.session_meta.get()
+    }
+
+    /// The current [`SessionTokens`] containing our access token and optional
+    /// refresh token.
+    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
+        self.session_tokens.read_only()
+    }
+
+    /// Set the current [`SessionTokens`].
+    pub fn set_session_tokens(&self, tokens: SessionTokens) {
+        self.session_tokens.set(Some(tokens));
+    }
+
+    /// The current [`Session`] containing our user id, device ID, access
+    /// token and optional refresh token.
+    pub fn session(&self) -> Option<Session> {
+        let meta = self.session_meta.get()?;
+        let tokens = self.session_tokens.get_cloned()?;
+        Some(Session::from_parts(meta.to_owned(), tokens))
     }
 
     /// Get all the rooms this store knows about.
@@ -496,7 +597,8 @@ impl Store {
     /// didn't exist yet in the store
     #[tracing::instrument(skip(self))]
     pub async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
-        let user_id = &self.session.get().expect("Creating room while not being logged in").user_id;
+        let user_id =
+            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
         self.stripped_rooms
             .entry(room_id.to_owned())
@@ -512,7 +614,8 @@ impl Store {
             return self.get_or_create_stripped_room(room_id).await;
         }
 
-        let user_id = &self.session.get().expect("Creating room while not being logged in").user_id;
+        let user_id =
+            &self.session_meta.get().expect("Creating room while not being logged in").user_id;
 
         self.rooms
             .entry(room_id.to_owned())

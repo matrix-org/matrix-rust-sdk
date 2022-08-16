@@ -23,7 +23,7 @@ pub use matrix_sdk_common::*;
 pub use crate::timeline_stream::TimelineStreamError;
 pub use crate::{
     error::{Error, Result},
-    session::Session,
+    session::{Session, SessionMeta, SessionTokens},
 };
 
 mod client;
@@ -45,7 +45,7 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use rooms::{DisplayName, Room, RoomInfo, RoomMember, RoomType};
-pub use store::{StateChanges, StateStore, Store, StoreError};
+pub use store::{StateChanges, StateStore, StoreError};
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,
 };

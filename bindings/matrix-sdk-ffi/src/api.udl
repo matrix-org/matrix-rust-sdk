@@ -1,4 +1,6 @@
 namespace sdk {
+    void setup_tracing(string configuration);
+
     MediaSource media_source_from_url(string url);
     MessageEventContent message_event_content_from_markdown(string md);
     string gen_transaction_id();
@@ -234,7 +236,7 @@ interface Client {
 
     string homeserver();
 
-    void start_sync();
+    void start_sync(u16? timeline_limit);
 
     [Throws=ClientError]
     string restore_token();
@@ -275,6 +277,12 @@ callback interface RoomDelegate {
     void did_receive_message(AnyMessage message);
 };
 
+enum Membership {
+    "Invited",
+    "Joined",
+    "Left",
+};
+
 interface Room {
     void set_delegate(RoomDelegate? delegate);
 
@@ -282,7 +290,9 @@ interface Room {
     string? name();
     string? topic();
     string? avatar_url();
-
+    
+    Membership membership();
+    
     boolean is_direct();
     boolean is_public();
     boolean is_space();
@@ -355,27 +365,30 @@ interface MediaSource {
 
 [Error]
 enum AuthenticationError {
-  "ClientMissing",
-  "Generic",
+    "ClientMissing",
+    "SessionMissing",
+    "Generic",
+};
+
+interface HomeserverLoginDetails {
+    string url();
+    string? authentication_issuer();
+    boolean supports_password_login();
 };
 
 interface AuthenticationService {
     constructor(string base_path);
     
-    [Throws=AuthenticationError]
-    string homeserver();
+    HomeserverLoginDetails? homeserver_details();
     
     [Throws=AuthenticationError]
-    string? authentication_issuer();
-
-    [Throws=AuthenticationError]
-    boolean supports_password_login();
-    
-    [Throws=AuthenticationError]
-    void use_server(string server_name);
+    void configure_homeserver(string server_name);
     
     [Throws=AuthenticationError]
     Client login(string username, string password);
+    
+    [Throws=AuthenticationError]
+    Client restore_with_access_token(string token, string device_id);
 };
 
 interface SessionVerificationEmoji {

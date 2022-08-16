@@ -29,7 +29,13 @@ mod device_keys;
 pub mod events;
 mod one_time_keys;
 
-use std::collections::BTreeMap;
+use std::{
+    borrow::Borrow,
+    collections::{
+        btree_map::{IntoIter, Iter},
+        BTreeMap,
+    },
+};
 
 pub use backup::*;
 pub use cross_signing_key::*;
@@ -37,7 +43,7 @@ pub use device_keys::*;
 pub use one_time_keys::*;
 use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize, Serializer};
-use vodozemac::{Curve25519PublicKey, Ed25519Signature};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -155,10 +161,8 @@ impl Default for Signatures {
 impl IntoIterator for Signatures {
     type Item = (OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>);
 
-    type IntoIter = std::collections::btree_map::IntoIter<
-        OwnedUserId,
-        BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>,
-    >;
+    type IntoIter =
+        IntoIter<OwnedUserId, BTreeMap<OwnedDeviceKeyId, Result<Signature, InvalidSignature>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -229,11 +233,130 @@ impl Serialize for Signatures {
     }
 }
 
+/// A collection of signing keys, a map from the key id to the signing key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SigningKeys<T: Ord>(BTreeMap<T, SigningKey>);
+
+impl<T: Ord> SigningKeys<T> {
+    /// Create a new, empty, `SigningKeys` collection.
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    /// Insert a `SigningKey` into the collection.
+    pub fn insert(&mut self, key_id: T, key: SigningKey) -> Option<SigningKey> {
+        self.0.insert(key_id, key)
+    }
+
+    /// Get a `SigningKey` with the given `DeviceKeyId`.
+    pub fn get<Q: ?Sized>(&self, key_id: &Q) -> Option<&SigningKey>
+    where
+        T: Borrow<Q>,
+        Q: Ord,
+    {
+        self.0.get(key_id)
+    }
+
+    /// Create an iterator over the `SigningKey`s in this collection.
+    pub fn iter(&self) -> Iter<'_, T, SigningKey> {
+        self.0.iter()
+    }
+
+    /// Do we hold any keys in or is our collection completely empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl<T: Ord> Default for SigningKeys<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Ord> IntoIterator for SigningKeys<T> {
+    type Item = (T, SigningKey);
+
+    type IntoIter = IntoIter<T, SigningKey>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<K: Ord> FromIterator<(K, SigningKey)> for SigningKeys<K> {
+    fn from_iter<T: IntoIterator<Item = (K, SigningKey)>>(iter: T) -> Self {
+        let map = BTreeMap::from_iter(iter);
+
+        Self(map)
+    }
+}
+
+impl<K: Ord, const N: usize> From<[(K, SigningKey); N]> for SigningKeys<K> {
+    fn from(v: [(K, SigningKey); N]) -> Self {
+        let map = BTreeMap::from(v);
+
+        Self(map)
+    }
+}
+
+// Helper trait to generalize between a `OwnedDeviceKeyId` and a
+// `DeviceKeyAlgorithm` so that we can support Deserialize for
+// `SigningKeys<T>`
+trait Algorithm {
+    fn algorithm(&self) -> DeviceKeyAlgorithm;
+}
+
+impl Algorithm for OwnedDeviceKeyId {
+    fn algorithm(&self) -> DeviceKeyAlgorithm {
+        DeviceKeyId::algorithm(self)
+    }
+}
+
+impl Algorithm for DeviceKeyAlgorithm {
+    fn algorithm(&self) -> DeviceKeyAlgorithm {
+        self.to_owned()
+    }
+}
+
+impl<T: Ord + Serialize> Serialize for SigningKeys<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let keys: BTreeMap<&T, String> =
+            self.0.iter().map(|(key_id, key)| (key_id, key.to_base64())).collect();
+
+        keys.serialize(serializer)
+    }
+}
+
+impl<'de, T: Algorithm + Ord + Deserialize<'de>> Deserialize<'de> for SigningKeys<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let map: BTreeMap<T, String> = serde::Deserialize::deserialize(deserializer)?;
+
+        let map: Result<_, _> = map
+            .into_iter()
+            .map(|(key_id, key)| {
+                let key = SigningKey::from_parts(&key_id.algorithm(), key)
+                    .map_err(serde::de::Error::custom)?;
+
+                Ok((key_id, key))
+            })
+            .collect();
+
+        Ok(SigningKeys(map?))
+    }
+}
+
 // Vodozemac serializes Curve25519 keys directly as a byteslice, while Matrix
 // likes to base64 encode all byte slices.
 //
 // This ensures that we serialize/deserialize in a Matrix-compatible way.
-fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
+pub(crate) fn deserialize_curve_key<'de, D>(de: D) -> Result<Curve25519PublicKey, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -241,10 +364,48 @@ where
     Curve25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
 }
 
-fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
+pub(crate) fn serialize_curve_key<S>(key: &Curve25519PublicKey, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
     let key = key.to_base64();
     s.serialize_str(&key)
+}
+
+pub(crate) fn deserialize_ed25519_key<'de, D>(de: D) -> Result<Ed25519PublicKey, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let key: String = Deserialize::deserialize(de)?;
+    Ed25519PublicKey::from_base64(&key).map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn serialize_ed25519_key<S>(key: &Ed25519PublicKey, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let key = key.to_base64();
+    s.serialize_str(&key)
+}
+
+pub(crate) fn deserialize_curve_key_vec<'de, D>(de: D) -> Result<Vec<Curve25519PublicKey>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let keys: Vec<String> = Deserialize::deserialize(de)?;
+    let keys: Result<Vec<Curve25519PublicKey>, KeyError> =
+        keys.iter().map(|k| Curve25519PublicKey::from_base64(k)).collect();
+
+    keys.map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn serialize_curve_key_vec<S>(
+    keys: &[Curve25519PublicKey],
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let keys: Vec<String> = keys.iter().map(|k| k.to_base64()).collect();
+    keys.serialize(s)
 }

@@ -26,15 +26,11 @@ use atomic::Atomic;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::{
-        forwarded_room_key::ToDeviceForwardedRoomKeyEventContent,
-        key::verification::VerificationMethod, room::encrypted::ToDeviceRoomEncryptedEventContent,
-        AnyToDeviceEventContent,
-    },
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId,
-    OwnedDeviceKeyId, UserId,
+    events::key::verification::VerificationMethod, serde::Raw, DeviceId, DeviceKeyAlgorithm,
+    DeviceKeyId, EventEncryptionAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 use tracing::warn;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
@@ -46,7 +42,13 @@ use crate::{
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, Session, SignedJsonObject, VerifyJson},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
-    types::{DeviceKey, DeviceKeys, Signatures, SignedKey},
+    types::{
+        events::{
+            forwarded_room_key::ForwardedRoomKeyContent,
+            room::encrypted::ToDeviceEncryptedEventContent, EventType,
+        },
+        DeviceKey, DeviceKeys, Signatures, SignedKey,
+    },
     verification::VerificationMachine,
     OutgoingVerificationRequest, ReadOnlyAccount, Sas, ToDeviceRequest, VerificationRequest,
 };
@@ -254,38 +256,31 @@ impl Device {
     /// * `content` - The content of the event that should be encrypted.
     pub(crate) async fn encrypt(
         &self,
-        content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, ToDeviceRoomEncryptedEventContent)> {
-        self.inner.encrypt(self.verification_machine.store.inner(), content).await
+        event_type: &str,
+        content: Value,
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
+        self.inner.encrypt(self.verification_machine.store.inner(), event_type, content).await
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this
     /// device.
-    pub async fn encrypt_session(
+    pub async fn encrypt_room_key_for_forwarding(
         &self,
         session: InboundGroupSession,
         message_index: Option<u32>,
-    ) -> OlmResult<(Session, ToDeviceRoomEncryptedEventContent)> {
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let export = if let Some(index) = message_index {
             session.export_at_index(index).await
         } else {
             session.export().await
         };
 
-        let content: ToDeviceForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
-            c
-        } else {
-            // TODO remove this panic.
-            panic!(
-                "Can't share session {} with device {} {}, key export can't \
-                 be converted to a forwarded room key content",
-                session.session_id(),
-                self.user_id(),
-                self.device_id()
-            );
-        };
+        let content: ForwardedRoomKeyContent = export.try_into()?;
 
-        self.encrypt(AnyToDeviceEventContent::ForwardedRoomKey(content)).await
+        let event_type = content.event_type();
+        let content = serde_json::to_value(content)?;
+
+        self.encrypt(event_type, content).await
     }
 }
 
@@ -511,8 +506,9 @@ impl ReadOnlyDevice {
     pub(crate) async fn encrypt(
         &self,
         store: &dyn CryptoStore,
-        content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, ToDeviceRoomEncryptedEventContent)> {
+        event_type: &str,
+        content: Value,
+    ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
         let sender_key = if let Some(k) = self.curve25519_key() {
             k
         } else {
@@ -545,7 +541,7 @@ impl ReadOnlyDevice {
             return Err(OlmError::MissingSession);
         };
 
-        let message = session.encrypt(self, content).await?;
+        let message = session.encrypt(self, event_type, content).await?;
 
         Ok((session, message))
     }

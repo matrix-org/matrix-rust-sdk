@@ -24,11 +24,12 @@ use ruma::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
-    events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEventContent},
+    events::dummy::ToDeviceDummyEventContent,
     DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, OwnedDeviceId, OwnedTransactionId,
     OwnedUserId, SecondsSinceUnixEpoch, TransactionId, UserId,
 };
 use tracing::{debug, error, info, warn};
+use vodozemac::Curve25519PublicKey;
 
 use crate::{
     error::OlmResult,
@@ -37,6 +38,7 @@ use crate::{
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
+    types::events::EventType,
     ReadOnlyDevice,
 };
 
@@ -83,7 +85,11 @@ impl SessionManager {
         self.outgoing_to_device_requests.remove(id);
     }
 
-    pub async fn mark_device_as_wedged(&self, sender: &UserId, curve_key: &str) -> StoreResult<()> {
+    pub async fn mark_device_as_wedged(
+        &self,
+        sender: &UserId,
+        curve_key: Curve25519PublicKey,
+    ) -> StoreResult<()> {
         if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await? {
             let sessions = device.get_sessions().await?;
 
@@ -96,7 +102,7 @@ impl SessionManager {
                 if let Some(session) = session {
                     info!(
                         sender = sender.as_str(),
-                        sender_key = curve_key,
+                        sender_key = %curve_key,
                         "Marking session to be unwedged"
                     );
 
@@ -139,13 +145,14 @@ impl SessionManager {
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
         if self.wedged_devices.get(user_id).and_then(|d| d.remove(device_id)).is_some() {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let content = AnyToDeviceEventContent::Dummy(ToDeviceDummyEventContent::new());
-                let (_, content) = device.encrypt(content).await?;
+                let content = serde_json::to_value(ToDeviceDummyEventContent::new())?;
+                let (_, content) = device.encrypt("m.dummy", content).await?;
 
                 let request = ToDeviceRequest::new(
                     device.user_id(),
                     device.device_id().to_owned(),
-                    AnyToDeviceEventContent::RoomEncrypted(content),
+                    content.event_type(),
+                    content.cast(),
                 );
 
                 let request = OutgoingRequest {
@@ -338,10 +345,7 @@ impl SessionManager {
                 self.key_request_machine.retry_keyshare(user_id, device_id);
 
                 if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
-                    error!(
-                        "Error while treating an unwedged device {} {} {:?}",
-                        user_id, device_id, e
-                    );
+                    error!(%user_id, %device_id, "Error while treating an unwedged device: {e:?}");
                 }
 
                 changes.sessions.push(session);
@@ -478,7 +482,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     async fn session_unwedging() {
         use matrix_sdk_common::instant::{Duration, SystemTime};
-        use ruma::{DeviceKeyAlgorithm, SecondsSinceUnixEpoch};
+        use ruma::SecondsSinceUnixEpoch;
 
         let manager = session_manager().await;
         let bob = bob_account();
@@ -493,11 +497,11 @@ mod tests {
 
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());
 
-        let curve_key = bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap();
+        let curve_key = bob_device.curve25519_key().unwrap();
 
         assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
-        manager.mark_device_as_wedged(bob_device.user_id(), &curve_key.to_base64()).await.unwrap();
+        manager.mark_device_as_wedged(bob_device.user_id(), curve_key).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
 

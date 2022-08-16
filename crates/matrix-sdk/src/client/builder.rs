@@ -1,8 +1,27 @@
+// Copyright 2022 The Matrix.org Foundation C.I.C.
+// Copyright 2022 Kévin Commaille
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
-use matrix_sdk_base::{locks::RwLock, store::StoreConfig, BaseClient, StateStore};
+use matrix_sdk_base::{
+    locks::{Mutex, RwLock},
+    store::StoreConfig,
+    BaseClient, StateStore,
+};
 use ruma::{
     api::{client::discovery::discover_homeserver, error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName, UserId,
@@ -44,8 +63,9 @@ use crate::{
 /// them.
 ///
 /// ```
-/// use matrix_sdk::Client;
 /// use std::sync::Arc;
+///
+/// use matrix_sdk::Client;
 ///
 /// // setting up a custom http client
 /// let reqwest_builder = reqwest::ClientBuilder::new()
@@ -53,8 +73,8 @@ use crate::{
 ///     .no_proxy()
 ///     .user_agent("MyApp/v3.0");
 ///
-/// let client_builder = Client::builder()
-///     .http_client(Arc::new(reqwest_builder.build()?));
+/// let client_builder =
+///     Client::builder().http_client(Arc::new(reqwest_builder.build()?));
 /// # anyhow::Ok(())
 /// ```
 #[must_use]
@@ -67,6 +87,7 @@ pub struct ClientBuilder {
     respect_login_well_known: bool,
     appservice_mode: bool,
     server_versions: Option<Box<[MatrixVersion]>>,
+    handle_refresh_tokens: bool,
 }
 
 impl ClientBuilder {
@@ -79,6 +100,7 @@ impl ClientBuilder {
             respect_login_well_known: true,
             appservice_mode: false,
             server_versions: None,
+            handle_refresh_tokens: false,
         }
     }
 
@@ -113,7 +135,35 @@ impl ClientBuilder {
         self
     }
 
-    /// Create a new `ClientBuilder` with the given [`StoreConfig`].
+    /// Set up the store configuration for a sled store.
+    ///
+    /// This is a shorthand for
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_sled]::[make_store_config](matrix_sdk_sled::make_store_config)(path, passphrase)?)</code>.
+    #[cfg(feature = "sled")]
+    pub fn sled_store(
+        self,
+        path: impl AsRef<std::path::Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, matrix_sdk_sled::OpenStoreError> {
+        let config = matrix_sdk_sled::make_store_config(path, passphrase)?;
+        Ok(self.store_config(config))
+    }
+
+    /// Set up the store configuration for a IndexedDB store.
+    ///
+    /// This is a shorthand for
+    /// <code>.[store_config](Self::store_config)([matrix_sdk_indexeddb]::[make_store_config](matrix_sdk_indexeddb::make_store_config)(path, passphrase).await?)</code>.
+    #[cfg(feature = "indexeddb")]
+    pub async fn indexeddb_store(
+        self,
+        name: &str,
+        passphrase: Option<&str>,
+    ) -> Result<Self, matrix_sdk_indexeddb::OpenStoreError> {
+        let config = matrix_sdk_indexeddb::make_store_config(name, passphrase).await?;
+        Ok(self.store_config(config))
+    }
+
+    /// Set up the store configuration.
     ///
     /// The easiest way to get a [`StoreConfig`] is to use the
     /// [`make_store_config`] method from the [`store`] module or directly from
@@ -128,7 +178,7 @@ impl ClientBuilder {
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
     /// # let custom_state_store = MemoryStore::new();
-    /// use matrix_sdk::{Client, config::StoreConfig};
+    /// use matrix_sdk::{config::StoreConfig, Client};
     ///
     /// let store_config = StoreConfig::new().state_store(custom_state_store);
     /// let client_builder = Client::builder().store_config(store_config);
@@ -143,6 +193,11 @@ impl ClientBuilder {
     /// Set a custom implementation of a `StateStore`.
     ///
     /// The state store should be opened before being set.
+    #[deprecated = "\
+        Use [`store_config`](#method.store_config), \
+        [`sled_store`](#method.sled_store) or \
+        [`indexeddb_store`](#method.indexeddb_store) instead
+    "]
     pub fn state_store(mut self, store: impl StateStore + 'static) -> Self {
         self.store_config = self.store_config.state_store(store);
         self
@@ -151,6 +206,11 @@ impl ClientBuilder {
     /// Set a custom implementation of a `CryptoStore`.
     ///
     /// The crypto store should be opened before being set.
+    #[deprecated = "\
+        Use [`store_config`](#method.store_config), \
+        [`sled_store`](#method.sled_store) or \
+        [`indexeddb_store`](#method.indexeddb_store) instead
+    "]
     #[cfg(feature = "e2e-encryption")]
     pub fn crypto_store(
         mut self,
@@ -187,8 +247,7 @@ impl ClientBuilder {
     /// # futures::executor::block_on(async {
     /// use matrix_sdk::Client;
     ///
-    /// let client_config = Client::builder()
-    ///     .proxy("http://localhost:8080");
+    /// let client_config = Client::builder().proxy("http://localhost:8080");
     ///
     /// # anyhow::Ok(())
     /// # });
@@ -267,6 +326,32 @@ impl ClientBuilder {
         self.http_cfg.get_or_insert_with(Default::default).settings()
     }
 
+    /// Handle [refreshing access tokens] automatically.
+    ///
+    /// By default, the `Client` forwards any error and doesn't handle errors
+    /// with the access token, which means that
+    /// [`Client::refresh_access_token()`] needs to be called manually to
+    /// refresh access tokens.
+    ///
+    /// Enabling this setting means that the `Client` will try to refresh the
+    /// token automatically, which means that:
+    ///
+    /// * If refreshing the token fails, the error is forwarded, so any endpoint
+    ///   can return [`HttpError::RefreshToken`]. If an [`UnknownToken`] error
+    ///   is encountered, it means that the user needs to be logged in again.
+    ///
+    /// * The access token and refresh token need to be watched for changes,
+    ///   using [`Client::session_tokens_signal()`] for example, to be able to
+    ///   [restore the session] later.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
+    /// [restore the session]: Client::restore_login
+    pub fn handle_refresh_tokens(mut self) -> Self {
+        self.handle_refresh_tokens = true;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -306,8 +391,9 @@ impl ClientBuilder {
                 let well_known = http_client
                     .send(
                         discover_homeserver::Request::new(),
-                        None,
+                        Some(RequestConfig::short_retry()),
                         homeserver,
+                        None,
                         None,
                         &[MatrixVersion::V1_0],
                     )
@@ -342,10 +428,13 @@ impl ClientBuilder {
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             event_handler_data: Default::default(),
+            event_handler_counter: Default::default(),
             notification_handlers: Default::default(),
             appservice_mode: self.appservice_mode,
             respect_login_well_known: self.respect_login_well_known,
             sync_beat: event_listener::Event::new(),
+            handle_refresh_tokens: self.handle_refresh_tokens,
+            refresh_token_lock: Mutex::new(Ok(())),
         });
 
         Ok(Client { inner })
@@ -354,12 +443,12 @@ impl ClientBuilder {
 
 fn homeserver_from_name(server_name: &ServerName) -> String {
     #[cfg(not(test))]
-    return format!("https://{}", server_name);
+    return format!("https://{server_name}");
 
     // Wiremock only knows how to test http endpoints:
     // https://github.com/LukeMathWalker/wiremock-rs/issues/58
     #[cfg(test)]
-    return format!("http://{}", server_name);
+    return format!("http://{server_name}");
 }
 
 #[derive(Clone, Debug)]

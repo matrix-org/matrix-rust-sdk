@@ -14,14 +14,16 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    convert::TryFrom,
     ops::Deref,
     sync::Arc,
     time::Duration,
 };
 
 use futures_util::future::join_all;
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{
+    executor::spawn,
+    timeout::{timeout, ElapsedError},
+};
 use ruma::{
     api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, DeviceId,
     OwnedDeviceId, OwnedUserId, UserId,
@@ -54,10 +56,6 @@ pub(crate) struct KeysQueryListener {
     store: Store,
 }
 
-/// Error type notifying that a timeout has elapsed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Elapsed(());
-
 /// Result type telling us if a `/keys/query` response was expected for a given
 /// user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,7 +83,7 @@ impl KeysQueryListener {
         &self,
         timeout: Duration,
         user: &UserId,
-    ) -> Result<UserKeyQueryResult, Elapsed> {
+    ) -> Result<UserKeyQueryResult, ElapsedError> {
         let users_for_key_query = self.store.users_for_key_query();
 
         if users_for_key_query.contains(user) {
@@ -109,17 +107,8 @@ impl KeysQueryListener {
     ///
     /// If the given timeout has elapsed the method will stop waiting and return
     /// an error.
-    pub async fn wait(&self, timeout: Duration) -> Result<(), Elapsed> {
-        let listener = self.inner.listen();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        tokio::time::timeout(timeout, async { listener.await }).await.map_err(|_| Elapsed(()))?;
-
-        // TODO we should ensure that this is async on wasm as well.
-        #[cfg(target_arch = "wasm32")]
-        listener.wait_timeout(timeout);
-
-        Ok(())
+    pub async fn wait(&self, duration: Duration) -> Result<(), ElapsedError> {
+        timeout(self.inner.listen(), duration).await
     }
 }
 
@@ -623,7 +612,7 @@ impl IdentityManager {
             }
 
             if let Err(e) = self.store.update_tracked_user(user, true).await {
-                warn!("Error storing users for tracking {}", e);
+                warn!("Error storing users for tracking: {e}");
             }
         }
     }
@@ -861,7 +850,7 @@ pub(crate) mod tests {
 
         manager.receive_keys_query_response(&other_key_query()).await.unwrap();
 
-        assert!(task.await.unwrap().is_ok());
+        task.await.unwrap().unwrap();
 
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
@@ -875,7 +864,7 @@ pub(crate) mod tests {
         let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
-        assert!(identity.is_device_signed(&device).is_ok())
+        identity.is_device_signed(&device).unwrap();
     }
 
     #[async_test]
@@ -899,7 +888,7 @@ pub(crate) mod tests {
         let identity = manager.store.get_user_identity(other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
-        assert!(identity.is_device_signed(&device).is_ok())
+        identity.is_device_signed(&device).unwrap();
     }
 
     #[async_test]

@@ -60,18 +60,15 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let appservice = AppService::new(homeserver_url, server_name, registration).await?;
     appservice.register_user_query(Box::new(|_, _| Box::pin(async { true }))).await;
-    appservice
-        .virtual_user(None)
-        .await?
-        .register_event_handler_context(appservice.clone())
-        .register_event_handler(
-            move |event: OriginalSyncRoomMemberEvent,
-                  room: Room,
-                  Ctx(appservice): Ctx<AppService>| {
-                handle_room_member(appservice, room, event)
-            },
-        )
-        .await;
+
+    let virtual_user = appservice.virtual_user(None).await?;
+
+    virtual_user.add_event_handler_context(appservice.clone());
+    virtual_user.add_event_handler(
+        move |event: OriginalSyncRoomMemberEvent, room: Room, Ctx(appservice): Ctx<AppService>| {
+            handle_room_member(appservice, room, event)
+        },
+    );
 
     let (host, port) = appservice.registration().get_host_and_port()?;
     appservice.run(host, port).await?;

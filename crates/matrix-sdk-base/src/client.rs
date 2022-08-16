@@ -21,6 +21,7 @@ use std::{
 #[cfg(feature = "e2e-encryption")]
 use std::{ops::Deref, sync::Arc};
 
+use futures_signals::signal::ReadOnlyMutable;
 #[cfg(feature = "experimental-timeline")]
 use matrix_sdk_common::deserialized_responses::TimelineSlice;
 use matrix_sdk_common::{
@@ -45,8 +46,11 @@ use ruma::events::{
 use ruma::{
     api::client::{self as api, push::get_notifications::v3::Notification},
     events::{
-        push_rules::PushRulesEvent,
-        room::member::{MembershipState, SyncRoomMemberEvent},
+        push_rules::{PushRulesEvent, PushRulesEventContent},
+        room::{
+            member::{MembershipState, SyncRoomMemberEvent},
+            power_levels::{RoomPowerLevelsEvent, RoomPowerLevelsEventContent},
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, GlobalAccountDataEventType,
         StateEventType,
@@ -62,10 +66,11 @@ use crate::error::Error;
 use crate::{
     error::Result,
     rooms::{Room, RoomInfo, RoomType},
-    session::Session,
     store::{
-        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store, StoreConfig,
+        ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, StateStoreExt, Store,
+        StoreConfig,
     },
+    Session, SessionMeta, SessionTokens, StateStore,
 };
 
 /// A no IO Client implementation.
@@ -75,7 +80,7 @@ use crate::{
 #[derive(Clone)]
 pub struct BaseClient {
     /// Database
-    store: Store,
+    pub(crate) store: Store,
     /// The store used for encryption
     #[cfg(feature = "e2e-encryption")]
     crypto_store: Arc<dyn CryptoStore>,
@@ -90,7 +95,8 @@ pub struct BaseClient {
 impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
-            .field("session", &self.session())
+            .field("session_meta", &self.store.session_meta())
+            .field("session_tokens", &self.store.session_tokens)
             .field("sync_token", &self.store.sync_token)
             .finish()
     }
@@ -123,6 +129,29 @@ impl BaseClient {
         }
     }
 
+    /// Get the session meta information.
+    ///
+    /// If the client is currently logged in, this will return a
+    /// [`SessionMeta`] object which contains the user ID and device ID.
+    /// Otherwise it returns `None`.
+    pub fn session_meta(&self) -> Option<&SessionMeta> {
+        self.store.session_meta()
+    }
+
+    /// Get the session tokens.
+    ///
+    /// If the client is currently logged in, this will return a
+    /// [`SessionTokens`] object which contains the access token and optional
+    /// refresh token. Otherwise it returns `None`.
+    pub fn session_tokens(&self) -> ReadOnlyMutable<Option<SessionTokens>> {
+        self.store.session_tokens()
+    }
+
+    /// Set the session tokens.
+    pub fn set_session_tokens(&self, tokens: SessionTokens) {
+        self.store.set_session_tokens(tokens)
+    }
+
     /// Get the user login session.
     ///
     /// If the client is currently logged in, this will return a
@@ -131,18 +160,29 @@ impl BaseClient {
     ///
     /// Returns a session object if the client is logged in. Otherwise returns
     /// `None`.
-    pub fn session(&self) -> Option<&Session> {
+    pub fn session(&self) -> Option<Session> {
         self.store.session()
     }
 
+    /// Get all the rooms this client knows about.
+    pub fn get_rooms(&self) -> Vec<Room> {
+        self.store.get_rooms()
+    }
+
+    /// Get all the rooms this client knows about.
+    pub fn get_stripped_rooms(&self) -> Vec<Room> {
+        self.store.get_stripped_rooms()
+    }
+
     /// Get a reference to the store.
-    pub fn store(&self) -> &Store {
-        &self.store
+    #[allow(unknown_lints, clippy::explicit_auto_deref)]
+    pub fn store(&self) -> &dyn StateStore {
+        &*self.store
     }
 
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
-        self.store.session().is_some()
+        self.store.session_meta().is_some()
     }
 
     /// Receive a login response and update the session of the client.
@@ -157,6 +197,7 @@ impl BaseClient {
     ) -> Result<()> {
         let session = Session {
             access_token: response.access_token.clone(),
+            refresh_token: response.refresh_token.clone(),
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
@@ -293,11 +334,12 @@ impl BaseClient {
                         #[cfg(feature = "e2e-encryption")]
                         AnySyncRoomEvent::MessageLike(e) => match e {
                             AnySyncMessageLikeEvent::RoomEncrypted(
-                                SyncMessageLikeEvent::Original(encrypted),
+                                SyncMessageLikeEvent::Original(_),
                             ) => {
                                 if let Some(olm) = self.olm_machine() {
-                                    if let Ok(decrypted) =
-                                        olm.decrypt_room_event(encrypted, room_id).await
+                                    if let Ok(decrypted) = olm
+                                        .decrypt_room_event(event.event.cast_ref(), room_id)
+                                        .await
                                     {
                                         event = decrypted.into();
                                     }
@@ -389,8 +431,8 @@ impl BaseClient {
                 }
                 Err(err) => {
                     warn!(
-                        "Couldn't deserialize stripped state event for room {}: {:?}",
-                        room_info.room_id, err
+                        room_id = %room_info.room_id,
+                        "Couldn't deserialize stripped state event: {err:?}",
                     );
                 }
             }
@@ -421,10 +463,7 @@ impl BaseClient {
             let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(
-                        "Couldn't deserialize state event for room {}: {:?} {:#?}",
-                        room_id, e, raw_event
-                    );
+                    warn!(%room_id, "Couldn't deserialize state event: {e:?}");
                     continue;
                 }
             };
@@ -825,7 +864,7 @@ impl BaseClient {
             .filter_map(|event| match event.deserialize() {
                 Ok(ev) => Some(ev),
                 Err(e) => {
-                    debug!(?event, "Failed to deserialize m.room.member event: {}", e);
+                    debug!(?event, "Failed to deserialize m.room.member event: {e}");
                     None
                 }
             })
@@ -953,7 +992,7 @@ impl BaseClient {
                 };
 
                 let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
-                let settings = EncryptionSettings::new(settings, history_visibility);
+                let settings = EncryptionSettings::new(settings, history_visibility, false);
 
                 Ok(o.share_room_key(room_id, members.map(Deref::deref), settings).await?)
             }
@@ -983,22 +1022,21 @@ impl BaseClient {
     /// `Ruleset::server_default` if the user is logged in.
     #[tracing::instrument(skip(self, changes))]
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
-        if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = changes
+        if let Some(event) = changes
             .account_data
             .get(&GlobalAccountDataEventType::PushRules)
-            .and_then(|e| e.deserialize().ok())
+            .and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
         {
             Ok(event.content.global)
         } else if let Some(event) = self
             .store
-            .get_account_data_event(GlobalAccountDataEventType::PushRules)
+            .get_account_data_event_static::<PushRulesEventContent>()
             .await?
-            .map(|e| e.deserialize_as::<PushRulesEvent>())
-            .transpose()?
+            .and_then(|ev| ev.deserialize().ok())
         {
             Ok(event.content.global)
-        } else if let Some(session) = self.store.session() {
-            Ok(Ruleset::server_default(&session.user_id))
+        } else if let Some(session_meta) = self.store.session_meta() {
+            Ok(Ruleset::server_default(&session_meta.user_id))
         } else {
             Ok(Ruleset::new())
         }
@@ -1035,17 +1073,16 @@ impl BaseClient {
             return Ok(None);
         };
 
-        let room_power_levels = if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
+        let room_power_levels = if let Some(event) = changes
             .state
             .get(room_id)
-            .and_then(|types| types.get(&StateEventType::RoomPowerLevels))
-            .and_then(|events| events.get(""))
-            .and_then(|e| e.deserialize().ok())
+            .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
+            .and_then(|e| e.deserialize_as::<RoomPowerLevelsEvent>().ok())
         {
             event.power_levels()
-        } else if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = self
+        } else if let Some(event) = self
             .store
-            .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
+            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id, "")
             .await?
             .and_then(|e| e.deserialize().ok())
         {
@@ -1091,8 +1128,7 @@ impl BaseClient {
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(&**room_id)
-            .and_then(|types| types.get(&StateEventType::RoomPowerLevels))
-            .and_then(|events| events.get(""))
+            .and_then(|types| types.get(&StateEventType::RoomPowerLevels)?.get(""))
             .and_then(|e| e.deserialize().ok())
         {
             let room_power_levels = event.power_levels();
@@ -1134,6 +1170,7 @@ mod tests {
         client
             .restore_login(Session {
                 access_token: "token".to_owned(),
+                refresh_token: None,
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })
@@ -1188,6 +1225,7 @@ mod tests {
         client
             .restore_login(Session {
                 access_token: "token".to_owned(),
+                refresh_token: None,
                 user_id: user_id.to_owned(),
                 device_id: "FOOBAR".into(),
             })

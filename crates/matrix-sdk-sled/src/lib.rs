@@ -8,15 +8,15 @@ use sled::Error as SledError;
 use thiserror::Error;
 
 #[cfg(feature = "crypto-store")]
-mod cryptostore;
+mod crypto_store;
 mod encode_key;
 #[cfg(feature = "state-store")]
 mod state_store;
 
 #[cfg(feature = "crypto-store")]
-pub use cryptostore::SledStore as CryptoStore;
+pub use crypto_store::SledCryptoStore;
 #[cfg(feature = "state-store")]
-pub use state_store::SledStore as StateStore;
+pub use state_store::{MigrationConflictStrategy, SledStateStore, SledStateStoreBuilder};
 
 /// All the errors that can occur when opening a sled store.
 #[derive(Error, Debug)]
@@ -37,9 +37,11 @@ pub enum OpenStoreError {
     Sled(#[from] SledError),
 }
 
-/// Create a [`StoreConfig`] with an opened sled [`StateStore`] that uses the
-/// given path and passphrase. If `encryption` is enabled, a [`CryptoStore`]
-/// with the same parameters is also opened.
+/// Create a [`StoreConfig`] with an opened [`SledStateStore`] that uses the
+/// given path and passphrase.
+///
+/// If the `e2e-encryption` Cargo feature is enabled, a [`SledCryptoStore`] with
+/// the same parameters is also opened.
 ///
 /// [`StoreConfig`]: #StoreConfig
 #[cfg(any(feature = "state-store", feature = "crypto-store"))]
@@ -55,17 +57,19 @@ pub fn make_store_config(
 
     #[cfg(all(feature = "crypto-store", not(feature = "state-store")))]
     {
-        let crypto_store = CryptoStore::open_with_passphrase(path, passphrase)?;
+        let crypto_store = SledCryptoStore::open_with_passphrase(path, passphrase)?;
         Ok(StoreConfig::new().crypto_store(crypto_store))
     }
 
     #[cfg(not(feature = "crypto-store"))]
     {
-        let state_store = if let Some(passphrase) = passphrase {
-            StateStore::open_with_passphrase(path, passphrase)?
-        } else {
-            StateStore::open_with_path(path)?
+        let mut store_builder = SledStateStore::builder();
+        store_builder.path(path.as_ref().to_path_buf());
+
+        if let Some(passphrase) = passphrase {
+            store_builder.passphrase(passphrase.to_owned());
         };
+        let state_store = store_builder.build().map_err(StoreError::backend)?;
 
         Ok(StoreConfig::new().state_store(state_store))
     }
@@ -77,14 +81,15 @@ pub fn make_store_config(
 fn open_stores_with_path(
     path: impl AsRef<std::path::Path>,
     passphrase: Option<&str>,
-) -> Result<(StateStore, CryptoStore), OpenStoreError> {
+) -> Result<(SledStateStore, SledCryptoStore), OpenStoreError> {
+    let mut store_builder = SledStateStore::builder();
+    store_builder.path(path.as_ref().to_path_buf());
+
     if let Some(passphrase) = passphrase {
-        let state_store = StateStore::open_with_passphrase(path, passphrase)?;
-        let crypto_store = state_store.open_crypto_store()?;
-        Ok((state_store, crypto_store))
-    } else {
-        let state_store = StateStore::open_with_path(path)?;
-        let crypto_store = state_store.open_crypto_store()?;
-        Ok((state_store, crypto_store))
+        store_builder.passphrase(passphrase.to_owned());
     }
+
+    let state_store = store_builder.build().map_err(StoreError::backend)?;
+    let crypto_store = state_store.open_crypto_store()?;
+    Ok((state_store, crypto_store))
 }

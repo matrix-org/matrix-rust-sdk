@@ -65,7 +65,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         };
 
-        let store = self.store();
+        let store = self.store.clone();
         let mut changes = StateChanges::default();
         let mut ambiguity_cache = AmbiguityCache::new(store.inner.clone());
 

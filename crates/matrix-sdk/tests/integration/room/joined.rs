@@ -95,6 +95,16 @@ async fn leave_room() {
 
     let room = client.get_joined_room(&test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
 
+    let sync_token = client.sync_token().await.unwrap();
+    mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
+
+    let client_clone = client.clone();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        client_clone.sync_once(SyncSettings::default().token(sync_token)).await
+    });
+
     room.leave().await.unwrap();
 }
 
@@ -412,7 +422,7 @@ async fn room_attachment_send_wrong_info() {
 
     let response = room.send_attachment("image", &mime::IMAGE_JPEG, &mut media, config).await;
 
-    assert!(response.is_err())
+    response.unwrap_err();
 }
 
 #[async_test]

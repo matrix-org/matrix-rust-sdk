@@ -18,8 +18,8 @@ macro_rules! cryptostore_integration_tests {
                 testing::{get_device, get_other_identity, get_own_identity},
                 ReadOnlyDevice,
                 olm::{
-                    InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
-                    ReadOnlyAccount, Session,
+                    Curve25519PublicKey, InboundGroupSession, OlmMessageHash,
+                    PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
                 },
                 store::{CryptoStore, GossipRequest, Changes, DeviceChanges, IdentityChanges, RecoveryKey},
             };
@@ -40,7 +40,7 @@ macro_rules! cryptostore_integration_tests {
                 device_id!("BOBDEVICE")
             }
 
-            async fn get_loaded_store(name: String) -> (ReadOnlyAccount, impl CryptoStore) {
+            async fn get_loaded_store(name: &str) -> (ReadOnlyAccount, impl CryptoStore) {
                 let store = get_store(name, None).await;
                 let account = get_account();
                 store.save_account(account.clone()).await.expect("Can't save account");
@@ -67,7 +67,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn save_account_via_generic_save() {
-                let store = get_store("save_account_via_generic".to_owned(), None).await;
+                let store = get_store("save_account_via_generic", None).await;
                 assert!(store.get_account_info().is_none());
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
@@ -78,7 +78,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn save_account() {
-                let store = get_store("save_account".to_owned(), None).await;
+                let store = get_store("save_account", None).await;
                 assert!(store.get_account_info().is_none());
                 assert!(store.load_account().await.unwrap().is_none());
                 let account = get_account();
@@ -89,7 +89,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn load_account() {
-                let store = get_store("load_account".to_owned(), None).await;
+                let store = get_store("load_account", None).await;
                 let account = get_account();
 
                 store.save_account(account.clone()).await.expect("Can't save account");
@@ -102,7 +102,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn load_account_with_passphrase() {
-                let store = get_store("load_account_with_passphrase".to_owned(), Some("secret_passphrase")).await;
+                let store = get_store("load_account_with_passphrase", Some("secret_passphrase")).await;
                 let account = get_account();
 
                 store.save_account(account.clone()).await.expect("Can't save account");
@@ -115,7 +115,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn save_and_share_account() {
-                let store = get_store("save_and_share_account".to_owned(), None).await;
+                let store = get_store("save_and_share_account", None).await;
                 let account = get_account();
 
                 store.save_account(account.clone()).await.expect("Can't save account");
@@ -134,7 +134,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn load_sessions() {
-                let store = get_store("load_sessions".to_owned(), None).await;
+                let store = get_store("load_sessions", None).await;
                 let (account, session) = get_account_and_session().await;
                 store.save_account(account.clone()).await.expect("Can't save account");
 
@@ -151,8 +151,8 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn add_and_save_session() {
-                let store_name = "add_and_save_session".to_owned();
-                let store = get_store(store_name.clone(), None).await;
+                let store_name = "add_and_save_session";
+                let store = get_store(store_name, None).await;
                 let (account, session) = get_account_and_session().await;
                 let sender_key = session.sender_key.to_base64();
                 let session_id = session.session_id().to_owned();
@@ -184,7 +184,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn load_outbound_group_session() {
-                let dir = "load_outbound_group_session".to_owned();
+                let dir = "load_outbound_group_session";
                 let (account, store) = get_loaded_store(dir.clone()).await;
                 let room_id = room_id!("!test:localhost");
                 assert!(store.get_outbound_group_sessions(&room_id).await.unwrap().is_none());
@@ -212,7 +212,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn save_inbound_group_session() {
-                let (account, store) = get_loaded_store("save_inbound_group_session".to_owned()).await;
+                let (account, store) = get_loaded_store("save_inbound_group_session").await;
 
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
@@ -224,7 +224,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn save_inbound_group_session_for_backup() {
-                let (account, store) = get_loaded_store("save_inbound_group_session_for_backup".to_owned()).await;
+                let (account, store) = get_loaded_store("save_inbound_group_session_for_backup").await;
 
                 let room_id = &room_id!("!test:localhost");
                 let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
@@ -234,7 +234,7 @@ macro_rules! cryptostore_integration_tests {
                 store.save_changes(changes).await.expect("Can't save group session");
 
                 let loaded_session = store
-                    .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
+                    .get_inbound_group_session(&session.room_id, &session.sender_key.to_base64(), session.session_id())
                     .await
                     .unwrap()
                     .unwrap();
@@ -250,7 +250,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn reset_inbound_group_session_for_backup() {
-                let (account, store) = get_loaded_store("reset_inbound_group_session_for_backup".to_owned()).await;
+                let (account, store) = get_loaded_store("reset_inbound_group_session_for_backup").await;
                 assert_eq!(store.inbound_group_session_counts().await.unwrap().total, 0);
 
                 let room_id = &room_id!("!test:localhost");
@@ -277,8 +277,8 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn load_inbound_group_session() {
-                let dir = "load_inbound_group_session".to_owned();
-                let (account, store) = get_loaded_store(dir.clone()).await;
+                let dir = "load_inbound_group_session";
+                let (account, store) = get_loaded_store(dir).await;
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
 
                 let room_id = &room_id!("!test:localhost");
@@ -286,9 +286,10 @@ macro_rules! cryptostore_integration_tests {
 
                 let mut export = session.export().await;
 
-                export.forwarding_curve25519_key_chain = vec!["some_chain".to_owned()];
+                let curve_key = Curve25519PublicKey::from_base64("Nn0L2hkcCMFKqynTjyGsJbth7QrVmX3lbrksMkrGOAw").unwrap();
+                export.forwarding_curve25519_key_chain = vec![curve_key];
 
-                let session = InboundGroupSession::from_export(export);
+                let session = InboundGroupSession::from_export(&export).unwrap();
 
                 let changes =
                     Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
@@ -302,7 +303,7 @@ macro_rules! cryptostore_integration_tests {
                 store.load_account().await.unwrap();
 
                 let loaded_session = store
-                    .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
+                    .get_inbound_group_session(&session.room_id, &session.sender_key.to_base64(), session.session_id())
                     .await
                     .unwrap()
                     .unwrap();
@@ -316,7 +317,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn test_tracked_users() {
-                let dir = "test_tracked_users".to_owned();
+                let dir = "test_tracked_users";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
                 let device = get_device();
 
@@ -349,7 +350,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn device_saving() {
-                let dir = "device_saving".to_owned();
+                let dir = "device_saving";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
 
                 let alice_device_1 = ReadOnlyDevice::from_account(
@@ -400,7 +401,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn device_deleting() {
-                let dir = "device_deleting".to_owned();
+                let dir = "device_deleting";
                 let (_account, store) = get_loaded_store(dir.clone()).await;
                 let device = get_device();
 
@@ -430,12 +431,12 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn user_saving() {
-                let dir = "user_saving".to_owned();
+                let dir = "user_saving";
 
                 let user_id = user_id!("@example:localhost");
                 let device_id: &DeviceId = "WSKKLTJZCL".into();
 
-                let store = get_store(dir.clone(), None).await;
+                let store = get_store(dir, None).await;
 
                 let account = ReadOnlyAccount::new(&user_id, device_id);
 
@@ -500,8 +501,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn private_identity_saving() {
-                let dir = "private_identity_saving".to_owned();
-                let (_, store) = get_loaded_store(dir).await;
+                let (_, store) = get_loaded_store("private_identity_saving").await;
                 assert!(store.load_identity().await.unwrap().is_none());
                 let identity = PrivateCrossSigningIdentity::new(alice_id().to_owned()).await;
 
@@ -514,8 +514,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn olm_hash_saving() {
-                let dir = "olm_hash_saving".to_owned();
-                let (_, store) = get_loaded_store(dir).await;
+                let (_, store) = get_loaded_store("olm_hash_saving").await;
 
                 let hash =
                     OlmMessageHash { sender_key: "test_sender".to_owned(), hash: "test_hash".to_owned() };
@@ -530,8 +529,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn key_request_saving() {
-                let dir = "key_request_saving".to_owned();
-                let (account, store) = get_loaded_store(dir).await;
+                let (account, store) = get_loaded_store("key_request_saving").await;
 
                 let id = TransactionId::new();
                 let info: SecretInfo = RequestedKeyInfo::new(
@@ -591,8 +589,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             async fn recovery_key_saving() {
-                let dir = "recovery_key_saving".to_owned();
-                let (account, store) = get_loaded_store(dir).await;
+                let (account, store) = get_loaded_store("recovery_key_saving").await;
 
                 let recovery_key = RecoveryKey::new().expect("Can't create new recovery key");
                 let encoded_key = recovery_key.to_base64();

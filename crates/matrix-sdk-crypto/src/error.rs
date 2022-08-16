@@ -15,8 +15,10 @@
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::store::CryptoStoreError;
+use crate::olm::SessionExportError;
 
 pub type OlmResult<T> = Result<T, OlmError>;
 pub type MegolmResult<T> = Result<T, MegolmError>;
@@ -39,7 +41,12 @@ pub enum OlmError {
 
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
-    SessionCreation(#[from] vodozemac::megolm::SessionKeyDecodeError),
+    SessionCreation(#[from] SessionCreationError),
+
+    /// The room key that should be exported can't be converted into a
+    /// `m.forwarded_room_key` event.
+    #[error(transparent)]
+    SessionExport(#[from] SessionExportError),
 
     /// The storage layer returned an error.
     #[error("failed to read or write to the crypto store {0}")]
@@ -49,12 +56,12 @@ pub enum OlmError {
     #[error(
         "decryption failed likely because an Olm session from {0} with sender key {1} was wedged"
     )]
-    SessionWedged(OwnedUserId, String),
+    SessionWedged(OwnedUserId, Curve25519PublicKey),
 
     /// An Olm message got replayed while the Olm ratchet has already moved
     /// forward.
     #[error("decryption failed because an Olm message from {0} with sender key {1} was replayed")]
-    ReplayedMessage(OwnedUserId, String),
+    ReplayedMessage(OwnedUserId, Curve25519PublicKey),
 
     /// Encryption failed because the device does not have a valid Olm session
     /// with us.
@@ -123,19 +130,19 @@ pub enum EventError {
 
     #[error(
         "the sender of the plaintext doesn't match the sender of the encrypted \
-        message, got {0}, expected {0}"
+        message, got {0}, expected {1}"
     )]
     MismatchedSender(OwnedUserId, OwnedUserId),
 
     #[error(
         "the public that was part of the message doesn't match to the key we \
-        have stored, expected {0}, got {0}"
+        have stored, expected {0}, got {1}"
     )]
-    MismatchedKeys(String, String),
+    MismatchedKeys(Box<Ed25519PublicKey>, Box<Ed25519PublicKey>),
 
     #[error(
         "the room id of the room key doesn't match the room id of the \
-        decrypted event: expected {0}, got {:1}"
+        decrypted event: expected {0}, got {1:?}"
     )]
     MismatchedRoom(OwnedRoomId, Option<OwnedRoomId>),
 }

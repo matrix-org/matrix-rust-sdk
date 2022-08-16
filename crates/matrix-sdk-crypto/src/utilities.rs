@@ -24,3 +24,13 @@ pub fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
 pub fn encode(input: impl AsRef<[u8]>) -> String {
     encode_config(input, STANDARD_NO_PAD)
 }
+
+#[cfg(test)]
+pub(crate) fn json_convert<T, U>(value: &T) -> serde_json::Result<U>
+where
+    T: serde::Serialize,
+    U: serde::de::DeserializeOwned,
+{
+    let json = serde_json::to_string(value)?;
+    serde_json::from_str(&json)
+}

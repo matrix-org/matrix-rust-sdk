@@ -24,6 +24,7 @@ use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
 use matrix_sdk_base::{Error as SdkBaseError, StoreError};
+use matrix_sdk_common::timeout::ElapsedError;
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
@@ -98,9 +99,9 @@ pub enum HttpError {
     #[error("The request cannot be cloned")]
     UnableToCloneRequest,
 
-    /// Tried to send a request without `user_id` in the `Session`
-    #[error("missing user_id in session")]
-    UserIdRequired,
+    /// An error occurred while refreshing the access token.
+    #[error(transparent)]
+    RefreshToken(#[from] RefreshTokenError),
 }
 
 /// Internal representation of errors.
@@ -180,6 +181,15 @@ pub enum Error {
     #[cfg(feature = "image-proc")]
     #[error(transparent)]
     ImageError(#[from] ImageError),
+
+    /// An error raised because a Future timed out.
+    #[error(transparent)]
+    ElapsedError(#[from] ElapsedError),
+
+    /// An error encountered when comparing the SDK's state
+    /// with the expected state after an API request.
+    #[error("The SDK's state does not reflect the API response")]
+    InconsistentState,
 
     /// An other error was raised
     /// this might happen because encryption was enabled on the base-crate
@@ -325,4 +335,27 @@ pub enum ImageError {
     /// The thumbnail size is bigger than the original image.
     #[error("the thumbnail size is bigger than the original image size")]
     ThumbnailBiggerThanOriginal,
+}
+
+/// Errors that can happen when refreshing an access token.
+///
+/// This is usually only returned by [`Client::refresh_access_token()`], unless
+/// [handling refresh tokens] is activated for the `Client`.
+///
+/// [`Client::refresh_access_token()`]: crate::Client::refresh_access_token()
+/// [handling refresh tokens]: crate::ClientBuilder::handle_refresh_tokens()
+#[derive(Debug, Error, Clone)]
+pub enum RefreshTokenError {
+    /// The Matrix endpoint returned an error.
+    #[error(transparent)]
+    ClientApi(#[from] ruma::api::client::Error),
+
+    /// Tried to send a refresh token request without a refresh token.
+    #[error("missing refresh token")]
+    RefreshTokenRequired,
+
+    /// There was an ongoing refresh token call that failed and the error could
+    /// not be forwarded.
+    #[error("the access token could not be refreshed")]
+    UnableToRefreshToken,
 }

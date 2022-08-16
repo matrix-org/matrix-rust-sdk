@@ -17,7 +17,9 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -34,6 +36,18 @@ jobs:
       with:
         command: install
         args: cargo-tarpaulin
+
+    # set up backend for integration tests
+    - uses: actions/setup-python@v4
+      with:
+        python-version: 3.8
+
+    - uses: gnunicorn/setup-matrix-synapse@main
+      with:
+        uploadLogs: true
+        httpPort: 8228
+        disableRateLimiting: true
+        serverName: "matrix-sdk.rs"
 
     - name: Run tarpaulin
       uses: actions-rs/cargo@v1

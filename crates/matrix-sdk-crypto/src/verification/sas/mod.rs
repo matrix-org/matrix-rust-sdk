@@ -473,7 +473,12 @@ impl Sas {
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
-        ToDeviceRequest::new(self.other_user_id(), self.other_device_id().to_owned(), content)
+        ToDeviceRequest::with_id(
+            self.other_user_id(),
+            self.other_device_id().to_owned(),
+            content,
+            TransactionId::new(),
+        )
     }
 }
 
@@ -508,7 +513,7 @@ impl AcceptSettings {
 
 #[cfg(test)]
 mod tests {
-    use std::{convert::TryFrom, sync::Arc};
+    use std::sync::Arc;
 
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;

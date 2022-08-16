@@ -1,4 +1,4 @@
-const { HistoryVisibility } = require('../pkg/matrix_sdk_crypto');
+const { HistoryVisibility } = require('../pkg/matrix_sdk_crypto_js');
 
 describe('HistoryVisibility', () => {
     test('has the correct variant values', () => {

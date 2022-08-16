@@ -17,14 +17,12 @@ use std::{collections::BTreeMap, fmt::Debug};
 use ruma::{
     events::{
         dummy::ToDeviceDummyEvent,
-        forwarded_room_key::ToDeviceForwardedRoomKeyEvent,
         key::verification::{
             accept::ToDeviceKeyVerificationAcceptEvent, cancel::ToDeviceKeyVerificationCancelEvent,
             done::ToDeviceKeyVerificationDoneEvent, key::ToDeviceKeyVerificationKeyEvent,
             mac::ToDeviceKeyVerificationMacEvent, ready::ToDeviceKeyVerificationReadyEvent,
             request::ToDeviceKeyVerificationRequestEvent, start::ToDeviceKeyVerificationStartEvent,
         },
-        room::encrypted::ToDeviceRoomEncryptedEvent,
         room_key_request::ToDeviceRoomKeyRequestEvent,
         secret::request::{SecretName, ToDeviceSecretRequestEvent},
         EventContent, ToDeviceEventType,
@@ -39,7 +37,13 @@ use serde_json::{
 };
 use zeroize::Zeroize;
 
-use super::{room_key::RoomKeyEvent, secret_send::SecretSendEvent, EventType};
+use super::{
+    forwarded_room_key::{ForwardedRoomKeyContent, ForwardedRoomKeyEvent},
+    room::encrypted::EncryptedToDeviceEvent,
+    room_key::RoomKeyEvent,
+    secret_send::SecretSendEvent,
+    EventType,
+};
 use crate::types::events::from_str;
 
 /// An enum over the various to-device events we support.
@@ -68,13 +72,13 @@ pub enum ToDeviceEvents {
     KeyVerificationRequest(ToDeviceKeyVerificationRequestEvent),
 
     /// The `m.room.encrypted` to-device event.
-    RoomEncrypted(ToDeviceRoomEncryptedEvent),
+    RoomEncrypted(EncryptedToDeviceEvent),
     /// The `m.room_key` to-device event.
     RoomKey(RoomKeyEvent),
     /// The `m.room_key_request` to-device event.
     RoomKeyRequest(ToDeviceRoomKeyRequestEvent),
     /// The `m.forwarded_room_key` to-device event.
-    ForwardedRoomKey(ToDeviceForwardedRoomKeyEvent),
+    ForwardedRoomKey(Box<ForwardedRoomKeyEvent>),
     /// The `m.secret.send` to-device event.
     SecretSend(SecretSendEvent),
     /// The `m.secret.request` to-device event.
@@ -122,10 +126,10 @@ impl ToDeviceEvents {
             ToDeviceEvents::KeyVerificationReady(e) => e.content.event_type(),
             ToDeviceEvents::KeyVerificationRequest(e) => e.content.event_type(),
 
-            ToDeviceEvents::RoomEncrypted(e) => e.content.event_type(),
+            ToDeviceEvents::RoomEncrypted(_) => ToDeviceEventType::RoomEncrypted,
             ToDeviceEvents::RoomKey(_) => ToDeviceEventType::RoomKey,
             ToDeviceEvents::RoomKeyRequest(e) => e.content.event_type(),
-            ToDeviceEvents::ForwardedRoomKey(e) => e.content.event_type(),
+            ToDeviceEvents::ForwardedRoomKey(_) => ToDeviceEventType::ForwardedRoomKey,
 
             ToDeviceEvents::SecretSend(_) => ToDeviceEventType::SecretSend,
             ToDeviceEvents::SecretRequest(e) => e.content.event_type(),
@@ -195,7 +199,11 @@ impl ToDeviceEvents {
                 Raw::from_json(raw_value)
             }
             ToDeviceEvents::ForwardedRoomKey(mut e) => {
-                e.content.session_key.zeroize();
+                match &mut e.content {
+                    ForwardedRoomKeyContent::MegolmV1AesSha2(c) => c.session_key.zeroize(),
+                    ForwardedRoomKeyContent::Unknown(_) => (),
+                }
+
                 Raw::from_json(to_raw_value(&e)?)
             }
             ToDeviceEvents::SecretSend(mut e) => {
@@ -241,7 +249,7 @@ where
     pub content: C,
     /// Any other unknown data of the to-device event.
     #[serde(flatten)]
-    other: BTreeMap<String, Value>,
+    pub(crate) other: BTreeMap<String, Value>,
 }
 
 impl<C> Serialize for ToDeviceEvent<C>
@@ -396,23 +404,6 @@ mod test {
         })
     }
 
-    fn room_encrypted_event() -> Value {
-        json!({
-            "sender": "@alice:example.org",
-            "content": {
-                "algorithm": "m.olm.v1.curve25519-aes-sha2",
-                "sender_key": "<sender_curve25519_key>",
-                "ciphertext": {
-                    "<device_curve25519_key>": {
-                    "type": 0,
-                    "body": "<encrypted_payload_base_64>"
-                    }
-                }
-            },
-            "type": "m.room.encrypted",
-        })
-    }
-
     fn forwarded_room_key_event() -> Value {
         json!({
             "sender": "@alice:example.org",
@@ -425,7 +416,11 @@ mod test {
             "sender_claimed_ed25519_key": "aj40p+aw64yPIdsxoog8jhPu9i7l7NcFRecuOQblE3Y",
             "sender_key": "RF3s+E7RkTQTGF2d8Deol0FkQvgII2aJDf3/Jp5mxVU",
             "session_id": "X3lUlvLELLYxeTx4yOVu6UDpasGEVO0Jbu+QFnm0cKQ",
-            "session_key": "AgAAAADxKHa9uFxcXzwYoNueL5Xqi69IkD4sni8Llf..."
+            "session_key": "AQAAAAq2JpkMceK5f6JrZPJWwzQTn59zliuIv0F7apVLXDcZCCT\
+                            3LqBjD21sULYEO5YTKdpMVhi9i6ZSZhdvZvp//tzRpDT7wpWVWI\
+                            00Y3EPEjmpm/HfZ4MMAKpk+tzJVuuvfAcHBZgpnxBGzYOc/DAqa\
+                            pK7Tk3t3QJ1UMSD94HfAqlb1JF5QBPwoh0fOvD8pJdanB8zxz05\
+                            tKFdR73/vo2Q/zE3"
             },
             "type": "m.forwarded_room_key"
         })
@@ -490,7 +485,7 @@ mod test {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            room_encrypted_event => RoomEncrypted,
+            crate::types::events::room::encrypted::test::to_device_json => RoomEncrypted,
         );
 
         Ok(())

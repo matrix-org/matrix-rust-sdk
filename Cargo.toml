@@ -6,15 +6,23 @@ members = [
     "bindings/matrix-sdk-crypto-nodejs",
     "bindings/matrix-sdk-ffi",
     "crates/*",
+    "testing/*",
+    "examples/*",
     "labs/*",
     "xtask",
 ]
-# xtask, labs and the bindings should only be built when invoked explicitly.
+# xtask, labs, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*"]
 resolver = "2"
 
 [profile.release]
 lto = true
+
+[profile.dev]
+# Copied from rust-analyzer. Saves a lot of disk space and hopefully
+# compilation time / mem usage too, at the expense of potentially having to
+# change this setting here when you want to use a debugger.
+debug = 0
 
 [profile.dev.package]
 # Optimize quote even in debug mode. Speeds up proc-macros enough to account
@@ -25,9 +33,7 @@ sha2 = { opt-level = 2 }
 [patch.crates-io]
 ruma = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
 ruma-common = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
-ruma-client-api = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
 
 [patch."https://github.com/ruma/ruma"]
 ruma = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
 ruma-common = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }
-ruma-client-api = { git = "https://github.com/gnunicorn/ruma", branch = "sliding-sync" }

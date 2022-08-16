@@ -1,6 +1,20 @@
+// Copyright 2022 The Matrix.org Foundation C.I.C.
+// Copyright 2022 Kévin Commaille
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #![cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
 
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 use std::future::Future;
 
 use ruma::{
@@ -60,11 +74,18 @@ pub struct LoginBuilder<'a> {
     login_method: LoginMethod<'a>,
     device_id: Option<&'a str>,
     initial_device_display_name: Option<&'a str>,
+    request_refresh_token: bool,
 }
 
 impl<'a> LoginBuilder<'a> {
     fn new(client: Client, login_method: LoginMethod<'a>) -> Self {
-        Self { client, login_method, device_id: None, initial_device_display_name: None }
+        Self {
+            client,
+            login_method,
+            device_id: None,
+            initial_device_display_name: None,
+            request_refresh_token: false,
+        }
     }
 
     pub(super) fn new_password(client: Client, id: UserIdentifier<'a>, password: &'a str) -> Self {
@@ -96,6 +117,24 @@ impl<'a> LoginBuilder<'a> {
         self
     }
 
+    /// Advertise support for [refreshing access tokens].
+    ///
+    /// By default, the `Client` won't handle refreshing access tokens, so
+    /// [`Client::refresh_access_token()`] needs to be called manually.
+    ///
+    /// This behavior can be changed by calling
+    /// [`handle_refresh_tokens()`] when building the `Client`.
+    ///
+    /// *Note* that refreshing access tokens might not be supported or might be
+    /// enforced by the homeserver regardless of this setting.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    /// [`handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens
+    pub fn request_refresh_token(mut self) -> Self {
+        self.request_refresh_token = true;
+        self
+    }
+
     /// Send the login request.
     #[instrument(
         target = "matrix_sdk::client",
@@ -110,6 +149,7 @@ impl<'a> LoginBuilder<'a> {
         let request = assign!(login::v3::Request::new(self.login_method.to_login_info()), {
             device_id: self.device_id.map(Into::into),
             initial_device_display_name: self.initial_device_display_name,
+            refresh_token: self.request_refresh_token,
         });
 
         let response = self.client.send(request, Some(RequestConfig::short_retry())).await?;
@@ -123,7 +163,7 @@ impl<'a> LoginBuilder<'a> {
 ///
 /// Created with [`Client::login_sso`].
 /// Finalized with [`.send()`](Self::send).
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 #[allow(missing_debug_implementations)]
 pub struct SsoLoginBuilder<'a, F> {
     client: Client,
@@ -133,9 +173,10 @@ pub struct SsoLoginBuilder<'a, F> {
     server_url: Option<&'a str>,
     server_response: Option<&'a str>,
     identity_provider_id: Option<&'a str>,
+    request_refresh_token: bool,
 }
 
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 impl<'a, F, Fut> SsoLoginBuilder<'a, F>
 where
     F: FnOnce(String) -> Fut + Send,
@@ -150,6 +191,7 @@ where
             server_url: None,
             server_response: None,
             identity_provider_id: None,
+            request_refresh_token: false,
         }
     }
 
@@ -199,6 +241,24 @@ where
         self
     }
 
+    /// Advertise support for [refreshing access tokens].
+    ///
+    /// By default, the `Client` won't handle refreshing access tokens, so
+    /// [`Client::refresh_access_token()`] needs to be called manually.
+    ///
+    /// This behavior can be changed by calling
+    /// [`handle_refresh_tokens()`] when building the `Client`.
+    ///
+    /// *Note* that refreshing access tokens might not be supported or might be
+    /// enforced by the homeserver regardless of this setting.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    /// [`handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens
+    pub fn request_refresh_token(mut self) -> Self {
+        self.request_refresh_token = true;
+        self
+    }
+
     /// Send the login request.
     #[instrument(target = "matrix_sdk::client", name = "login", skip_all, fields(method = "sso"))]
     pub async fn send(self) -> Result<login::v3::Response> {
@@ -224,7 +284,7 @@ where
         const SSO_SERVER_BIND_TRIES: u8 = 10;
 
         let homeserver = self.client.homeserver().await;
-        info!("Logging in to {}", homeserver);
+        info!(%homeserver, "Logging in");
 
         let (signal_tx, signal_rx) = oneshot::channel();
         let (data_tx, data_rx) = oneshot::channel();
@@ -302,6 +362,7 @@ where
         let login_builder = LoginBuilder {
             device_id: self.device_id,
             initial_device_display_name: self.initial_device_display_name,
+            request_refresh_token: self.request_refresh_token,
             ..LoginBuilder::new_token(self.client, &token)
         };
         login_builder.send().await

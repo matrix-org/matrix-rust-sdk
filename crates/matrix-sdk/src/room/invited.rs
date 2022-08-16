@@ -2,7 +2,10 @@ use std::ops::Deref;
 
 use thiserror::Error;
 
-use crate::{room::Common, BaseRoom, Client, Error, Result, RoomMember, RoomType};
+use crate::{
+    room::{Common, Joined, Left},
+    BaseRoom, Client, Error, Result, RoomMember, RoomType,
+};
 /// A room in the invited state.
 ///
 /// This struct contains all methods specific to a `Room` with type
@@ -49,12 +52,13 @@ impl Invited {
     }
 
     /// Reject the invitation.
-    pub async fn reject_invitation(&self) -> Result<()> {
+    pub async fn reject_invitation(&self) -> Result<Left> {
         self.inner.leave().await
     }
 
     /// Accept the invitation.
-    pub async fn accept_invitation(&self) -> Result<()> {
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
+    pub async fn accept_invitation(&self) -> Result<Joined> {
         self.inner.join().await
     }
 
@@ -67,12 +71,12 @@ impl Invited {
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::NotAuthenticated)))?;
         let invitee = self
             .inner
-            .get_member(user_id)
+            .get_member_no_sync(user_id)
             .await?
             .ok_or_else(|| Error::UnknownError(Box::new(InvitationError::EventMissing)))?;
         let event = invitee.event();
         let inviter_id = event.sender();
-        let inviter = self.inner.get_member(inviter_id).await?;
+        let inviter = self.inner.get_member_no_sync(inviter_id).await?;
         Ok(Invite { invitee, inviter })
     }
 }

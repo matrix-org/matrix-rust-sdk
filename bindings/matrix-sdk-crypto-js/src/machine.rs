@@ -3,10 +3,7 @@
 use std::collections::BTreeMap;
 
 use js_sys::{Array, Map, Promise, Set};
-use ruma::{
-    events::room::encrypted::OriginalSyncRoomEncryptedEvent, DeviceKeyAlgorithm,
-    OwnedTransactionId, UInt,
-};
+use ruma::{serde::Raw, DeviceKeyAlgorithm, OwnedTransactionId, UInt};
 use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
@@ -274,7 +271,7 @@ impl OlmMachine {
         event: &str,
         room_id: &identifiers::RoomId,
     ) -> Result<Promise, JsError> {
-        let event: OriginalSyncRoomEncryptedEvent = serde_json::from_str(event)?;
+        let event: Raw<_> = serde_json::from_str(event)?;
         let room_id = room_id.inner.clone();
         let me = self.inner.clone();
 

@@ -207,7 +207,7 @@ mod inner {
 
             let origin = metadata
                 .file()
-                .and_then(|file| metadata.line().map(|ln| format!("{}:{}", file, ln)))
+                .and_then(|file| metadata.line().map(|ln| format!("{file}:{ln}")))
                 .unwrap_or_default();
 
             let message = format!("{level} {origin}{recorder}");
@@ -240,11 +240,11 @@ mod inner {
                         self.string.push('\n');
                     }
 
-                    let _ = write!(self.string, "{:?}", value);
+                    let _ = write!(self.string, "{value:?}");
                 }
 
                 field_name => {
-                    let _ = write!(self.string, "\n{} = {:?}", field_name, value);
+                    let _ = write!(self.string, "\n{field_name} = {value:?}");
                 }
             }
         }

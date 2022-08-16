@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, str::FromStr, time::Duration};
 use matrix_sdk::{
     config::SyncSettings,
     media::{MediaFormat, MediaRequest, MediaThumbnailSize},
-    Error, HttpError, RumaApiError,
+    Error, HttpError, RumaApiError, Session,
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
@@ -24,9 +24,9 @@ use ruma::{
     assign, device_id,
     directory::Filter,
     events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
-    mxc_uri, room_id, uint, user_id,
+    mxc_uri, room_id, server_name, uint, user_id, RoomOrAliasId,
 };
-use serde_json::json;
+use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
 use url::Url;
 use wiremock::{
     matchers::{header, method, path, path_regex},
@@ -34,15 +34,6 @@ use wiremock::{
 };
 
 use crate::{logged_in_client, mock_sync, no_retry_test_client};
-
-#[async_test]
-async fn set_homeserver() {
-    let (client, _) = no_retry_test_client().await;
-    let homeserver = Url::from_str("http://example.com/").unwrap();
-    client.set_homeserver(homeserver.clone()).await;
-
-    assert_eq!(client.homeserver().await, homeserver);
-}
 
 #[async_test]
 async fn login() {
@@ -172,7 +163,7 @@ async fn login_with_sso_token() {
     assert!(can_sso);
 
     let sso_url = client.get_sso_login_url("http://127.0.0.1:3030", None).await;
-    assert!(sso_url.is_ok());
+    sso_url.unwrap();
 
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
@@ -280,7 +271,7 @@ async fn devices() {
         .mount(&server)
         .await;
 
-    assert!(client.devices().await.is_ok());
+    client.devices().await.unwrap();
 }
 
 #[async_test]
@@ -360,7 +351,7 @@ async fn resolve_room_alias() {
         .await;
 
     let alias = ruma::room_alias_id!("#alias:example.org");
-    assert!(client.resolve_room_alias(alias).await.is_ok());
+    client.resolve_room_alias(alias).await.unwrap();
 }
 
 #[async_test]
@@ -400,17 +391,31 @@ async fn join_room_by_id() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/join"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "room_id": *test_json::DEFAULT_SYNC_ROOM_ID })),
+        )
         .mount(&server)
         .await;
 
-    let room_id = room_id!("!testroom:example.org");
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
+    let room_id = *test_json::DEFAULT_SYNC_ROOM_ID;
+
+    let client_clone = client.clone();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        client_clone.sync_once(SyncSettings::default()).await
+    });
+
+    let joined = client.join_room_by_id(room_id).await.unwrap();
 
     assert_eq!(
-        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
+        // this is the `Joined` room but since no PartialEq we check the RoomId
         // field
-        client.join_room_by_id(room_id).await.unwrap().room_id,
-        room_id
+        joined.room_id(),
+        *test_json::DEFAULT_SYNC_ROOM_ID
     );
 }
 
@@ -421,21 +426,34 @@ async fn join_room_by_id_or_alias() {
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/join/"))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "room_id": *test_json::DEFAULT_SYNC_ROOM_ID })),
+        )
         .mount(&server)
         .await;
 
-    let room_id = room_id!("!testroom:example.org").into();
+    mock_sync(&server, &*test_json::SYNC, None).await;
+
+    let room_id_or_alias = <&RoomOrAliasId>::try_from(*test_json::DEFAULT_SYNC_ROOM_ID).unwrap();
+
+    let client_clone = client.clone();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        client_clone.sync_once(SyncSettings::default()).await
+    });
+
+    let joined = client
+        .join_room_by_id_or_alias(room_id_or_alias, &[server_name!("server.com").to_owned()])
+        .await
+        .unwrap();
 
     assert_eq!(
-        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
+        // this is the `Joined` room but since no PartialEq we check the RoomId
         // field
-        client
-            .join_room_by_id_or_alias(room_id, &["server.com".try_into().unwrap()])
-            .await
-            .unwrap()
-            .room_id,
-        room_id!("!testroom:example.org")
+        joined.room_id(),
+        *test_json::DEFAULT_SYNC_ROOM_ID
     );
 }
 
@@ -520,9 +538,9 @@ async fn get_media_content() {
         .mount(&server)
         .await;
 
-    assert!(client.get_media_content(&request, true).await.is_ok());
-    assert!(client.get_media_content(&request, true).await.is_ok());
-    assert!(client.get_media_content(&request, false).await.is_ok());
+    client.get_media_content(&request, true).await.unwrap();
+    client.get_media_content(&request, true).await.unwrap();
+    client.get_media_content(&request, false).await.unwrap();
 }
 
 #[async_test]
@@ -548,8 +566,8 @@ async fn get_media_file() {
         .mount(&server)
         .await;
 
-    assert!(client.get_file(event_content.clone(), true).await.is_ok());
-    assert!(client.get_file(event_content.clone(), true).await.is_ok());
+    client.get_file(event_content.clone(), true).await.unwrap();
+    client.get_file(event_content.clone(), true).await.unwrap();
 
     Mock::given(method("GET"))
         .and(path("/_matrix/media/r0/thumbnail/example%2Eorg/image"))
@@ -561,14 +579,14 @@ async fn get_media_file() {
         .mount(&server)
         .await;
 
-    assert!(client
+    client
         .get_thumbnail(
             event_content,
             MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
-            true
+            true,
         )
         .await
-        .is_ok());
+        .unwrap();
 }
 
 #[async_test]
@@ -585,4 +603,63 @@ async fn whoami() {
     let user_id = user_id!("@joe:example.org");
 
     assert_eq!(client.whoami().await.unwrap().user_id, user_id);
+}
+
+#[test]
+fn deserialize_session() {
+    // First version, or second version without refresh token.
+    let json = json!({
+        "access_token": "abcd",
+        "user_id": "@user:localhost",
+        "device_id": "EFGHIJ",
+    });
+    let session: Session = from_json_value(json).unwrap();
+    assert_eq!(session.access_token, "abcd");
+    assert_eq!(session.user_id, "@user:localhost");
+    assert_eq!(session.device_id, "EFGHIJ");
+    assert_eq!(session.refresh_token, None);
+
+    // Second version with refresh_token.
+    let json = json!({
+        "access_token": "abcd",
+        "refresh_token": "wxyz",
+        "user_id": "@user:localhost",
+        "device_id": "EFGHIJ",
+    });
+    let session: Session = from_json_value(json).unwrap();
+    assert_eq!(session.access_token, "abcd");
+    assert_eq!(session.user_id, "@user:localhost");
+    assert_eq!(session.device_id, "EFGHIJ");
+    assert_eq!(session.refresh_token.as_deref(), Some("wxyz"));
+}
+
+#[test]
+fn serialize_session() {
+    // Without refresh token.
+    let mut session = Session {
+        access_token: "abcd".to_owned(),
+        refresh_token: None,
+        user_id: user_id!("@user:localhost").to_owned(),
+        device_id: device_id!("EFGHIJ").to_owned(),
+    };
+    assert_eq!(
+        to_json_value(session.clone()).unwrap(),
+        json!({
+            "access_token": "abcd",
+            "user_id": "@user:localhost",
+            "device_id": "EFGHIJ",
+        })
+    );
+
+    // With refresh_token.
+    session.refresh_token = Some("wxyz".to_owned());
+    assert_eq!(
+        to_json_value(session).unwrap(),
+        json!({
+            "access_token": "abcd",
+            "refresh_token": "wxyz",
+            "user_id": "@user:localhost",
+            "device_id": "EFGHIJ",
+        })
+    );
 }

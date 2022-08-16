@@ -37,18 +37,19 @@ use ruma::{
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
-        RoomAccountDataEventType, StateEventType,
+        RoomAccountDataEventType,
     },
     room::RoomType as CreateRoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
     RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
-    store::{Result as StoreResult, StateStore},
+    store::{Result as StoreResult, StateStore, StateStoreExt},
     MinimalStateEvent,
 };
 #[cfg(feature = "experimental-timeline")]
@@ -103,16 +104,7 @@ impl Room {
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
-        let room_info = RoomInfo {
-            room_id: room_id.into(),
-            room_type,
-            notification_counts: Default::default(),
-            summary: Default::default(),
-            members_synced: false,
-            last_prev_batch: None,
-            base_info: BaseRoomInfo::new(),
-        };
-
+        let room_info = RoomInfo::new(room_id, room_type);
         Self::restore(own_user_id, store, room_info)
     }
 
@@ -405,7 +397,7 @@ impl Room {
             _ => (summary.joined_member_count, summary.invited_member_count),
         };
 
-        tracing::debug!(
+        debug!(
             room_id = self.room_id().as_str(),
             own_user = self.own_user_id.as_str(),
             joined, invited,
@@ -448,18 +440,11 @@ impl Room {
         let is_room_creator =
             self.inner.read().unwrap().creator().map(|c| c == user_id).unwrap_or(false);
 
-        let power =
-            self.store
-                .get_state_event(self.room_id(), StateEventType::RoomPowerLevels, "")
-                .await?
-                .and_then(|e| e.deserialize().ok())
-                .and_then(|e| {
-                    if let AnySyncStateEvent::RoomPowerLevels(e) = e {
-                        Some(e)
-                    } else {
-                        None
-                    }
-                });
+        let power = self
+            .store
+            .get_state_event_static(self.room_id(), "")
+            .await?
+            .and_then(|e| e.deserialize().ok());
 
         let ambiguous = self
             .store
@@ -598,6 +583,8 @@ impl Room {
     /// Add a new timeline slice to the timeline streams.
     #[cfg(feature = "experimental-timeline")]
     pub async fn add_timeline_slice(&self, timeline: &TimelineSlice) {
+        use tracing::warn;
+
         if timeline.sync {
             let mut streams = self.forward_timeline_streams.lock().await;
             let mut remaining_streams = Vec::with_capacity(streams.len());
@@ -605,7 +592,11 @@ impl Room {
                 if !forward.is_closed() {
                     if let Err(error) = forward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            tracing::warn!("Drop timeline slice because the limit of the buffer for the forward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 forward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(forward);
@@ -620,7 +611,11 @@ impl Room {
                 if !backward.is_closed() {
                     if let Err(error) = backward.try_send(timeline.clone()) {
                         if error.is_full() {
-                            tracing::warn!("Drop timeline slice because the limit of the buffer for the backward stream is reached");
+                            warn!(
+                                room_id = %self.room_id(),
+                                "Dropping timeline slice because the limit of the buffer for the \
+                                 backward stream is reached"
+                            );
                         }
                     } else {
                         remaining_streams.push(backward);
@@ -655,6 +650,19 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
+    #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
+    pub fn new(room_id: &RoomId, room_type: RoomType) -> Self {
+        Self {
+            room_id: room_id.into(),
+            room_type,
+            notification_counts: Default::default(),
+            summary: Default::default(),
+            members_synced: false,
+            last_prev_batch: None,
+            base_info: BaseRoomInfo::new(),
+        }
+    }
+
     /// Mark this Room as joined
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;

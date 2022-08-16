@@ -753,7 +753,7 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
                     serde_json::from_value(json).map_err(|e| e.to_string())?,
                 )
             }
-            e => return Err(format!("Unsupported event type {}", e)),
+            e => return Err(format!("Unsupported event type {e}")),
         };
 
         Ok(content.into())

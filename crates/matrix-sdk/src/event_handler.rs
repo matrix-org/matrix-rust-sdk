@@ -1,4 +1,5 @@
 // Copyright 2021 Jonas Platte
+// Copyright 2022 Famedly GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,11 +14,11 @@
 // limitations under the License.
 
 //! Types and traits related for event handlers. For usage, see
-//! [`Client::register_event_handler`].
+//! [`Client::add_event_handler`].
 //!
 //! ### How it works
 //!
-//! The `register_event_handler` method registers event handlers of different
+//! The `add_event_handler` method registers event handlers of different
 //! signatures by actually storing boxed closures that all have the same
 //! signature of `async (EventHandlerData) -> ()` where `EventHandlerData` is a
 //! private type that contains all of the data an event handler *might* need.
@@ -32,14 +33,36 @@
 
 #[cfg(any(feature = "anyhow", feature = "eyre"))]
 use std::any::TypeId;
-use std::{borrow::Cow, fmt, future::Future, ops::Deref};
+use std::{
+    borrow::{Borrow, Cow},
+    fmt,
+    future::Future,
+    iter,
+    ops::Deref,
+    pin::Pin,
+    sync::atomic::Ordering::SeqCst,
+};
 
-use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
-use ruma::{events::AnySyncStateEvent, serde::Raw};
-use serde::Deserialize;
+use matrix_sdk_base::{
+    deserialized_responses::{EncryptionInfo, SyncRoomEvent},
+    SendOutsideWasm, SyncOutsideWasm,
+};
+use ruma::{events::AnySyncStateEvent, serde::Raw, OwnedRoomId};
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
+use tracing::{error, warn};
 
 use crate::{room, Client};
+
+#[cfg(not(target_arch = "wasm32"))]
+type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
+#[cfg(target_arch = "wasm32")]
+type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -54,7 +77,6 @@ pub enum EventKind {
     OriginalState,
     RedactedState,
     StrippedState,
-    InitialState,
     ToDevice,
     Presence,
 }
@@ -80,7 +102,56 @@ impl EventKind {
 /// A statically-known event kind/type that can be retrieved from an event sync.
 pub trait SyncEvent {
     #[doc(hidden)]
-    const ID: (EventKind, &'static str);
+    const KIND: EventKind;
+    #[doc(hidden)]
+    const TYPE: &'static str;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct EventHandlerKey(EventHandlerKeyInner<'static>);
+
+impl EventHandlerKey {
+    pub(crate) fn new(
+        ev_kind: EventKind,
+        ev_type: &'static str,
+        room_id: Option<OwnedRoomId>,
+    ) -> Self {
+        Self(EventHandlerKeyInner { ev_kind, ev_type, room_id })
+    }
+}
+
+// This lifetime-generic impl is what makes it possible to obtain a
+// &'static str event type from get_key_value in call_event_handlers.
+impl<'a> Borrow<EventHandlerKeyInner<'a>> for EventHandlerKey {
+    fn borrow(&self) -> &EventHandlerKeyInner<'a> {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct EventHandlerKeyInner<'a> {
+    ev_kind: EventKind,
+    ev_type: &'a str,
+    room_id: Option<OwnedRoomId>,
+}
+
+pub(crate) struct EventHandlerWrapper {
+    handler_fn: Box<EventHandlerFn>,
+    pub handler_id: u64,
+}
+
+/// Handle to remove a registered event handler by passing it to
+/// [`Client::remove_event_handler`].
+#[derive(Clone, Debug)]
+pub struct EventHandlerHandle {
+    pub(crate) key: EventHandlerKey,
+    pub(crate) handler_id: u64,
+}
+
+impl EventHandlerContext for EventHandlerHandle {
+    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+        Some(data.handle.clone())
+    }
 }
 
 /// Interface for event handlers.
@@ -107,7 +178,7 @@ pub trait SyncEvent {
 /// `Ev` and `Ctx` are generic parameters rather than associated types because
 /// the argument list is a generic parameter for the `Fn` traits too, so a
 /// single type could implement `Fn` multiple times with different argument
-/// lists¹. Luckily, when calling [`Client::register_event_handler`] with a
+/// lists¹. Luckily, when calling [`Client::add_event_handler`] with a
 /// closure argument the trait solver takes into account that only a single one
 /// of the implementations applies (even though this could theoretically change
 /// through a dependency upgrade) and uses that rather than raising an ambiguity
@@ -116,15 +187,10 @@ pub trait SyncEvent {
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
-pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
+pub trait EventHandler<Ev, Ctx>: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
-    type Future: Future + Send + 'static;
-
-    /// The event type being handled, for example a message event of type
-    /// `m.room.message`.
-    #[doc(hidden)]
-    const ID: (EventKind, &'static str);
+    type Future: Future + SendOutsideWasm + 'static;
 
     /// Create a future for handling the given event.
     ///
@@ -139,10 +205,11 @@ pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct EventHandlerData<'a> {
-    pub client: Client,
-    pub room: Option<room::Room>,
-    pub raw: &'a RawJsonValue,
-    pub encryption_info: Option<&'a EncryptionInfo>,
+    client: Client,
+    room: Option<room::Room>,
+    raw: &'a RawJsonValue,
+    encryption_info: Option<&'a EncryptionInfo>,
+    handle: EventHandlerHandle,
 }
 
 /// Context for an event handler.
@@ -175,11 +242,11 @@ impl EventHandlerContext for room::Room {
 /// The raw JSON form of an event.
 ///
 /// Used as a context argument for event handlers (see
-/// [`Client::register_event_handler`]).
+/// [`Client::add_event_handler`]).
 // FIXME: This could be made to not own the raw JSON value with some changes to
 //        the traits above, but only with GATs.
 #[derive(Clone, Debug)]
-pub struct RawEvent(pub Box<RawJsonValue>);
+pub struct RawEvent(Box<RawJsonValue>);
 
 impl Deref for RawEvent {
     type Target = RawJsonValue;
@@ -202,7 +269,7 @@ impl EventHandlerContext for Option<EncryptionInfo> {
 }
 
 /// A custom value registered with
-/// [`.register_event_handler_context`][Client::register_event_handler_context].
+/// [`.add_event_handler_context`][Client::add_event_handler_context].
 #[derive(Debug)]
 pub struct Ctx<T>(pub T);
 
@@ -237,14 +304,14 @@ impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E
         match self {
             #[cfg(feature = "anyhow")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<anyhow::Error>() => {
-                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+                error!("Event handler for `{event_type}` failed: {e:?}");
             }
             #[cfg(feature = "eyre")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<eyre::Report>() => {
-                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+                error!("Event handler for `{event_type}` failed: {e:?}");
             }
             Err(e) => {
-                tracing::error!("Event handler for `{}` failed: {}", event_type, e);
+                error!("Event handler for `{event_type}` failed: {e}");
             }
             Ok(_) => {}
         }
@@ -258,6 +325,64 @@ struct UnsignedDetails {
 
 /// Event handling internals.
 impl Client {
+    pub(crate) fn add_event_handler_impl<Ev, Ctx, H>(
+        &self,
+        handler: H,
+        room_id: Option<OwnedRoomId>,
+    ) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        let handler_fn: Box<EventHandlerFn> = Box::new(move |data| {
+            let maybe_fut =
+                serde_json::from_str(data.raw.get()).map(|ev| handler.handle_event(ev, data));
+
+            Box::pin(async move {
+                match maybe_fut {
+                    Ok(Some(fut)) => {
+                        fut.await.print_error(Ev::TYPE);
+                    }
+                    Ok(None) => {
+                        error!(
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Event handler has an invalid context argument",
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            "Failed to deserialize event, skipping event handler.\n
+                             Deserialization error: {e}",
+                        );
+                    }
+                }
+            })
+        });
+
+        let handler_id = self.inner.event_handler_counter.fetch_add(1, SeqCst);
+        let key = EventHandlerKey::new(Ev::KIND, Ev::TYPE, room_id);
+
+        self.inner
+            .event_handlers
+            .write()
+            .unwrap()
+            .entry(key.clone())
+            .or_default()
+            .push(EventHandlerWrapper { handler_fn, handler_id });
+
+        EventHandlerHandle { key, handler_id }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn event_handler_drop_guard(
+        &self,
+        handle: EventHandlerHandle,
+    ) -> EventHandlerDropGuard {
+        EventHandlerDropGuard { client: self.clone(), handle }
+    }
+
     pub(crate) async fn handle_sync_events<T>(
         &self,
         kind: EventKind,
@@ -270,13 +395,12 @@ impl Client {
             event_type: Cow<'a, str>,
         }
 
-        self.handle_sync_events_wrapped_with(
-            room,
-            events,
-            |ev| (ev, None),
-            |raw| Ok((kind, raw.deserialize_as::<ExtractType<'_>>()?.event_type)),
-        )
-        .await
+        for raw_event in events {
+            let event_type = raw_event.deserialize_as::<ExtractType<'_>>()?.event_type;
+            self.call_event_handlers(room, raw_event.json(), kind, &event_type, None).await;
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn handle_sync_state_events(
@@ -295,17 +419,13 @@ impl Client {
         self.handle_sync_events(EventKind::State, room, state_events).await?;
 
         // Event handlers specifically for redacted OR unredacted state events
-        self.handle_sync_events_wrapped_with(
-            room,
-            state_events,
-            |ev| (ev, None),
-            |raw| {
-                let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
-                let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-                Ok((EventKind::state_redacted(redacted), event_type))
-            },
-        )
-        .await?;
+        for raw_event in state_events {
+            let StateEventDetails { event_type, unsigned } = raw_event.deserialize_as()?;
+            let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
+            let event_kind = EventKind::state_redacted(redacted);
+
+            self.call_event_handlers(room, raw_event.json(), event_kind, &event_type, None).await;
+        }
 
         Ok(())
     }
@@ -324,84 +444,102 @@ impl Client {
         }
 
         // Event handlers for possibly-redacted timeline events
-        self.handle_sync_events_wrapped_with(
-            room,
-            timeline_events,
-            |e| (&e.event, e.encryption_info.as_ref()),
-            |raw| {
-                let TimelineEventDetails { event_type, state_key, .. } = raw.deserialize_as()?;
+        for item in timeline_events {
+            let TimelineEventDetails { event_type, state_key, .. } = item.event.deserialize_as()?;
 
-                let kind = match state_key {
-                    Some(_) => EventKind::State,
-                    None => EventKind::MessageLike,
-                };
+            let event_kind = match state_key {
+                Some(_) => EventKind::State,
+                None => EventKind::MessageLike,
+            };
 
-                Ok((kind, event_type))
-            },
-        )
-        .await?;
+            let raw_event = &item.event.json();
+            let encryption_info = item.encryption_info.as_ref();
+
+            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
+                .await;
+        }
 
         // Event handlers specifically for redacted OR unredacted timeline events
-        self.handle_sync_events_wrapped_with(
-            room,
-            timeline_events,
-            |e| (&e.event, e.encryption_info.as_ref()),
-            |raw| {
-                let TimelineEventDetails { event_type, state_key, unsigned } =
-                    raw.deserialize_as()?;
+        for item in timeline_events {
+            let TimelineEventDetails { event_type, state_key, unsigned } =
+                item.event.deserialize_as()?;
 
-                let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-                let kind = match state_key {
-                    Some(_) => EventKind::state_redacted(redacted),
-                    None => EventKind::message_like_redacted(redacted),
-                };
+            let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
+            let event_kind = match state_key {
+                Some(_) => EventKind::state_redacted(redacted),
+                None => EventKind::message_like_redacted(redacted),
+            };
 
-                Ok((kind, event_type))
-            },
-        )
-        .await?;
+            let raw_event = &item.event.json();
+            let encryption_info = item.encryption_info.as_ref();
+
+            self.call_event_handlers(room, raw_event, event_kind, &event_type, encryption_info)
+                .await;
+        }
 
         Ok(())
     }
 
-    async fn handle_sync_events_wrapped_with<'a, T: 'a, U: 'a>(
+    async fn call_event_handlers(
         &self,
         room: &Option<room::Room>,
-        list: &'a [U],
-        get_event_details: impl Fn(&'a U) -> (&'a Raw<T>, Option<&'a EncryptionInfo>),
-        get_id: impl Fn(&Raw<T>) -> serde_json::Result<(EventKind, Cow<'_, str>)>,
-    ) -> serde_json::Result<()> {
-        for x in list {
-            let (raw_event, encryption_info) = get_event_details(x);
-            let (ev_kind, ev_type) = get_id(raw_event)?;
-            let event_handler_id = (ev_kind, &*ev_type);
+        raw: &RawJsonValue,
+        ev_kind: EventKind,
+        ev_type: &str,
+        encryption_info: Option<&EncryptionInfo>,
+    ) {
+        // Construct event handler futures
+        let futures: Vec<_> = {
+            let non_room_handler_key = EventHandlerKeyInner { ev_kind, ev_type, room_id: None };
+            let room_handler_key = room.as_ref().map(|r| {
+                let room_id = Some(r.room_id().to_owned());
+                EventHandlerKeyInner { ev_kind, ev_type, room_id }
+            });
 
-            // Construct event handler futures
-            let futures: Vec<_> = self
-                .event_handlers()
-                .await
-                .get(&event_handler_id)
-                .into_iter()
-                .flatten()
-                .map(|handler| {
-                    let data = EventHandlerData {
-                        client: self.clone(),
-                        room: room.clone(),
-                        raw: raw_event.json(),
-                        encryption_info,
-                    };
-                    (handler)(data)
+            let handlers_lock = self.event_handlers();
+
+            iter::once(non_room_handler_key)
+                .chain(room_handler_key)
+                .flat_map(|b_key| {
+                    // Use get_key_value instead of just get to be able to access the event_type
+                    // from the BTreeMap key as &'static str, required for EventHandlerHandle.
+                    handlers_lock.get_key_value(&b_key).into_iter().flat_map(|(key, handlers)| {
+                        handlers.iter().map(|wrap| {
+                            let data = EventHandlerData {
+                                client: self.clone(),
+                                room: room.clone(),
+                                raw,
+                                encryption_info,
+                                handle: EventHandlerHandle {
+                                    key: key.clone(),
+                                    handler_id: wrap.handler_id,
+                                },
+                            };
+
+                            (wrap.handler_fn)(data)
+                        })
+                    })
                 })
-                .collect();
+                .collect()
+        };
 
-            // Run the event handler futures with the `self.event_handlers` lock
-            // no longer being held, in order.
-            for fut in futures {
-                fut.await;
-            }
+        // Run the event handler futures with the `self.event_handlers` lock
+        // no longer being held, in order.
+        for fut in futures {
+            fut.await;
         }
+    }
+}
 
-        Ok(())
+#[derive(Debug)]
+pub(crate) struct EventHandlerDropGuard {
+    handle: EventHandlerHandle,
+    client: Client,
+}
+
+impl Drop for EventHandlerDropGuard {
+    fn drop(&mut self) {
+        self.client.remove_event_handler(self.handle.clone());
     }
 }
 
@@ -410,13 +548,12 @@ macro_rules! impl_event_handler {
         impl<Ev, Fun, Fut, $($ty),*> EventHandler<Ev, ($($ty,)*)> for Fun
         where
             Ev: SyncEvent,
-            Fun: Fn(Ev, $($ty),*) -> Fut + Clone + Send + Sync + 'static,
-            Fut: Future + Send + 'static,
+            Fun: Fn(Ev, $($ty),*) -> Fut + SendOutsideWasm + SyncOutsideWasm + 'static,
+            Fut: Future + SendOutsideWasm + 'static,
             Fut::Output: EventHandlerResult,
             $($ty: EventHandlerContext),*
         {
             type Future = Fut;
-            const ID: (EventKind, &'static str) = Ev::ID;
 
             fn handle_event(&self, ev: Ev, _d: EventHandlerData<'_>) -> Option<Self::Future> {
                 Some((self)(ev, $($ty::from_data(&_d)?),*))
@@ -450,21 +587,24 @@ mod static_events {
     where
         C: StaticEventContent + GlobalAccountDataEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::GlobalAccountData, C::TYPE);
+        const KIND: EventKind = EventKind::GlobalAccountData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RoomAccountDataEvent<C>
     where
         C: StaticEventContent + RoomAccountDataEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RoomAccountData, C::TYPE);
+        const KIND: EventKind = EventKind::RoomAccountData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
     where
         C: StaticEventContent + EphemeralRoomEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::EphemeralRoomData, C::TYPE);
+        const KIND: EventKind = EventKind::EphemeralRoomData;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
@@ -472,40 +612,39 @@ mod static_events {
         C: StaticEventContent + MessageLikeEventContent + RedactContent,
         C::Redacted: MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::MessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::MessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
     where
         C: StaticEventContent + MessageLikeEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::OriginalMessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::OriginalMessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
     where
         C: StaticEventContent + MessageLikeEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RedactedMessageLike, C::TYPE);
+        const KIND: EventKind = EventKind::RedactedMessageLike;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) =
-            (EventKind::MessageLike, events::room::redaction::RoomRedactionEventContent::TYPE);
+        const KIND: EventKind = EventKind::MessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::OriginalMessageLike,
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
+        const KIND: EventKind = EventKind::OriginalMessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
-        const ID: (EventKind, &'static str) = (
-            EventKind::RedactedMessageLike,
-            events::room::redaction::RoomRedactionEventContent::TYPE,
-        );
+        const KIND: EventKind = EventKind::RedactedMessageLike;
+        const TYPE: &'static str = events::room::redaction::RoomRedactionEventContent::TYPE;
     }
 
     impl<C> SyncEvent for events::SyncStateEvent<C>
@@ -513,52 +652,53 @@ mod static_events {
         C: StaticEventContent + StateEventContent + RedactContent,
         C::Redacted: StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::State, C::TYPE);
+        const KIND: EventKind = EventKind::State;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::OriginalState, C::TYPE);
+        const KIND: EventKind = EventKind::OriginalState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
     where
         C: StaticEventContent + StateEventContent + RedactedEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::RedactedState, C::TYPE);
+        const KIND: EventKind = EventKind::RedactedState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::StrippedStateEvent<C>
     where
         C: StaticEventContent + StateEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::StrippedState, C::TYPE);
-    }
-
-    impl<C> SyncEvent for events::InitialStateEvent<C>
-    where
-        C: StaticEventContent + StateEventContent,
-    {
-        const ID: (EventKind, &'static str) = (EventKind::InitialState, C::TYPE);
+        const KIND: EventKind = EventKind::StrippedState;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl<C> SyncEvent for events::ToDeviceEvent<C>
     where
         C: StaticEventContent + ToDeviceEventContent,
     {
-        const ID: (EventKind, &'static str) = (EventKind::ToDevice, C::TYPE);
+        const KIND: EventKind = EventKind::ToDevice;
+        const TYPE: &'static str = C::TYPE;
     }
 
     impl SyncEvent for PresenceEvent {
-        const ID: (EventKind, &'static str) = (EventKind::Presence, PresenceEventContent::TYPE);
+        const KIND: EventKind = EventKind::Presence;
+        const TYPE: &'static str = PresenceEventContent::TYPE;
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
-    use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder};
+    use matrix_sdk_test::{
+        async_test, test_json::DEFAULT_SYNC_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder,
+    };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     use std::{future, sync::Arc};
@@ -567,57 +707,63 @@ mod tests {
         EphemeralTestEvent, EventBuilder, StateTestEvent, StrippedStateTestEvent, TimelineTestEvent,
     };
     use ruma::{
-        events::room::member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
+        events::{
+            room::{
+                member::{OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
+                name::OriginalSyncRoomNameEvent,
+                power_levels::OriginalSyncRoomPowerLevelsEvent,
+            },
+            typing::SyncTypingEvent,
+        },
         room_id,
     };
     use serde_json::json;
 
-    use crate::{room, Client};
+    use crate::{
+        room::Room,
+        test_utils::{logged_in_client, no_retry_test_client},
+        Client,
+    };
 
     #[async_test]
-    async fn event_handler() -> crate::Result<()> {
+    async fn add_event_handler() -> crate::Result<()> {
         use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
 
-        let client = crate::client::tests::logged_in_client(None).await;
+        let client = logged_in_client(None).await;
 
         let member_count = Arc::new(AtomicU8::new(0));
         let typing_count = Arc::new(AtomicU8::new(0));
         let power_levels_count = Arc::new(AtomicU8::new(0));
         let invited_member_count = Arc::new(AtomicU8::new(0));
 
-        client
-            .register_event_handler({
-                let member_count = member_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent, _room: room::Room| {
-                    member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await
-            .register_event_handler({
-                let typing_count = typing_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent| {
-                    typing_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await
-            .register_event_handler({
-                let power_levels_count = power_levels_count.clone();
-                move |_ev: OriginalSyncRoomMemberEvent, _client: Client, _room: room::Room| {
-                    power_levels_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await
-            .register_event_handler({
-                let invited_member_count = invited_member_count.clone();
-                move |_ev: StrippedRoomMemberEvent| {
-                    invited_member_count.fetch_add(1, SeqCst);
-                    future::ready(())
-                }
-            })
-            .await;
+        client.add_event_handler({
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_event_handler({
+            let typing_count = typing_count.clone();
+            move |_ev: SyncTypingEvent| {
+                typing_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_event_handler({
+            let power_levels_count = power_levels_count.clone();
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
+                power_levels_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_event_handler({
+            let invited_member_count = invited_member_count.clone();
+            move |_ev: StrippedRoomMemberEvent| {
+                invited_member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
 
         let response = EventBuilder::default()
             .add_joined_room(
@@ -673,5 +819,151 @@ mod tests {
         assert_eq!(invited_member_count.load(SeqCst), 1);
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn add_room_event_handler() -> crate::Result<()> {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = logged_in_client(None).await;
+
+        let room_id_a = room_id!("!foo:example.org");
+        let room_id_b = room_id!("!bar:matrix.org");
+
+        let member_count = Arc::new(AtomicU8::new(0));
+        let power_levels_count = Arc::new(AtomicU8::new(0));
+
+        // Room event handlers for member events in both rooms
+        client.add_room_event_handler(room_id_a, {
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+        client.add_room_event_handler(room_id_b, {
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+
+        // Power levels event handlers for member events in room A
+        client.add_room_event_handler(room_id_a, {
+            let power_levels_count = power_levels_count.clone();
+            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
+                power_levels_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+
+        // Room name event handler for room name events in room B
+        client.add_room_event_handler(room_id_b, move |_ev: OriginalSyncRoomNameEvent| async {
+            unreachable!("No room event in room B")
+        });
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id_a)
+                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_state_event(StateTestEvent::PowerLevels)
+                    .add_state_event(StateTestEvent::RoomName),
+            )
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id_b)
+                    .add_timeline_event(TimelineTestEvent::Member)
+                    .add_state_event(StateTestEvent::PowerLevels),
+            )
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        assert_eq!(member_count.load(SeqCst), 2);
+        assert_eq!(power_levels_count.load(SeqCst), 1);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn remove_event_handler() -> crate::Result<()> {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = logged_in_client(None).await;
+
+        let member_count = Arc::new(AtomicU8::new(0));
+
+        client.add_event_handler({
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+
+        let handle_a = client.add_event_handler(move |_ev: OriginalSyncRoomMemberEvent| async {
+            panic!("handler should have been removed");
+        });
+        let handle_b = client.add_room_event_handler(
+            #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
+            *DEFAULT_SYNC_ROOM_ID,
+            move |_ev: OriginalSyncRoomMemberEvent| async {
+                panic!("handler should have been removed");
+            },
+        );
+
+        client.add_event_handler({
+            let member_count = member_count.clone();
+            move |_ev: OriginalSyncRoomMemberEvent| {
+                member_count.fetch_add(1, SeqCst);
+                future::ready(())
+            }
+        });
+
+        let response = EventBuilder::default()
+            .add_joined_room(
+                JoinedRoomBuilder::default().add_timeline_event(TimelineTestEvent::Member),
+            )
+            .build_sync_response();
+
+        client.remove_event_handler(handle_a);
+        client.remove_event_handler(handle_b);
+
+        client.process_sync(response).await?;
+
+        assert_eq!(member_count.load(SeqCst), 2);
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn event_handler_drop_guard() {
+        let client = no_retry_test_client(None).await;
+
+        let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
+        assert_eq!(client.event_handlers().len(), 1);
+
+        {
+            let _guard = client.event_handler_drop_guard(handle);
+            assert_eq!(client.event_handlers().len(), 1);
+            // guard dropped here
+        }
+
+        assert_eq!(client.event_handlers().len(), 0);
+    }
+
+    #[async_test]
+    async fn use_client_in_handler() {
+        // This used to not work because we were requiring `Send` of event
+        // handler futures even on WASM, where practically all futures that do
+        // I/O aren't.
+        let client = no_retry_test_client(None).await;
+
+        client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent, client: Client| async move {
+            // All of Client's async methods that do network requests (and
+            // possibly some that don't) are `!Send` on wasm. We obviously want
+            // to be able to use them in event handlers.
+            let _caps = client.get_capabilities().await?;
+            anyhow::Ok(())
+        });
     }
 }

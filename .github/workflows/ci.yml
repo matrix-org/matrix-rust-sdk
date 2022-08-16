@@ -16,6 +16,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+
+  cancel-others:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.9.1
+        with:
+          access_token: ${{ github.token }}
+
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
@@ -57,6 +66,34 @@ jobs:
           command: run
           args: -p xtask -- ci test-features ${{ matrix.name }}
 
+  test-matrix-sdk-examples:
+    name: 🐧 [m]-examples
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Load cache
+      uses: Swatinem/rust-cache@v1
+
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
+
+    - name: Test
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: -p xtask -- ci examples
+
   test-matrix-sdk-crypto:
     name: 🐧 [m]-crypto
     runs-on: ubuntu-latest
@@ -64,7 +101,7 @@ jobs:
 
     steps:
     - name: Checkout the repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -127,7 +164,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: nextest
-          args: run --workspace
+          args: run --workspace --exclude matrix-sdk-integration-testing
 
       - name: Test documentation
         uses: actions-rs/cargo@v1
@@ -174,7 +211,7 @@ jobs:
 
     steps:
       - name: Checkout the repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
@@ -207,3 +244,43 @@ jobs:
         with:
           command: run
           args: -p xtask -- ci wasm-pack ${{ matrix.cmd }}
+
+  integration-tests:
+    name: Integration test
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+
+      - uses: gnunicorn/setup-matrix-synapse@main
+        with:
+          uploadLogs: true
+          httpPort: 8228
+          disableRateLimiting: true
+          serverName: "matrix-sdk.rs"
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: nextest
+          args: run -p matrix-sdk-integration-testing

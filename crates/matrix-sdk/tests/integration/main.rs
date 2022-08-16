@@ -10,6 +10,7 @@ use wiremock::{
 };
 
 mod client;
+mod refresh_token;
 mod room;
 
 async fn test_client_builder() -> (ClientBuilder, MockServer) {
@@ -29,6 +30,7 @@ async fn no_retry_test_client() -> (Client, MockServer) {
 async fn logged_in_client() -> (Client, MockServer) {
     let session = Session {
         access_token: "1234".to_owned(),
+        refresh_token: None,
         user_id: user_id!("@example:localhost").to_owned(),
         device_id: device_id!("DEVICEID").to_owned(),
     };

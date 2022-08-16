@@ -1,5 +1,6 @@
 // Copyright 2020 Damir Jelić
 // Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2022 Famedly GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,23 +15,26 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map, BTreeMap},
     fmt::{self, Debug},
     future::Future,
     io::Read,
     pin::Pin,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{atomic::AtomicU64, Arc, RwLock as StdRwLock, RwLockReadGuard as StdRwLockReadGuard},
 };
 
 use anymap2::any::CloneAnySendSync;
 #[cfg(target_arch = "wasm32")]
 use async_once_cell::OnceCell;
 use dashmap::DashMap;
+use futures_channel::mpsc;
 use futures_core::stream::Stream;
+use futures_signals::signal::Signal;
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize},
-    BaseClient, Session, Store,
+    BaseClient, SendOutsideWasm, Session, SessionMeta, SessionTokens, StateStore, SyncOutsideWasm,
 };
 use matrix_sdk_common::{
     instant::{Duration, Instant},
@@ -50,20 +54,28 @@ use ruma::{
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
+            error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             media::{create_content, get_content, get_content_thumbnail},
             membership::{join_room_by_id, join_room_by_id_or_alias},
             push::get_notifications::v3::Notification,
             room::create_room,
-            session::{get_login_types, login, sso_login, sso_login_with_provider},
+            session::{get_login_types, login, refresh_token, sso_login, sso_login_with_provider},
             sync::sync_events,
             uiaa::{AuthData, UserIdentifier},
         },
-        error::FromHttpResponseError,
+        error::{FromHttpResponseError, ServerError},
         MatrixVersion, OutgoingRequest, SendAccessToken,
     },
     assign,
-    events::room::MediaSource,
+    events::{
+        room::{
+            create::RoomCreateEventContent,
+            member::{MembershipState, RoomMemberEventContent},
+            MediaSource,
+        },
+        SyncStateEvent,
+    },
     presence::PresenceState,
     DeviceId, MxcUri, OwnedDeviceId, OwnedRoomId, OwnedServerName, RoomAliasId, RoomId,
     RoomOrAliasId, ServerName, UInt, UserId,
@@ -71,7 +83,9 @@ use ruma::{
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::OnceCell;
-use tracing::{debug, error, info, instrument, warn};
+#[cfg(feature = "e2e-encryption")]
+use tracing::error;
+use tracing::{debug, info, instrument, warn};
 use url::Url;
 
 #[cfg(feature = "e2e-encryption")]
@@ -80,15 +94,18 @@ use crate::{
     attachment::{AttachmentInfo, Thumbnail},
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
+    event_handler::{
+        EventHandler, EventHandlerHandle, EventHandlerKey, EventHandlerResult, EventHandlerWrapper,
+        SyncEvent,
+    },
     http_client::HttpClient,
-    room, Account, Error, Result,
+    room, Account, Error, RefreshTokenError, Result, RumaApiError,
 };
 
 mod builder;
 mod login_builder;
 
-#[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+#[cfg(feature = "sso-login")]
 pub use self::login_builder::SsoLoginBuilder;
 pub use self::{
     builder::{ClientBuildError, ClientBuilder},
@@ -100,13 +117,19 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
-type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-type EventHandlerFn = Box<dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync>;
-type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerFn>>;
+type EventHandlerMap = BTreeMap<EventHandlerKey, Vec<EventHandlerWrapper>>;
 
-type NotificationHandlerFut = EventHandlerFut;
+#[cfg(not(target_arch = "wasm32"))]
+type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
+
+#[cfg(not(target_arch = "wasm32"))]
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
+#[cfg(target_arch = "wasm32")]
+type NotificationHandlerFn =
+    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut>;
 
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
 
@@ -152,10 +175,13 @@ pub(crate) struct ClientInner {
     pub(crate) key_claim_lock: Mutex<()>,
     pub(crate) members_request_locks: DashMap<OwnedRoomId, Arc<Mutex<()>>>,
     pub(crate) typing_notice_times: DashMap<OwnedRoomId, Instant>,
-    /// Event handlers. See `register_event_handler`.
-    event_handlers: RwLock<EventHandlerMap>,
-    /// Custom event handler context. See `register_event_handler_context`.
-    event_handler_data: StdRwLock<AnyMap>,
+    /// Event handlers. See `add_event_handler`.
+    pub(crate) event_handlers: StdRwLock<EventHandlerMap>,
+    /// Custom event handler context. See `add_event_handler_context`.
+    pub(crate) event_handler_data: StdRwLock<AnyMap>,
+    /// When registering a event handler, the current value is used for the
+    /// handlers identification, then the counter is incremented.
+    pub(crate) event_handler_counter: AtomicU64,
     /// Notification handlers. See `register_notification_handler`.
     notification_handlers: RwLock<Vec<NotificationHandlerFn>>,
     /// Whether the client should operate in application service style mode.
@@ -165,6 +191,11 @@ pub(crate) struct ClientInner {
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
+    /// Whether to try to refresh the access token automatically when an
+    /// `M_UNKNOWN_TOKEN` error is encountered.
+    handle_refresh_tokens: bool,
+    /// Lock making sure we're only doing one token refresh at a time.
+    refresh_token_lock: Mutex<Result<(), RefreshTokenError>>,
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -208,7 +239,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
-    pub async fn set_homeserver(&self, homeserver_url: Url) {
+    async fn set_homeserver(&self, homeserver_url: Url) {
         let mut homeserver = self.inner.homeserver.write().await;
         *homeserver = homeserver_url;
     }
@@ -303,14 +334,170 @@ impl Client {
         }
     }
 
+    fn session_meta(&self) -> Option<&SessionMeta> {
+        self.base_client().session_meta()
+    }
+
     /// Get the user id of the current owner of the client.
     pub fn user_id(&self) -> Option<&UserId> {
-        self.session().map(|s| s.user_id.as_ref())
+        self.session_meta().map(|s| s.user_id.as_ref())
     }
 
     /// Get the device ID that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
-        self.session().map(|s| s.device_id.as_ref())
+        self.session_meta().map(|s| s.device_id.as_ref())
+    }
+
+    /// Get the current access token and optional refresh token for this
+    /// session.
+    ///
+    /// Will be `None` if the client has not been logged in.
+    ///
+    /// After login, the tokens should only change if support for [refreshing
+    /// access tokens] has been enabled.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub fn session_tokens(&self) -> Option<SessionTokens> {
+        self.base_client().session_tokens().get_cloned()
+    }
+
+    /// Get the current access token for this session.
+    ///
+    /// Will be `None` if the client has not been logged in.
+    ///
+    /// After login, this token should only change if support for [refreshing
+    /// access tokens] has been enabled.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub fn access_token(&self) -> Option<String> {
+        self.session_tokens().map(|tokens| tokens.access_token)
+    }
+
+    /// Get the current refresh token for this session.
+    ///
+    /// Will be `None` if the client has not been logged in, or if the access
+    /// token doesn't expire.
+    ///
+    /// After login, this token should only change if support for [refreshing
+    /// access tokens] has been enabled.
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub fn refresh_token(&self) -> Option<String> {
+        self.session_tokens().and_then(|tokens| tokens.refresh_token)
+    }
+
+    /// [`Signal`] to get notified when the current access token and optional
+    /// refresh token for this session change.
+    ///
+    /// This can be used with [`Client::session()`] to persist the [`Session`]
+    /// when the tokens change.
+    ///
+    /// After login, the tokens should only change if support for [refreshing
+    /// access tokens] has been enabled.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use futures_signals::signal::SignalExt;
+    /// use matrix_sdk::Client;
+    /// # use matrix_sdk::Session;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # fn persist_session(_: Option<Session>) {};
+    ///
+    /// let homeserver = "http://example.com";
+    /// let client = Client::builder()
+    ///     .homeserver_url(homeserver)
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let response = client
+    ///     .login_username("user", "wordpass")
+    ///     .initial_device_display_name("My App")
+    ///     .request_refresh_token()
+    ///     .send()
+    ///     .await?;
+    ///
+    /// persist_session(client.session());
+    ///
+    /// // Handle when at least one of the tokens changed.
+    /// let future = client.session_tokens_changed_signal().for_each(move |_| {
+    ///     let client = client.clone();
+    ///     async move {
+    ///         persist_session(client.session());
+    ///     }
+    /// });
+    ///
+    /// tokio::spawn(future);
+    ///
+    /// # anyhow::Ok(()) });
+    /// ```
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub fn session_tokens_changed_signal(&self) -> impl Signal<Item = ()> {
+        self.base_client().session_tokens().signal_ref(|_| ())
+    }
+
+    /// Get the current access token and optional refresh token for this
+    /// session as a [`Signal`].
+    ///
+    /// This can be used to watch changes of the tokens by calling methods like
+    /// `for_each()` or `to_stream()`.
+    ///
+    /// The value will be `None` if the client has not been logged in.
+    ///
+    /// After login, the tokens should only change if support for [refreshing
+    /// access tokens] has been enabled.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use futures::StreamExt;
+    /// use futures_signals::signal::SignalExt;
+    /// use matrix_sdk::Client;
+    /// # use matrix_sdk::Session;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # fn persist_session(_: &Session) {};
+    ///
+    /// let homeserver = "http://example.com";
+    /// let client = Client::builder()
+    ///     .homeserver_url(homeserver)
+    ///     .handle_refresh_tokens()
+    ///     .build()
+    ///     .await?;
+    ///
+    /// client
+    ///     .login_username("user", "wordpass")
+    ///     .initial_device_display_name("My App")
+    ///     .request_refresh_token()
+    ///     .send()
+    ///     .await?;
+    ///
+    /// let mut session = client.session().expect("Client should be logged in");
+    /// persist_session(&session);
+    ///
+    /// // Handle when at least one of the tokens changed.
+    /// let mut tokens_stream = client.session_tokens_signal().to_stream();
+    /// loop {
+    ///     if let Some(tokens) = tokens_stream.next().await.flatten() {
+    ///         session.access_token = tokens.access_token;
+    ///
+    ///         if let Some(refresh_token) = tokens.refresh_token {
+    ///             session.refresh_token = Some(refresh_token);
+    ///         }
+    ///
+    ///         persist_session(&session);
+    ///     }
+    /// }
+    ///
+    /// # anyhow::Ok(()) });
+    /// ```
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    pub fn session_tokens_signal(&self) -> impl Signal<Item = Option<SessionTokens>> {
+        self.base_client().session_tokens().signal_cloned()
     }
 
     /// Get the whole session info of this client.
@@ -319,13 +506,13 @@ impl Client {
     ///
     /// Can be used with [`Client::restore_login`] to restore a previously
     /// logged-in session.
-    pub fn session(&self) -> Option<&Session> {
-        self.store().session()
+    pub fn session(&self) -> Option<Session> {
+        self.base_client().session()
     }
 
-    /// Get a reference to the store.
-    pub fn store(&self) -> &Store {
-        self.inner.base_client.store()
+    /// Get a reference to the state store.
+    pub fn store(&self) -> &dyn StateStore {
+        self.base_client().store()
     }
 
     /// Get the account of the current owner of the client.
@@ -346,9 +533,11 @@ impl Client {
     /// "context" arguments: They have to implement [`EventHandlerContext`].
     /// This trait is named that way because most of the types implementing it
     /// give additional context about an event: The room it was in, its raw form
-    /// and other similar things. As an exception to this,
-    /// [`Client`] also implements the `EventHandlerContext` trait
-    /// so you don't have to clone your client into the event handler manually.
+    /// and other similar things. As two exceptions to this,
+    /// [`Client`] and [`EventHandlerHandle`] also implement the
+    /// `EventHandlerContext` trait so you don't have to clone your client
+    /// into the event handler manually and a handler can decide to remove
+    /// itself.
     ///
     /// Some context arguments are not universally applicable. A context
     /// argument that isn't available for the given event type will result in
@@ -388,26 +577,23 @@ impl Client {
     /// #     .build()
     /// #     .await
     /// #     .unwrap();
-    /// client
-    ///     .register_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
-    ///             // Common usage: Room event plus room and client.
-    ///         },
-    ///     )
-    ///     .await
-    ///     .register_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
-    ///             async move {
-    ///                 // An `Option<EncryptionInfo>` parameter lets you distinguish between
-    ///                 // unencrypted events and events that were decrypted by the SDK.
-    ///             }
-    ///         },
-    ///     )
-    ///     .await
-    ///     .register_event_handler(|ev: SyncRoomTopicEvent| async move {
-    ///         // You can omit any or all arguments after the first.
-    ///     })
-    ///     .await;
+    ///
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, client: Client| async move {
+    ///         // Common usage: Room event plus room and client.
+    ///     },
+    /// );
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, encryption_info: Option<EncryptionInfo>| {
+    ///         async move {
+    ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
+    ///             // unencrypted events and events that were decrypted by the SDK.
+    ///         }
+    ///     },
+    /// );
+    /// client.add_event_handler(|ev: SyncRoomTopicEvent| async move {
+    ///     // You can omit any or all arguments after the first.
+    /// });
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
@@ -419,64 +605,141 @@ impl Client {
     ///     expires_at: MilliSecondsSinceUnixEpoch,
     /// }
     ///
-    /// client.register_event_handler(|ev: SyncTokenEvent, room: Room| async move {
+    /// client.add_event_handler(|ev: SyncTokenEvent, room: Room| async move {
     ///     todo!("Display the token");
-    /// }).await;
+    /// });
     ///
     /// // Adding your custom data to the handler can be done as well
     /// let data = "MyCustomIdentifier".to_owned();
     ///
-    /// client.register_event_handler({
+    /// client.add_event_handler({
     ///     let data = data.clone();
     ///     move |ev: SyncRoomMessageEvent | {
     ///         let data = data.clone();
     ///         async move {
-    ///             println!("Calling the handler with identifier {}", data);
+    ///             println!("Calling the handler with identifier {data}");
     ///         }
     ///     }
-    /// }).await;
+    /// });
     /// # });
     /// ```
+    pub fn add_event_handler<Ev, Ctx, H>(&self, handler: H) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        self.add_event_handler_impl(handler, None)
+    }
+
+    /// Register a handler for a specific room, and event type.
+    ///
+    /// This method works the same way as
+    /// [`add_event_handler`][Self::add_event_handler], except that the handler
+    /// will only be called for events in the room with the specified ID. See
+    /// that method for more details on event handler functions.
+    ///
+    /// `client.add_room_event_handler(room_id, hdl)` is equivalent to
+    /// `room.add_event_handler(hdl)`. Use whichever one is more convenient in
+    /// your use case.
+    pub fn add_room_event_handler<Ev, Ctx, H>(
+        &self,
+        room_id: &RoomId,
+        handler: H,
+    ) -> EventHandlerHandle
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        self.add_event_handler_impl(handler, Some(room_id.to_owned()))
+    }
+
+    #[allow(missing_docs)]
+    #[deprecated = "Use [`Client::add_event_handler`](#method.add_event_handler) instead"]
     pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
         <H::Future as Future>::Output: EventHandlerResult,
     {
-        let event_type = H::ID.1;
-        self.inner.event_handlers.write().await.entry(H::ID).or_default().push(Box::new(
-            move |data| {
-                let maybe_fut = serde_json::from_str(data.raw.get())
-                    .map(|ev| handler.clone().handle_event(ev, data));
-
-                Box::pin(async move {
-                    match maybe_fut {
-                        Ok(Some(fut)) => {
-                            fut.await.print_error(event_type);
-                        }
-                        Ok(None) => {
-                            error!(
-                                "Event handler for {} has an invalid context argument",
-                                event_type
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to deserialize `{}` event, skipping event handler.\n\
-                                 Deserialization error: {}",
-                                event_type, e,
-                            );
-                        }
-                    }
-                })
-            },
-        ));
-
+        self.add_event_handler(handler);
         self
     }
 
-    pub(crate) async fn event_handlers(&self) -> RwLockReadGuard<'_, EventHandlerMap> {
-        self.inner.event_handlers.read().await
+    pub(crate) fn event_handlers(&self) -> StdRwLockReadGuard<'_, EventHandlerMap> {
+        self.inner.event_handlers.read().unwrap()
+    }
+
+    /// Remove the event handler associated with the handle.
+    ///
+    /// Note that you **must not** call `remove_event_handler` from the
+    /// non-async part of an event handler, that is:
+    ///
+    /// ```ignore
+    /// client.add_event_handler(|ev: SomeEvent, client: Client, handle: EventHandlerHandle| {
+    ///     // ⚠ this will cause a deadlock ⚠
+    ///     client.remove_event_handler(handle);
+    ///
+    ///     async move {
+    ///         // removing the event handler here is fine
+    ///         client.remove_event_handler(handle);
+    ///     }
+    /// })
+    /// ```
+    ///
+    /// Note also that handlers that remove themselves will still execute with
+    /// events received in the same sync cycle.
+    ///
+    /// # Arguments
+    ///
+    /// `handle` - The [`EventHandlerHandle`] that is returned when
+    /// registering the event handler with [`Client::add_event_handler`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # use tokio::sync::mpsc;
+    /// #
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// #
+    /// use matrix_sdk::{
+    ///     event_handler::EventHandlerHandle,
+    ///     ruma::events::room::member::SyncRoomMemberEvent, Client,
+    /// };
+    /// #
+    /// # block_on(async {
+    /// # let client = matrix_sdk::Client::builder()
+    /// #     .homeserver_url(homeserver)
+    /// #     .server_versions([ruma::api::MatrixVersion::V1_0])
+    /// #     .build()
+    /// #     .await
+    /// #     .unwrap();
+    ///
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMemberEvent,
+    ///      client: Client,
+    ///      handle: EventHandlerHandle| async move {
+    ///         // Common usage: Check arriving Event is the expected one
+    ///         println!("Expected RoomMemberEvent received!");
+    ///         client.remove_event_handler(handle);
+    ///     },
+    /// );
+    /// # });
+    /// ```
+    pub fn remove_event_handler(&self, handle: EventHandlerHandle) {
+        let mut event_handlers = self.inner.event_handlers.write().unwrap();
+
+        if let btree_map::Entry::Occupied(mut entry) = event_handlers.entry(handle.key) {
+            let v = entry.get_mut();
+            v.retain(|e| e.handler_id != handle.handler_id);
+
+            if v.is_empty() {
+                entry.remove();
+            }
+        }
     }
 
     /// Add an arbitrary value for use as event handler context.
@@ -492,8 +755,7 @@ impl Client {
     /// ```
     /// # use futures::executor::block_on;
     /// use matrix_sdk::{
-    ///     event_handler::Ctx,
-    ///     room::Room,
+    ///     event_handler::Ctx, room::Room,
     ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     /// # #[derive(Clone)]
@@ -511,21 +773,30 @@ impl Client {
     /// // Handle used to send messages to the UI part of the app
     /// let my_gui_handle: SomeType = obtain_gui_handle();
     ///
-    /// client
-    ///     .register_event_handler_context(my_gui_handle.clone())
-    ///     .register_event_handler(
-    ///         |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| async move {
+    /// client.add_event_handler_context(my_gui_handle.clone());
+    /// client.add_event_handler(
+    ///     |ev: SyncRoomMessageEvent, room: Room, gui_handle: Ctx<SomeType>| {
+    ///         async move {
     ///             // gui_handle.send(DisplayMessage { message: ev });
-    ///         },
-    ///     )
-    ///     .await;
+    ///         }
+    ///     },
+    /// );
     /// # });
     /// ```
-    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
+    pub fn add_event_handler_context<T>(&self, ctx: T)
     where
         T: Clone + Send + Sync + 'static,
     {
         self.inner.event_handler_data.write().unwrap().insert(ctx);
+    }
+
+    #[allow(missing_docs)]
+    #[deprecated = "Use [`Client::add_event_handler_context`](#method.add_event_handler_context) instead"]
+    pub fn register_event_handler_context<T>(&self, ctx: T) -> &Self
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        self.add_event_handler_context(ctx);
         self
     }
 
@@ -539,13 +810,16 @@ impl Client {
 
     /// Register a handler for a notification.
     ///
-    /// Similar to [`Client::register_event_handler`], but only allows functions
+    /// Similar to [`Client::add_event_handler`], but only allows functions
     /// or closures with exactly the three arguments [`Notification`],
     /// [`room::Room`], [`Client`] for now.
     pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
     where
-        H: Fn(Notification, room::Room, Client) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        H: Fn(Notification, room::Room, Client) -> Fut
+            + SendOutsideWasm
+            + SyncOutsideWasm
+            + 'static,
+        Fut: Future<Output = ()> + SendOutsideWasm + 'static,
     {
         self.inner.notification_handlers.write().await.push(Box::new(
             move |notification, room, client| Box::pin((handler)(notification, room, client)),
@@ -564,7 +838,7 @@ impl Client {
     ///
     /// This will return the list of joined, invited, and left rooms.
     pub fn rooms(&self) -> Vec<room::Room> {
-        self.store()
+        self.base_client()
             .get_rooms()
             .into_iter()
             .map(|room| room::Common::new(self.clone(), room).into())
@@ -573,7 +847,7 @@ impl Client {
 
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<room::Joined> {
-        self.store()
+        self.base_client()
             .get_rooms()
             .into_iter()
             .filter_map(|room| room::Joined::new(self.clone(), room))
@@ -582,7 +856,7 @@ impl Client {
 
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<room::Invited> {
-        self.store()
+        self.base_client()
             .get_stripped_rooms()
             .into_iter()
             .filter_map(|room| room::Invited::new(self.clone(), room))
@@ -591,7 +865,7 @@ impl Client {
 
     /// Returns the left rooms this client knows about.
     pub fn left_rooms(&self) -> Vec<room::Left> {
-        self.store()
+        self.base_client()
             .get_rooms()
             .into_iter()
             .filter_map(|room| room::Left::new(self.clone(), room))
@@ -604,7 +878,9 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_room(&self, room_id: &RoomId) -> Option<room::Room> {
-        self.store().get_room(room_id).map(|room| room::Common::new(self.clone(), room).into())
+        self.base_client()
+            .get_room(room_id)
+            .map(|room| room::Common::new(self.clone(), room).into())
     }
 
     /// Get a joined room with the given room id.
@@ -613,7 +889,7 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<room::Joined> {
-        self.store().get_room(room_id).and_then(|room| room::Joined::new(self.clone(), room))
+        self.base_client().get_room(room_id).and_then(|room| room::Joined::new(self.clone(), room))
     }
 
     /// Get an invited room with the given room id.
@@ -622,7 +898,7 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_invited_room(&self, room_id: &RoomId) -> Option<room::Invited> {
-        self.store().get_room(room_id).and_then(|room| room::Invited::new(self.clone(), room))
+        self.base_client().get_room(room_id).and_then(|room| room::Invited::new(self.clone(), room))
     }
 
     /// Get a left room with the given room id.
@@ -631,7 +907,7 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_left_room(&self, room_id: &RoomId) -> Option<room::Left> {
-        self.store().get_room(room_id).and_then(|room| room::Left::new(self.clone(), room))
+        self.base_client().get_room(room_id).and_then(|room| room::Left::new(self.clone(), room))
     }
 
     /// Resolve a room alias to a room id and a list of servers which know
@@ -723,7 +999,6 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -740,8 +1015,8 @@ impl Client {
     ///     .await?;
     ///
     /// println!(
-    ///     "Logged in as {}, got device_id {} and access_token {}",
-    ///     user, response.device_id, response.access_token,
+    ///     "Logged in as {user}, got device_id {} and access_token {}",
+    ///     response.device_id, response.access_token,
     /// );
     /// # anyhow::Ok(()) });
     /// ```
@@ -790,7 +1065,6 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
@@ -873,15 +1147,17 @@ impl Client {
     ///     .await
     ///     .unwrap();
     ///
-    /// println!("Logged in as {}, got device_id {} and access_token {}",
-    ///          response.user_id, response.device_id, response.access_token);
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     response.user_id, response.device_id, response.access_token
+    /// );
     /// # })
     /// ```
     ///
     /// [`get_sso_login_url`]: #method.get_sso_login_url
     /// [`login_token`]: #method.login_token
     /// [`restore_login`]: #method.restore_login
-    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    #[cfg(feature = "sso-login")]
     pub fn login_sso<'a, F, Fut>(&self, use_sso_login_url: F) -> SsoLoginBuilder<'a, F>
     where
         F: FnOnce(String) -> Fut + Send,
@@ -913,7 +1189,7 @@ impl Client {
 
     /// Login to the server via Single Sign-On.
     #[deprecated = "Replaced by [`Client::login_sso`](#method.login_sso)"]
-    #[cfg(all(feature = "sso-login", not(target_arch = "wasm32")))]
+    #[cfg(feature = "sso-login")]
     #[deny(clippy::future_not_send)]
     pub async fn login_with_sso<C>(
         &self,
@@ -1004,7 +1280,10 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::{Client, Session, ruma::{device_id, user_id}};
+    /// use matrix_sdk::{
+    ///     ruma::{device_id, user_id},
+    ///     Client, Session,
+    /// };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -1014,6 +1293,7 @@ impl Client {
     ///
     /// let session = Session {
     ///     access_token: "My-Token".to_owned(),
+    ///     refresh_token: None,
     ///     user_id: user_id!("@example:localhost").to_owned(),
     ///     device_id: device_id!("MYDEVICEID").to_owned(),
     /// };
@@ -1034,10 +1314,8 @@ impl Client {
     /// let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
-    /// let session: Session = client
-    ///     .login("example", "my-password", None, None)
-    ///     .await?
-    ///     .into();
+    /// let session: Session =
+    ///     client.login("example", "my-password", None, None).await?.into();
     ///
     /// // Persist the `Session` so it can later be used to restore the login.
     /// client.restore_login(session).await?;
@@ -1047,6 +1325,155 @@ impl Client {
     /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.inner.base_client.restore_login(session).await?)
+    }
+
+    /// Refresh the access token.
+    ///
+    /// When support for [refreshing access tokens] is activated on both the
+    /// homeserver and the client, access tokens have an expiration date and
+    /// need to be refreshed periodically. To activate support for refresh
+    /// tokens in the [`Client`], it needs to be done at login with the
+    /// [`LoginBuilder::request_refresh_token()`] method, or during account
+    /// registration.
+    ///
+    /// This method doesn't need to be called if
+    /// [`ClientBuilder::handle_refresh_tokens()`] is called during construction
+    /// of the `Client`. Otherwise, it should be called once when a refresh
+    /// token is available and an [`UnknownToken`] error is received.
+    /// If this call fails with another [`UnknownToken`] error, it means that
+    /// the session needs to be logged in again.
+    ///
+    /// It can also be called at any time when a refresh token is available, it
+    /// will invalidate the previous access token.
+    ///
+    /// The new tokens in the response will be used by the `Client` and should
+    /// be persisted to be able to [restore the session]. The response will
+    /// always contain an access token that replaces the previous one. It
+    /// can also contain a refresh token, in which case it will also replace
+    /// the previous one.
+    ///
+    /// This method is protected behind a lock, so calling this method several
+    /// times at once will only call the endpoint once and all subsequent calls
+    /// will wait for the result of the first call. The first call will
+    /// return `Ok(Some(response))` or the [`HttpError`] returned by the
+    /// endpoint, while the others will return `Ok(None)` if the token was
+    /// refreshed by the first call or a [`RefreshTokenError`] error, if it
+    /// failed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use matrix_sdk::{Client, Error, Session};
+    /// use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # fn get_credentials() -> (&'static str, &'static str) { ("", "") };
+    /// # fn persist_session(_: Option<Session>) {};
+    ///
+    /// let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let (user, password) = get_credentials();
+    /// let response = client
+    ///     .login_username(user, password)
+    ///     .initial_device_display_name("My App")
+    ///     .request_refresh_token()
+    ///     .send()
+    ///     .await?;
+    ///
+    /// persist_session(client.session());
+    ///
+    /// // Handle when an `M_UNKNOWN_TOKEN` error is encountered.
+    /// async fn on_unknown_token_err(client: &Client) -> Result<(), Error> {
+    ///     if client.refresh_token().is_some()
+    ///         && client.refresh_access_token().await.is_ok()
+    ///     {
+    ///         persist_session(client.session());
+    ///         return Ok(());
+    ///     }
+    ///
+    ///     let (user, password) = get_credentials();
+    ///     client
+    ///         .login_username(user, password)
+    ///         .request_refresh_token()
+    ///         .send()
+    ///         .await?;
+    ///
+    ///     persist_session(client.session());
+    ///
+    ///     Ok(())
+    /// }
+    ///
+    /// # anyhow::Ok(()) });
+    /// ```
+    ///
+    /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
+    /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
+    /// [restore the session]: Client::restore_login
+    pub async fn refresh_access_token(&self) -> HttpResult<Option<refresh_token::v3::Response>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let lock = self.inner.refresh_token_lock.try_lock().ok();
+        #[cfg(target_arch = "wasm32")]
+        let lock = self.inner.refresh_token_lock.try_lock();
+
+        if let Some(mut guard) = lock {
+            let mut session_tokens = if let Some(tokens) = self.session_tokens() {
+                tokens
+            } else {
+                *guard = Err(RefreshTokenError::RefreshTokenRequired);
+
+                return Err(RefreshTokenError::RefreshTokenRequired.into());
+            };
+
+            let refresh_token = session_tokens
+                .refresh_token
+                .as_ref()
+                .ok_or(RefreshTokenError::RefreshTokenRequired)?
+                .clone();
+            let request = refresh_token::v3::Request::new(&refresh_token);
+
+            let res = self
+                .inner
+                .http_client
+                .send(
+                    request,
+                    None,
+                    self.homeserver().await.to_string(),
+                    self.access_token().as_deref(),
+                    self.user_id(),
+                    self.server_versions().await?,
+                )
+                .await;
+
+            match res {
+                Ok(res) => {
+                    *guard = Ok(());
+
+                    session_tokens.update_with_refresh_response(&res);
+
+                    self.base_client().set_session_tokens(session_tokens);
+
+                    Ok(Some(res))
+                }
+                Err(error) => {
+                    *guard = if let HttpError::Api(FromHttpResponseError::Server(
+                        ServerError::Known(RumaApiError::ClientApi(api_error)),
+                    )) = &error
+                    {
+                        Err(RefreshTokenError::ClientApi(api_error.to_owned()))
+                    } else {
+                        Err(RefreshTokenError::UnableToRefreshToken)
+                    };
+
+                    Err(error)
+                }
+            }
+        } else {
+            match *self.inner.refresh_token_lock.lock().await {
+                Ok(_) => Ok(None),
+                Err(_) => Err(RefreshTokenError::UnableToRefreshToken.into()),
+            }
+        }
     }
 
     /// Register a user to the server.
@@ -1059,7 +1486,6 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::{
     /// #     api::client::{
@@ -1090,7 +1516,7 @@ impl Client {
         registration: impl Into<register::v3::Request<'_>>,
     ) -> HttpResult<register::v3::Response> {
         let homeserver = self.homeserver().await;
-        info!("Registering to {}", homeserver);
+        info!("Registering to {homeserver}");
 
         let config = if self.inner.appservice_mode {
             Some(RequestConfig::short_retry().force_auth())
@@ -1171,25 +1597,62 @@ impl Client {
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a `join_room_by_id::Response` consisting of the
-    /// joined rooms `RoomId`.
-    ///
+    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
+    /// if successful.
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(
-        &self,
-        room_id: &RoomId,
-    ) -> HttpResult<join_room_by_id::v3::Response> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<room::Joined> {
         let request = join_room_by_id::v3::Request::new(room_id);
-        self.send(request, None).await
+
+        let (tx, mut rx) = mpsc::channel::<Result<room::Joined>>(1);
+
+        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
+
+        let handle = self.add_room_event_handler(room_id, {
+            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
+                let mut tx = tx.clone();
+                let user_id = user_id.clone();
+
+                async move {
+                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    {
+                        debug!("received RoomMemberEvent corresponding to requested join");
+
+                        let joined_result = if let room::Room::Joined(joined_room) = room {
+                            Ok(joined_room)
+                        } else {
+                            warn!("Corresponding Room not in state: joined");
+                            Err(Error::InconsistentState)
+                        };
+
+                        if let Err(e) = tx.send(joined_result).await {
+                            debug!(
+                                "Sending event from event_handler failed, \
+                                 receiver not ready: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        let _guard = self.event_handler_drop_guard(handle);
+
+        self.send(request, None).await?;
+
+        let option = TryStreamExt::try_next(&mut rx).await?;
+
+        Ok(option.expect("receive joined room result from event handler"))
     }
 
     /// Join a room by `RoomId`.
     ///
-    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
-    /// joined rooms `RoomId`.
-    ///
+    /// Returns a [`Result`] containing an instance of [`Joined`][room::Joined]
+    /// if successful.
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
@@ -1198,11 +1661,58 @@ impl Client {
         &self,
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
-    ) -> HttpResult<join_room_by_id_or_alias::v3::Response> {
+    ) -> Result<room::Joined> {
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias), {
             server_name: server_names,
         });
-        self.send(request, None).await
+
+        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
+
+        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
+
+        let handle = self.add_event_handler({
+            move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
+                let mut tx = tx.clone();
+                let user_id = user_id.clone();
+
+                async move {
+                    if *event.membership() == MembershipState::Join && *event.state_key() == user_id
+                    {
+                        if let Err(e) = tx.send(room).await {
+                            debug!(
+                                "Sending event from event_handler failed, \
+                                 receiver not ready: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        let _guard = self.event_handler_drop_guard(handle);
+
+        let response = self.send(request, None).await?;
+        let room_id = response.room_id;
+
+        loop {
+            let room = StreamExt::next(&mut rx)
+                .await
+                .expect("receive joined room result from event handler");
+
+            if room.room_id() != room_id {
+                continue;
+            }
+
+            debug!("received RoomMemberEvent corresponding to requested join");
+
+            if let room::Room::Joined(joined_room) = room {
+                return Ok(joined_room);
+            } else {
+                warn!("Corresponding Room not in state: joined");
+                return Err(Error::InconsistentState);
+            };
+        }
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -1222,7 +1732,6 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// use matrix_sdk::Client;
-    /// # use std::convert::TryInto;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let limit = Some(10);
@@ -1255,9 +1764,9 @@ impl Client {
 
     /// Create a room using the `RoomBuilder` and send the request.
     ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a
-    /// `create_room::Response`, this is an empty response.
-    ///
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a [`Result`]
+    /// containing an instance of [`Joined`][room::Joined] if successful.
+    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/docs/sync_running.md"))]
     /// # Arguments
     ///
     /// * `room` - The easiest way to create this request is using the
@@ -1283,9 +1792,67 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::v3::Request<'_>>,
-    ) -> HttpResult<create_room::v3::Response> {
+    ) -> Result<room::Joined> {
         let request = room.into();
-        self.send(request, None).await
+
+        let (tx, mut rx) = mpsc::channel::<room::Room>(1);
+
+        let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
+
+        let handle = self.add_event_handler({
+            move |event: SyncStateEvent<RoomCreateEventContent>, room: room::Room| {
+                let mut tx = tx.clone();
+                let user_id = user_id.clone();
+
+                async move {
+                    let event_content = if let Some(original_event) = event.as_original() {
+                        &original_event.content
+                    } else {
+                        // return from handler since the create room event we received is
+                        // redacted and not the one we are looking
+                        // for
+                        return;
+                    };
+
+                    if event_content.creator == user_id {
+                        if let Err(e) = tx.send(room).await {
+                            debug!(
+                                "Sending event from event_handler failed, \
+                                 receiver not ready: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        let _guard = self.event_handler_drop_guard(handle);
+
+        let response = self.send(request, None).await?;
+        let room_id = response.room_id;
+
+        loop {
+            let room = StreamExt::next(&mut rx)
+                .await
+                .expect("receive joined room result from event handler");
+
+            if room.room_id() != room_id {
+                continue;
+            }
+
+            debug!(
+                "received RoomCreateEvent corresponding \
+                 to requested to create room"
+            );
+
+            if let room::Room::Joined(joined_room) = room {
+                return Ok(joined_room);
+            } else {
+                warn!("Corresponding Room not in state: joined");
+                return Err(Error::InconsistentState);
+            };
+        }
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
@@ -1298,15 +1865,13 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::convert::TryFrom;
     /// # use url::Url;
     /// # use matrix_sdk::Client;
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// use matrix_sdk::ruma::{
-    ///     api::client::directory::get_public_rooms_filtered,
-    ///     directory::Filter,
+    ///     api::client::directory::get_public_rooms_filtered, directory::Filter,
     /// };
     /// # let mut client = Client::new(homeserver).await?;
     ///
@@ -1354,9 +1919,7 @@ impl Client {
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
     /// let mut image = File::open(path)?;
     ///
-    /// let response = client
-    ///     .upload(&mime::IMAGE_JPEG, &mut image)
-    ///     .await?;
+    /// let response = client.upload(&mime::IMAGE_JPEG, &mut image).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) });
@@ -1386,7 +1949,8 @@ impl Client {
                 request,
                 Some(request_config),
                 self.homeserver().await.to_string(),
-                self.session(),
+                self.access_token().as_deref(),
+                self.user_id(),
                 self.server_versions().await?,
             )
             .await?)
@@ -1413,7 +1977,6 @@ impl Client {
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1438,6 +2001,47 @@ impl Client {
         config: Option<RequestConfig>,
     ) -> HttpResult<Request::IncomingResponse>
     where
+        Request: OutgoingRequest + Clone + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
+    {
+        let res = self.send_inner(request.clone(), config.clone()).await;
+
+        // If this is an `M_UNKNOWN_TOKEN` error and refresh token handling is active,
+        // try to refresh the token and retry the request.
+        if self.inner.handle_refresh_tokens {
+            if let Err(HttpError::Api(FromHttpResponseError::Server(ServerError::Known(
+                RumaApiError::ClientApi(error),
+            )))) = &res
+            {
+                if matches!(error.kind, ErrorKind::UnknownToken { .. }) {
+                    let refresh_res = self.refresh_access_token().await;
+
+                    if let Err(refresh_error) = refresh_res {
+                        match &refresh_error {
+                            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired) => {
+                                // Refreshing access tokens is not supported by
+                                // this `Session`, ignore.
+                            }
+                            _ => {
+                                return Err(refresh_error);
+                            }
+                        }
+                    } else {
+                        return self.send_inner(request, config).await;
+                    }
+                }
+            }
+        }
+
+        res
+    }
+
+    async fn send_inner<Request>(
+        &self,
+        request: Request,
+        config: Option<RequestConfig>,
+    ) -> HttpResult<Request::IncomingResponse>
+    where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
@@ -1448,7 +2052,14 @@ impl Client {
         };
         self.inner
             .http_client
-            .send(request, config, homeserver, self.session(), self.server_versions().await?)
+            .send(
+                request,
+                config,
+                homeserver,
+                self.access_token().as_deref(),
+                self.user_id(),
+                self.server_versions().await?,
+            )
             .await
     }
 
@@ -1460,6 +2071,7 @@ impl Client {
                 get_supported_versions::Request::new(),
                 None,
                 self.homeserver().await.to_string(),
+                None,
                 None,
                 &[MatrixVersion::V1_0],
             )
@@ -1495,7 +2107,6 @@ impl Client {
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use std::convert::TryFrom;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1543,7 +2154,7 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
     /// # use url::Url;
-    /// # use std::{collections::BTreeMap, convert::TryFrom};
+    /// # use std::collections::BTreeMap;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
@@ -1632,21 +2243,21 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
+    ///     config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
-    /// client.login(&username, &password, None, None).await?;
+    /// client.login_username(username, password).send().await?;
     ///
     /// // Sync once so we receive the client state and old messages.
     /// client.sync_once(SyncSettings::default()).await?;
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    /// client.add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
-    /// }).await;
+    /// });
     ///
     /// // Now keep on syncing forever. `sync()` will use the stored sync token
     /// // from our `sync_once()` call automatically.
@@ -1715,7 +2326,7 @@ impl Client {
     ///
     /// This method will internally call [`Client::sync_once`] in a loop.
     ///
-    /// This method can be used with the [`Client::register_event_handler`]
+    /// This method can be used with the [`Client::add_event_handler`]
     /// method to react to individual events. If you instead wish to handle
     /// events in a bulk manner the [`Client::sync_with_callback`] and
     /// [`Client::sync_stream`] methods can be used instead. Those two methods
@@ -1737,8 +2348,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     Client, config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
+    ///     config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -1746,9 +2357,9 @@ impl Client {
     ///
     /// // Register our handler so we start responding once we receive a new
     /// // event.
-    /// client.register_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
+    /// client.add_event_handler(|ev: OriginalSyncRoomMessageEvent| async move {
     ///     println!("Received event {}: {:?}", ev.sender, ev.content);
-    /// }).await;
+    /// });
     ///
     /// // Now keep on syncing forever. `sync()` will use the latest sync token
     /// // automatically.
@@ -1835,8 +2446,6 @@ impl Client {
                 if callback(r).await == LoopCtrl::Break {
                     return;
                 }
-            } else {
-                continue;
             }
 
             Client::delay_sync(&mut last_sync_time).await
@@ -1865,12 +2474,13 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use futures::StreamExt;
-    /// use matrix_sdk::{Client, config::SyncSettings};
+    /// use matrix_sdk::{config::SyncSettings, Client};
     ///
     /// let client = Client::new(homeserver).await?;
     /// client.login(&username, &password, None, None).await?;
     ///
-    /// let mut sync_stream = Box::pin(client.sync_stream(SyncSettings::default()).await);
+    /// let mut sync_stream =
+    ///     Box::pin(client.sync_stream(SyncSettings::default()).await);
     ///
     /// while let Some(Ok(response)) = sync_stream.next().await {
     ///     for room in response.rooms.join.values() {
@@ -2209,40 +2819,18 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use ruma::{api::MatrixVersion, device_id, user_id, UserId};
+    use ruma::UserId;
     use url::Url;
     use wiremock::{
         matchers::{header, method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::{Client, ClientBuilder, Session};
-    use crate::config::{RequestConfig, SyncSettings};
-
-    fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
-        let homeserver = homeserver_url.as_deref().unwrap_or("http://localhost:1234");
-        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
-    }
-
-    async fn no_retry_test_client(homeserver_url: Option<String>) -> Client {
-        test_client_builder(homeserver_url)
-            .request_config(RequestConfig::new().disable_retry())
-            .build()
-            .await
-            .unwrap()
-    }
-
-    pub(crate) async fn logged_in_client(homeserver_url: Option<String>) -> Client {
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost").to_owned(),
-            device_id: device_id!("DEVICEID").to_owned(),
-        };
-        let client = no_retry_test_client(homeserver_url).await;
-        client.restore_login(session).await.unwrap();
-
-        client
-    }
+    use super::Client;
+    use crate::{
+        config::{RequestConfig, SyncSettings},
+        test_utils::{logged_in_client, no_retry_test_client, test_client_builder},
+    };
 
     #[async_test]
     async fn account_data() {
@@ -2403,5 +2991,15 @@ pub(crate) mod tests {
             .await;
 
         client.devices().await.unwrap_err();
+    }
+
+    #[async_test]
+    async fn set_homeserver() {
+        let client = no_retry_test_client(Some("http://localhost".to_owned())).await;
+        assert_eq!(client.homeserver().await.as_ref(), "http://localhost/");
+
+        let homeserver = Url::parse("http://example.com/").unwrap();
+        client.set_homeserver(homeserver.clone()).await;
+        assert_eq!(client.homeserver().await, homeserver);
     }
 }

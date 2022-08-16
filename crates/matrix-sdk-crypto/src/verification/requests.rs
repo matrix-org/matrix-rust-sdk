@@ -380,9 +380,13 @@ impl VerificationRequest {
         let mut inner = self.inner.lock().unwrap();
 
         inner.accept(methods).map(|c| match c {
-            OutgoingContent::ToDevice(content) => {
-                ToDeviceRequest::new(self.other_user(), inner.other_device_id(), content).into()
-            }
+            OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
+                self.other_user(),
+                inner.other_device_id(),
+                content,
+                TransactionId::new(),
+            )
+            .into(),
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: TransactionId::new(), content }.into()
             }
@@ -435,7 +439,13 @@ impl VerificationRequest {
                     )
                     .into()
                 } else {
-                    ToDeviceRequest::new(self.other_user(), other_device, content).into()
+                    ToDeviceRequest::with_id(
+                        self.other_user(),
+                        other_device,
+                        content,
+                        TransactionId::new(),
+                    )
+                    .into()
                 }
             }
             OutgoingContent::Room(room_id, content) => {
@@ -627,10 +637,11 @@ impl VerificationRequest {
                     self.verification_cache.insert_sas(sas.clone());
 
                     let request = match content {
-                        OutgoingContent::ToDevice(content) => ToDeviceRequest::new(
+                        OutgoingContent::ToDevice(content) => ToDeviceRequest::with_id(
                             self.other_user(),
                             inner.other_device_id(),
                             content,
+                            TransactionId::new(),
                         )
                         .into(),
                         OutgoingContent::Room(room_id, content) => {

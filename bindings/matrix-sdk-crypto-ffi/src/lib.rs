@@ -14,7 +14,7 @@ mod responses;
 mod users;
 mod verification;
 
-use std::{borrow::Borrow, collections::HashMap, convert::TryFrom, str::FromStr, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, str::FromStr, sync::Arc};
 
 pub use backup_recovery_key::{
     BackupRecoveryKey, DecodeError, MegolmV1BackupKey, PassphraseInfo, PkDecryptionError,
@@ -26,6 +26,7 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine};
+use matrix_sdk_crypto::types::SigningKey;
 pub use responses::{
     BootstrapCrossSigningResult, DeviceLists, KeysImportResult, OutgoingVerificationRequest,
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
@@ -161,7 +162,7 @@ pub fn migrate(
         olm::PrivateCrossSigningIdentity,
         store::{Changes as RustChanges, CryptoStore, RecoveryKey},
     };
-    use matrix_sdk_sled::CryptoStore as SledStore;
+    use matrix_sdk_sled::SledCryptoStore;
     use tokio::runtime::Runtime;
     use vodozemac::{
         megolm::InboundGroupSession,
@@ -184,7 +185,7 @@ pub fn migrate(
         progress_listener.on_progress(progress as i32, total as i32)
     };
 
-    let store = SledStore::open_with_passphrase(path, passphrase.as_deref())?;
+    let store = SledCryptoStore::open_with_passphrase(path, passphrase.as_deref())?;
     let runtime = Runtime::new()?;
 
     processed_steps += 1;
@@ -249,19 +250,29 @@ pub fn migrate(
         let pickle =
             InboundGroupSession::from_libolm_pickle(&session.pickle, &data.pickle_key)?.pickle();
 
+        let sender_key = Curve25519PublicKey::from_base64(&session.sender_key)?;
+        let forwarding_chains: Result<Vec<Curve25519PublicKey>, _> =
+            session.forwarding_chains.iter().map(|k| Curve25519PublicKey::from_base64(k)).collect();
+
         let pickle = matrix_sdk_crypto::olm::PickledInboundGroupSession {
             pickle,
-            sender_key: session.sender_key,
+            sender_key,
             signing_key: session
                 .signing_key
                 .into_iter()
-                .map(|(k, v)| Ok((DeviceKeyAlgorithm::try_from(k)?, v)))
+                .map(|(k, v)| {
+                    let algorithm = DeviceKeyAlgorithm::try_from(k)?;
+                    let key = SigningKey::from_parts(&algorithm, v)?;
+
+                    Ok((algorithm, key))
+                })
                 .collect::<anyhow::Result<_>>()?,
             room_id: RoomId::parse(session.room_id)?,
-            forwarding_chains: session.forwarding_chains,
+            forwarding_chains: forwarding_chains?,
             imported: session.imported,
             backed_up: session.backed_up,
             history_visibility: None,
+            algorithm: ruma::EventEncryptionAlgorithm::MegolmV1AesSha2,
         };
 
         let session = matrix_sdk_crypto::olm::InboundGroupSession::from_pickle(pickle)?;

@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn test_decode() {
         let export = export_without_headers();
-        assert!(decode(export).is_ok());
+        decode(export).unwrap();
     }
 
     #[test]
@@ -363,13 +363,13 @@ mod tests {
             BTreeMap::from([(
                 session.room_id().to_owned(),
                 BTreeMap::from([(
-                    session.sender_key().to_owned(),
+                    session.sender_key().to_base64(),
                     BTreeSet::from([session.session_id().to_owned()]),
                 )]),
             )]),
         );
 
-        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys,);
+        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys);
 
         let export = vec![session.export_at_index(10).await];
         assert_eq!(
@@ -379,7 +379,7 @@ mod tests {
 
         let better_export = vec![session.export().await];
 
-        assert_eq!(machine.import_keys(better_export, false, |_, _| {}).await?, keys,);
+        assert_eq!(machine.import_keys(better_export, false, |_, _| {}).await?, keys);
 
         let another_session = machine.create_inbound_session(room_id).await?;
         let export = vec![another_session.export_at_index(10).await];
@@ -390,13 +390,13 @@ mod tests {
             BTreeMap::from([(
                 another_session.room_id().to_owned(),
                 BTreeMap::from([(
-                    another_session.sender_key().to_owned(),
+                    another_session.sender_key().to_base64(),
                     BTreeSet::from([another_session.session_id().to_owned()]),
                 )]),
             )]),
         );
 
-        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys,);
+        assert_eq!(machine.import_keys(export, false, |_, _| {}).await?, keys);
 
         Ok(())
     }
