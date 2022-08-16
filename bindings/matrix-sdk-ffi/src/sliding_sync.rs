@@ -18,8 +18,8 @@ use matrix_sdk::ruma::{
     IdParseError, OwnedRoomId,
 };
 pub use matrix_sdk::{
-    RoomListEntry as MatrixRoomEntry, SlidingSyncBuilder as MatrixSlidingSyncBuilder,
-    SlidingSyncMode, SlidingSyncState,
+    Client as MatrixClient, RoomListEntry as MatrixRoomEntry,
+    SlidingSyncBuilder as MatrixSlidingSyncBuilder, SlidingSyncMode, SlidingSyncState,
 };
 use parking_lot::RwLock;
 use tokio::task::JoinHandle;
@@ -76,12 +76,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
 
 pub struct SlidingSyncRoom {
     inner: matrix_sdk::SlidingSyncRoom,
-}
-
-impl From<matrix_sdk::SlidingSyncRoom> for SlidingSyncRoom {
-    fn from(inner: matrix_sdk::SlidingSyncRoom) -> Self {
-        SlidingSyncRoom { inner }
-    }
+    client: Client,
 }
 
 impl SlidingSyncRoom {
@@ -120,6 +115,10 @@ impl SlidingSyncRoom {
             }
         }
         None
+    }
+
+    pub fn full_room(&self) -> Option<Arc<super::Room>> {
+        self.client.get_room(self.inner.room_id()).map(|room| Arc::new(super::Room::new(room)))
     }
 }
 
@@ -441,16 +440,15 @@ pub trait SlidingSyncDelegate: Sync + Send {
 
 pub struct SlidingSync {
     inner: matrix_sdk::SlidingSync,
+    client: Client,
     delegate: Arc<RwLock<Option<Box<dyn SlidingSyncDelegate>>>>,
 }
 
-impl From<matrix_sdk::SlidingSync> for SlidingSync {
-    fn from(other: matrix_sdk::SlidingSync) -> Self {
-        SlidingSync { inner: other, delegate: Arc::new(RwLock::new(None)) }
-    }
-}
-
 impl SlidingSync {
+    fn new(inner: matrix_sdk::SlidingSync, client: Client) -> Self {
+        SlidingSync { inner, client, delegate: Arc::new(RwLock::new(None)) }
+    }
+
     pub fn on_update(&self, delegate: Option<Box<dyn SlidingSyncDelegate>>) {
         *self.delegate.write() = delegate;
     }
@@ -481,7 +479,10 @@ impl SlidingSync {
     }
 
     pub fn get_room(&self, room_id: String) -> anyhow::Result<Option<Arc<SlidingSyncRoom>>> {
-        Ok(self.inner.get_room(OwnedRoomId::try_from(room_id)?).map(|a| Arc::new(a.into())))
+        Ok(self
+            .inner
+            .get_room(OwnedRoomId::try_from(room_id)?)
+            .map(|inner| Arc::new(SlidingSyncRoom { inner, client: self.client.clone() })))
     }
 
     pub fn get_rooms(
@@ -496,7 +497,9 @@ impl SlidingSync {
             .inner
             .get_rooms(actual_ids.into_iter())
             .into_iter()
-            .map(|o| o.map(|a| Arc::new(a.into())))
+            .map(|o| {
+                o.map(|inner| Arc::new(SlidingSyncRoom { inner, client: self.client.clone() }))
+            })
             .collect())
     }
 
@@ -538,6 +541,7 @@ impl SlidingSync {
 #[derive(Clone)]
 pub struct SlidingSyncBuilder {
     inner: MatrixSlidingSyncBuilder,
+    client: Client,
 }
 
 impl SlidingSyncBuilder {
@@ -568,7 +572,7 @@ impl SlidingSyncBuilder {
 
     pub fn build(self: Arc<Self>) -> anyhow::Result<Arc<SlidingSync>> {
         let builder = unwrap_or_clone_arc(self);
-        Ok(Arc::new(builder.inner.build()?.into()))
+        Ok(Arc::new(SlidingSync::new(builder.inner.build()?, builder.client)))
     }
 }
 
@@ -577,14 +581,14 @@ impl Client {
         RUNTIME.block_on(async move {
             let mut builder = self.client.sliding_sync().await;
             let inner = builder.add_fullsync_view().build()?;
-            Ok(Arc::new(inner.into()))
+            Ok(Arc::new(SlidingSync::new(inner, self.clone())))
         })
     }
 
     pub fn sliding_sync(&self) -> Arc<SlidingSyncBuilder> {
         RUNTIME.block_on(async move {
             let inner = self.client.sliding_sync().await;
-            Arc::new(SlidingSyncBuilder { inner })
+            Arc::new(SlidingSyncBuilder { inner, client: self.clone() })
         })
     }
 }

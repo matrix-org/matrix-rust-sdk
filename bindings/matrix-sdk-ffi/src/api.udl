@@ -160,6 +160,8 @@ interface SlidingSyncRoom {
 
     string? name();
     string room_id();
+
+    Room? full_room();
     
     boolean? is_dm();
     boolean? is_initial();
