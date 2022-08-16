@@ -1019,6 +1019,12 @@ impl ReadOnlyAccount {
         their_identity_key: Curve25519PublicKey,
         message: &PreKeyMessage,
     ) -> Result<InboundCreationResult, SessionCreationError> {
+        debug!(
+            sender_key = %their_identity_key,
+            session_keys = ?message.session_keys(),
+            "Creating a new Olm session from a pre-key message"
+        );
+
         let result = self.inner.lock().await.create_inbound_session(their_identity_key, message)?;
 
         let now = SecondsSinceUnixEpoch::now();
