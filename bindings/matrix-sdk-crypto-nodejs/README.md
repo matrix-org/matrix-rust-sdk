@@ -186,7 +186,11 @@ to learn more about the `RUST_LOG`/`MATRIX_LOG` environment variable.
 
 ## Documentation
 
-To generate the documentation, please run the following command:
+[The documentation can be found
+online](https://matrix-org.github.io/matrix-rust-sdk/bindings/matrix-sdk-crypto-nodejs/).
+
+To generate the documentation locally, please run the following
+command:
 
 ```sh
 $ npm run doc
