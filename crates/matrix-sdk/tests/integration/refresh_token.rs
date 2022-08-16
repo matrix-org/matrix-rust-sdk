@@ -33,7 +33,7 @@ async fn login_username_refresh_token() {
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
         .and(body_partial_json(json!({
-            "org.matrix.msc2918.refresh_token": true,
+            "refresh_token": true,
         })))
         .respond_with(
             ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN),
@@ -57,7 +57,7 @@ async fn login_sso_refresh_token() {
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/login"))
         .and(body_partial_json(json!({
-            "org.matrix.msc2918.refresh_token": true,
+            "refresh_token": true,
         })))
         .respond_with(
             ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN),
@@ -101,7 +101,7 @@ async fn register_refresh_token() {
     Mock::given(method("POST"))
         .and(path("/_matrix/client/r0/register"))
         .and(body_partial_json(json!({
-            "org.matrix.msc2918.refresh_token": true,
+            "refresh_token": true,
         })))
         .respond_with(
             // Successful registration response is the same as for login,

@@ -870,7 +870,7 @@ impl Joined {
         K: AsRef<str> + ?Sized,
     {
         let request =
-            send_state_event::v3::Request::new(self.inner.room_id(), state_key.as_ref(), &content)?;
+            send_state_event::v3::Request::new(self.inner.room_id(), state_key, &content)?;
         let response = self.client.send(request, None).await?;
         Ok(response)
     }
