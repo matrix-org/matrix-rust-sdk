@@ -15,7 +15,7 @@
 use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
-use vodozemac::Ed25519PublicKey;
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::store::CryptoStoreError;
 use crate::olm::SessionExportError;
@@ -56,12 +56,12 @@ pub enum OlmError {
     #[error(
         "decryption failed likely because an Olm session from {0} with sender key {1} was wedged"
     )]
-    SessionWedged(OwnedUserId, String),
+    SessionWedged(OwnedUserId, Curve25519PublicKey),
 
     /// An Olm message got replayed while the Olm ratchet has already moved
     /// forward.
     #[error("decryption failed because an Olm message from {0} with sender key {1} was replayed")]
-    ReplayedMessage(OwnedUserId, String),
+    ReplayedMessage(OwnedUserId, Curve25519PublicKey),
 
     /// Encryption failed because the device does not have a valid Olm session
     /// with us.
@@ -130,13 +130,13 @@ pub enum EventError {
 
     #[error(
         "the sender of the plaintext doesn't match the sender of the encrypted \
-        message, got {0}, expected {0}"
+        message, got {0}, expected {1}"
     )]
     MismatchedSender(OwnedUserId, OwnedUserId),
 
     #[error(
         "the public that was part of the message doesn't match to the key we \
-        have stored, expected {0}, got {0}"
+        have stored, expected {0}, got {1}"
     )]
     MismatchedKeys(Box<Ed25519PublicKey>, Box<Ed25519PublicKey>),
 

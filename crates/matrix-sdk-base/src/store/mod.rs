@@ -47,7 +47,10 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent, ReceiptType},
         room::member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        AnySyncStateEvent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
+        GlobalAccountDataEventType, RedactContent, RedactedEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
+        StaticEventContent, SyncStateEvent,
     },
     serde::Raw,
     EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -374,6 +377,81 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
     ) -> Result<Option<(BoxStream<Result<SyncRoomEvent>>, Option<String>)>>;
 }
+
+/// Convenience functionality for state stores.
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait StateStoreExt: StateStore {
+    /// Get a specific state event of statically-known type.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room the state event was received for.
+    async fn get_state_event_static<C>(
+        &self,
+        room_id: &RoomId,
+        state_key: &str,
+    ) -> Result<Option<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
+    {
+        Ok(self.get_state_event(room_id, C::TYPE.into(), state_key).await?.map(Raw::cast))
+    }
+
+    /// Get a list of state events of a statically-known type for a given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room to find events for.
+    async fn get_state_events_static<C>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<Raw<SyncStateEvent<C>>>>
+    where
+        C: StaticEventContent + StateEventContent + RedactContent,
+        C::Redacted: StateEventContent + RedactedEventContent,
+    {
+        // FIXME: Could be more efficient, if we had streaming store accessor functions
+        Ok(self
+            .get_state_events(room_id, C::TYPE.into())
+            .await?
+            .into_iter()
+            .map(Raw::cast)
+            .collect())
+    }
+
+    /// Get an event of a statically-known type from the account data store.
+    async fn get_account_data_event_static<C>(
+        &self,
+    ) -> Result<Option<Raw<GlobalAccountDataEvent<C>>>>
+    where
+        C: StaticEventContent + GlobalAccountDataEventContent,
+    {
+        Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast))
+    }
+
+    /// Get an event of a statically-known type from the room account data
+    /// store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the room account data event
+    ///   should be fetched.
+    async fn get_room_account_data_event_static<C>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<Raw<RoomAccountDataEvent<C>>>>
+    where
+        C: StaticEventContent + RoomAccountDataEventContent,
+    {
+        Ok(self.get_room_account_data_event(room_id, C::TYPE.into()).await?.map(Raw::cast))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl<T: StateStore + ?Sized> StateStoreExt for T {}
 
 /// A type that can be type-erased into `Arc<dyn StateStore>`.
 ///

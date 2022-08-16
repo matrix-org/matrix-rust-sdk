@@ -37,7 +37,7 @@ use ruma::{
         },
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
-        RoomAccountDataEventType, StateEventType,
+        RoomAccountDataEventType,
     },
     room::RoomType as CreateRoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedUserId, RoomAliasId, RoomId,
@@ -49,7 +49,7 @@ use tracing::debug;
 use super::{BaseRoomInfo, DisplayName, RoomMember};
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
-    store::{Result as StoreResult, StateStore},
+    store::{Result as StoreResult, StateStore, StateStoreExt},
     MinimalStateEvent,
 };
 #[cfg(feature = "experimental-timeline")]
@@ -440,18 +440,11 @@ impl Room {
         let is_room_creator =
             self.inner.read().unwrap().creator().map(|c| c == user_id).unwrap_or(false);
 
-        let power =
-            self.store
-                .get_state_event(self.room_id(), StateEventType::RoomPowerLevels, "")
-                .await?
-                .and_then(|e| e.deserialize().ok())
-                .and_then(|e| {
-                    if let AnySyncStateEvent::RoomPowerLevels(e) = e {
-                        Some(e)
-                    } else {
-                        None
-                    }
-                });
+        let power = self
+            .store
+            .get_state_event_static(self.room_id(), "")
+            .await?
+            .and_then(|e| e.deserialize().ok());
 
         let ambiguous = self
             .store
