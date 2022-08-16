@@ -10,6 +10,7 @@ use wasm_bindgen::prelude::*;
 use crate::{
     downcast, encryption,
     future::future_to_promise,
+    olm,
     identifiers, requests,
     requests::OutgoingRequest,
     responses::{self, response_from_string},
@@ -280,6 +281,19 @@ impl OlmMachine {
 
             Ok(responses::DecryptedRoomEvent::from(room_event))
         }))
+    }
+
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we
+    /// have stored locally.
+    #[wasm_bindgen(js_name = "crossSigningStatus")]
+    pub fn cross_signing_status(&self) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise::<_, olm::CrossSigningStatus>(async move {
+            Ok(me.cross_signing_status().await.into())
+        })
     }
 
     /// Invalidate the currently active outbound group session for the

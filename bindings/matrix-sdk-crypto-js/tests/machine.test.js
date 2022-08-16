@@ -1,4 +1,4 @@
-const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState } = require('../pkg/matrix_sdk_crypto_js');
+const { OlmMachine, UserId, DeviceId, RoomId, DeviceLists, RequestType, KeysUploadRequest, KeysQueryRequest, KeysClaimRequest, EncryptionSettings, DecryptedRoomEvent, VerificationState, CrossSigningStatus } = require('../pkg/matrix_sdk_crypto_js');
 
 describe(OlmMachine.name, () => {
     test('can be instantiated with the async initializer', async () => {
@@ -339,5 +339,15 @@ describe(OlmMachine.name, () => {
             expect(decrypted.forwardingCurve25519KeyChain).toHaveLength(0);
             expect(decrypted.verificationState).toStrictEqual(VerificationState.Trusted);
         });
+    });
+
+    test('can read cross-signing status', async () => {
+        const m = await machine();
+        const crossSigningStatus = await m.crossSigningStatus();
+
+        expect(crossSigningStatus).toBeInstanceOf(CrossSigningStatus);
+        expect(crossSigningStatus.hasMaster).toStrictEqual(false);
+        expect(crossSigningStatus.hasSelfSigning).toStrictEqual(false);
+        expect(crossSigningStatus.hasUserSigning).toStrictEqual(false);
     });
 });
