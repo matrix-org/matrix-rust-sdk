@@ -328,7 +328,7 @@ impl InboundGroupSession {
     }
 
     /// Has the session been imported from a file, or backup, or has it been
-    /// directly received as an `m.room_key` event.
+    /// directly received as an `m.room_key` event?
     pub fn has_been_imported(&self) -> bool {
         self.imported
     }

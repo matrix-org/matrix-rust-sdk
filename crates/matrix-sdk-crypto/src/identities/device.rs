@@ -141,7 +141,7 @@ impl Device {
         }
     }
 
-    /// Is this our own device.
+    /// Is this our own device?
     pub fn is_our_own_device(&self) -> bool {
         let own_ed25519_key = self.verification_machine.store.account.identity_keys().ed25519;
         let own_curve25519_key = self.verification_machine.store.account.identity_keys().curve25519;
@@ -152,7 +152,7 @@ impl Device {
             && self.curve25519_key().map(|k| k == own_curve25519_key).unwrap_or(false)
     }
 
-    /// Does the given `InboundGroupSession` belong to this device.
+    /// Does the given `InboundGroupSession` belong to this device?
     ///
     /// An `InboundGroupSession` is exchanged between devices as an Olm
     /// encrypted `m.room_key` event. This method determines if this `Device`
