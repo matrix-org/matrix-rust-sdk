@@ -25,6 +25,37 @@ impl Ed25519PublicKey {
     }
 }
 
+/// An Ed25519 digital signature, can be used to verify the
+/// authenticity of a message.
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct Ed25519Signature {
+    pub(crate) inner: vodozemac::Ed25519Signature,
+}
+
+impl From<vodozemac::Ed25519Signature> for Ed25519Signature {
+    fn from(inner: vodozemac::Ed25519Signature) -> Self {
+        Self { inner }
+    }
+}
+
+#[wasm_bindgen]
+impl Ed25519Signature {
+    /// Try to create an Ed25519 signature from an unpadded base64
+    /// representation.
+    #[wasm_bindgen(constructor)]
+    pub fn new(signature: String) -> Result<Ed25519Signature, JsError> {
+        Ok(Self { inner: vodozemac::Ed25519Signature::from_base64(signature.as_str())? })
+    }
+
+    /// Serialize a Ed25519 signature to an unpadded base64
+    /// representation.
+    #[wasm_bindgen(js_name = "toBase64")]
+    pub fn to_base64(&self) -> String {
+        self.inner.to_base64()
+    }
+}
+
 /// A Curve25519 public key.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]

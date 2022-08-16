@@ -16,6 +16,7 @@ use crate::{
     vodozemac,
     responses::{self, response_from_string},
     sync_events,
+    types,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -294,6 +295,16 @@ impl OlmMachine {
 
         future_to_promise::<_, olm::CrossSigningStatus>(async move {
             Ok(me.cross_signing_status().await.into())
+        })
+    }
+
+    /// Sign the given message using our device key and if available
+    /// cross-signing master key.
+    pub fn sign(&self, message: String) -> Promise {
+        let me = self.inner.clone();
+
+        future_to_promise::<_, types::Signatures>(async move {
+            Ok(me.sign(&message).await.into())
         })
     }
 
