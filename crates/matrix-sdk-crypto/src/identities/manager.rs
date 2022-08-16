@@ -343,7 +343,7 @@ impl IdentityManager {
                     device_id = own_device_id.as_str(),
                     curve25519_key = %identity_keys.curve25519,
                     ed25519_key = %identity_keys.ed25519,
-                    "Our own device has been deleted"
+                    "Our own device might have been deleted"
                 );
             } else if let Some(device) = stored_devices.get(*device_id) {
                 device.mark_as_deleted();
