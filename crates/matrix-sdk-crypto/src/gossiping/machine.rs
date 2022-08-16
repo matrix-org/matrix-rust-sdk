@@ -967,6 +967,8 @@ impl GossipMachine {
         }
     }
 
+    /// Receive a forwarded room key event that was sent using any of our
+    /// supported content types.
     async fn receive_supported_keys(
         &self,
         sender: &UserId,
