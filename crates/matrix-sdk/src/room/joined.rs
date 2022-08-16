@@ -3,6 +3,7 @@ use std::io::Cursor;
 #[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
 use std::{
+    borrow::Borrow,
     io::{BufReader, Read, Seek},
     ops::Deref,
 };
@@ -26,7 +27,10 @@ use ruma::{
         typing::create_typing_event::v3::{Request as TypingRequest, Typing},
     },
     assign,
-    events::{room::message::RoomMessageEventContent, MessageLikeEventContent, StateEventContent},
+    events::{
+        room::message::RoomMessageEventContent, EmptyStateKey, MessageLikeEventContent,
+        StateEventContent,
+    },
     serde::Raw,
     EventId, OwnedTransactionId, TransactionId, UserId,
 };
@@ -299,7 +303,7 @@ impl Joined {
         if !self.is_encrypted() {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-            self.send_state_event(content, "").await?;
+            self.send_state_event(content).await?;
 
             // TODO do we want to return an error here if we time out? This
             // could be quite useful if someone wants to enable encryption and
@@ -765,7 +769,57 @@ impl Joined {
         self.send(RoomMessageEventContent::new(content), config.txn_id).await
     }
 
-    /// Send a room state event to the homeserver.
+    /// Send a state event with an empty state key to the homeserver.
+    ///
+    /// For state events with a non-empty state key, see
+    /// [`send_state_event_for_key`][Self::send_state_event_for_key].
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the state event.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use serde::{Deserialize, Serialize};
+    /// # async {
+    /// # let joined_room: matrix_sdk::room::Joined = todo!();
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         macros::EventContent, room::encryption::RoomEncryptionEventContent,
+    ///         EmptyStateKey,
+    ///     },
+    ///     EventEncryptionAlgorithm,
+    /// };
+    ///
+    /// let encryption_event_content = RoomEncryptionEventContent::new(
+    ///     EventEncryptionAlgorithm::MegolmV1AesSha2,
+    /// );
+    /// joined_room.send_state_event(encryption_event_content).await?;
+    ///
+    /// // Custom event:
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(
+    ///     type = "org.matrix.msc_9000.xxx",
+    ///     kind = State,
+    ///     state_key_type = EmptyStateKey,
+    /// )]
+    /// struct XxxStateEventContent {/* fields... */}
+    ///
+    /// let content: XxxStateEventContent = todo!();
+    /// joined_room.send_state_event(content).await?;
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn send_state_event(
+        &self,
+        content: impl StateEventContent<StateKey = EmptyStateKey>,
+    ) -> Result<send_state_event::v3::Response> {
+        self.send_state_event_for_key(&EmptyStateKey, content).await
+    }
+
+    /// Send a state event to the homeserver.
     ///
     /// Returns the parsed response from the server.
     ///
@@ -774,12 +828,14 @@ impl Joined {
     /// * `content` - The content of the state event.
     ///
     /// * `state_key` - A unique key which defines the overwriting semantics for
-    /// this piece of room state. This value is often a zero-length string.
+    ///   this piece of room state.
     ///
     /// # Example
     ///
     /// ```no_run
     /// # use serde::{Deserialize, Serialize};
+    /// # async {
+    /// # let joined_room: matrix_sdk::room::Joined = todo!();
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         macros::EventContent,
@@ -787,37 +843,34 @@ impl Joined {
     ///     },
     ///     mxc_uri,
     /// };
-    /// # futures::executor::block_on(async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
-    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
     /// let mut content = RoomMemberEventContent::new(MembershipState::Join);
     /// content.avatar_url = Some(avatar_url);
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send_state_event(content, "").await?;
-    /// }
+    /// joined_room.send_state_event_for_key(ruma::user_id!("@foo:bar.com"), content).await?;
     ///
     /// // Custom event:
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
     /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State, state_key_type = String)]
     /// struct XxxStateEventContent { /* fields... */ }
-    /// let content: XxxStateEventContent = todo!();
     ///
-    /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     room.send_state_event(content, "").await?;
-    /// }
-    /// # anyhow::Ok(()) });
+    /// let content: XxxStateEventContent = todo!();
+    /// joined_room.send_state_event_for_key("foo", content).await?;
+    /// # anyhow::Ok(()) };
     /// ```
-    pub async fn send_state_event(
+    pub async fn send_state_event_for_key<C, K>(
         &self,
-        content: impl StateEventContent,
-        state_key: &str,
-    ) -> Result<send_state_event::v3::Response> {
+        state_key: &K,
+        content: C,
+    ) -> Result<send_state_event::v3::Response>
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
         let request =
-            send_state_event::v3::Request::new(self.inner.room_id(), state_key, &content)?;
+            send_state_event::v3::Request::new(self.inner.room_id(), state_key.as_ref(), &content)?;
         let response = self.client.send(request, None).await?;
         Ok(response)
     }

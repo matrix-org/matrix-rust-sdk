@@ -1075,7 +1075,7 @@ impl BaseClient {
             event.power_levels()
         } else if let Some(event) = self
             .store
-            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id, "")
+            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
             .await?
             .and_then(|e| e.deserialize().ok())
         {
