@@ -26,9 +26,9 @@ pub mod olm;
 pub mod requests;
 pub mod responses;
 pub mod sync_events;
+mod tracing;
 pub mod types;
 pub mod vodozemac;
-mod tracing;
 
 use js_sys::{Object, Reflect};
 use wasm_bindgen::{convert::RefFromWasmAbi, prelude::*};

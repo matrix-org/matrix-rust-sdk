@@ -10,13 +10,10 @@ use wasm_bindgen::prelude::*;
 use crate::{
     downcast, encryption,
     future::future_to_promise,
-    identifiers, requests,
-    olm,
+    identifiers, olm, requests,
     requests::OutgoingRequest,
-    vodozemac,
     responses::{self, response_from_string},
-    sync_events,
-    types,
+    sync_events, types, vodozemac,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol
@@ -303,9 +300,7 @@ impl OlmMachine {
     pub fn sign(&self, message: String) -> Promise {
         let me = self.inner.clone();
 
-        future_to_promise::<_, types::Signatures>(async move {
-            Ok(me.sign(&message).await.into())
-        })
+        future_to_promise::<_, types::Signatures>(async move { Ok(me.sign(&message).await.into()) })
     }
 
     /// Invalidate the currently active outbound group session for the
