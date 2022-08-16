@@ -421,7 +421,7 @@ impl Account {
             )
             .into())
         } else {
-            // If this event is an `m.room_key` event, deffer the check for the
+            // If this event is an `m.room_key` event, defer the check for the
             // Ed25519 key of the sender until we decrypt room events. This
             // ensures that we receive the room key even if we don't have access
             // to the device.
